@@ -267,18 +267,19 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
             </div>
           </div>
         ))}
-        <div style={{ height: 260 }} />
+        <div style={{ height: 100 }} />
       </div>
 
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
-      {/* floating menu switcher bar */}
+      {/* left vertical menu strip */}
       {menus && menus.length > 1 && (
-      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 20, maxWidth: "calc(100% - 24px)", background: "rgba(255,255,255,.97)", backdropFilter: "blur(10px)", borderRadius: 28, boxShadow: "0 14px 34px rgba(56,53,43,.18)", padding: "7px 8px", display: "flex", gap: 4, overflowX: "auto", scrollbarWidth: "none" }}>
+      <div style={{ position: "absolute", left: 14, bottom: 18, background: "rgba(255,255,255,.96)", backdropFilter: "blur(10px)", borderRadius: 30, boxShadow: "0 14px 34px rgba(56,53,43,.18)", padding: 8, display: "flex", flexDirection: "column-reverse", gap: 4, maxHeight: "calc(100% - 120px)", overflowY: "auto", scrollbarWidth: "none", zIndex: 20 }}>
         {menus.map((m, i) => {
           const on = i === activeMenu;
           return (
-            <div key={m.id} onClick={() => setActiveMenu(i)} style={{ flex: "none", padding: "10px 18px", borderRadius: 22, cursor: "pointer", background: on ? "var(--accent)" : "transparent", whiteSpace: "nowrap" }}>
-              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: on ? 600 : 500, color: on ? "#F5F1E6" : "var(--muted)" }}>{m.name}</span>
+            <div key={m.id} onClick={() => setActiveMenu(i)} style={{ display: "flex", alignItems: "center", gap: on ? 9 : 0, background: on ? "var(--accent)" : "transparent", borderRadius: 22, padding: on ? "10px 16px 10px 11px" : 0, cursor: "pointer", justifyContent: "center" }}>
+              <span style={{ width: on ? 22 : 46, height: 46, display: "flex", alignItems: "center", justifyContent: "center", color: on ? "#F5F1E6" : "var(--accent)", flex: "none" }}>{menuIcon(m.name, on)}</span>
+              {on && <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: 500, color: "#F5F1E6", whiteSpace: "nowrap" }}>{m.name}</span>}
             </div>
           );
         })}
@@ -512,6 +513,27 @@ function Confirm({ orderNo, pickupName }) {
   );
 }
 
+
+// Relatable inline SVG icon per menu, matched by name keywords.
+function menuIcon(name, active) {
+  const c = active ? "#F5F1E6" : "currentColor";
+  const p = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+  const n = (name || "").toLowerCase();
+  if (n.includes("dessert") || n.includes("cake") || n.includes("sweet"))
+    return <svg {...p}><path d="M4 16h16M6 16c0-3 2-5 6-5s6 2 6 5M9 8c0-1 .5-2 3-2s3 1 3 2M12 3v1" /></svg>;
+  if (n.includes("breakfast") || n.includes("brunch") || n.includes("egg"))
+    return <svg {...p}><circle cx="10" cy="13" r="6" /><circle cx="10" cy="13" r="2.2" /><path d="M16 9h3a2 2 0 0 1 0 4h-2" /></svg>;
+  if (n.includes("dinner") || n.includes("main") || n.includes("meal"))
+    return <svg {...p}><path d="M4 18h16M6 18a6 6 0 0 1 12 0M12 6v0" /><path d="M12 6a2 2 0 0 1 0-2" /></svg>;
+  if (n.includes("cold") || n.includes("iced") || n.includes("juice") || n.includes("soft") || n.includes("shake"))
+    return <svg {...p}><path d="M7 8h10l-1 12H8zM7 8l-.5-3h11L17 8M10 12v4M14 12v4" /></svg>;
+  if (n.includes("hot") || n.includes("coffee") || n.includes("tea") || n.includes("latte") || n.includes("chocolate"))
+    return <svg {...p}><path d="M5 9h11v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM16 10h2a2 2 0 0 1 0 4h-2M8 3c-.4 1 .4 2 0 3M12 3c-.4 1 .4 2 0 3" /></svg>;
+  if (n.includes("kid") || n.includes("child"))
+    return <svg {...p}><path d="M8 21h8M12 21v-6M8 10a4 4 0 0 1 8 0zM7.5 10h9l-1.2 5H8.7z" /></svg>;
+  // default: fork & knife
+  return <svg {...p}><path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 0-3 2-3 5s1 4 3 4M17 3v18" /></svg>;
+}
 
 function SearchOverlay({ menus, onItem, onClose }) {
   const [q, setQ] = useState("");
