@@ -658,7 +658,7 @@ export default function App() {
         [data-catstrip]{max-height:0;opacity:0;overflow:hidden;padding-top:0 !important;padding-bottom:0 !important;transition:max-height .35s ease,opacity .3s ease,padding .35s ease;}
         [data-catstrip].show{max-height:160px;opacity:1;padding-top:14px !important;padding-bottom:14px !important;}
         .screenwrap .screen{position:absolute;inset:0;}
-        .screenwrap .screen > div{width:760px !important;height:1180px !important;transform-origin:top left;position:absolute;left:0;top:0;}
+        .screenwrap .screen > div{width:100% !important;height:100% !important;position:absolute;left:0;top:0;}
         .menu-card{cursor:pointer;}
         *::-webkit-scrollbar{display:none;}
       `}</style>
