@@ -673,7 +673,7 @@ export default function App() {
   const openItem = (it) => { setSelItem(it); setScreen("item"); };
 
   return (
-    <div style={{ ...VARS, background: "linear-gradient(160deg,#EEF2E4,#E1E8D2)", fontFamily: "'Hanken Grotesk',sans-serif", minHeight: "100vh" }}>
+    <div style={{ ...VARS, background: "linear-gradient(160deg,#EEF2E4,#E1E8D2)", fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden" }}>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}
@@ -685,9 +685,9 @@ export default function App() {
         *::-webkit-scrollbar{display:none;}
       `}</style>
 
-      <div style={{ width: "100%", maxWidth: "760px", margin: "0 auto" }}>
-        <div style={{ width: "100%", padding: 0, background: "transparent" }}>
-          <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100vh", overflow: "hidden", position: "relative" }}>
+      <div style={{ width: "100vw", height: "100dvh", margin: 0 }}>
+        <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
+          <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }} onClick={() => setScreen("picker")}><Welcome bg={settings.welcome_bg_url || ""} /></div>
             <div className={"screen" + (screen === "picker" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "picker" ? "block" : "none" }}><MenuPicker menus={menus} bg={settings.picker_bg_url || settings.welcome_bg_url || ""} onPick={pickMenu} onClose={() => setScreen("welcome")} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onBag={() => setScreen("bag")} onBack={() => setScreen("picker")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
