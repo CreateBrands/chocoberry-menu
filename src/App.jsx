@@ -157,7 +157,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
   const cat = data[activeCat] || data[0] || { name: "", items: [] };
 
   return (
-    <div ref={rootRef} style={{ width: "760px", height: "1180px", borderRadius: "38px", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)" }}>
+    <div ref={rootRef} style={{ width: "100%", height: "100%", borderRadius: "38px", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)" }}>
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: .045, mixBlendMode: "multiply", backgroundImage: "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22140%22 height=%22140%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%222%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E')" }} />
       {/* top bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "22px 28px 14px", position: "relative", zIndex: 5 }}>
@@ -311,7 +311,7 @@ function ItemDetail({ item, onAdd, onClose }) {
   const unit = it.price + sizeDelta + milkDelta;
 
   return (
-    <div style={{ width: "760px", height: "1180px", borderRadius: "38px", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
+    <div style={{ width: "100%", height: "100%", borderRadius: "38px", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
       {/* hero */}
       <div style={{ position: "relative", height: 520, background: it.image_url ? `center/cover url(${it.image_url})` : "linear-gradient(165deg,#EFE6DE,#E7DAD2)", overflow: "hidden", flex: "none" }}>
         <div onClick={onClose} style={{ position: "absolute", top: 24, right: 28, width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", zIndex: 3, cursor: "pointer" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></div>
@@ -386,7 +386,7 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace }) {
   const remove = (i) => setLines((p) => p.filter((_, x) => x !== i));
 
   return (
-    <div style={{ width: "760px", height: "1180px", borderRadius: "38px", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
+    <div style={{ width: "100%", height: "100%", borderRadius: "38px", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "24px 28px 18px", flex: "none" }}>
         <div onClick={onBack} style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg></div>
         <div>
@@ -487,7 +487,7 @@ function MenuPicker({ menus, bg, onPick, onClose }) {
     ? { backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center" }
     : { background: "linear-gradient(150deg,#3d5233,#5a7346 55%,#7b9560)" };
   return (
-    <div style={{ width: "760px", height: "1180px", position: "relative", overflow: "hidden", fontFamily: "'Hanken Grotesk',sans-serif", ...bgStyle }}>
+    <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", fontFamily: "'Hanken Grotesk',sans-serif", ...bgStyle }}>
       <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 80% at 50% 10%, rgba(20,28,14,0.12), rgba(18,24,12,0.62) 78%)" }} />
       <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 80px" }}>
         <div style={{ textAlign: "center", marginBottom: 64 }}>
@@ -589,7 +589,7 @@ export default function App() {
   const openItem = (it) => { setSelItem(it); setScreen("item"); };
 
   return (
-    <div style={{ ...VARS, background: "linear-gradient(160deg,#EEF2E4,#E1E8D2)", fontFamily: "'Hanken Grotesk',sans-serif", padding: "18px 0 28px", minHeight: "100vh" }}>
+    <div style={{ ...VARS, background: "linear-gradient(160deg,#EEF2E4,#E1E8D2)", fontFamily: "'Hanken Grotesk',sans-serif", minHeight: "100vh" }}>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}
@@ -601,9 +601,9 @@ export default function App() {
         *::-webkit-scrollbar{display:none;}
       `}</style>
 
-      <div style={{ width: "min(760px, calc(100% - 28px))", margin: "0 auto" }}>
-        <div style={{ width: "100%", padding: "2.37%", borderRadius: "clamp(28px,7vw,54px)", background: "linear-gradient(160deg,#FFFFFF,#EAEBDD)", boxShadow: "0 50px 90px -30px rgba(70,75,55,.4),inset 0 0 0 2px rgba(255,255,255,.8),0 0 0 1px rgba(0,0,0,.04)" }}>
-          <div ref={wrapRef} className="screenwrap" style={{ width: "100%", borderRadius: "clamp(20px,5vw,38px)", overflow: "hidden", position: "relative" }}>
+      <div style={{ width: "100%", maxWidth: "760px", margin: "0 auto" }}>
+        <div style={{ width: "100%", padding: 0, background: "transparent" }}>
+          <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100vh", overflow: "hidden", position: "relative" }}>
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }} onClick={() => setScreen("picker")}><Welcome bg={settings.welcome_bg_url || ""} /></div>
             <div className={"screen" + (screen === "picker" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "picker" ? "block" : "none" }}><MenuPicker menus={menus} bg={settings.picker_bg_url || settings.welcome_bg_url || ""} onPick={pickMenu} onClose={() => setScreen("welcome")} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onBag={() => setScreen("bag")} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} /></div>
