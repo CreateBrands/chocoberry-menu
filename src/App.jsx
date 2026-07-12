@@ -230,10 +230,10 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
                   </>}
                   {it.tags && it.tags.length > 0 && <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(94,122,77,.94)", color: "#F4F6EC", fontFamily: "'Poppins',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: ".1em", padding: "6px 11px", borderRadius: 16 }}>{it.tags[0]}</div>}
                 </div>
-                <div style={{ padding: "15px 16px 16px", flex: 1, display: "flex", flexDirection: "column" }}>
-                  <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, color: "var(--ink)", lineHeight: 1.2 }}>{it.name}</div>
-                  <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 4 }}>{it.desc}</div>
-                  <div style={{ flex: 1, minHeight: 14 }} />
+                <div style={{ padding: "11px 14px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
+                  <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, color: "var(--ink)", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{it.name}</div>
+                  <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{it.desc}</div>
+                  <div style={{ flex: 1, minHeight: 8 }} />
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
                     <div style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 500, lineHeight: 1 }}>+</div>
@@ -247,12 +247,19 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
       </div>
 
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
-      {/* floating tab bar */}
-      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 26, background: "rgba(255,255,255,.96)", backdropFilter: "blur(10px)", borderRadius: 26, boxShadow: "0 14px 34px rgba(56,53,43,.16)", padding: "14px 40px", display: "flex", gap: 48 }}>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, color: "var(--accent)" }}><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M3 18h18M5 18a7 7 0 0 1 14 0M12 8V6" /></svg><span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 13, fontWeight: 600 }}>Food</span></div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, color: "var(--muted)" }}><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 4h14l-7 8zM12 12v6M8 20h8" /></svg><span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 13, fontWeight: 600 }}>Drinks</span></div>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 5, color: "var(--muted)" }}><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 11h12l-1.4 8H7.4zM6.5 11a5.5 5.5 0 0 1 11 0M12 4v3" /></svg><span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 13, fontWeight: 600 }}>Desserts</span></div>
+      {/* floating menu switcher bar */}
+      {menus && menus.length > 1 && (
+      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 22, maxWidth: "calc(100% - 28px)", background: "rgba(255,255,255,.96)", backdropFilter: "blur(10px)", borderRadius: 26, boxShadow: "0 14px 34px rgba(56,53,43,.16)", padding: "8px 10px", display: "flex", gap: 4, overflowX: "auto", scrollbarWidth: "none" }}>
+        {menus.map((m, i) => {
+          const on = i === activeMenu;
+          return (
+            <div key={m.id} onClick={() => setActiveMenu(i)} style={{ flex: "none", padding: "9px 16px", borderRadius: 20, cursor: "pointer", background: on ? "var(--accent)" : "transparent", whiteSpace: "nowrap" }}>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: on ? 600 : 500, color: on ? "#F5F1E6" : "var(--muted)" }}>{m.name}</span>
+            </div>
+          );
+        })}
       </div>
+      )}
     </div>
   );
 }
