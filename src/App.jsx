@@ -117,7 +117,7 @@ function useFit(ref, deps) {
 
 function Welcome({ bg }) {
   return (
-    <div style={{width: '760px', height: '1180px', borderRadius: '38px', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
+    <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '680px', left: '40px', top: '240px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.22),rgba(167,192,131,.1) 50%,transparent 72%)', filter: 'blur(6px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
       <div style={{position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 32px 6px', fontSize: '15px', color: 'var(--muted)', fontWeight: '600'}}>
         <span>7:42</span>
@@ -291,7 +291,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
 
 function Drawer() {
   return (
-    <div style={{width: '760px', height: '1180px', borderRadius: '38px', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
+    <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       {/* blurred menu behind (right) */}
       <div style={{position: 'absolute', right: '0', top: '0', width: '330px', height: '100%', filter: 'blur(7px)', opacity: '.55'}}>
         <div style={{margin: '80px 20px 0', height: '160px', borderRadius: '22px', background: 'linear-gradient(120deg,#5d7a52,#9fb585)'}}></div>
@@ -472,7 +472,7 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace }) {
 
 function Confirm({ orderNo, pickupName }) {
   return (
-    <div style={{width: '760px', height: '1180px', borderRadius: '38px', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
+    <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '460px', left: '40px', top: '70px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.17),transparent 68%)', filter: 'blur(8px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
       <div style={{position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '70px 48px 0'}}>
         <div style={{width: '104px', height: '104px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F7F4EC', boxShadow: '0 18px 42px -10px rgba(94,122,77,.5)'}}><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7"></path></svg></div>
