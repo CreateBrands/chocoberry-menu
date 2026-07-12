@@ -139,6 +139,7 @@ function Welcome({ bg }) {
 // ============ DATA-DRIVEN BROWSE ============
 function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onBag, onBack, onSearch, bagCount }) {
   const rootRef = useRef(null);
+  const catRefs = useRef([]);
   const [scrolled, setScrolled] = useState(false);
   const [hero, setHero] = useState(0);
   useEffect(() => {
@@ -149,10 +150,33 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
     const root = rootRef.current; if (!root) return;
     const sc = root.querySelector("[data-menuscroll]");
     if (!sc) return;
-    const onScroll = () => setScrolled(sc.scrollTop > 60);
+    const onScroll = () => {
+      setScrolled(sc.scrollTop > 60);
+      // scroll-spy: find the section nearest the top
+      const scRect = sc.getBoundingClientRect();
+      let current = 0;
+      for (let i = 0; i < catRefs.current.length; i++) {
+        const el = catRefs.current[i];
+        if (!el) continue;
+        if (el.getBoundingClientRect().top - scRect.top <= 120) current = i;
+      }
+      setActiveCat(current);
+    };
     sc.addEventListener("scroll", onScroll);
     return () => sc.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [data]);
+
+  // scroll a category into view when its strip pill is tapped
+  const scrollToCat = (i) => {
+    const el = catRefs.current[i];
+    const sc = rootRef.current && rootRef.current.querySelector("[data-menuscroll]");
+    if (el && sc) {
+      const scRect = sc.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      sc.scrollTo({ top: sc.scrollTop + (elRect.top - scRect.top) - 8, behavior: "smooth" });
+    }
+    setActiveCat(i);
+  };
 
   const cat = data[activeCat] || data[0] || { name: "", items: [] };
 
@@ -202,7 +226,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
         <div style={{ position: "sticky", top: 0, zIndex: 6, background: "var(--bg)", boxShadow: scrolled ? "0 12px 16px -14px rgba(56,53,43,.5)" : "none", overflow: "hidden", maxHeight: scrolled ? 160 : 0, opacity: scrolled ? 1 : 0, paddingTop: scrolled ? 14 : 0, paddingBottom: scrolled ? 14 : 0, transition: "max-height .35s ease, opacity .3s ease, padding .35s ease" }}>
           <div style={{ display: "flex", gap: 14, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 28px", scrollbarWidth: "none" }}>
             {data.map((c, i) => (
-              <div key={c.name} onClick={() => setActiveCat(i)} style={{ flex: "none", width: 132, scrollSnapAlign: "start", cursor: "pointer" }}>
+              <div key={c.name} onClick={() => scrollToCat(i)} style={{ flex: "none", width: 132, scrollSnapAlign: "start", cursor: "pointer" }}>
                 <div style={{ height: 94, borderRadius: 16, position: "relative", overflow: "hidden", background: c.img || "linear-gradient(160deg,#cf8aa0,#9fb585)", boxShadow: "0 4px 12px -5px rgba(56,53,43,.2)" }}>
                   <div style={{ position: "absolute", inset: 0, background: "radial-gradient(60% 60% at 50% 34%,rgba(255,255,255,.3),transparent 70%)" }} />
                   {i === activeCat && <div style={{ position: "absolute", inset: 0, borderRadius: 16, boxShadow: "inset 0 0 0 3px var(--accent)" }} />}
@@ -214,35 +238,35 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
         </div>
 
         {/* section */}
-        <div style={{ padding: "6px 28px 0" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18 }}>
-            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 30, color: "var(--ink)" }}>{cat.name}</div>
-            <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: 600, color: "var(--accent)", cursor: "pointer" }}>See all</span>
-          </div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
-            {cat.items.map((it, i) => (
-              <div key={i} onClick={() => onItem(it)} style={{ background: "var(--bg3)", borderRadius: 20, overflow: "hidden", boxShadow: "0 6px 18px -6px rgba(56,53,43,.14),inset 0 0 0 1px var(--line)", display: "flex", flexDirection: "column", cursor: "pointer" }}>
-                <div style={{ height: 320, position: "relative", background: it.image_url ? `center/cover url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#F1E9D8,#E4D7BC)") }}>
-                  {!it.image_url && <>
-                    <div style={{ position: "absolute", left: "50%", bottom: 30, transform: "translateX(-50%)", width: 150, height: 22, borderRadius: "50%", background: "rgba(80,65,40,.22)", filter: "blur(9px)" }} />
-                    <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 188, height: 188, borderRadius: "50%", background: it.prod || "radial-gradient(60% 70% at 50% 36%,#FFFFFF,#EAE3D4 72%)", boxShadow: "0 16px 28px -12px rgba(90,70,40,.45)" }} />
-                    <div style={{ position: "absolute", left: "45%", top: "42%", transform: "translate(-50%,-50%)", width: 48, height: 30, borderRadius: "50%", background: "rgba(255,255,255,.4)", filter: "blur(2px)" }} />
-                  </>}
-                  {it.tags && it.tags.length > 0 && <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(94,122,77,.94)", color: "#F4F6EC", fontFamily: "'Poppins',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: ".1em", padding: "6px 11px", borderRadius: 16 }}>{it.tags[0]}</div>}
-                </div>
-                <div style={{ padding: "11px 14px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
-                  <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, color: "var(--ink)", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{it.name}</div>
-                  <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{it.desc}</div>
-                  <div style={{ flex: 1, minHeight: 8 }} />
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
-                    <div style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 500, lineHeight: 1 }}>+</div>
+        {data.map((section, si) => (
+          <div key={section.name} ref={(el) => (catRefs.current[si] = el)} data-catsection={si} style={{ padding: "6px 28px 0", scrollMarginTop: 20 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18, marginTop: si === 0 ? 0 : 22 }}>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, color: "var(--ink)" }}>{section.name}</div>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+              {(section.items || []).map((it, i) => (
+                <div key={i} onClick={() => onItem(it)} style={{ background: "var(--bg3)", borderRadius: 20, overflow: "hidden", boxShadow: "0 6px 18px -6px rgba(56,53,43,.14),inset 0 0 0 1px var(--line)", display: "flex", flexDirection: "column", cursor: "pointer" }}>
+                  <div style={{ height: 320, position: "relative", background: it.image_url ? `center/cover url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#F1E9D8,#E4D7BC)") }}>
+                    {!it.image_url && <>
+                      <div style={{ position: "absolute", left: "50%", bottom: 30, transform: "translateX(-50%)", width: 150, height: 22, borderRadius: "50%", background: "rgba(80,65,40,.22)", filter: "blur(9px)" }} />
+                      <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 188, height: 188, borderRadius: "50%", background: it.prod || "radial-gradient(60% 70% at 50% 36%,#FFFFFF,#EAE3D4 72%)", boxShadow: "0 16px 28px -12px rgba(90,70,40,.45)" }} />
+                    </>}
+                    {it.tags && it.tags.length > 0 && <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(94,122,77,.94)", color: "#F4F6EC", fontFamily: "'Poppins',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: ".1em", padding: "6px 11px", borderRadius: 16 }}>{it.tags[0]}</div>}
+                  </div>
+                  <div style={{ padding: "11px 14px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
+                    <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, color: "var(--ink)", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{it.name}</div>
+                    <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{it.desc}</div>
+                    <div style={{ flex: 1, minHeight: 8 }} />
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                      <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
+                      <div style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 500, lineHeight: 1 }}>+</div>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        </div>
+        ))}
         <div style={{ height: 260 }} />
       </div>
 
