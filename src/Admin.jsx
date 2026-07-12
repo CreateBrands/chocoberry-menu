@@ -26,6 +26,72 @@ async function callAdmin(pin, action, data) {
   return j;
 }
 
+// Compress an image file client-side (max ~1600px, JPEG ~0.82) then return a Blob.
+function compressImage(file, maxDim = 1600, quality = 0.82) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const s = Math.min(maxDim / width, maxDim / height);
+        width = Math.round(width * s); height = Math.round(height * s);
+      }
+      const c = document.createElement("canvas");
+      c.width = width; c.height = height;
+      c.getContext("2d").drawImage(img, 0, 0, width, height);
+      c.toBlob((b) => b ? resolve(b) : reject(new Error("compress failed")), "image/jpeg", quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("bad image")); };
+    img.src = url;
+  });
+}
+
+// Upload a file to the public menu-images bucket, return its public URL.
+async function uploadImage(file, prefix = "img") {
+  const blob = await compressImage(file);
+  const name = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+  const res = await fetch(`${SUPABASE_URL}/storage/v1/object/menu-images/${name}`, {
+    method: "POST",
+    headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "image/jpeg", "x-upsert": "true" },
+    body: blob,
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error("upload failed: " + t.slice(0, 120)); }
+  return `${SUPABASE_URL}/storage/v1/object/public/menu-images/${name}`;
+}
+
+// Reusable image upload control: shows preview, upload button, drag-drop.
+function ImageUpload({ value, onChange, prefix, height = 120 }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const inputRef = useRef(null);
+  const handle = async (file) => {
+    if (!file) return;
+    setBusy(true); setErr("");
+    try { const url = await uploadImage(file, prefix); onChange(url); }
+    catch (e) { setErr(e.message); } finally { setBusy(false); }
+  };
+  return (
+    <div>
+      <div
+        onClick={() => inputRef.current?.click()}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => { e.preventDefault(); handle(e.dataTransfer.files?.[0]); }}
+        style={{ border: "1px dashed rgba(60,70,45,.3)", borderRadius: 12, minHeight: height, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", overflow: "hidden", background: value ? `center/cover url(${value})` : "#fff", position: "relative" }}
+      >
+        {!value && <span style={{ color: "#9AA189", fontSize: 13 }}>{busy ? "Uploading…" : "Click or drop an image"}</span>}
+        {value && busy && <span style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,.6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: "#2F3326" }}>Uploading…</span>}
+      </div>
+      <input ref={inputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={(e) => handle(e.target.files?.[0])} />
+      <div style={{ display: "flex", gap: 12, marginTop: 6, alignItems: "center" }}>
+        {value && <span onClick={() => onChange("")} style={{ fontSize: 12, color: "#B23B3B", cursor: "pointer" }}>Remove</span>}
+        {err && <span style={{ fontSize: 12, color: "#B23B3B" }}>{err}</span>}
+      </div>
+    </div>
+  );
+}
+
 function PinGate({ onUnlock }) {
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
@@ -73,11 +139,12 @@ function useDragList(ids, onReorder) {
   });
 }
 
-function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, drag }) {
+function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSetImage, drag }) {
   return (
     <div {...drag} style={{ ...drag.style, border: "1px solid " + T.line, borderRadius: 14, overflow: "hidden", background: T.card, cursor: "pointer", position: "relative" }}>
       <div onClick={onClick} style={{ height: 74, background: img || "linear-gradient(160deg,#EAD9C4,#C99E74)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: 8 }}>
         <span style={{ cursor: "grab", width: 24, height: 24, borderRadius: "50%", background: "rgba(255,255,255,.85)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: T.muted }} title="Drag to reorder">⋮⋮</span>
+        {onSetImage && <span onClick={(e) => { e.stopPropagation(); onSetImage(); }} style={{ width: 24, height: 24, borderRadius: "50%", background: "rgba(255,255,255,.85)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: T.muted, cursor: "pointer" }} title="Set image">⌾</span>}
         {onToggle && (
           <span onClick={(e) => { e.stopPropagation(); onToggle(); }} style={{ width: 38, height: 22, borderRadius: 12, background: active ? T.accent : "#cfcabd", position: "relative" }}>
             <span style={{ position: "absolute", top: 2, left: active ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff" }} />
@@ -133,9 +200,8 @@ function ItemEditor({ pin, item, onClose, onSaved }) {
         <input style={inp} type="number" step="0.01" value={f.price} onChange={(e) => set("price", e.target.value)} />
         <div style={lab}>Allergens <span style={{ fontWeight: 400, color: T.muted }}>(comma-separated)</span></div>
         <input style={inp} value={f.allergens} onChange={(e) => set("allergens", e.target.value)} placeholder="Milk, Soya, Nuts" />
-        <div style={lab}>Image URL</div>
-        <input style={inp} value={f.image_url} onChange={(e) => set("image_url", e.target.value)} placeholder="https://…" />
-        {f.image_url && <img src={f.image_url} alt="" style={{ marginTop: 10, maxHeight: 120, borderRadius: 10, border: "1px solid " + T.line }} onError={(e) => { e.target.style.display = "none"; }} />}
+        <div style={lab}>Image</div>
+        <ImageUpload value={f.image_url} onChange={(v) => set("image_url", v)} prefix="items" />
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 18 }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>Published</span>
           <span onClick={() => set("published", !f.published)} style={{ width: 44, height: 24, borderRadius: 13, background: f.published ? T.accent : "#cfcabd", position: "relative", cursor: "pointer" }}>
@@ -156,11 +222,15 @@ export default function Admin() {
   const [menuId, setMenuId] = useState(null);
   const [catId, setCatId] = useState(null);
   const [editItem, setEditItem] = useState(null);
+  const [imgTarget, setImgTarget] = useState(null); // {kind:"menu"|"section", id}
+  const [showAppearance, setShowAppearance] = useState(false);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [] });
+  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, data) => { setMsg(""); try { await callAdmin(pin, action, data); await reload(); } catch (e) { setMsg(e.message); } };
+  const getSetting = (k) => { const row = (state && state.settings || []).find((s) => s.key === k); return row ? row.value : ""; };
+
 
   const menus = state ? [...state.menus].sort((a, b) => a.sort_order - b.sort_order) : [];
   const menu = menus.find((m) => m.id === menuId);
@@ -182,7 +252,10 @@ export default function Admin() {
       <div style={{ maxWidth: 1000, margin: "0 auto", padding: "26px 24px 60px" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26 }}>Menu Admin</div>
-          <button onClick={() => { setPin(null); setState(null); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Lock</button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button onClick={() => setShowAppearance(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Appearance</button>
+            <button onClick={() => { setPin(null); setState(null); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Lock</button>
+          </div>
         </div>
 
         <div style={{ fontSize: 13, color: T.faint, marginBottom: 18 }}>
@@ -198,6 +271,7 @@ export default function Admin() {
               <Card key={m.id} drag={menuDrag(m.id)} img={m.img} title={m.name} subtitle={itemCount(m.id) + " items" + (m.available_to ? " · until " + String(m.available_to).slice(0, 5) : "")}
                 active={m.active} onToggle={() => act("update_menu", { id: m.id, fields: { active: !m.active } })}
                 onClick={() => { setMenuId(m.id); setLevel("sections"); }}
+                onSetImage={() => setImgTarget({ kind: "menu", id: m.id })}
                 onDelete={() => { if (window.confirm("Delete menu '" + m.name + "'? Its sections must be empty.")) act("delete_menu", { id: m.id }); }} />
             ))}
             <AddCard label="Add menu" onClick={() => { const n = window.prompt("Menu name?"); if (n) act("create_menu", { name: n }); }} />
@@ -210,6 +284,7 @@ export default function Admin() {
               <Card key={c.id} drag={secDrag(c.id)} img={c.img} title={c.name} subtitle={secItemCount(c.id) + " items"}
                 active={c.active} onToggle={() => act("update_category", { id: c.id, fields: { active: !c.active } })}
                 onClick={() => { setCatId(c.id); setLevel("items"); }}
+                onSetImage={() => setImgTarget({ kind: "section", id: c.id })}
                 onDelete={() => { if (window.confirm("Delete section '" + c.name + "'? It must have no items.")) act("delete_category", { id: c.id }); }} />
             ))}
             <AddCard label="Add section" onClick={() => { const n = window.prompt("Section name?"); if (n) act("create_category", { menu_id: menuId, name: n }); }} />
@@ -247,6 +322,36 @@ export default function Admin() {
       </div>
 
       {editItem && <ItemEditor pin={pin} item={editItem} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); reload(); }} />}
+      {showAppearance && (
+        <div onClick={() => setShowAppearance(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "88vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Appearance</div>
+              <span onClick={() => setShowAppearance(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
+            </div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Background images for the welcome screen and menu picker.</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Welcome background</div>
+            <ImageUpload value={getSetting("welcome_bg_url")} prefix="backgrounds" onChange={async (url) => { await act("set_setting", { key: "welcome_bg_url", value: url }); }} height={140} />
+            <div style={{ fontSize: 14, fontWeight: 600, margin: "18px 0 6px" }}>Menu picker background</div>
+            <ImageUpload value={getSetting("picker_bg_url")} prefix="backgrounds" onChange={async (url) => { await act("set_setting", { key: "picker_bg_url", value: url }); }} height={140} />
+          </div>
+        </div>
+      )}
+      {imgTarget && (
+        <div onClick={() => setImgTarget(null)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Set {imgTarget.kind} image</div>
+              <span onClick={() => setImgTarget(null)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
+            </div>
+            <ImageUpload value={""} prefix={imgTarget.kind + "s"} onChange={async (url) => {
+              const action = imgTarget.kind === "menu" ? "update_menu" : "update_category";
+              await act(action, { id: imgTarget.id, fields: { img: url } });
+              setImgTarget(null);
+            }} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
