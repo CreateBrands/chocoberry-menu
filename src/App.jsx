@@ -137,7 +137,7 @@ function Welcome({ bg }) {
   );
 }
 // ============ DATA-DRIVEN BROWSE ============
-function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onBag, bagCount }) {
+function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onBag, onBack, onSearch, bagCount }) {
   const rootRef = useRef(null);
   const [scrolled, setScrolled] = useState(false);
   const [hero, setHero] = useState(0);
@@ -161,9 +161,9 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: .045, mixBlendMode: "multiply", backgroundImage: "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22140%22 height=%22140%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%222%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E')" }} />
       {/* top bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "22px 28px 14px", position: "relative", zIndex: 5 }}>
-        <div style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg></div>
+        <div style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }} onClick={onBack}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg></div>
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg></div>
+          <div onClick={onSearch} style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg></div>
           <div onClick={onBag} style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer", position: "relative" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 4H4v12h5l3 3 3-3h2z" /></svg>{bagCount > 0 && <span style={{ position: "absolute", top: -2, right: -2, minWidth: 22, height: 22, padding: "0 5px", borderRadius: 11, background: "var(--accent)", color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{bagCount}</span>}</div>
         </div>
       </div>
@@ -482,6 +482,36 @@ function Confirm({ orderNo, pickupName }) {
 }
 
 
+function SearchOverlay({ menus, onItem, onClose }) {
+  const [q, setQ] = useState("");
+  const all = [];
+  (menus || []).forEach((m) => (m.categories || []).forEach((c) => (c.items || []).forEach((it) => all.push({ ...it, menu: m.name, cat: c.name }))));
+  const term = q.trim().toLowerCase();
+  const results = term ? all.filter((it) => (it.name || "").toLowerCase().includes(term) || (it.desc || "").toLowerCase().includes(term)).slice(0, 40) : [];
+  return (
+    <div style={{ position: "absolute", inset: 0, background: "var(--bg)", zIndex: 40, display: "flex", flexDirection: "column" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "22px 24px 14px" }}>
+        <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the menu…"
+          style={{ flex: 1, fontSize: 20, padding: "14px 18px", borderRadius: 16, border: "none", background: "#fff", outline: "none", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)" }} />
+        <div onClick={onClose} style={{ fontSize: 17, fontWeight: 600, color: "var(--muted)", cursor: "pointer", padding: "0 6px" }}>Cancel</div>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "6px 24px 24px" }}>
+        {term && results.length === 0 && <div style={{ color: "var(--muted)", fontSize: 16, marginTop: 20 }}>No matches for "{q}".</div>}
+        {results.map((it) => (
+          <div key={it.id} onClick={() => { onItem(it); onClose(); }} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: "1px solid rgba(60,70,45,.1)", cursor: "pointer" }}>
+            <div style={{ width: 54, height: 54, borderRadius: 12, flex: "none", background: it.image_url ? `center/cover url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#EAD9C4,#C99E74)") }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, color: "var(--ink)" }}>{it.name}</div>
+              <div style={{ fontSize: 13, color: "var(--muted)" }}>{it.menu} · {it.cat}</div>
+            </div>
+            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>£{Number(it.price).toFixed(2)}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MenuPicker({ menus, bg, onPick, onClose }) {
   const bgStyle = bg
     ? { backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center" }
@@ -500,11 +530,11 @@ function MenuPicker({ menus, bg, onPick, onClose }) {
             const open = m.open !== false;
             return (
               <div key={m.id} onClick={() => onPick(m)} style={{
-                width: 400, padding: "24px 0", textAlign: "center", borderRadius: 60, cursor: "pointer",
-                background: open ? "rgba(255,255,255,0.97)" : "rgba(255,255,255,0.42)",
-                boxShadow: open ? "0 10px 30px -14px rgba(0,0,0,0.5)" : "none",
+                width: 340, padding: "13px 0", textAlign: "center", borderRadius: 40, cursor: "pointer",
+                background: open ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.34)",
+                boxShadow: open ? "0 6px 18px -12px rgba(0,0,0,0.45)" : "none",
               }}>
-                <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 30, fontWeight: 600, color: open ? "#2F3326" : "#eae6da" }}>{m.name}</span>
+                <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 19, fontWeight: 400, letterSpacing: ".01em", color: open ? "#2F3326" : "#e2ded2" }}>{m.name}</span>
               </div>
             );
           })}
@@ -521,6 +551,7 @@ export default function App() {
   const [data, setData] = useState(SEED);       // current menu's categories
   const [source, setSource] = useState("seed");
   const [store, setStore] = useState(null);
+  const [searchOpen, setSearchOpen] = useState(false);
   const [settings, setSettings] = useState({});
   const [activeCat, setActiveCat] = useState(0);
   const [selItem, setSelItem] = useState(null);
@@ -606,7 +637,7 @@ export default function App() {
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100vh", overflow: "hidden", position: "relative" }}>
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }} onClick={() => setScreen("picker")}><Welcome bg={settings.welcome_bg_url || ""} /></div>
             <div className={"screen" + (screen === "picker" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "picker" ? "block" : "none" }}><MenuPicker menus={menus} bg={settings.picker_bg_url || settings.welcome_bg_url || ""} onPick={pickMenu} onClose={() => setScreen("welcome")} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onBag={() => setScreen("bag")} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} /></div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onBag={() => setScreen("bag")} onBack={() => setScreen("picker")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} /></div>
