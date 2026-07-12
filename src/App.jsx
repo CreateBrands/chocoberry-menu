@@ -273,11 +273,11 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
       {/* floating menu switcher bar */}
       {menus && menus.length > 1 && (
-      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 22, maxWidth: "calc(100% - 28px)", background: "rgba(255,255,255,.96)", backdropFilter: "blur(10px)", borderRadius: 26, boxShadow: "0 14px 34px rgba(56,53,43,.16)", padding: "8px 10px", display: "flex", gap: 4, overflowX: "auto", scrollbarWidth: "none" }}>
+      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 20, maxWidth: "calc(100% - 24px)", background: "rgba(255,255,255,.97)", backdropFilter: "blur(10px)", borderRadius: 28, boxShadow: "0 14px 34px rgba(56,53,43,.18)", padding: "7px 8px", display: "flex", gap: 4, overflowX: "auto", scrollbarWidth: "none" }}>
         {menus.map((m, i) => {
           const on = i === activeMenu;
           return (
-            <div key={m.id} onClick={() => setActiveMenu(i)} style={{ flex: "none", padding: "9px 16px", borderRadius: 20, cursor: "pointer", background: on ? "var(--accent)" : "transparent", whiteSpace: "nowrap" }}>
+            <div key={m.id} onClick={() => setActiveMenu(i)} style={{ flex: "none", padding: "10px 18px", borderRadius: 22, cursor: "pointer", background: on ? "var(--accent)" : "transparent", whiteSpace: "nowrap" }}>
               <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: on ? 600 : 500, color: on ? "#F5F1E6" : "var(--muted)" }}>{m.name}</span>
             </div>
           );
@@ -677,9 +677,6 @@ export default function App() {
         </div>
       </div>
 
-      <div style={{ width: "min(760px,calc(100% - 28px))", margin: "14px auto 4px", display: "flex", justifyContent: "center" }}>
-        <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".5px", textTransform: "uppercase", color: source === "live" ? "#5E7A4D" : "#b89a4a", background: source === "live" ? "rgba(94,122,77,.12)" : "rgba(184,154,74,.14)", padding: "5px 11px", borderRadius: 20 }}>{source === "live" ? "\u25CF Live data" : "\u25CF Seed data"}{store && store.location_name ? " \u00B7 " + store.location_name : ""}</span>
-      </div>
       </div>
   );
 }
