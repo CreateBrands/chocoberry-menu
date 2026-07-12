@@ -271,17 +271,15 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
       </div>
 
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
-      {/* thin left menu strip; active label flows outside */}
+      {/* horizontal bottom strip; active expands inline, others shuffle aside */}
       {menus && menus.length > 1 && (
-      <div style={{ position: "absolute", left: 12, bottom: 18, background: "rgba(255,255,255,.96)", backdropFilter: "blur(10px)", borderRadius: 30, boxShadow: "0 14px 34px rgba(56,53,43,.18)", padding: 5, display: "flex", flexDirection: "column-reverse", gap: 2, maxHeight: "calc(100% - 120px)", overflowY: "auto", scrollbarWidth: "none", zIndex: 20 }}>
+      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 18, maxWidth: "calc(100% - 24px)", background: "rgba(255,255,255,.96)", backdropFilter: "blur(10px)", borderRadius: 30, boxShadow: "0 14px 34px rgba(56,53,43,.18)", padding: 6, display: "flex", alignItems: "center", gap: 2, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
         {menus.map((m, i) => {
           const on = i === activeMenu;
           return (
-            <div key={m.id} onClick={() => setActiveMenu(i)} style={{ position: "relative", width: 44, height: 44, borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", background: on ? "var(--accent)" : "transparent", cursor: "pointer", flex: "none" }}>
-              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: on ? "#F5F1E6" : "var(--accent)" }}>{menuIcon(m.name, on)}</span>
-              {on && (
-                <span style={{ position: "absolute", left: "calc(100% + 10px)", top: "50%", transform: "translateY(-50%)", background: "var(--accent)", color: "#F5F1E6", fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: 500, padding: "7px 14px", borderRadius: 18, whiteSpace: "nowrap", boxShadow: "0 8px 20px -8px rgba(56,53,43,.35)", pointerEvents: "none" }}>{m.name}</span>
-              )}
+            <div key={m.id} onClick={() => setActiveMenu(i)} title={m.name} style={{ display: "flex", alignItems: "center", gap: on ? 8 : 0, background: on ? "var(--accent)" : "transparent", borderRadius: 24, padding: on ? "10px 18px 10px 12px" : 0, height: 48, width: on ? "auto" : 48, justifyContent: "center", cursor: "pointer", flex: "none", transition: "all .28s cubic-bezier(.4,0,.2,1)" }}>
+              <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: on ? "#F5F1E6" : "var(--accent)", flex: "none" }}>{menuIcon(m.name, on)}</span>
+              {on && <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: 500, color: "#F5F1E6", whiteSpace: "nowrap" }}>{m.name}</span>}
             </div>
           );
         })}
