@@ -96,25 +96,6 @@ async function fetchSettings() {
   } catch { return {}; }
 }
 
-// Scale-to-fit hook: scales the fixed 760x1180 canvas to its container width.
-function useFit(ref, deps) {
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const fit = () => {
-      const scale = el.clientWidth / 760;
-      if (!scale || !isFinite(scale)) return;
-      el.querySelectorAll(".screen > div").forEach((d) => { d.style.transform = `scale(${scale})`; });
-      el.style.height = (1180 * scale) + "px";
-    };
-    const raf = requestAnimationFrame(fit);
-    fit();
-    window.addEventListener("resize", fit);
-    const id = setTimeout(fit, 60);
-    return () => { window.removeEventListener("resize", fit); clearTimeout(id); cancelAnimationFrame(raf); };
-  }, deps); // eslint-disable-line
-}
-
 function Welcome({ bg }) {
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
@@ -650,7 +631,6 @@ export default function App() {
     }
   };
   const wrapRef = useRef(null);
-  useFit(wrapRef, [screen, data, activeCat]);
 
   useEffect(() => {
     let alive = true;
