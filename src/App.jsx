@@ -692,9 +692,9 @@ export default function App() {
         headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY },
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || ("HTTP " + res.status));
-      setOrderNo(data.order_no);
+      const resp = await res.json();
+      if (!res.ok) throw new Error(resp.error || ("HTTP " + res.status));
+      setOrderNo(resp.order_no);
       setScreen("confirm");
     } catch (e) {
       // Fallback so the demo flow still completes if the function isn't deployed yet.

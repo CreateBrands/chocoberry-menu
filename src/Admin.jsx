@@ -15,11 +15,11 @@ const T = {
 };
 const money = (n) => "£" + Number(n || 0).toFixed(2);
 
-async function callAdmin(pin, action, data) {
+async function callAdmin(pin, action, body_) {
   const res = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
     method: "POST",
     headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY },
-    body: JSON.stringify({ pin, action, data }),
+    body: JSON.stringify({ pin, action, data: body_ }),
   });
   const j = await res.json();
   if (!res.ok) throw new Error(j.error || ("HTTP " + res.status));
@@ -253,7 +253,7 @@ export default function Admin() {
 
   const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
-  const act = async (action, data) => { setMsg(""); try { await callAdmin(pin, action, data); await reload(); } catch (e) { setMsg(e.message); } };
+  const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   const getSetting = (k) => { const row = (state && state.settings || []).find((s) => s.key === k); return row ? row.value : ""; };
 
 
