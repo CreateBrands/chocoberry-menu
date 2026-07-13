@@ -84,6 +84,7 @@ async function fetchLive(token) {
       id: row.item_id, name: row.item_name, desc: row.description, price: Number(row.price),
       tags: row.tags || [], allergens: row.allergens || [],
       bg: row.gradient_bg, prod: row.gradient_prod, image_url: row.image_url,
+      modifiers: row.modifiers || [],
     });
   }
   const menus = [...menuMap.values()]
@@ -266,7 +267,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
                     <div style={{ flex: 1, minHeight: 8 }} />
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
-                      <div onClick={(e) => { e.stopPropagation(); onAdd({ item: it, qty: 1, unit: it.price }); }} style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 500, lineHeight: 0, paddingBottom: 2, cursor: "pointer" }}>+</div>
+                      <div onClick={(e) => { e.stopPropagation(); const hasReq = (it.modifiers || []).some((g) => g.required); if (hasReq) { onItem(it); } else { onAdd({ item: it, qty: 1, unit: it.price, mods: [] }); } }} style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 500, lineHeight: 0, paddingBottom: 2, cursor: "pointer" }}>+</div>
                     </div>
                   </div>
                 </div>
@@ -339,9 +340,53 @@ function Drawer() {
 }
 // ============ ITEM DETAIL (interactive) ============
 function ItemDetail({ item, onAdd, onClose }) {
-  const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: ["Milk"] };
+  const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: ["Milk"], modifiers: [] };
   const [qty, setQty] = useState(1);
-  const unit = it.price;
+  const groups = it.modifiers || [];
+  // selection state: { [groupId]: Set of optionIds }
+  const [sel, setSel] = useState(() => {
+    const init = {};
+    groups.forEach((g) => {
+      // pre-select first option if the group is required single-select
+      if (g.required && (g.max_select || 1) === 1 && g.options && g.options.length) {
+        init[g.id] = [g.options[0].id];
+      } else {
+        init[g.id] = [];
+      }
+    });
+    return init;
+  });
+
+  const toggleOption = (g, optId) => {
+    setSel((prev) => {
+      const cur = prev[g.id] || [];
+      const single = (g.max_select || 1) === 1;
+      let next;
+      if (single) {
+        next = [optId]; // radio: replace
+      } else {
+        if (cur.includes(optId)) next = cur.filter((x) => x !== optId);
+        else if (cur.length < (g.max_select || 99)) next = [...cur, optId];
+        else next = cur; // at max
+      }
+      return { ...prev, [g.id]: next };
+    });
+  };
+
+  // compute price with modifier deltas
+  const modTotal = groups.reduce((sum, g) => {
+    const chosen = sel[g.id] || [];
+    return sum + (g.options || []).filter((o) => chosen.includes(o.id)).reduce((s, o) => s + Number(o.price_delta || 0), 0);
+  }, 0);
+  const unit = it.price + modTotal;
+
+  // collect chosen modifiers for the cart line
+  const chosenMods = groups.flatMap((g) =>
+    (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id)).map((o) => ({ group: g.name, name: o.name, price_delta: Number(o.price_delta || 0), option_id: o.id }))
+  );
+
+  // required groups must have a selection to enable Add
+  const missingRequired = groups.some((g) => g.required && (sel[g.id] || []).length < (g.min_select || 1));
 
   return (
     <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
@@ -379,6 +424,32 @@ function ItemDetail({ item, onAdd, onClose }) {
           </div>
         )}
 
+        {groups.map((g) => {
+          const single = (g.max_select || 1) === 1;
+          const chosen = sel[g.id] || [];
+          return (
+            <div key={g.id} style={{ marginTop: 22 }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)" }}>{(g.name || "").toUpperCase()}</div>
+                {g.required ? <span style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>Required</span> : <span style={{ fontSize: 11, color: "var(--muted)" }}>Optional{g.max_select > 1 ? ` · up to ${g.max_select}` : ""}</span>}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {(g.options || []).map((o) => {
+                  const on = chosen.includes(o.id);
+                  return (
+                    <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
+                      <span style={{ fontSize: 17, color: "var(--ink)" }}>{o.name}{Number(o.price_delta) ? <span style={{ color: "var(--muted)", fontSize: 14 }}> +{Number(o.price_delta).toFixed(2)}</span> : null}</span>
+                      <div style={{ width: 26, height: 26, borderRadius: single ? "50%" : 7, border: on ? "2px solid var(--accent)" : "2px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center", background: on && !single ? "var(--accent)" : "transparent" }}>
+                        {on && single && <div style={{ width: 13, height: 13, borderRadius: "50%", background: "var(--accent)" }} />}
+                        {on && !single && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
 
         <div style={{ height: 120 }} />
       </div>
@@ -390,7 +461,7 @@ function ItemDetail({ item, onAdd, onClose }) {
           <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, minWidth: 16, textAlign: "center" }}>{qty}</span>
           <span onClick={() => setQty((q) => q + 1)} style={{ fontSize: 22, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
         </div>
-        <div onClick={() => onAdd({ item: it, qty, unit })} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: "pointer" }}>Add to Bag · {money(unit * qty)}</div>
+        <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: chosenMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: missingRequired ? "not-allowed" : "pointer", opacity: missingRequired ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
       </div>
     </div>
   );
@@ -422,7 +493,7 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace }) {
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19 }}>{l.item.name}</span><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18 }}>{(l.unit * l.qty).toFixed(2)}</span></div>
-              <div style={{ fontSize: 14, color: "var(--muted)", marginTop: 3 }}>{l.size} · {l.milk} milk</div>
+              {l.mods && l.mods.length > 0 && <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{l.mods.map((m) => m.name).join(" · ")}</div>}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 14, background: "var(--bg)", borderRadius: 30, padding: "6px 14px" }}>
                   <span onClick={() => setQty(i, -1)} style={{ fontSize: 20, color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
@@ -613,7 +684,7 @@ export default function App() {
       qr_token: getStoreToken() || null,
       order_type: "takeaway",
       pickup_name: pickupName || null,
-      items: lines.map((l) => ({ item_id: l.item.id, qty: l.qty, size: l.size, milk: l.milk })),
+      items: lines.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: (l.mods || []).map((m) => m.option_id) })),
     };
     try {
       const res = await fetch(SUPABASE_URL + "/functions/v1/place-order", {
