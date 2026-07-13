@@ -139,7 +139,7 @@ function useDragList(ids, onReorder) {
   });
 }
 
-function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSetImage, drag }) {
+function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSetImage, onRename, drag }) {
   return (
     <div {...drag} style={{ ...drag.style, border: "1px solid " + T.line, borderRadius: 14, overflow: "hidden", background: T.card, cursor: "pointer", position: "relative" }}>
       <div onClick={onClick} style={{ height: 74, background: img || "linear-gradient(160deg,#EAD9C4,#C99E74)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: 8 }}>
@@ -152,7 +152,10 @@ function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSet
         )}
       </div>
       <div onClick={onClick} style={{ padding: "10px 12px 12px" }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{title}</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{title}</span>
+          {onRename && <span onClick={(e) => { e.stopPropagation(); onRename(); }} style={{ fontSize: 12, color: T.muted, cursor: "pointer" }} title="Rename">✎</span>}
+        </div>
         {subtitle && <div style={{ fontSize: 12, color: T.faint, marginTop: 2 }}>{subtitle}</div>}
       </div>
       {onDelete && <span onClick={(e) => { e.stopPropagation(); onDelete(); }} style={{ position: "absolute", bottom: 8, right: 10, color: T.danger, fontSize: 18, cursor: "pointer" }} title="Delete">×</span>}
@@ -475,9 +478,10 @@ export default function Admin() {
         {level === "menus" && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 12 }}>
             {menus.map((m) => (
-              <Card key={m.id} drag={menuDrag(m.id)} img={m.img} title={m.name} subtitle={itemCount(m.id) + " items" + (m.available_to ? " · until " + String(m.available_to).slice(0, 5) : "")}
+              <Card key={m.id} drag={menuDrag(m.id)} img={m.img} title={m.name} subtitle={itemCount(m.id) + " items"}
                 active={m.active} onToggle={() => act("update_menu", { id: m.id, fields: { active: !m.active } })}
                 onClick={() => { setMenuId(m.id); setLevel("sections"); }}
+                onRename={() => { const n = window.prompt("Rename menu", m.name); if (n && n !== m.name) act("update_menu", { id: m.id, fields: { name: n } }); }}
                 onSetImage={() => setImgTarget({ kind: "menu", id: m.id })}
                 onDelete={() => { if (window.confirm("Delete menu '" + m.name + "'? Its sections must be empty.")) act("delete_menu", { id: m.id }); }} />
             ))}
@@ -491,6 +495,7 @@ export default function Admin() {
               <Card key={c.id} drag={secDrag(c.id)} img={c.img} title={c.name} subtitle={secItemCount(c.id) + " items"}
                 active={c.active} onToggle={() => act("update_category", { id: c.id, fields: { active: !c.active } })}
                 onClick={() => { setCatId(c.id); setLevel("items"); }}
+                onRename={() => { const n = window.prompt("Rename section", c.name); if (n && n !== c.name) act("update_category", { id: c.id, fields: { name: n } }); }}
                 onSetImage={() => setImgTarget({ kind: "section", id: c.id })}
                 onDelete={() => { if (window.confirm("Delete section '" + c.name + "'? It must have no items.")) act("delete_category", { id: c.id }); }} />
             ))}
