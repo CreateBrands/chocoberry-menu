@@ -247,6 +247,7 @@ export default function Admin() {
   const [showHero, setShowHero] = useState(false);
   const [heroDraft, setHeroDraft] = useState([]);
   const [showMods, setShowMods] = useState(false);
+  const [nav, setNav] = useState("menus");
   const [modOpen, setModOpen] = useState({});
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
@@ -272,20 +273,40 @@ export default function Admin() {
   if (!pin || !state) return <PinGate onUnlock={(p, res) => { setPin(p); apply(res); }} />;
 
   return (
-    <div style={{ minHeight: "100vh", background: T.bg, fontFamily: "'Hanken Grotesk',system-ui,sans-serif", color: T.ink }}>
+    <div style={{ minHeight: "100vh", background: T.bg, fontFamily: "'Hanken Grotesk',system-ui,sans-serif", color: T.ink, display: "flex" }}>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
-      <div style={{ maxWidth: 1000, margin: "0 auto", padding: "26px 24px 60px" }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26 }}>Menu Admin</div>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button onClick={() => setShowAppearance(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Appearance</button>
-            <button onClick={() => setShowWelcome(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Welcome Page</button>
-            <button onClick={() => { try { const v = getSetting("hero_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); } setShowHero(true); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Hero Slides</button>
-            <button onClick={() => setShowMods(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Modifiers</button>
-            <button onClick={() => { setPin(null); setState(null); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Lock</button>
-          </div>
-        </div>
 
+      {/* SIDEBAR */}
+      <div style={{ width: 210, flexShrink: 0, background: T.card, borderRight: "1px solid " + T.line, padding: "22px 14px", minHeight: "100vh", boxSizing: "border-box" }}>
+        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, padding: "0 10px 20px" }}>Menu Admin</div>
+        {[
+          ["menus", "Menus", "🍽"],
+          ["modifiers", "Modifiers", "⚙"],
+          ["appearance", "Appearance", "🎨"],
+          ["welcome", "Welcome", "🏠"],
+          ["hero", "Hero", "🖼"],
+          ["settings", "Settings", "⚙"],
+        ].map(([key, label, icon]) => {
+          const active = nav === key;
+          return (
+            <div key={key} onClick={() => {
+              setNav(key);
+              if (key === "menus") { setLevel("menus"); setMenuId(null); setCatId(null); }
+              if (key === "modifiers") setShowMods(true);
+              if (key === "appearance") setShowAppearance(true);
+              if (key === "welcome") setShowWelcome(true);
+              if (key === "hero") { try { const v = getSetting("hero_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); } setShowHero(true); }
+              if (key === "settings") setShowAppearance(true);
+            }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, marginBottom: 2, cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500, background: active ? T.accentSoft || "#EFEAD9" : "transparent", color: active ? T.accent : T.muted }}>
+              <span style={{ fontSize: 15 }}>{icon}</span>{label}
+            </div>
+          );
+        })}
+        <div onClick={() => { setPin(null); setState(null); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, marginTop: 12, cursor: "pointer", fontSize: 14, fontWeight: 500, color: T.muted, borderTop: "1px solid " + T.line }}>🔒 Lock</div>
+      </div>
+
+      {/* MAIN CONTENT */}
+      <div style={{ flex: 1, minWidth: 0, padding: "26px 28px 60px", overflowY: "auto", maxHeight: "100vh", boxSizing: "border-box" }}>
         <div style={{ fontSize: 13, color: T.faint, marginBottom: 18 }}>
           <span style={{ cursor: "pointer", color: level === "menus" ? T.accent : T.faint }} onClick={() => { setLevel("menus"); setMenuId(null); setCatId(null); }}>Menus</span>
           {menu && <> {" › "} <span style={{ cursor: "pointer", color: level === "sections" ? T.accent : T.faint }} onClick={() => { setLevel("sections"); setCatId(null); }}>{menu.name}</span></>}
@@ -347,6 +368,15 @@ export default function Admin() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* LIVE PREVIEW */}
+      <div style={{ width: 260, flexShrink: 0, borderLeft: "1px solid " + T.line, background: T.card, padding: "22px 18px", boxSizing: "border-box", maxHeight: "100vh", position: "sticky", top: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.muted, marginBottom: 14 }}>Live preview</div>
+        <div style={{ border: "7px solid #222", borderRadius: 26, overflow: "hidden", height: 460, background: "#000" }}>
+          <iframe title="preview" src="/" style={{ width: "100%", height: "100%", border: "none", background: "#fff" }} />
+        </div>
+        <div style={{ fontSize: 12, color: T.faint, marginTop: 10, textAlign: "center" }}>Live customer view. Refresh after edits.</div>
       </div>
 
       {editItem && <ItemEditor pin={pin} item={editItem} groups={state.modifierGroups || []} itemGroupIds={(state.itemModifiers || []).filter((im) => im.item_id === editItem.id).map((im) => im.group_id)} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); reload(); }} />}
