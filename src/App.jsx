@@ -207,10 +207,10 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
         <div style={{ position: "sticky", top: 0, zIndex: 6, background: "var(--bg)", boxShadow: scrolled ? "0 12px 16px -14px rgba(56,53,43,.5)" : "none", overflow: "hidden", maxHeight: scrolled ? 160 : 0, opacity: scrolled ? 1 : 0, paddingTop: scrolled ? 14 : 0, paddingBottom: scrolled ? 14 : 0, transition: "max-height .35s ease, opacity .3s ease, padding .35s ease" }}>
           <div style={{ display: "flex", gap: 14, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 28px", scrollbarWidth: "none" }}>
             {data.map((c, i) => {
-              const catImg = c.img || (c.items || []).map(x => x.image_url).find(u => u && u.length > 5) || null;
+              const catImg = (c.img && /^https?:/.test(c.img) ? c.img : null) || (c.items || []).map(x => x.image_url).find(u => u && /^https?:/.test(u)) || null;
               return (
               <div key={c.name} onClick={() => scrollToCat(i)} style={{ flex: "none", width: 132, scrollSnapAlign: "start", cursor: "pointer" }}>
-                <div data-itemcount={(c.items || []).length} data-catimg={catImg || "NULL"} style={{ height: 94, borderRadius: 16, position: "relative", overflow: "hidden", backgroundImage: catImg ? `url(${catImg})` : "linear-gradient(160deg,#cf8aa0,#9fb585)", backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 4px 12px -5px rgba(56,53,43,.2)" }}>
+                <div style={{ height: 94, borderRadius: 16, position: "relative", overflow: "hidden", backgroundImage: catImg ? `url(${catImg})` : "linear-gradient(160deg,#cf8aa0,#9fb585)", backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 4px 12px -5px rgba(56,53,43,.2)" }}>
                   <div style={{ position: "absolute", inset: 0, background: "radial-gradient(60% 60% at 50% 34%,rgba(255,255,255,.3),transparent 70%)" }} />
                   {i === activeCat && <div style={{ position: "absolute", inset: 0, borderRadius: 16, boxShadow: "inset 0 0 0 3px var(--accent)" }} />}
                 </div>
