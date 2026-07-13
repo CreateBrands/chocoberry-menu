@@ -371,9 +371,9 @@ export default function Admin() {
       </div>
 
       {/* LIVE PREVIEW */}
-      <div style={{ width: 260, flexShrink: 0, borderLeft: "1px solid " + T.line, background: T.card, padding: "22px 18px", boxSizing: "border-box", maxHeight: "100vh", position: "sticky", top: 0 }}>
+      <div style={{ width: 400, flexShrink: 0, borderLeft: "1px solid " + T.line, background: T.card, padding: "22px 20px", boxSizing: "border-box", height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column" }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: T.muted, marginBottom: 14 }}>Live preview</div>
-        <div style={{ border: "7px solid #222", borderRadius: 26, overflow: "hidden", height: 460, background: "#000" }}>
+        <div style={{ border: "9px solid #222", borderRadius: 32, overflow: "hidden", flex: 1, minHeight: 0, background: "#000" }}>
           <iframe title="preview" src="/" style={{ width: "100%", height: "100%", border: "none", background: "#fff" }} />
         </div>
         <div style={{ fontSize: 12, color: T.faint, marginTop: 10, textAlign: "center" }}>Live customer view. Refresh after edits.</div>
