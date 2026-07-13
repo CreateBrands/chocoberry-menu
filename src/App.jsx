@@ -123,13 +123,13 @@ function Welcome({ bg, menus, onPick }) {
 
       {/* choose-menu popup: opens from the bottom, dismiss on outside tap */}
       <div onClick={() => setOpen(false)} style={{position: 'absolute', inset: 0, zIndex: 30, pointerEvents: open ? 'auto' : 'none', background: open ? 'rgba(30,36,20,.34)' : 'transparent', transition: 'background .3s ease', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}}>
-        <div onClick={(e) => e.stopPropagation()} style={{width: 'min(520px, 82%)', marginBottom: '210px', background: 'rgba(255,255,255,.78)', backdropFilter: 'blur(14px)', borderRadius: '26px', padding: '18px 16px 16px', boxShadow: '0 26px 60px -20px rgba(0,0,0,.5)', transform: open ? 'translateY(0)' : 'translateY(40px)', opacity: open ? 1 : 0, transition: 'transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease'}}>
+        <div onClick={(e) => e.stopPropagation()} style={{width: 'min(400px, 72%)', marginBottom: 0, background: 'var(--bg)', borderRadius: '28px 28px 0 0', padding: '26px 18px 34px', boxShadow: '0 -20px 50px -18px rgba(0,0,0,.35)', transform: open ? 'translateY(0)' : 'translateY(100%)', opacity: 1, transition: 'transform .34s cubic-bezier(.2,.8,.2,1)'}}>
           <div style={{textAlign: 'center', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600', color: 'var(--accent)', marginBottom: '14px'}}>Choose Menu</div>
           <div style={{display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden'}}>
             {(menus || []).map((m, i) => {
               const on = m.open !== false;
               return (
-                <div key={m.id} onClick={() => { if (on) { onPick(m); setOpen(false); } }} style={{padding: '18px 0', textAlign: 'center', cursor: on ? 'pointer' : 'default', background: i === 0 ? 'var(--accent)' : '#fff', color: i === 0 ? '#F5F1E6' : (on ? 'var(--ink)' : 'var(--muted)'), fontFamily: '\'Poppins\',sans-serif', fontSize: '16px', fontWeight: '600', letterSpacing: '.04em', textTransform: 'uppercase', borderTop: i === 0 ? 'none' : '1px solid rgba(60,70,45,.1)', opacity: on ? 1 : .55}}>{m.name}</div>
+                <div key={m.id} onClick={() => { if (on) { onPick(m); setOpen(false); } }} style={{padding: '18px 0', textAlign: 'center', cursor: on ? 'pointer' : 'default', background: i === 0 ? 'var(--accent)' : 'var(--bg2)', color: i === 0 ? '#F5F1E6' : (on ? 'var(--ink)' : 'var(--muted)'), fontFamily: '\'Poppins\',sans-serif', fontSize: '15px', fontWeight: '600', letterSpacing: '.04em', textTransform: 'uppercase', borderTop: i === 0 ? 'none' : '1px solid rgba(60,70,45,.08)', opacity: on ? 1 : .55}}>{m.name}</div>
               );
             })}
           </div>
