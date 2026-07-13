@@ -164,6 +164,135 @@ function AddCard({ label, onClick }) {
   return <div onClick={onClick} style={{ border: "1px dashed rgba(60,70,45,.28)", borderRadius: 14, minHeight: 128, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 14, cursor: "pointer" }}>+ {label}</div>;
 }
 
+
+// ============ WELCOME PAGE BUILDER (free-drag canvas) ============
+const CANVAS_W = 390, CANVAS_H = 844;
+const ELEMENT_TYPES = [
+  { type: "logo", label: "Logo", defaults: { text: "still<span style='color:#5E7A4D'>.</span>", size: 100, color: "#2F3326", align: "center", w: 300 } },
+  { type: "heading", label: "Heading", defaults: { text: "Heading", size: 34, color: "#2F3326", align: "center", w: 300 } },
+  { type: "subtitle", label: "Subtitle", defaults: { text: "Your subtitle here", size: 18, color: "#7E8470", align: "center", w: 300 } },
+  { type: "button", label: "Button", defaults: { text: "Order Ahead", size: 18, color: "#5E7A4D", textColor: "#F7F4EC", w: 200 } },
+  { type: "image", label: "Image", defaults: { url: "", w: 200, h: 200, radius: 12 } },
+  { type: "spacer", label: "Spacer", defaults: { w: 100, h: 40 } },
+  { type: "divider", label: "Divider", defaults: { w: 80, size: 2, color: "#5E7A4D" } },
+];
+
+function WelcomeBuilder({ pin, initial, onClose, onSaved }) {
+  const [els, setEls] = useState(initial && initial.length ? initial : []);
+  const [selId, setSelId] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const canvasRef = useRef(null);
+  const drag = useRef(null);
+  const sel = els.find((e) => e.id === selId) || null;
+
+  const addEl = (t) => {
+    const def = ELEMENT_TYPES.find((x) => x.type === t);
+    const el = { id: "el_" + Date.now() + "_" + Math.floor(Math.random() * 999), type: t, x: 60, y: 120, visible: true, ...def.defaults };
+    setEls((p) => [...p, el]);
+    setSelId(el.id);
+  };
+  const update = (id, patch) => setEls((p) => p.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  const remove = (id) => { setEls((p) => p.filter((e) => e.id !== id)); setSelId(null); };
+
+  const onDown = (e, el) => {
+    e.stopPropagation();
+    setSelId(el.id);
+    const rect = canvasRef.current.getBoundingClientRect();
+    const scale = CANVAS_W / rect.width;
+    drag.current = { id: el.id, startX: e.clientX, startY: e.clientY, ox: el.x, oy: el.y, scale };
+  };
+  const onMove = (e) => {
+    if (!drag.current) return;
+    const d = drag.current;
+    const nx = Math.round(d.ox + (e.clientX - d.startX) * d.scale);
+    const ny = Math.round(d.oy + (e.clientY - d.startY) * d.scale);
+    update(d.id, { x: nx, y: ny });
+  };
+  const onUp = () => { drag.current = null; };
+
+  const save = async () => {
+    setBusy(true);
+    try { await callAdmin(pin, "set_setting", { key: "welcome_layout", value: JSON.stringify(els) }); onSaved(); }
+    catch (e) { alert(e.message); } finally { setBusy(false); }
+  };
+
+  const renderEl = (el) => {
+    const on = el.id === selId;
+    const base = { position: "absolute", left: el.x, top: el.y, width: el.w || "auto", cursor: "move", outline: on ? "2px solid #5E7A4D" : (el.visible === false ? "1px dashed #ccc" : "none"), outlineOffset: 2, opacity: el.visible === false ? .4 : 1, userSelect: "none" };
+    let inner;
+    if (el.type === "logo" || el.type === "heading" || el.type === "subtitle")
+      inner = <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: el.size, color: el.color, textAlign: el.align, fontWeight: el.type === "subtitle" ? 400 : 600, lineHeight: el.type === "logo" ? .9 : 1.3 }} dangerouslySetInnerHTML={{ __html: el.text }} />;
+    else if (el.type === "button") inner = <div style={{ background: el.color, color: el.textColor, padding: "16px 0", borderRadius: 40, textAlign: "center", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: el.size }}>{el.text}</div>;
+    else if (el.type === "image") inner = el.url ? <img src={el.url} alt="" style={{ width: el.w, height: el.h, objectFit: "cover", borderRadius: el.radius, display: "block" }} /> : <div style={{ width: el.w, height: el.h, background: "#eee", borderRadius: el.radius, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#999" }}>Image</div>;
+    else if (el.type === "divider") inner = <div style={{ width: el.w, height: el.size, background: el.color }} />;
+    else if (el.type === "spacer") inner = <div style={{ width: el.w, height: el.h, border: "1px dashed #ccc" }} />;
+    return <div key={el.id} style={base} onMouseDown={(e) => onDown(e, el)}>{inner}</div>;
+  };
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(20,24,14,.55)", zIndex: 60, display: "flex" }} onMouseMove={onMove} onMouseUp={onUp}>
+      <div style={{ width: 150, background: "#fff", padding: 16, overflowY: "auto" }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 14 }}>Elements</div>
+        {ELEMENT_TYPES.map((t) => (
+          <div key={t.type} onClick={() => addEl(t.type)} style={{ padding: "10px 12px", border: "1px solid #E8DCC6", borderRadius: 8, marginBottom: 8, fontSize: 13, fontWeight: 600, cursor: "pointer", color: "#3A2E26" }}>+ {t.label}</div>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", overflow: "auto" }}>
+        <div ref={canvasRef} onMouseDown={() => setSelId(null)} style={{ position: "relative", width: CANVAS_W, height: CANVAS_H, background: "#E1E8D2", border: "10px solid #222", borderRadius: 34, overflow: "hidden", flexShrink: 0 }}>
+          {els.map(renderEl)}
+        </div>
+      </div>
+
+      <div style={{ width: 240, background: "#fff", padding: 16, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 15 }}>Welcome builder</div>
+          <span onClick={onClose} style={{ fontSize: 22, color: "#999", cursor: "pointer" }}>×</span>
+        </div>
+        {!sel && <div style={{ fontSize: 13, color: "#999" }}>Add an element from the left, or click one on the canvas to edit it.</div>}
+        {sel && (
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#7E8470", textTransform: "uppercase" }}>{sel.type}</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <span style={{ fontSize: 13 }}>Visible</span>
+              <span onClick={() => update(sel.id, { visible: !(sel.visible !== false) })} style={{ width: 40, height: 22, borderRadius: 11, background: sel.visible !== false ? "#5E7A4D" : "#ccc", position: "relative", cursor: "pointer" }}><span style={{ position: "absolute", top: 2, left: sel.visible !== false ? 20 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .2s" }} /></span>
+            </div>
+            {(sel.type === "logo" || sel.type === "heading" || sel.type === "subtitle" || sel.type === "button") && (
+              <div><div style={lbl}>Text</div><textarea value={sel.text || ""} onChange={(e) => update(sel.id, { text: e.target.value })} style={{ ...inp2, minHeight: 54 }} /></div>
+            )}
+            {sel.type === "image" && (<div><div style={lbl}>Image</div><ImageUpload value={sel.url || ""} prefix="branding" height={90} onChange={(url) => update(sel.id, { url })} /></div>)}
+            {(sel.type === "logo" || sel.type === "heading" || sel.type === "subtitle" || sel.type === "button" || sel.type === "divider") && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <div style={{ flex: 1 }}><div style={lbl}>Size</div><input type="number" value={sel.size || 0} onChange={(e) => update(sel.id, { size: parseInt(e.target.value) || 0 })} style={inp2} /></div>
+                <div style={{ flex: 1 }}><div style={lbl}>Color</div><input type="color" value={sel.color || "#000000"} onChange={(e) => update(sel.id, { color: e.target.value })} style={{ ...inp2, padding: 2, height: 38 }} /></div>
+              </div>
+            )}
+            {sel.type === "button" && (<div><div style={lbl}>Text color</div><input type="color" value={sel.textColor || "#ffffff"} onChange={(e) => update(sel.id, { textColor: e.target.value })} style={{ ...inp2, padding: 2, height: 38 }} /></div>)}
+            {(sel.type === "logo" || sel.type === "heading" || sel.type === "subtitle") && (
+              <div><div style={lbl}>Align</div>
+                <select value={sel.align || "center"} onChange={(e) => update(sel.id, { align: e.target.value })} style={inp2}><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select>
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <div style={{ flex: 1 }}><div style={lbl}>X</div><input type="number" value={sel.x || 0} onChange={(e) => update(sel.id, { x: parseInt(e.target.value) || 0 })} style={inp2} /></div>
+              <div style={{ flex: 1 }}><div style={lbl}>Y</div><input type="number" value={sel.y || 0} onChange={(e) => update(sel.id, { y: parseInt(e.target.value) || 0 })} style={inp2} /></div>
+              <div style={{ flex: 1 }}><div style={lbl}>W</div><input type="number" value={sel.w || 0} onChange={(e) => update(sel.id, { w: parseInt(e.target.value) || 0 })} style={inp2} /></div>
+            </div>
+            <div onClick={() => remove(sel.id)} style={{ color: "#B23B3B", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>🗑 Delete element</div>
+          </div>
+        )}
+        <div style={{ marginTop: "auto", paddingTop: 16, display: "flex", flexDirection: "column", gap: 8 }}>
+          <button onClick={save} disabled={busy} style={{ background: "#5E7A4D", color: "#fff", border: "none", borderRadius: 10, padding: "13px 0", fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: busy ? .6 : 1 }}>{busy ? "Saving…" : "Save page"}</button>
+          <button onClick={onClose} style={{ background: "none", border: "1px solid #E8DCC6", borderRadius: 10, padding: "11px 0", fontSize: 14, cursor: "pointer", color: "#7E8470" }}>Cancel</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+const lbl = { fontSize: 11, fontWeight: 700, color: "#7E8470", marginBottom: 4, textTransform: "uppercase" };
+const inp2 = { width: "100%", boxSizing: "border-box", border: "1px solid #E8DCC6", borderRadius: 8, padding: "8px 10px", fontSize: 13, fontFamily: "inherit" };
+
+
 function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSaved }) {
   const [modIds, setModIds] = useState(itemGroupIds);
   const [f, setF] = useState({
@@ -253,6 +382,8 @@ export default function Admin() {
   const [imgTarget, setImgTarget] = useState(null); // {kind:"menu"|"section", id}
   const [showAppearance, setShowAppearance] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showBuilder, setShowBuilder] = useState(false);
+  const [builderInit, setBuilderInit] = useState([]);
   const [showHero, setShowHero] = useState(false);
   const [heroDraft, setHeroDraft] = useState([]);
   const [showMods, setShowMods] = useState(false);
@@ -303,7 +434,7 @@ export default function Admin() {
               if (key === "menus") { setLevel("menus"); setMenuId(null); setCatId(null); }
               if (key === "modifiers") setShowMods(true);
               if (key === "appearance") setShowAppearance(true);
-              if (key === "welcome") setShowWelcome(true);
+              if (key === "welcome") { try { const v = getSetting("welcome_layout"); setBuilderInit(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setBuilderInit([]); } setShowBuilder(true); }
               if (key === "hero") { try { const v = getSetting("hero_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); } setShowHero(true); }
               if (key === "settings") setShowAppearance(true);
             }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, marginBottom: 2, cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500, background: active ? T.accentSoft || "#EFEAD9" : "transparent", color: active ? T.accent : T.muted }}>
@@ -540,6 +671,7 @@ export default function Admin() {
           </div>
         </div>
       )}
+      {showBuilder && <WelcomeBuilder pin={pin} initial={builderInit} onClose={() => setShowBuilder(false)} onSaved={() => { setShowBuilder(false); reload(); }} />}
       {imgTarget && (
         <div onClick={() => setImgTarget(null)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24 }}>

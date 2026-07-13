@@ -105,11 +105,46 @@ async function fetchSettings() {
   } catch { return {}; }
 }
 
+// Renders a free-positioned Welcome layout (array of elements with fixed px positions).
+function WelcomeElements({ layout, w }) {
+  const els = (layout || []).filter((e) => e.visible !== false);
+  return (
+    <>
+      {els.map((e) => {
+        const base = { position: "absolute", left: e.x || 0, top: e.y || 0, width: e.w || "auto" };
+        const align = e.align || "center";
+        if (e.type === "logo") {
+          return e.url
+            ? <img key={e.id} src={e.url} alt="" style={{ ...base, width: e.w || 200, height: "auto" }} />
+            : <div key={e.id} style={{ ...base, fontFamily: "'Poppins',sans-serif", fontSize: e.size || 120, fontWeight: 600, color: e.color || "var(--ink)", textAlign: align, lineHeight: .9 }} dangerouslySetInnerHTML={{ __html: e.text || "still<span style='color:var(--accent)'>.</span>" }} />;
+        }
+        if (e.type === "image") return <img key={e.id} src={e.url} alt="" style={{ ...base, width: e.w || 200, height: e.h || "auto", objectFit: "cover", borderRadius: e.radius || 0 }} />;
+        if (e.type === "heading") return <div key={e.id} style={{ ...base, fontFamily: "'Poppins',sans-serif", fontSize: e.size || 40, fontWeight: 600, color: e.color || "var(--ink)", textAlign: align }} dangerouslySetInnerHTML={{ __html: e.text || "Heading" }} />;
+        if (e.type === "subtitle") return <div key={e.id} style={{ ...base, fontFamily: "'Poppins',sans-serif", fontSize: e.size || 22, fontWeight: 400, color: e.color || "var(--muted)", textAlign: align, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: e.text || "Subtitle" }} />;
+        if (e.type === "button") return <div key={e.id} style={{ ...base, background: e.color || "var(--accent)", color: e.textColor || "#F7F4EC", padding: "18px 40px", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontSize: e.size || 18, fontWeight: 600, textAlign: "center" }}>{e.text || "Order Ahead"}</div>;
+        if (e.type === "divider") return <div key={e.id} style={{ ...base, width: e.w || 60, height: e.size || 2, background: e.color || "var(--accent)" }} />;
+        if (e.type === "spacer") return null;
+        return null;
+      })}
+    </>
+  );
+}
+
 function Welcome({ bg, menus, onPick, w = {} }) {
   const [open, setOpen] = useState(false);
+  let layout = null;
+  try { layout = w.welcome_layout ? (typeof w.welcome_layout === "string" ? JSON.parse(w.welcome_layout) : w.welcome_layout) : null; } catch { layout = null; }
+  const hasLayout = Array.isArray(layout) && layout.length > 0;
+  // find a button element to trigger the picker when using a custom layout
+  const layoutBtn = hasLayout ? layout.find((e) => e.type === "button" && e.visible !== false) : null;
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '680px', left: '40px', top: '240px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.22),rgba(167,192,131,.1) 50%,transparent 72%)', filter: 'blur(6px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
+      {hasLayout ? (
+        <div onClick={() => setOpen(true)} style={{ position: "absolute", inset: 0, cursor: "pointer" }}>
+          <WelcomeElements layout={layout} w={w} />
+        </div>
+      ) : (<>
       
       <div style={{position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 60px', marginTop: '-50px'}}>
         <div style={{fontFamily: '\'Hanken Grotesk\',sans-serif', fontSize: '15px', fontWeight: '700', letterSpacing: '.42em', color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '32px'}}>{w.welcome_eyebrow || 'Matcha · Coffee'}</div>
@@ -122,6 +157,7 @@ function Welcome({ bg, menus, onPick, w = {} }) {
         <div style={{fontSize: '14px', fontWeight: '600', letterSpacing: '.16em', color: 'var(--muted)', textTransform: 'uppercase'}}>{w.welcome_footer || 'Pickup at counter · Tap to begin'}</div>
       </div>
 
+      </>)}
       {/* choose-menu popup: opens from the bottom, dismiss on outside tap */}
       <div onClick={() => setOpen(false)} style={{position: 'absolute', inset: 0, zIndex: 30, pointerEvents: open ? 'auto' : 'none', background: open ? 'rgba(30,36,20,.34)' : 'transparent', transition: 'background .3s ease', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}}>
         <div onClick={(e) => e.stopPropagation()} style={{width: 'min(400px, 72%)', marginBottom: 0, background: 'var(--bg)', borderRadius: '28px 28px 0 0', padding: '26px 18px 34px', boxShadow: '0 -20px 50px -18px rgba(0,0,0,.35)', transform: open ? 'translateY(0)' : 'translateY(100%)', opacity: 1, transition: 'transform .34s cubic-bezier(.2,.8,.2,1)'}}>
