@@ -227,9 +227,10 @@ export default function Admin() {
   const [showWelcome, setShowWelcome] = useState(false);
   const [showHero, setShowHero] = useState(false);
   const [heroDraft, setHeroDraft] = useState([]);
+  const [showMods, setShowMods] = useState(false);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [] });
+  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, data) => { setMsg(""); try { await callAdmin(pin, action, data); await reload(); } catch (e) { setMsg(e.message); } };
   const getSetting = (k) => { const row = (state && state.settings || []).find((s) => s.key === k); return row ? row.value : ""; };
@@ -259,6 +260,7 @@ export default function Admin() {
             <button onClick={() => setShowAppearance(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Appearance</button>
             <button onClick={() => setShowWelcome(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Welcome Page</button>
             <button onClick={() => { try { const v = getSetting("hero_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); } setShowHero(true); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Hero Slides</button>
+            <button onClick={() => setShowMods(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Modifiers</button>
             <button onClick={() => { setPin(null); setState(null); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Lock</button>
           </div>
         </div>
@@ -416,6 +418,65 @@ export default function Admin() {
             <button onClick={() => setHeroDraft([...heroDraft, { image_url: "", tag: "", title: "", sub: "" }])} style={{ width: "100%", border: "1px dashed " + T.line, background: "transparent", color: T.muted, borderRadius: 10, padding: "12px 0", fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 14 }}>+ Add slide</button>
 
             <button onClick={async () => { await act("set_setting", { key: "hero_slides", value: JSON.stringify(heroDraft) }); setShowHero(false); }} style={{ width: "100%", border: "none", background: T.accent || "#5E7A4D", color: "#fff", borderRadius: 10, padding: "13px 0", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Save slides</button>
+          </div>
+        </div>
+      )}
+      {showMods && (
+        <div onClick={() => setShowMods(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 640, maxWidth: "94vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Modifier Groups</div>
+              <span onClick={() => setShowMods(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
+            </div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Create option groups (e.g. Size, Milk, Extras), add choices with prices, then assign groups to items.</div>
+
+            {(state.modifierGroups || []).map((g) => {
+              const opts = (state.modifierOptions || []).filter((o) => o.group_id === g.id).sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+              const assignedCount = (state.itemModifiers || []).filter((im) => im.group_id === g.id).length;
+              return (
+                <div key={g.id} style={{ border: "1px solid " + T.line, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <input defaultValue={g.name} onBlur={async (e) => { if (e.target.value !== g.name) await act("update_mod_group", { id: g.id, name: e.target.value, required: g.required, min_select: g.min_select, max_select: g.max_select }); }} style={{ fontWeight: 700, fontSize: 15, border: "1px solid " + T.line, borderRadius: 6, padding: "5px 8px", background: T.card, color: T.ink, width: 150 }} />
+                      <label style={{ fontSize: 12, color: T.muted, display: "flex", alignItems: "center", gap: 4, cursor: "pointer" }}><input type="checkbox" checked={!!g.required} onChange={async (e) => { await act("update_mod_group", { id: g.id, name: g.name, required: e.target.checked, min_select: e.target.checked ? 1 : 0, max_select: g.max_select }); }} /> Required</label>
+                      <label style={{ fontSize: 12, color: T.muted, display: "flex", alignItems: "center", gap: 4 }}>Max <input type="number" min="1" defaultValue={g.max_select ?? 1} onBlur={async (e) => { const v = parseInt(e.target.value) || 1; if (v !== g.max_select) await act("update_mod_group", { id: g.id, name: g.name, required: g.required, min_select: g.min_select, max_select: v }); }} style={{ width: 46, border: "1px solid " + T.line, borderRadius: 6, padding: "4px 6px", background: T.card, color: T.ink }} /></label>
+                      <span style={{ fontSize: 12, color: T.muted }}>{assignedCount} item(s)</span>
+                    </div>
+                    <span onClick={async () => { if (confirm("Delete group '" + g.name + "'? This removes it from all items.")) { await act("delete_mod_group", { id: g.id }); } }} style={{ fontSize: 13, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Delete</span>
+                  </div>
+
+                  {opts.map((o) => (
+                    <div key={o.id} style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+                      <input defaultValue={o.name} onBlur={async (e) => { if (e.target.value !== o.name) await act("update_mod_option", { id: o.id, name: e.target.value, price_delta: o.price_delta, sort_order: o.sort_order }); }} style={{ flex: 1, border: "1px solid " + T.line, borderRadius: 8, padding: "8px 10px", fontSize: 14, background: T.card, color: T.ink }} />
+                      <input defaultValue={o.price_delta} type="number" step="0.05" onBlur={async (e) => { const v = parseFloat(e.target.value) || 0; if (v !== Number(o.price_delta)) await act("update_mod_option", { id: o.id, name: o.name, price_delta: v, sort_order: o.sort_order }); }} style={{ width: 90, border: "1px solid " + T.line, borderRadius: 8, padding: "8px 10px", fontSize: 14, background: T.card, color: T.ink }} placeholder="+0.00" />
+                      <span onClick={async () => { await act("delete_mod_option", { id: o.id }); }} style={{ fontSize: 18, color: T.muted, cursor: "pointer", padding: "0 4px" }}>×</span>
+                    </div>
+                  ))}
+                  <button onClick={async () => { await act("create_mod_option", { group_id: g.id, name: "New option", price_delta: 0, sort_order: opts.length }); }} style={{ fontSize: 13, color: T.accent || "#5E7A4D", background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginTop: 4 }}>+ Add option</button>
+
+                  <div style={{ marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>ASSIGN TO ITEMS</div>
+                    <div style={{ maxHeight: 130, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
+                      {(state.items || []).map((it) => {
+                        const linked = (state.itemModifiers || []).some((im) => im.group_id === g.id && im.item_id === it.id);
+                        return (
+                          <label key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
+                            <input type="checkbox" checked={linked} onChange={async () => {
+                              const cur = (state.itemModifiers || []).filter((im) => im.item_id === it.id).map((im) => im.group_id);
+                              const next = linked ? cur.filter((x) => x !== g.id) : [...cur, g.id];
+                              await act("set_item_mod_groups", { item_id: it.id, group_ids: next });
+                            }} />
+                            {it.name}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            <button onClick={async () => { await act("create_mod_group", { name: "New group", required: false, min_select: 0, max_select: 1 }); }} style={{ width: "100%", border: "1px dashed " + T.line, background: "transparent", color: T.muted, borderRadius: 10, padding: "12px 0", fontSize: 14, fontWeight: 600, cursor: "pointer" }}>+ New modifier group</button>
           </div>
         </div>
       )}
