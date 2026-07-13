@@ -104,7 +104,8 @@ async function fetchSettings() {
   } catch { return {}; }
 }
 
-function Welcome({ bg }) {
+function Welcome({ bg, menus, onPick }) {
+  const [open, setOpen] = useState(false);
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '680px', left: '40px', top: '240px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.22),rgba(167,192,131,.1) 50%,transparent 72%)', filter: 'blur(6px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
@@ -115,9 +116,24 @@ function Welcome({ bg }) {
         <div style={{width: '54px', height: '2px', background: 'var(--accent)', margin: '34px 0'}}></div>
         <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '24px', fontWeight: '400', color: 'var(--ink)', opacity: '.78', lineHeight: '1.5'}}>Your daily ritual, gently elevated.<br />Calm energy in a cup.</div>
       </div>
-      <div style={{position: 'absolute', left: '0', right: '0', bottom: '66px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px'}}>
-        <div style={{display: 'flex', alignItems: 'center', gap: '14px', background: 'var(--accent)', color: '#F7F4EC', padding: '22px 58px', borderRadius: '60px', fontFamily: '\'Poppins\',sans-serif', fontSize: '20px', fontWeight: '600', boxShadow: '0 18px 38px -14px rgba(94,122,77,.55)'}}>Order Ahead <span style={{fontSize: '22px'}}>→</span></div>
+      <div style={{position: 'absolute', left: '0', right: '0', bottom: '66px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px', zIndex: 5}}>
+        <div onClick={() => setOpen(true)} style={{display: 'flex', alignItems: 'center', gap: '14px', background: 'var(--accent)', color: '#F7F4EC', padding: '22px 58px', borderRadius: '60px', fontFamily: '\'Poppins\',sans-serif', fontSize: '20px', fontWeight: '600', boxShadow: '0 18px 38px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>Order Ahead <span style={{fontSize: '22px'}}>→</span></div>
         <div style={{fontSize: '14px', fontWeight: '600', letterSpacing: '.16em', color: 'var(--muted)', textTransform: 'uppercase'}}>Pickup at counter · Tap to begin</div>
+      </div>
+
+      {/* choose-menu popup: opens from the bottom, dismiss on outside tap */}
+      <div onClick={() => setOpen(false)} style={{position: 'absolute', inset: 0, zIndex: 30, pointerEvents: open ? 'auto' : 'none', background: open ? 'rgba(30,36,20,.34)' : 'transparent', transition: 'background .3s ease', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}}>
+        <div onClick={(e) => e.stopPropagation()} style={{width: 'min(520px, 82%)', marginBottom: '210px', background: 'rgba(255,255,255,.78)', backdropFilter: 'blur(14px)', borderRadius: '26px', padding: '18px 16px 16px', boxShadow: '0 26px 60px -20px rgba(0,0,0,.5)', transform: open ? 'translateY(0)' : 'translateY(40px)', opacity: open ? 1 : 0, transition: 'transform .32s cubic-bezier(.2,.8,.2,1), opacity .28s ease'}}>
+          <div style={{textAlign: 'center', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600', color: 'var(--accent)', marginBottom: '14px'}}>Choose Menu</div>
+          <div style={{display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden'}}>
+            {(menus || []).map((m, i) => {
+              const on = m.open !== false;
+              return (
+                <div key={m.id} onClick={() => { if (on) { onPick(m); setOpen(false); } }} style={{padding: '18px 0', textAlign: 'center', cursor: on ? 'pointer' : 'default', background: i === 0 ? 'var(--accent)' : '#fff', color: i === 0 ? '#F5F1E6' : (on ? 'var(--ink)' : 'var(--muted)'), fontFamily: '\'Poppins\',sans-serif', fontSize: '16px', fontWeight: '600', letterSpacing: '.04em', textTransform: 'uppercase', borderTop: i === 0 ? 'none' : '1px solid rgba(60,70,45,.1)', opacity: on ? 1 : .55}}>{m.name}</div>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -660,9 +676,8 @@ export default function App() {
       <div style={{ width: "100vw", height: "100dvh", margin: 0 }}>
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
-            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }} onClick={() => setScreen("picker")}><Welcome bg={settings.welcome_bg_url || ""} /></div>
-            <div className={"screen" + (screen === "picker" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "picker" ? "block" : "none" }}><MenuPicker menus={menus} bg={settings.picker_bg_url || settings.welcome_bg_url || ""} onPick={pickMenu} onClose={() => setScreen("welcome")} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onBag={() => setScreen("bag")} onBack={() => setScreen("picker")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
+            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} /></div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} /></div>
