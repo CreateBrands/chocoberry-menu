@@ -5,11 +5,19 @@ import { useState, useEffect, useRef } from "react";
 // Faithful 6-screen flow. Sample content seeded; live data comes next.
 // ============================================================
 
-const VARS = {
-  "--bg": "#E1E8D2", "--bg2": "#EEF2E4", "--bg3": "#FFFFFF",
-  "--ink": "#2F3326", "--muted": "#7E8470", "--accent": "#5E7A4D",
-  "--chip": "#A7C196", "--accent-soft": "#D2DEBC", "--line": "rgba(60,70,45,.12)",
+const THEMES = {
+  still: {
+    "--bg": "#E1E8D2", "--bg2": "#EEF2E4", "--bg3": "#FFFFFF",
+    "--ink": "#2F3326", "--muted": "#7E8470", "--accent": "#5E7A4D",
+    "--chip": "#A7C196", "--accent-soft": "#D2DEBC", "--line": "rgba(60,70,45,.12)",
+  },
+  chocoberry: {
+    "--bg": "#F4E9DD", "--bg2": "#F3EADA", "--bg3": "#FBF6EC",
+    "--ink": "#3A2E26", "--muted": "#6B5D4F", "--accent": "#844429",
+    "--chip": "#E8DCC6", "--accent-soft": "#EADFCB", "--line": "#E8DCC6",
+  },
 };
+const VARS = THEMES.still; // default; overridden at runtime by theme setting
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -633,8 +641,12 @@ export default function App() {
 
   const openItem = (it) => { setSelItem(it); setScreen("item"); };
 
+  const themeVars = THEMES[settings.theme] || THEMES.still;
+  const themeBg = settings.theme === "chocoberry"
+    ? "linear-gradient(160deg,#F3EADA,#F4E9DD)"
+    : "linear-gradient(160deg,#EEF2E4,#E1E8D2)";
   return (
-    <div style={{ ...VARS, background: "linear-gradient(160deg,#EEF2E4,#E1E8D2)", fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden" }}>
+    <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden" }}>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}

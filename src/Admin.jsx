@@ -327,6 +327,20 @@ export default function Admin() {
           <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "88vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Appearance</div>
+            <div style={{ fontSize: 13, color: T.muted, margin: "8px 0 16px" }}>Choose the customer app theme.</div>
+            <div style={{ display: "flex", gap: 10, marginBottom: 22 }}>
+              {[["still","still. (green)","#5E7A4D"],["chocoberry","Chocoberry (brown)","#844429"]].map(([key,label,col]) => {
+                const active = (getSetting("theme") || "still") === key;
+                return (
+                  <div key={key} onClick={async () => { await act("set_setting", { key: "theme", value: key }); }}
+                    style={{ flex: 1, cursor: "pointer", borderRadius: 12, padding: "14px 12px", textAlign: "center", border: active ? "2px solid " + col : "1px solid " + T.line, background: active ? col + "14" : "#fff" }}>
+                    <div style={{ width: 28, height: 28, borderRadius: "50%", background: col, margin: "0 auto 8px" }} />
+                    <div style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>{label}</div>
+                    {active && <div style={{ fontSize: 11, color: col, marginTop: 3, fontWeight: 600 }}>Active</div>}
+                  </div>
+                );
+              })}
+            </div>
               <span onClick={() => setShowAppearance(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
             </div>
             <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Background images for the welcome screen and menu picker.</div>
