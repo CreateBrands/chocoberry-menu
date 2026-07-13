@@ -108,10 +108,7 @@ function Welcome({ bg }) {
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '680px', left: '40px', top: '240px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.22),rgba(167,192,131,.1) 50%,transparent 72%)', filter: 'blur(6px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
-      <div style={{position: 'relative', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '20px 32px 6px', fontSize: '15px', color: 'var(--muted)', fontWeight: '600'}}>
-        <span>7:42</span>
-        <div style={{display: 'flex', gap: '10px', alignItems: 'center'}}><span style={{letterSpacing: '.06em'}}>Wi-Fi</span><span>100%</span><div style={{width: '24px', height: '12px', border: '1.5px solid var(--muted)', borderRadius: '3px', padding: '1.5px'}}><div style={{width: '100%', height: '100%', background: 'var(--muted)', borderRadius: '1px'}}></div></div></div>
-      </div>
+      
       <div style={{position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 60px', marginTop: '-50px'}}>
         <div style={{fontFamily: '\'Hanken Grotesk\',sans-serif', fontSize: '15px', fontWeight: '700', letterSpacing: '.42em', color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '32px'}}>Matcha · Coffee</div>
         <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '140px', fontWeight: '600', lineHeight: '.86', letterSpacing: '-.04em'}}>still<span style={{color: 'var(--accent)'}}>.</span></div>
@@ -157,14 +154,16 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
 
   // scroll a category into view when its strip pill is tapped
   const scrollToCat = (i) => {
-    const el = catRefs.current[i];
-    const sc = rootRef.current && rootRef.current.querySelector("[data-menuscroll]");
-    if (el && sc) {
-      const scRect = sc.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      sc.scrollTo({ top: sc.scrollTop + (elRect.top - scRect.top) - 8, behavior: "smooth" });
-    }
     setActiveCat(i);
+    const sc = rootRef.current && rootRef.current.querySelector("[data-menuscroll]");
+    const el = catRefs.current[i];
+    if (el && sc) {
+      // use offsetTop relative to the scroll container for a reliable absolute jump
+      requestAnimationFrame(() => {
+        const top = el.offsetTop - 8;
+        sc.scrollTo({ top: top < 0 ? 0 : top, behavior: "smooth" });
+      });
+    }
   };
 
   const cat = data[activeCat] || data[0] || { name: "", items: [] };
@@ -213,7 +212,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
 
         {/* category strip — reveals on scroll */}
         <div style={{ position: "sticky", top: 0, zIndex: 6, background: "var(--bg)", boxShadow: scrolled ? "0 12px 16px -14px rgba(56,53,43,.5)" : "none", overflow: "hidden", maxHeight: scrolled ? 160 : 0, opacity: scrolled ? 1 : 0, paddingTop: scrolled ? 14 : 0, paddingBottom: scrolled ? 14 : 0, transition: "max-height .35s ease, opacity .3s ease, padding .35s ease" }}>
-          <div style={{ display: "flex", gap: 14, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 28px", scrollbarWidth: "none" }}>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 20px", scrollbarWidth: "none" }}>
             {data.map((c, i) => {
               const catImg = (c.img && /^https?:/.test(c.img) ? c.img : null) || (c.items || []).map(x => x.image_url).find(u => u && /^https?:/.test(u)) || null;
               return (
@@ -264,11 +263,11 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
       {/* horizontal bottom strip; active expands inline, others shuffle aside */}
       {menus && menus.length > 1 && (
-      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 18, maxWidth: "calc(100% - 24px)", background: "rgba(255,255,255,.96)", backdropFilter: "blur(10px)", borderRadius: 30, boxShadow: "0 14px 34px rgba(56,53,43,.18)", padding: 6, display: "flex", alignItems: "center", gap: 2, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,.98)", backdropFilter: "blur(10px)", boxShadow: "0 -8px 24px rgba(56,53,43,.12)", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 4, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
         {menus.map((m, i) => {
           const on = i === activeMenu;
           return (
-            <div key={m.id} onClick={() => setActiveMenu(i)} title={m.name} style={{ display: "flex", alignItems: "center", gap: on ? 8 : 0, background: on ? "var(--accent)" : "transparent", borderRadius: 24, padding: on ? "10px 18px 10px 12px" : 0, height: 48, width: on ? "auto" : 48, justifyContent: "center", cursor: "pointer", flex: "none", transition: "all .28s cubic-bezier(.4,0,.2,1)" }}>
+            <div key={m.id} onClick={() => setActiveMenu(i)} title={m.name} style={{ display: "flex", alignItems: "center", gap: on ? 8 : 0, background: on ? "var(--accent)" : "transparent", borderRadius: 24, padding: on ? "12px 22px 12px 16px" : 0, height: 60, width: on ? "auto" : 60, justifyContent: "center", cursor: "pointer", flex: "none", transition: "all .28s cubic-bezier(.4,0,.2,1)" }}>
               <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: on ? "#F5F1E6" : "var(--accent)", flex: "none" }}>{menuIcon(m.name, on)}</span>
               {on && <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: 500, color: "#F5F1E6", whiteSpace: "nowrap" }}>{m.name}</span>}
             </div>
@@ -374,7 +373,7 @@ function ItemDetail({ item, onAdd, onClose }) {
           <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, minWidth: 16, textAlign: "center" }}>{qty}</span>
           <span onClick={() => setQty((q) => q + 1)} style={{ fontSize: 22, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
         </div>
-        <div onClick={() => onAdd({ item: it, size, milk, qty, unit })} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: "pointer" }}>Add to Bag · {money(unit * qty)}</div>
+        <div onClick={() => onAdd({ item: it, qty, unit })} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: "pointer" }}>Add to Bag · {money(unit * qty)}</div>
       </div>
     </div>
   );
@@ -487,7 +486,7 @@ function Confirm({ orderNo, pickupName }) {
 // Relatable inline SVG icon per menu, matched by name keywords.
 function menuIcon(name, active) {
   const c = active ? "#F5F1E6" : "currentColor";
-  const p = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+  const p = { width: 28, height: 28, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
   const n = (name || "").toLowerCase();
   if (n.includes("dessert") || n.includes("cake") || n.includes("sweet"))
     return <svg {...p}><path d="M4 16h16M6 16c0-3 2-5 6-5s6 2 6 5M9 8c0-1 .5-2 3-2s3 1 3 2M12 3v1" /></svg>;
@@ -646,7 +645,7 @@ export default function App() {
     ? "linear-gradient(160deg,#F3EADA,#F4E9DD)"
     : "linear-gradient(160deg,#EEF2E4,#E1E8D2)";
   return (
-    <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden" }}>
+    <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0 }}>
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}
