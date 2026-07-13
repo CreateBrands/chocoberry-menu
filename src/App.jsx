@@ -104,21 +104,21 @@ async function fetchSettings() {
   } catch { return {}; }
 }
 
-function Welcome({ bg, menus, onPick }) {
+function Welcome({ bg, menus, onPick, w = {} }) {
   const [open, setOpen] = useState(false);
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '680px', left: '40px', top: '240px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.22),rgba(167,192,131,.1) 50%,transparent 72%)', filter: 'blur(6px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
       
       <div style={{position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 60px', marginTop: '-50px'}}>
-        <div style={{fontFamily: '\'Hanken Grotesk\',sans-serif', fontSize: '15px', fontWeight: '700', letterSpacing: '.42em', color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '32px'}}>Matcha · Coffee</div>
-        <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '140px', fontWeight: '600', lineHeight: '.86', letterSpacing: '-.04em'}}>still<span style={{color: 'var(--accent)'}}>.</span></div>
+        <div style={{fontFamily: '\'Hanken Grotesk\',sans-serif', fontSize: '15px', fontWeight: '700', letterSpacing: '.42em', color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '32px'}}>{w.welcome_eyebrow || 'Matcha · Coffee'}</div>
+        {w.welcome_logo_url ? <img src={w.welcome_logo_url} alt="" style={{maxWidth: '70%', maxHeight: '220px', objectFit: 'contain'}} /> : <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '140px', fontWeight: '600', lineHeight: '.86', letterSpacing: '-.04em'}} dangerouslySetInnerHTML={{__html: w.welcome_logo_text || 'still<span style=\'color:var(--accent)\'>.</span>'}} />}
         <div style={{width: '54px', height: '2px', background: 'var(--accent)', margin: '34px 0'}}></div>
-        <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '24px', fontWeight: '400', color: 'var(--ink)', opacity: '.78', lineHeight: '1.5'}}>Your daily ritual, gently elevated.<br />Calm energy in a cup.</div>
+        <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '24px', fontWeight: '400', color: 'var(--ink)', opacity: '.78', lineHeight: '1.5'}} dangerouslySetInnerHTML={{__html: w.welcome_subtitle || 'Your daily ritual, gently elevated.<br />Calm energy in a cup.'}} />
       </div>
       <div style={{position: 'absolute', left: '0', right: '0', bottom: '66px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px', zIndex: 5}}>
-        <div onClick={() => setOpen(true)} style={{display: 'flex', alignItems: 'center', gap: '14px', background: 'var(--accent)', color: '#F7F4EC', padding: '22px 58px', borderRadius: '60px', fontFamily: '\'Poppins\',sans-serif', fontSize: '20px', fontWeight: '600', boxShadow: '0 18px 38px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>Order Ahead <span style={{fontSize: '22px'}}>→</span></div>
-        <div style={{fontSize: '14px', fontWeight: '600', letterSpacing: '.16em', color: 'var(--muted)', textTransform: 'uppercase'}}>Pickup at counter · Tap to begin</div>
+        <div onClick={() => setOpen(true)} style={{display: 'flex', alignItems: 'center', gap: '14px', background: 'var(--accent)', color: '#F7F4EC', padding: '22px 58px', borderRadius: '60px', fontFamily: '\'Poppins\',sans-serif', fontSize: '20px', fontWeight: '600', boxShadow: '0 18px 38px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>{w.welcome_button || 'Order Ahead'} <span style={{fontSize: '22px'}}>→</span></div>
+        <div style={{fontSize: '14px', fontWeight: '600', letterSpacing: '.16em', color: 'var(--muted)', textTransform: 'uppercase'}}>{w.welcome_footer || 'Pickup at counter · Tap to begin'}</div>
       </div>
 
       {/* choose-menu popup: opens from the bottom, dismiss on outside tap */}
@@ -676,7 +676,7 @@ export default function App() {
       <div style={{ width: "100vw", height: "100dvh", margin: 0 }}>
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
-            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} /></div>
+            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settings} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>

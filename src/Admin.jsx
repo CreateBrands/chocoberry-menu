@@ -224,6 +224,7 @@ export default function Admin() {
   const [editItem, setEditItem] = useState(null);
   const [imgTarget, setImgTarget] = useState(null); // {kind:"menu"|"section", id}
   const [showAppearance, setShowAppearance] = useState(false);
+  const [showWelcome, setShowWelcome] = useState(false);
   const [msg, setMsg] = useState("");
 
   const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [] });
@@ -254,6 +255,7 @@ export default function Admin() {
           <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26 }}>Menu Admin</div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => setShowAppearance(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Appearance</button>
+            <button onClick={() => setShowWelcome(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Welcome Page</button>
             <button onClick={() => { setPin(null); setState(null); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Lock</button>
           </div>
         </div>
@@ -348,6 +350,37 @@ export default function Admin() {
             <ImageUpload value={getSetting("welcome_bg_url")} prefix="backgrounds" onChange={async (url) => { await act("set_setting", { key: "welcome_bg_url", value: url }); }} height={140} />
             <div style={{ fontSize: 14, fontWeight: 600, margin: "18px 0 6px" }}>Menu picker background</div>
             <ImageUpload value={getSetting("picker_bg_url")} prefix="backgrounds" onChange={async (url) => { await act("set_setting", { key: "picker_bg_url", value: url }); }} height={140} />
+          </div>
+        </div>
+      )}
+      {showWelcome && (
+        <div onClick={() => setShowWelcome(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 460, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "88vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Welcome Page</div>
+              <span onClick={() => setShowWelcome(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
+            </div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 18 }}>Customise the first screen guests see. Leave a field blank to use the default.</div>
+
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: T.muted, marginBottom: 8 }}>LOGO IMAGE</div>
+            <ImageUpload value={getSetting("welcome_logo_url")} prefix="branding" onChange={async (url) => { await act("set_setting", { key: "welcome_logo_url", value: url }); }} height={120} />
+            <div style={{ fontSize: 12, color: T.muted, margin: "6px 0 18px" }}>Upload a logo, or leave blank to use the text logo below.</div>
+
+            {[
+              ["welcome_logo_text", "Text logo (if no image)", "still<span style='color:var(--accent)'>.</span>"],
+              ["welcome_eyebrow", "Eyebrow (small text above logo)", "Matcha · Coffee"],
+              ["welcome_subtitle", "Subtitle", "Your daily ritual, gently elevated.<br />Calm energy in a cup."],
+              ["welcome_button", "Order button text", "Order Ahead"],
+              ["welcome_footer", "Footer line", "Pickup at counter · Tap to begin"],
+            ].map(([key, label, ph]) => (
+              <div key={key} style={{ marginBottom: 14 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: T.muted, marginBottom: 6 }}>{label.toUpperCase()}</div>
+                <input defaultValue={getSetting(key)} placeholder={ph}
+                  onBlur={async (e) => { await act("set_setting", { key, value: e.target.value }); }}
+                  style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: T.ink, background: T.card }} />
+              </div>
+            ))}
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Tip: subtitle and text logo accept simple HTML (e.g. &lt;br /&gt; for a line break). Changes save when you click out of a field.</div>
           </div>
         </div>
       )}
