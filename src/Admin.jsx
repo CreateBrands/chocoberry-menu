@@ -225,6 +225,8 @@ export default function Admin() {
   const [imgTarget, setImgTarget] = useState(null); // {kind:"menu"|"section", id}
   const [showAppearance, setShowAppearance] = useState(false);
   const [showWelcome, setShowWelcome] = useState(false);
+  const [showHero, setShowHero] = useState(false);
+  const [heroDraft, setHeroDraft] = useState([]);
   const [msg, setMsg] = useState("");
 
   const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [] });
@@ -256,6 +258,7 @@ export default function Admin() {
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={() => setShowAppearance(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Appearance</button>
             <button onClick={() => setShowWelcome(true)} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Welcome Page</button>
+            <button onClick={() => { try { const v = getSetting("hero_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); } setShowHero(true); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Hero Slides</button>
             <button onClick={() => { setPin(null); setState(null); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.muted, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>Lock</button>
           </div>
         </div>
@@ -381,6 +384,38 @@ export default function Admin() {
               </div>
             ))}
             <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Tip: subtitle and text logo accept simple HTML (e.g. &lt;br /&gt; for a line break). Changes save when you click out of a field.</div>
+          </div>
+        </div>
+      )}
+      {showHero && (
+        <div onClick={() => setShowHero(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 520, maxWidth: "94vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Hero Slides</div>
+              <span onClick={() => setShowHero(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
+            </div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>The rotating banner at the top of the menu. Upload a photo for each slide; add or remove slides as needed.</div>
+
+            {heroDraft.map((sl, idx) => (
+              <div key={idx} style={{ border: "1px solid " + T.line, borderRadius: 12, padding: 14, marginBottom: 14 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>Slide {idx + 1}</div>
+                  <span onClick={() => setHeroDraft(heroDraft.filter((_, i) => i !== idx))} style={{ fontSize: 13, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Delete</span>
+                </div>
+                <ImageUpload value={sl.image_url || ""} prefix="hero" height={120} onChange={(url) => setHeroDraft(heroDraft.map((x, i) => i === idx ? { ...x, image_url: url } : x))} />
+                {[["tag", "Tag (small pill)", "NEW THIS WEEK"], ["title", "Title", "Blueberry Marble Matcha"], ["sub", "Subtitle", "Fresh. Layered. Unexpected."]].map(([k, label, ph]) => (
+                  <div key={k} style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: T.muted, marginBottom: 4 }}>{label.toUpperCase()}</div>
+                    <input value={sl[k] || ""} placeholder={ph} onChange={(e) => setHeroDraft(heroDraft.map((x, i) => i === idx ? { ...x, [k]: e.target.value } : x))}
+                      style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 8, padding: "9px 11px", fontSize: 14, color: T.ink, background: T.card }} />
+                  </div>
+                ))}
+              </div>
+            ))}
+
+            <button onClick={() => setHeroDraft([...heroDraft, { image_url: "", tag: "", title: "", sub: "" }])} style={{ width: "100%", border: "1px dashed " + T.line, background: "transparent", color: T.muted, borderRadius: 10, padding: "12px 0", fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 14 }}>+ Add slide</button>
+
+            <button onClick={async () => { await act("set_setting", { key: "hero_slides", value: JSON.stringify(heroDraft) }); setShowHero(false); }} style={{ width: "100%", border: "none", background: T.accent || "#5E7A4D", color: "#fff", borderRadius: 10, padding: "13px 0", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Save slides</button>
           </div>
         </div>
       )}

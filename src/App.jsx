@@ -145,7 +145,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
   const [scrolled, setScrolled] = useState(false);
   const [hero, setHero] = useState(0);
   useEffect(() => {
-    const id = setInterval(() => setHero((i) => (i + 1) % HERO.length), 4200);
+    const id = setInterval(() => setHero((i) => (i + 1) % HEROX.length), 4200);
     return () => clearInterval(id);
   }, []);
   useEffect(() => {
@@ -200,16 +200,16 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
 {/* hero carousel */}
         <div style={{ margin: "0 28px", borderRadius: 26, overflow: "hidden", position: "relative", height: 300 }}>
           <div style={{ display: "flex", height: "100%", transition: "transform .6s cubic-bezier(.4,0,.2,1)", transform: `translateX(-${hero * 100}%)` }}>
-            {HERO.map((s, i) => (
-              <div key={i} style={{ flex: "none", width: "100%", height: "100%", position: "relative", background: s.bg }}>
-                <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 80% at 12% 22%,rgba(255,255,255,.22),transparent 52%),radial-gradient(90% 90% at 88% 84%,rgba(33,48,22,.4),transparent 60%)" }} />
+            {HEROX.map((s, i) => (
+              <div key={i} style={{ flex: "none", width: "100%", height: "100%", position: "relative", ...(s.image_url ? { backgroundImage: `url(${s.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: s.bg }) }}>
+                <div style={{ position: "absolute", inset: 0, background: s.image_url ? "linear-gradient(90deg,rgba(20,26,14,.62),rgba(20,26,14,.15) 60%,transparent)" : "radial-gradient(120% 80% at 12% 22%,rgba(255,255,255,.22),transparent 52%),radial-gradient(90% 90% at 88% 84%,rgba(33,48,22,.4),transparent 60%)" }} />
                 <div style={{ position: "absolute", left: 34, top: 48, maxWidth: 300 }}>
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,.18)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.32)", color: "#FBFAF2", fontFamily: "'Poppins',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: ".12em", padding: "6px 13px", borderRadius: 20, marginBottom: 14 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot }} />{s.tag}</div>
                   <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: 38, fontWeight: 600, lineHeight: 1.04, color: "#FBFAF2", textShadow: "0 2px 18px rgba(30,40,20,.32)" }}>{s.title}</div>
                   <div style={{ width: 120, height: 1.5, background: "rgba(255,255,255,.7)", margin: "14px 0 12px" }} />
                   <div style={{ fontSize: 15, color: "rgba(255,255,255,.92)", fontWeight: 500 }}>{s.sub}</div>
                 </div>
-                <div style={{ position: "absolute", right: 46, bottom: -8, width: 150, height: 200 }}>
+                {!s.image_url && <div style={{ position: "absolute", right: 46, bottom: -8, width: 150, height: 200 }}>
                   <div style={{ position: "absolute", left: 6, bottom: 6, width: 138, height: 32, borderRadius: "50%", background: "rgba(25,35,15,.3)", filter: "blur(10px)" }} />
                   <div style={{ position: "absolute", bottom: 0, width: 150, height: 184, borderRadius: "14px 14px 50px 50px", overflow: "hidden", background: s.cup, boxShadow: "inset 0 0 34px rgba(40,50,25,.4)" }}>
                     <div style={{ position: "absolute", left: -12, top: 36, width: 92, height: 92, borderRadius: "50%", background: s.blob, filter: "blur(7px)", opacity: .9 }} />
@@ -217,12 +217,12 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
                     <div style={{ position: "absolute", left: 0, right: 0, bottom: 42, textAlign: "center", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, color: "rgba(255,255,255,.92)" }}>still</div>
                   </div>
                   <div style={{ position: "absolute", top: 0, width: 150, height: 24, borderRadius: "50%", background: "rgba(255,255,255,.38)" }} />
-                </div>
+                </div>}
               </div>
             ))}
           </div>
           <div style={{ position: "absolute", bottom: 16, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 7 }}>
-            {HERO.map((_, i) => <div key={i} style={{ width: i === hero ? 22 : 8, height: 8, borderRadius: "50%", background: i === hero ? "#FFFFFF" : "rgba(255,255,255,.45)", transition: "width .3s" }} />)}
+            {HEROX.map((_, i) => <div key={i} style={{ width: i === hero ? 22 : 8, height: 8, borderRadius: "50%", background: i === hero ? "#FFFFFF" : "rgba(255,255,255,.45)", transition: "width .3s" }} />)}
           </div>
         </div>
 
@@ -656,6 +656,8 @@ export default function App() {
 
   const openItem = (it) => { setSelItem(it); setScreen("item"); };
 
+  let heroSlides = [];
+  try { heroSlides = settings.hero_slides ? (typeof settings.hero_slides === "string" ? JSON.parse(settings.hero_slides) : settings.hero_slides) : []; } catch { heroSlides = []; }
   const themeVars = THEMES[settings.theme] || THEMES.still;
   const themeBg = settings.theme === "chocoberry"
     ? "linear-gradient(160deg,#F3EADA,#F4E9DD)"
@@ -677,7 +679,7 @@ export default function App() {
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settings} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} /></div>
