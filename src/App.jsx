@@ -139,7 +139,8 @@ function Welcome({ bg, menus, onPick, w = {} }) {
   );
 }
 // ============ DATA-DRIVEN BROWSE ============
-function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onBag, onBack, onSearch, bagCount }) {
+function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, bagCount, heroSlides }) {
+  const HEROX = (heroSlides && heroSlides.length) ? heroSlides : HERO;
   const rootRef = useRef(null);
   const catRefs = useRef([]);
   const [scrolled, setScrolled] = useState(false);
@@ -265,7 +266,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
                     <div style={{ flex: 1, minHeight: 8 }} />
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
-                      <div style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 500, lineHeight: 1 }}>+</div>
+                      <div onClick={(e) => { e.stopPropagation(); onAdd({ item: it, qty: 1, unit: it.price }); }} style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 500, lineHeight: 0, paddingBottom: 2, cursor: "pointer" }}>+</div>
                     </div>
                   </div>
                 </div>
