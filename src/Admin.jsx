@@ -164,7 +164,8 @@ function AddCard({ label, onClick }) {
   return <div onClick={onClick} style={{ border: "1px dashed rgba(60,70,45,.28)", borderRadius: 14, minHeight: 128, display: "flex", alignItems: "center", justifyContent: "center", color: T.faint, fontSize: 14, cursor: "pointer" }}>+ {label}</div>;
 }
 
-function ItemEditor({ pin, item, onClose, onSaved }) {
+function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSaved }) {
+  const [modIds, setModIds] = useState(itemGroupIds);
   const [f, setF] = useState({
     name: item.name || "", description: item.description || "", price: item.price ?? 0,
     allergens: (item.allergens || []).join(", "), image_url: item.image_url || "", published: item.published !== false,
@@ -180,6 +181,7 @@ function ItemEditor({ pin, item, onClose, onSaved }) {
         allergens: f.allergens.split(",").map((s) => s.trim()).filter(Boolean),
         image_url: f.image_url || null, published: f.published,
       }});
+      await callAdmin(pin, "set_item_mod_groups", { item_id: item.id, group_ids: modIds });
       onSaved();
     } catch (e) { setErr(e.message); } finally { setBusy(false); }
   };
@@ -202,6 +204,23 @@ function ItemEditor({ pin, item, onClose, onSaved }) {
         <input style={inp} value={f.allergens} onChange={(e) => set("allergens", e.target.value)} placeholder="Milk, Soya, Nuts" />
         <div style={lab}>Image</div>
         <ImageUpload value={f.image_url} onChange={(v) => set("image_url", v)} prefix="items" />
+        {groups.length > 0 && (
+          <div style={{ marginTop: 18 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".06em", color: T.muted, marginBottom: 8 }}>MODIFIER GROUPS</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {groups.map((g) => {
+                const on = modIds.includes(g.id);
+                return (
+                  <label key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: T.ink, cursor: "pointer", padding: "4px 0" }}>
+                    <input type="checkbox" checked={on} onChange={() => setModIds(on ? modIds.filter((x) => x !== g.id) : [...modIds, g.id])} />
+                    {g.name} <span style={{ fontSize: 12, color: T.muted }}>{g.required ? "(required)" : "(optional)"}</span>
+                  </label>
+                );
+              })}
+            </div>
+            <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Tick the groups that apply to this item. Manage groups & options in the Modifiers panel.</div>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 18 }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>Published</span>
           <span onClick={() => set("published", !f.published)} style={{ width: 44, height: 24, borderRadius: 13, background: f.published ? T.accent : "#cfcabd", position: "relative", cursor: "pointer" }}>
@@ -328,7 +347,7 @@ export default function Admin() {
         )}
       </div>
 
-      {editItem && <ItemEditor pin={pin} item={editItem} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); reload(); }} />}
+      {editItem && <ItemEditor pin={pin} item={editItem} groups={state.modifierGroups || []} itemGroupIds={(state.itemModifiers || []).filter((im) => im.item_id === editItem.id).map((im) => im.group_id)} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); reload(); }} />}
       {showAppearance && (
         <div onClick={() => setShowAppearance(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "88vh", overflowY: "auto" }}>
@@ -454,24 +473,6 @@ export default function Admin() {
                   ))}
                   <button onClick={async () => { await act("create_mod_option", { group_id: g.id, name: "New option", price_delta: 0, sort_order: opts.length }); }} style={{ fontSize: 13, color: T.accent || "#5E7A4D", background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginTop: 4 }}>+ Add option</button>
 
-                  <div style={{ marginTop: 12, borderTop: "1px solid " + T.line, paddingTop: 10 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>ASSIGN TO ITEMS</div>
-                    <div style={{ maxHeight: 130, overflowY: "auto", display: "flex", flexDirection: "column", gap: 2 }}>
-                      {(state.items || []).map((it) => {
-                        const linked = (state.itemModifiers || []).some((im) => im.group_id === g.id && im.item_id === it.id);
-                        return (
-                          <label key={it.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, cursor: "pointer" }}>
-                            <input type="checkbox" checked={linked} onChange={async () => {
-                              const cur = (state.itemModifiers || []).filter((im) => im.item_id === it.id).map((im) => im.group_id);
-                              const next = linked ? cur.filter((x) => x !== g.id) : [...cur, g.id];
-                              await act("set_item_mod_groups", { item_id: it.id, group_ids: next });
-                            }} />
-                            {it.name}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  </div>
                 </div>
               );
             })}
