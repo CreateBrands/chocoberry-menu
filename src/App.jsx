@@ -208,7 +208,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
           <div style={{ display: "flex", gap: 14, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 28px", scrollbarWidth: "none" }}>
             {data.map((c, i) => (
               <div key={c.name} onClick={() => scrollToCat(i)} style={{ flex: "none", width: 132, scrollSnapAlign: "start", cursor: "pointer" }}>
-                <div style={{ height: 94, borderRadius: 16, position: "relative", overflow: "hidden", background: c.img || "linear-gradient(160deg,#cf8aa0,#9fb585)", boxShadow: "0 4px 12px -5px rgba(56,53,43,.2)" }}>
+                <div style={{ height: 94, borderRadius: 16, position: "relative", overflow: "hidden", background: (c.img || (c.items || []).find(x => x.image_url)?.image_url) ? `center/cover url(${c.img || (c.items || []).find(x => x.image_url).image_url})` : "linear-gradient(160deg,#cf8aa0,#9fb585)", boxShadow: "0 4px 12px -5px rgba(56,53,43,.2)" }}>
                   <div style={{ position: "absolute", inset: 0, background: "radial-gradient(60% 60% at 50% 34%,rgba(255,255,255,.3),transparent 70%)" }} />
                   {i === activeCat && <div style={{ position: "absolute", inset: 0, borderRadius: 16, boxShadow: "inset 0 0 0 3px var(--accent)" }} />}
                 </div>
@@ -315,13 +315,7 @@ function Drawer() {
 function ItemDetail({ item, onAdd, onClose }) {
   const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: ["Milk"] };
   const [qty, setQty] = useState(1);
-  const [size, setSize] = useState("Regular");
-  const [milk, setMilk] = useState("Oat");
-  const SIZES = [{ k: "Regular", d: 0 }, { k: "Large", d: 0.6 }];
-  const MILKS = [{ k: "Whole", d: 0 }, { k: "Oat", d: 0 }, { k: "Almond", d: 0.6 }];
-  const sizeDelta = SIZES.find((s) => s.k === size).d;
-  const milkDelta = MILKS.find((m) => m.k === milk).d;
-  const unit = it.price + sizeDelta + milkDelta;
+  const unit = it.price;
 
   return (
     <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
@@ -359,24 +353,7 @@ function ItemDetail({ item, onAdd, onClose }) {
           </div>
         )}
 
-        <div style={{ marginTop: 24 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", marginBottom: 12 }}>SIZE</div>
-          <div style={{ display: "flex", gap: 12 }}>
-            {SIZES.map((sz) => (
-              <div key={sz.k} onClick={() => setSize(sz.k)} style={{ cursor: "pointer", padding: "12px 24px", borderRadius: 24, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, background: size === sz.k ? "var(--accent)" : "var(--bg)", color: size === sz.k ? "#fff" : "var(--ink)", boxShadow: size === sz.k ? "none" : "inset 0 0 0 1px var(--line)" }}>{sz.k}{sz.d ? ` +${sz.d.toFixed(2)}` : ""}</div>
-            ))}
-          </div>
-        </div>
 
-        <div style={{ marginTop: 22, paddingBottom: 20 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", marginBottom: 6 }}>MILK</div>
-          {MILKS.map((mk) => (
-            <div key={mk.k} onClick={() => setMilk(mk.k)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "15px 0", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
-              <span style={{ fontSize: 17, color: "var(--ink)" }}>{mk.k} Milk {mk.d ? <span style={{ color: "var(--muted)", fontSize: 14 }}>+{mk.d.toFixed(2)}</span> : null}</span>
-              <div style={{ width: 26, height: 26, borderRadius: "50%", border: milk === mk.k ? "2px solid var(--accent)" : "2px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center" }}>{milk === mk.k && <div style={{ width: 13, height: 13, borderRadius: "50%", background: "var(--accent)" }} />}</div>
-            </div>
-          ))}
-        </div>
         <div style={{ height: 120 }} />
       </div>
 
