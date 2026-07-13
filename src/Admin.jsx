@@ -371,10 +371,12 @@ export default function Admin() {
       </div>
 
       {/* LIVE PREVIEW */}
-      <div style={{ width: 480, flexShrink: 0, borderLeft: "1px solid " + T.line, background: T.card, padding: "22px 20px", boxSizing: "border-box", height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column" }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: T.muted, marginBottom: 14 }}>Live preview</div>
-        <div style={{ border: "9px solid #222", borderRadius: 32, overflow: "hidden", flex: 1, minHeight: 0, background: "#000" }}>
-          <iframe title="preview" src="/" style={{ width: "100%", height: "100%", border: "none", background: "#fff" }} />
+      <div style={{ width: 430, flexShrink: 0, borderLeft: "1px solid " + T.line, background: T.card, padding: "22px 20px", boxSizing: "border-box", height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: T.muted, marginBottom: 14, alignSelf: "flex-start" }}>Live preview</div>
+        <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
+          <div style={{ position: "relative", width: 390 * 0.95, height: 844 * 0.95, border: "11px solid #1c1c1c", borderRadius: 44, overflow: "hidden", background: "#000", boxShadow: "0 20px 50px -18px rgba(0,0,0,.4)" }}>
+            <iframe title="preview" src="/" style={{ width: 390, height: 844, border: "none", background: "#fff", transform: "scale(0.95)", transformOrigin: "top left" }} />
+          </div>
         </div>
         <div style={{ fontSize: 12, color: T.faint, marginTop: 10, textAlign: "center" }}>Live customer view. Refresh after edits.</div>
       </div>
