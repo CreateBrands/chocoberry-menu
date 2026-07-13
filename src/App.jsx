@@ -263,11 +263,11 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
       {/* horizontal bottom strip; active expands inline, others shuffle aside */}
       {menus && menus.length > 1 && (
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,.98)", backdropFilter: "blur(10px)", boxShadow: "0 -8px 24px rgba(56,53,43,.12)", padding: "8px 10px", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 4, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,.98)", backdropFilter: "blur(10px)", boxShadow: "0 -6px 18px rgba(56,53,43,.1)", padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 4, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
         {menus.map((m, i) => {
           const on = i === activeMenu;
           return (
-            <div key={m.id} onClick={() => setActiveMenu(i)} title={m.name} style={{ display: "flex", alignItems: "center", gap: on ? 8 : 0, background: on ? "var(--accent)" : "transparent", borderRadius: 24, padding: on ? "12px 22px 12px 16px" : 0, height: 60, width: on ? "auto" : 60, justifyContent: "center", cursor: "pointer", flex: "none", transition: "all .28s cubic-bezier(.4,0,.2,1)" }}>
+            <div key={m.id} onClick={() => setActiveMenu(i)} title={m.name} style={{ display: "flex", alignItems: "center", gap: on ? 8 : 0, background: on ? "var(--accent)" : "transparent", borderRadius: 24, padding: on ? "8px 16px 8px 11px" : 0, height: 44, width: on ? "auto" : 44, justifyContent: "center", cursor: "pointer", flex: "none", transition: "all .28s cubic-bezier(.4,0,.2,1)" }}>
               <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: on ? "#F5F1E6" : "var(--accent)", flex: "none" }}>{menuIcon(m.name, on)}</span>
               {on && <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: 500, color: "#F5F1E6", whiteSpace: "nowrap" }}>{m.name}</span>}
             </div>
@@ -486,7 +486,7 @@ function Confirm({ orderNo, pickupName }) {
 // Relatable inline SVG icon per menu, matched by name keywords.
 function menuIcon(name, active) {
   const c = active ? "#F5F1E6" : "currentColor";
-  const p = { width: 28, height: 28, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+  const p = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
   const n = (name || "").toLowerCase();
   if (n.includes("dessert") || n.includes("cake") || n.includes("sweet"))
     return <svg {...p}><path d="M4 16h16M6 16c0-3 2-5 6-5s6 2 6 5M9 8c0-1 .5-2 3-2s3 1 3 2M12 3v1" /></svg>;
