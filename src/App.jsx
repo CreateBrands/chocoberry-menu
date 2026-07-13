@@ -229,7 +229,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
               {(section.items || []).map((it, i) => (
                 <div key={i} onClick={() => onItem(it)} style={{ background: "var(--bg3)", borderRadius: 20, overflow: "hidden", boxShadow: "0 6px 18px -6px rgba(56,53,43,.14),inset 0 0 0 1px var(--line)", display: "flex", flexDirection: "column", cursor: "pointer" }}>
-                  <div style={{ height: 320, position: "relative", background: it.image_url ? `center/cover url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#F1E9D8,#E4D7BC)") }}>
+                  <div style={{ height: 320, position: "relative", backgroundImage: it.image_url ? `url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#F1E9D8,#E4D7BC)"), backgroundSize: "cover", backgroundPosition: "center" }}>
                     {!it.image_url && <>
                       <div style={{ position: "absolute", left: "50%", bottom: 30, transform: "translateX(-50%)", width: 150, height: 22, borderRadius: "50%", background: "rgba(80,65,40,.22)", filter: "blur(9px)" }} />
                       <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 188, height: 188, borderRadius: "50%", background: it.prod || "radial-gradient(60% 70% at 50% 36%,#FFFFFF,#EAE3D4 72%)", boxShadow: "0 16px 28px -12px rgba(90,70,40,.45)" }} />
@@ -322,7 +322,7 @@ function ItemDetail({ item, onAdd, onClose }) {
   return (
     <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
       {/* hero */}
-      <div style={{ position: "relative", height: it.image_url ? 440 : 520, background: it.image_url ? `center center / cover url(${it.image_url})` : "linear-gradient(165deg,#EFE6DE,#E7DAD2)", overflow: "hidden", flex: "none" }}>
+      <div style={{ position: "relative", height: it.image_url ? 440 : 520, backgroundImage: it.image_url ? `url(${it.image_url})` : "linear-gradient(165deg,#EFE6DE,#E7DAD2)", backgroundSize: "cover", backgroundPosition: "center", overflow: "hidden", flex: "none" }}>
         <div onClick={onClose} style={{ position: "absolute", top: 24, right: 28, width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", zIndex: 3, cursor: "pointer" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></div>
         {!it.image_url && (<>
         <div style={{ position: "absolute", left: "50%", top: "54%", transform: "translate(-50%,-50%) rotate(-7deg)", width: 420, height: 175, borderRadius: 40, background: "linear-gradient(150deg,#b6824a,#8a5a2c)", boxShadow: "0 30px 50px -18px rgba(80,50,20,.4)" }} />
