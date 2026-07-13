@@ -263,7 +263,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
       {/* horizontal bottom strip; active expands inline, others shuffle aside */}
       {menus && menus.length > 1 && (
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "rgba(255,255,255,.98)", backdropFilter: "blur(10px)", boxShadow: "0 -6px 18px rgba(56,53,43,.1)", padding: "5px 10px", display: "flex", alignItems: "center", justifyContent: "flex-start", gap: 4, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
+      <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 14, maxWidth: "calc(100% - 24px)", background: "rgba(255,255,255,.55)", backdropFilter: "blur(14px)", borderRadius: 30, boxShadow: "0 8px 24px -10px rgba(56,53,43,.2)", padding: "5px 8px", display: "flex", alignItems: "center", gap: 3, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
         {menus.map((m, i) => {
           const on = i === activeMenu;
           return (
