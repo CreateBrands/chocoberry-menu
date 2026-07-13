@@ -434,7 +434,25 @@ export default function Admin() {
               if (key === "menus") { setLevel("menus"); setMenuId(null); setCatId(null); }
               if (key === "modifiers") setShowMods(true);
               if (key === "appearance") setShowAppearance(true);
-              if (key === "welcome") { try { const v = getSetting("welcome_layout"); setBuilderInit(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setBuilderInit([]); } setShowBuilder(true); }
+              if (key === "welcome") {
+                let init = [];
+                try { const v = getSetting("welcome_layout"); if (v) init = (typeof v === "string" ? JSON.parse(v) : v); } catch { init = []; }
+                if (!init || init.length === 0) {
+                  // Seed from the current default Welcome content so existing elements are editable/removable.
+                  const logoUrl = getSetting("welcome_logo_url");
+                  init = [
+                    { id: "seed_eyebrow", type: "subtitle", x: 45, y: 240, w: 300, visible: true, text: (getSetting("welcome_eyebrow") || "Matcha · Coffee").toUpperCase(), size: 15, color: "#5E7A4D", align: "center" },
+                    logoUrl
+                      ? { id: "seed_logo", type: "logo", x: 95, y: 290, w: 200, visible: true, url: logoUrl }
+                      : { id: "seed_logo", type: "logo", x: 45, y: 290, w: 300, visible: true, text: (getSetting("welcome_logo_text") || "still<span style='color:#5E7A4D'>.</span>"), size: 100, color: "#2F3326", align: "center" },
+                    { id: "seed_sub", type: "subtitle", x: 45, y: 440, w: 300, visible: true, text: (getSetting("welcome_subtitle") || "Your daily ritual, gently elevated.<br />Calm energy in a cup."), size: 18, color: "#7E8470", align: "center" },
+                    { id: "seed_btn", type: "button", x: 95, y: 660, w: 200, visible: true, text: (getSetting("welcome_button") || "Order Ahead"), size: 18, color: "#5E7A4D", textColor: "#F7F4EC" },
+                    { id: "seed_footer", type: "subtitle", x: 45, y: 740, w: 300, visible: true, text: (getSetting("welcome_footer") || "PICKUP AT COUNTER · TAP TO BEGIN"), size: 13, color: "#7E8470", align: "center" },
+                  ];
+                }
+                setBuilderInit(init);
+                setShowBuilder(true);
+              }
               if (key === "hero") { try { const v = getSetting("hero_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); } setShowHero(true); }
               if (key === "settings") setShowAppearance(true);
             }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, marginBottom: 2, cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500, background: active ? T.accentSoft || "#EFEAD9" : "transparent", color: active ? T.accent : T.muted }}>
