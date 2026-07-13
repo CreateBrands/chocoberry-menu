@@ -207,17 +207,26 @@ function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSave
         {groups.length > 0 && (
           <div style={{ marginTop: 18 }}>
             <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".06em", color: T.muted, marginBottom: 8 }}>MODIFIER GROUPS</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-              {groups.map((g) => {
-                const on = modIds.includes(g.id);
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 8 }}>
+              {modIds.map((id) => {
+                const g = groups.find((x) => x.id === id);
+                if (!g) return null;
                 return (
-                  <label key={g.id} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: T.ink, cursor: "pointer", padding: "4px 0" }}>
-                    <input type="checkbox" checked={on} onChange={() => setModIds(on ? modIds.filter((x) => x !== g.id) : [...modIds, g.id])} />
-                    {g.name} <span style={{ fontSize: 12, color: T.muted }}>{g.required ? "(required)" : "(optional)"}</span>
-                  </label>
+                  <span key={id} style={{ display: "inline-flex", alignItems: "center", gap: 6, background: T.accent, color: "#fff", borderRadius: 16, padding: "5px 10px 5px 12px", fontSize: 13, fontWeight: 600 }}>
+                    {g.name}
+                    <span onClick={() => setModIds(modIds.filter((x) => x !== id))} style={{ cursor: "pointer", fontSize: 15, lineHeight: 1 }}>×</span>
+                  </span>
                 );
               })}
+              {modIds.length === 0 && <span style={{ fontSize: 13, color: T.muted, padding: "5px 0" }}>None assigned</span>}
             </div>
+            <select value="" onChange={(e) => { if (e.target.value) setModIds([...modIds, e.target.value]); }}
+              style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 8, padding: "10px 12px", fontSize: 14, color: T.ink, background: T.card, cursor: "pointer" }}>
+              <option value="">+ Add a modifier group…</option>
+              {groups.filter((g) => !modIds.includes(g.id)).map((g) => (
+                <option key={g.id} value={g.id}>{g.name}{g.required ? " (required)" : ""}</option>
+              ))}
+            </select>
             <div style={{ fontSize: 12, color: T.muted, marginTop: 6 }}>Tick the groups that apply to this item. Manage groups & options in the Modifiers panel.</div>
           </div>
         )}
