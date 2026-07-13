@@ -371,7 +371,7 @@ export default function Admin() {
       </div>
 
       {/* LIVE PREVIEW */}
-      <div style={{ width: 400, flexShrink: 0, borderLeft: "1px solid " + T.line, background: T.card, padding: "22px 20px", boxSizing: "border-box", height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column" }}>
+      <div style={{ width: 480, flexShrink: 0, borderLeft: "1px solid " + T.line, background: T.card, padding: "22px 20px", boxSizing: "border-box", height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column" }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: T.muted, marginBottom: 14 }}>Live preview</div>
         <div style={{ border: "9px solid #222", borderRadius: 32, overflow: "hidden", flex: 1, minHeight: 0, background: "#000" }}>
           <iframe title="preview" src="/" style={{ width: "100%", height: "100%", border: "none", background: "#fff" }} />
