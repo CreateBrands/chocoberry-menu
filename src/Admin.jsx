@@ -397,7 +397,7 @@ export default function Admin() {
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], tables: res.tables || [] });
+  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], tables: res.tables || [], locationMenus: res.locationMenus || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   const getSetting = (k) => { const row = (state && state.settings || []).find((s) => s.key === k); return row ? row.value : ""; };
@@ -748,6 +748,25 @@ export default function Admin() {
                       );
                     })}
                     <button onClick={() => act("create_token", { location_id: loc.id, label: "Tablet " + (tokens.length + 1) })} style={{ fontSize: 13, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginTop: 2 }}>+ New tablet link</button>
+                  </div>
+                  <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10, marginTop: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>MENUS SHOWN AT THIS STORE</div>
+                    <div style={{ fontSize: 11, color: T.faint, marginBottom: 8 }}>Leave all unticked to show every menu (default). Tick specific menus to limit this store to only those.</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {(state.menus || []).map((mn) => {
+                        const assigned = (state.locationMenus || []).filter((x) => x.location_id === loc.id).map((x) => x.menu_id);
+                        const on = assigned.includes(mn.id);
+                        return (
+                          <label key={mn.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: T.ink, cursor: "pointer", border: "1px solid " + T.line, borderRadius: 8, padding: "5px 10px", background: on ? (T.accentSoft || "#EFEAD9") : T.bg }}>
+                            <input type="checkbox" checked={on} onChange={() => {
+                              const next = on ? assigned.filter((x) => x !== mn.id) : [...assigned, mn.id];
+                              act("set_store_menus", { location_id: loc.id, menu_ids: next });
+                            }} />
+                            {mn.name}
+                          </label>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
               );
