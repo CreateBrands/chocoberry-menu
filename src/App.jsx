@@ -258,7 +258,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
 
       <div data-menuscroll="1" style={{ position: "absolute", top: 90, left: 0, right: 0, bottom: 0, overflowY: "auto", scrollbarWidth: "none" }}>
 {/* hero carousel */}
-        <div style={{ margin: "0 28px", borderRadius: 26, overflow: "hidden", position: "relative", height: 300 }}>
+        <div style={{ margin: "0 16px", borderRadius: 22, overflow: "hidden", position: "relative", height: 200 }}>
           <div style={{ display: "flex", height: "100%", transition: "transform .6s cubic-bezier(.4,0,.2,1)", transform: `translateX(-${hero * 100}%)` }}>
             {HEROX.map((s, i) => (
               <div key={i} style={{ flex: "none", width: "100%", height: "100%", position: "relative", ...(s.image_url ? { backgroundImage: `url(${s.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: s.bg }) }}>
@@ -309,10 +309,10 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18, marginTop: si === 0 ? 0 : 22 }}>
               <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, color: "var(--ink)" }}>{section.name}</div>
             </div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               {(section.items || []).map((it, i) => (
                 <div key={i} onClick={() => onItem(it)} style={{ background: "var(--bg3)", borderRadius: 20, overflow: "hidden", boxShadow: "0 6px 18px -6px rgba(56,53,43,.14),inset 0 0 0 1px var(--line)", display: "flex", flexDirection: "column", cursor: "pointer" }}>
-                  <div style={{ height: 320, position: "relative", backgroundImage: it.image_url ? `url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#F1E9D8,#E4D7BC)"), backgroundSize: "cover", backgroundPosition: "center" }}>
+                  <div style={{ aspectRatio: "1 / 1", width: "100%", position: "relative", backgroundImage: it.image_url ? `url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#F1E9D8,#E4D7BC)"), backgroundSize: "cover", backgroundPosition: "center" }}>
                     {!it.image_url && <>
                       <div style={{ position: "absolute", left: "50%", bottom: 30, transform: "translateX(-50%)", width: 150, height: 22, borderRadius: "50%", background: "rgba(80,65,40,.22)", filter: "blur(9px)" }} />
                       <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 188, height: 188, borderRadius: "50%", background: it.prod || "radial-gradient(60% 70% at 50% 36%,#FFFFFF,#EAE3D4 72%)", boxShadow: "0 16px 28px -12px rgba(90,70,40,.45)" }} />
