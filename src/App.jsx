@@ -198,6 +198,8 @@ function Welcome({ bg, menus, onPick, w = {} }) {
 // ============ DATA-DRIVEN BROWSE ============
 function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, bagCount, heroSlides }) {
   const HEROX = (heroSlides && heroSlides.length) ? heroSlides : HERO;
+  const [added, setAdded] = useState(false);
+  const flashAdded = () => { setAdded(true); setTimeout(() => setAdded(false), 1100); };
   const rootRef = useRef(null);
   const catRefs = useRef([]);
   const [scrolled, setScrolled] = useState(false);
@@ -323,7 +325,11 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
                     <div style={{ flex: 1, minHeight: 8 }} />
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
-                      <div onClick={(e) => { e.stopPropagation(); const hasReq = (it.modifiers || []).some((g) => g.required); if (hasReq) { onItem(it); } else { onAdd({ item: it, qty: 1, unit: it.price, mods: [] }); } }} style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 500, lineHeight: 0, paddingBottom: 2, cursor: "pointer" }}>+</div>
+                      {(it.modifiers && it.modifiers.length > 0) ? (
+                        <div onClick={(e) => { e.stopPropagation(); onItem(it); }} style={{ height: 40, padding: "0 16px", borderRadius: 20, background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'Poppins',sans-serif" }}>Customise</div>
+                      ) : (
+                        <div onClick={(e) => { e.stopPropagation(); onAdd({ item: it, qty: 1, unit: it.price, mods: [] }); flashAdded(); }} style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 500, lineHeight: 0, paddingBottom: 2, cursor: "pointer" }}>+</div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -335,6 +341,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
       </div>
 
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
+      {added && <div style={{ position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)", background: "var(--accent)", color: "#fff", padding: "10px 22px", borderRadius: 30, fontSize: 14, fontWeight: 600, fontFamily: "'Poppins',sans-serif", zIndex: 40, boxShadow: "0 10px 24px -8px rgba(0,0,0,.3)" }}>Added to bag ✓</div>}
       {/* horizontal bottom strip; active expands inline, others shuffle aside */}
       {menus && menus.length > 1 && (
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 14, maxWidth: "calc(100% - 24px)", background: "rgba(255,255,255,.55)", backdropFilter: "blur(14px)", borderRadius: 30, boxShadow: "0 8px 24px -10px rgba(56,53,43,.2)", padding: "5px 8px", display: "flex", alignItems: "center", gap: 3, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
