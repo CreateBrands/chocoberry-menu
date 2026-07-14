@@ -554,6 +554,15 @@ export default function Admin() {
           <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "88vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Appearance</div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", border: "1px solid " + T.line, borderRadius: 10, marginBottom: 18, background: T.card }}>
+              <div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>Accept customer orders</div>
+                <div style={{ fontSize: 12, color: T.muted }}>{(getSetting("ordering_enabled") === "off") ? "Off — customers are told to order with staff" : "On — customers can place orders"}</div>
+              </div>
+              <span onClick={() => act("set_setting", { key: "ordering_enabled", value: getSetting("ordering_enabled") === "off" ? "on" : "off" })} style={{ width: 46, height: 26, borderRadius: 13, background: getSetting("ordering_enabled") === "off" ? "#cfcabd" : T.accent, position: "relative", cursor: "pointer", flexShrink: 0 }}>
+                <span style={{ position: "absolute", top: 3, left: getSetting("ordering_enabled") === "off" ? 3 : 23, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .2s" }} />
+              </span>
+            </div>
             <div style={{ fontSize: 13, color: T.muted, margin: "8px 0 16px" }}>Choose the customer app theme.</div>
             <div style={{ display: "flex", gap: 10, marginBottom: 22 }}>
               {[["still","still. (green)","#5E7A4D"],["chocoberry","Chocoberry (brown)","#844429"]].map(([key,label,col]) => {
