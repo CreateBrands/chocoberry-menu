@@ -723,6 +723,13 @@ function MenuPicker({ menus, bg, onPick, onClose }) {
 
 export default function App() {
   const [screen, setScreen] = useState("welcome");
+  const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
+  useEffect(() => {
+    const on = () => setOnline(true), off = () => setOnline(false);
+    window.addEventListener("online", on);
+    window.addEventListener("offline", off);
+    return () => { window.removeEventListener("online", on); window.removeEventListener("offline", off); };
+  }, []);
   const [menus, setMenus] = useState(null);   // [{id,name,open,categories:[...]}]
   const [activeMenu, setActiveMenu] = useState(0);
   const [data, setData] = useState(SEED);       // current menu's categories
@@ -803,6 +810,11 @@ export default function App() {
     : "linear-gradient(160deg,#EEF2E4,#E1E8D2)";
   return (
     <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0 }}>
+      {!online && (
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#8a5a2c", color: "#fff", textAlign: "center", fontSize: 13, fontWeight: 600, padding: "6px 0", letterSpacing: ".02em", fontFamily: "'Poppins',sans-serif" }}>
+          ● Offline — showing saved menu
+        </div>
+      )}
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}
