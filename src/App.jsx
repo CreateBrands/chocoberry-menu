@@ -542,7 +542,7 @@ function ItemDetail({ item, onAdd, onClose }) {
 }
 
 // ============ BAG (data-driven) ============
-function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace }) {
+function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true }) {
   const subtotal = lines.reduce((s, l) => s + l.unit * l.qty, 0);
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const setQty = (i, d) => setLines((p) => p.map((l, x) => x === i ? { ...l, qty: Math.max(1, l.qty + d) } : l));
@@ -593,7 +593,14 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace }) {
         <div style={{ flex: "none", padding: "18px 28px 26px", background: "var(--bg3)", boxShadow: "0 -10px 30px -16px rgba(60,70,45,.3)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, color: "var(--muted)", marginBottom: 12 }}><span>Subtotal</span><span>{money(subtotal)}</span></div>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24 }}>Total</span><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24 }}>{money(subtotal)}</span></div>
-          <div onClick={onPlace} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "20px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: "pointer" }}>Place Order <span style={{ fontSize: 20 }}>→</span></div>
+          {orderingEnabled ? (
+            <div onClick={onPlace} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "20px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: "pointer" }}>Place Order <span style={{ fontSize: 20 }}>→</span></div>
+          ) : (
+            <div style={{ textAlign: "center", background: "var(--bg)", border: "1px solid var(--line)", padding: "18px 24px", borderRadius: 24, fontFamily: "'Poppins',sans-serif" }}>
+              <div style={{ fontSize: 17, fontWeight: 700, color: "var(--ink)", marginBottom: 4 }}>Please order with a waiter or at the counter</div>
+              <div style={{ fontSize: 13, color: "var(--muted)" }}>Show this order to a member of staff to place it.</div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -840,7 +847,7 @@ export default function App() {
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
-            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} /></div>
+            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
           </div>
         </div>
