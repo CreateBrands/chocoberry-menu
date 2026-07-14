@@ -391,11 +391,13 @@ export default function Admin() {
   const [heroDraft, setHeroDraft] = useState([]);
   const [showMods, setShowMods] = useState(false);
   const [nav, setNav] = useState("menus");
+  const [showStores, setShowStores] = useState(false);
+  const [storeView, setStoreView] = useState(null); // store id for price editor
   const [modOpen, setModOpen] = useState({});
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [] });
+  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], tables: res.tables || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   const getSetting = (k) => { const row = (state && state.settings || []).find((s) => s.key === k); return row ? row.value : ""; };
@@ -428,6 +430,7 @@ export default function Admin() {
           ["appearance", "Appearance", "🎨"],
           ["welcome", "Welcome", "🏠"],
           ["hero", "Hero", "🖼"],
+          ["stores", "Stores", "🏪"],
           ["settings", "Settings", "⚙"],
         ].map(([key, label, icon]) => {
           const active = nav === key;
@@ -457,6 +460,7 @@ export default function Admin() {
                 setShowBuilder(true);
               }
               if (key === "hero") { try { const v = getSetting("hero_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); } setShowHero(true); }
+              if (key === "stores") setShowStores(true);
               if (key === "settings") setShowAppearance(true);
             }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, marginBottom: 2, cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500, background: active ? T.accentSoft || "#EFEAD9" : "transparent", color: active ? T.accent : T.muted }}>
               <span style={{ fontSize: 15 }}>{icon}</span>{label}
@@ -695,6 +699,86 @@ export default function Admin() {
         </div>
       )}
       {showBuilder && <WelcomeBuilder pin={pin} initial={builderInit} onClose={() => setShowBuilder(false)} onSaved={() => { setShowBuilder(false); reload(); }} />}
+      {showStores && !storeView && (
+        <div onClick={() => setShowStores(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 640, maxWidth: "94vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "90vh", overflowY: "auto" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Stores</div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                <button onClick={async () => { const n = window.prompt("Store name?"); if (n) await act("create_store", { name: n }); }} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add store</button>
+                <span onClick={() => setShowStores(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
+              </div>
+            </div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Each store has its own tablet link and its own prices. Configure a tablet once with its link and it remembers the store.</div>
+
+            {(state.locations || []).map((loc) => {
+              const tokens = (state.tables || []).filter((t) => t.location_id === loc.id);
+              const ovCount = (state.overrides || []).filter((o) => o.location_id === loc.id).length;
+              return (
+                <div key={loc.id} style={{ border: "1px solid " + T.line, borderRadius: 12, padding: 14, marginBottom: 12, background: T.card }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <span style={{ fontWeight: 700, fontSize: 15 }}>{loc.name}</span>
+                      <span onClick={() => act("update_store", { id: loc.id, active: !loc.active })} style={{ fontSize: 11, fontWeight: 600, color: loc.active ? T.accent : T.muted, cursor: "pointer", border: "1px solid " + T.line, borderRadius: 10, padding: "2px 8px" }}>{loc.active ? "Active" : "Inactive"}</span>
+                    </div>
+                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                      <span onClick={() => { setStoreView(loc.id); }} style={{ fontSize: 13, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Prices ({ovCount})</span>
+                      <span onClick={() => { const n = window.prompt("Rename store", loc.name); if (n && n !== loc.name) act("update_store", { id: loc.id, name: n }); }} style={{ fontSize: 13, color: T.muted, cursor: "pointer" }}>✎</span>
+                      <span onClick={() => { if (window.confirm("Delete store '" + loc.name + "'? Removes its tablets and price overrides.")) act("delete_store", { id: loc.id }); }} style={{ fontSize: 13, color: "#b4462f", cursor: "pointer" }}>🗑</span>
+                    </div>
+                  </div>
+                  <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>TABLET LINKS</div>
+                    {tokens.map((tk) => {
+                      const url = window.location.origin + "/?store=" + tk.qr_token;
+                      return (
+                        <div key={tk.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                          <input readOnly value={url} onClick={(e) => e.target.select()} style={{ flex: 1, border: "1px solid " + T.line, borderRadius: 8, padding: "7px 10px", fontSize: 12, background: T.bg, color: T.ink }} />
+                          <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Copy</span>
+                          <span onClick={() => act("delete_token", { id: tk.id })} style={{ fontSize: 16, color: T.muted, cursor: "pointer" }}>×</span>
+                        </div>
+                      );
+                    })}
+                    <button onClick={() => act("create_token", { location_id: loc.id, label: "Tablet " + (tokens.length + 1) })} style={{ fontSize: 13, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginTop: 2 }}>+ New tablet link</button>
+                  </div>
+                </div>
+              );
+            })}
+            {(state.locations || []).length === 0 && <div style={{ fontSize: 14, color: T.muted, textAlign: "center", padding: "20px 0" }}>No stores yet. Click "+ Add store".</div>}
+          </div>
+        </div>
+      )}
+
+      {showStores && storeView && (() => {
+        const loc = (state.locations || []).find((l) => l.id === storeView);
+        const ov = (state.overrides || []);
+        const findOv = (itemId) => ov.find((o) => o.location_id === storeView && o.item_id === itemId);
+        return (
+          <div onClick={() => setStoreView(null)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 51 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ width: 680, maxWidth: "94vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "90vh", overflowY: "auto" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{loc ? loc.name : "Store"} — Prices</div>
+                <span onClick={() => setStoreView(null)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
+              </div>
+              <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Set a store-specific price, or hide an item at this store. Blank price = uses the master price.</div>
+              {(state.items || []).map((it) => {
+                const o = findOv(it.id);
+                const hidden = o && o.available === false;
+                return (
+                  <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid " + T.line }}>
+                    <span style={{ flex: 1, fontSize: 14, color: hidden ? T.muted : T.ink, textDecoration: hidden ? "line-through" : "none" }}>{it.name}</span>
+                    <span style={{ fontSize: 12, color: T.faint }}>master {money(it.price)}</span>
+                    <input type="number" step="0.05" placeholder={String(it.price)} defaultValue={o && o.price != null ? o.price : ""}
+                      onBlur={(e) => { const v = e.target.value === "" ? null : parseFloat(e.target.value); act("set_override", { item_id: it.id, location_id: storeView, price: v, available: o ? o.available : null }); }}
+                      style={{ width: 90, border: "1px solid " + T.line, borderRadius: 8, padding: "7px 9px", fontSize: 13, background: T.card, color: T.ink }} />
+                    <span onClick={() => act("set_override", { item_id: it.id, location_id: storeView, price: o ? o.price : null, available: hidden ? true : false })} style={{ fontSize: 12, fontWeight: 600, color: hidden ? "#b4462f" : T.accent, cursor: "pointer", border: "1px solid " + T.line, borderRadius: 8, padding: "6px 10px", whiteSpace: "nowrap" }}>{hidden ? "Hidden" : "Shown"}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
       {imgTarget && (
         <div onClick={() => setImgTarget(null)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24 }}>
