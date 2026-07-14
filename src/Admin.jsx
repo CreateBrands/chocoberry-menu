@@ -731,11 +731,19 @@ export default function Admin() {
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>TABLET LINKS</div>
                     {tokens.map((tk) => {
                       const url = window.location.origin + "/?store=" + tk.qr_token;
+                      const qr = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=" + encodeURIComponent(url);
                       return (
-                        <div key={tk.id} style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                          <input readOnly value={url} onClick={(e) => e.target.select()} style={{ flex: 1, border: "1px solid " + T.line, borderRadius: 8, padding: "7px 10px", fontSize: 12, background: T.bg, color: T.ink }} />
-                          <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Copy</span>
-                          <span onClick={() => act("delete_token", { id: tk.id })} style={{ fontSize: 16, color: T.muted, cursor: "pointer" }}>×</span>
+                        <div key={tk.id} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, padding: 8, border: "1px solid " + T.line, borderRadius: 10, background: T.bg }}>
+                          <img src={qr} alt="QR" width={72} height={72} style={{ borderRadius: 6, background: "#fff", flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 4 }}>{tk.label || "Tablet"}</div>
+                            <input readOnly value={url} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 6, padding: "6px 8px", fontSize: 11, background: T.card, color: T.ink }} />
+                            <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+                              <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Copy link</span>
+                              <a href={qr.replace("220x220", "600x600")} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.accent, fontWeight: 600, textDecoration: "none" }}>Open QR</a>
+                              <span onClick={() => act("delete_token", { id: tk.id })} style={{ fontSize: 12, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Delete</span>
+                            </div>
+                          </div>
                         </div>
                       );
                     })}
