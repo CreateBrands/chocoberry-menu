@@ -63,11 +63,23 @@ async function fetchLive(token) {
   // store_menu_full returns menu -> category -> item with open/closed state.
   // Falls back to a location-less call (nulls resolve to master prices).
   const body = loc ? { loc } : { loc: null };
-  const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/store_menu_full", {
-    method: "POST", headers: H, body: JSON.stringify(body),
-  });
-  if (!r.ok) throw new Error("store_menu_full " + r.status);
-  const rows = await r.json();
+  let rows;
+  try {
+    const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/store_menu_full", {
+      method: "POST", headers: H, body: JSON.stringify(body),
+    });
+    if (!r.ok) throw new Error("store_menu_full " + r.status);
+    rows = await r.json();
+    // Cache the fresh menu for offline use
+    try { localStorage.setItem("menu_cache_v1", JSON.stringify({ rows, at: Date.now() })); } catch {}
+  } catch (netErr) {
+    // Offline or fetch failed — fall back to the cached menu if we have one
+    try {
+      const cached = localStorage.getItem("menu_cache_v1");
+      if (cached) { rows = JSON.parse(cached).rows; }
+      else throw netErr;
+    } catch { throw netErr; }
+  }
 
   // group rows into menus -> categories -> items
   const menuMap = new Map();
