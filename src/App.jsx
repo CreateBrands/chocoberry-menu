@@ -492,7 +492,7 @@ function ItemDetail({ item, onAdd, onClose }) {
             <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", marginBottom: 8 }}>ALLERGENS</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {it.allergens.map((a) => (
-                <span key={a} style={{ fontSize: 13, fontWeight: 600, color: "#8a5a2c", background: "#F5E9DC", border: "1px solid #E5CDB2", padding: "5px 12px", borderRadius: 16 }}>{a}</span>
+                <span key={a} style={{ fontSize: 13, fontWeight: 600, color: "#8a5a2c", background: "#F5E9DC", border: "1px solid #E5CDB2", padding: "6px 14px", borderRadius: 20 }}>{a}</span>
               ))}
             </div>
           </div>
@@ -502,17 +502,19 @@ function ItemDetail({ item, onAdd, onClose }) {
           const single = (g.max_select || 1) === 1;
           const chosen = sel[g.id] || [];
           return (
-            <div key={g.id} style={{ marginTop: 22 }}>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 12 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)" }}>{(g.name || "").toUpperCase()}</div>
-                {g.required ? <span style={{ fontSize: 11, color: "var(--accent)", fontWeight: 600 }}>Required</span> : <span style={{ fontSize: 11, color: "var(--muted)" }}>Optional{g.max_select > 1 ? ` · up to ${g.max_select}` : ""}</span>}
+            <div key={g.id} style={{ marginTop: 18, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 16, padding: "16px 18px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>{g.name || ""}</div>
+                {g.required
+                  ? <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", background: "var(--accentSoft, #EFEAD9)", padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
+                  : <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>{g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional"}</span>}
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {(g.options || []).map((o) => {
                   const on = chosen.includes(o.id);
                   return (
-                    <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 0", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
-                      <span style={{ fontSize: 17, color: "var(--ink)" }}>{o.name}{Number(o.price_delta) ? <span style={{ color: "var(--muted)", fontSize: 14 }}> +{Number(o.price_delta).toFixed(2)}</span> : null}</span>
+                    <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
+                      <span style={{ fontSize: 16, color: "var(--ink)" }}>{o.name}{Number(o.price_delta) ? <span style={{ color: "var(--accent)", fontSize: 14, fontWeight: 600 }}> +£{Number(o.price_delta).toFixed(2)}</span> : null}</span>
                       <div style={{ width: 26, height: 26, borderRadius: single ? "50%" : 7, border: on ? "2px solid var(--accent)" : "2px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center", background: on && !single ? "var(--accent)" : "transparent" }}>
                         {on && single && <div style={{ width: 13, height: 13, borderRadius: "50%", background: "var(--accent)" }} />}
                         {on && !single && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>}
