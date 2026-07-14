@@ -173,7 +173,7 @@ function Welcome({ bg, menus, onPick, w = {} }) {
         <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '24px', fontWeight: '400', color: 'var(--ink)', opacity: '.78', lineHeight: '1.5'}} dangerouslySetInnerHTML={{__html: w.welcome_subtitle || 'Your daily ritual, gently elevated.<br />Calm energy in a cup.'}} />
       </div>
       <div style={{position: 'absolute', left: '0', right: '0', bottom: '66px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px', zIndex: 5}}>
-        <div onClick={() => setOpen(true)} style={{display: 'flex', alignItems: 'center', gap: '14px', background: 'var(--accent)', color: '#F7F4EC', padding: '22px 58px', borderRadius: '60px', fontFamily: '\'Poppins\',sans-serif', fontSize: '20px', fontWeight: '600', boxShadow: '0 18px 38px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>{w.welcome_button || 'Order Ahead'} <span style={{fontSize: '22px'}}>→</span></div>
+        <div onClick={() => setOpen(true)} style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '10px', background: 'var(--accent)', color: '#F7F4EC', padding: '15px 40px', borderRadius: '40px', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600', boxShadow: '0 14px 30px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>{w.welcome_button || 'Order Ahead'} <span style={{fontSize: '18px'}}>→</span></div>
         <div style={{fontSize: '14px', fontWeight: '600', letterSpacing: '.16em', color: 'var(--muted)', textTransform: 'uppercase'}}>{w.welcome_footer || 'Pickup at counter · Tap to begin'}</div>
       </div>
 
