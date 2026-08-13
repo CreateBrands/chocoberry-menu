@@ -978,7 +978,9 @@ export default function Admin() {
             <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Each store has its own tablet link and its own prices. Configure a tablet once with its link and it remembers the store.</div>
 
             {(state.locations || []).map((loc) => {
-              const tokens = (state.tables || []).filter((t) => t.location_id === loc.id);
+              const tokens = (state.tables || []).filter((t) => t.location_id === loc.id && t.is_table === false);
+              const diningTables = (state.tables || []).filter((t) => t.location_id === loc.id && t.is_table !== false)
+                .sort((a, b) => (parseInt(String(a.label).replace(/\D/g, "")) || 0) - (parseInt(String(b.label).replace(/\D/g, "")) || 0));
               const ovCount = (state.overrides || []).filter((o) => o.location_id === loc.id).length;
               return (
                 <div key={loc.id} style={{ border: "1px solid " + T.line, borderRadius: 12, padding: 14, marginBottom: 12, background: T.card }}>
@@ -1014,6 +1016,22 @@ export default function Admin() {
                       );
                     })}
                     <button onClick={() => act("create_token", { location_id: loc.id, label: "Tablet " + (tokens.length + 1) })} style={{ fontSize: 13, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginTop: 2 }}>+ New tablet link</button>
+                  </div>
+                  <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10, marginTop: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>DINING TABLES</div>
+                    <div style={{ fontSize: 11, color: T.faint, marginBottom: 8 }}>Tables customers can order to. Each has its own QR code for the table sticker. Click a name to rename.</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {diningTables.map((tb) => (
+                        <div key={tb.id} style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid " + T.line, borderRadius: 8, padding: "6px 10px", background: T.bg }}>
+                          <span onClick={() => { const n = window.prompt("Rename table", tb.label); if (n && n !== tb.label) act("update_table", { id: tb.id, fields: { label: n } }); }}
+                            style={{ fontSize: 13, fontWeight: 600, color: T.ink, cursor: "pointer" }} title="Click to rename">{tb.label}</span>
+                          <a href={"https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(window.location.origin + "/?store=" + tb.qr_token)} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.accent, textDecoration: "none", fontWeight: 600 }} title="Open QR for table sticker">QR</a>
+                          <span onClick={() => { if (window.confirm("Delete '" + tb.label + "'?")) act("delete_table", { id: tb.id }); }} style={{ fontSize: 13, color: "#b4462f", cursor: "pointer" }} title="Delete table">×</span>
+                        </div>
+                      ))}
+                      {diningTables.length === 0 && <span style={{ fontSize: 12, color: T.faint }}>No tables yet.</span>}
+                    </div>
+                    <button onClick={() => { const next = (diningTables.reduce((m, t) => Math.max(m, parseInt(String(t.label).replace(/\D/g, "")) || 0), 0)) + 1; act("create_table", { location_id: loc.id, label: "Table " + next }); }} style={{ fontSize: 13, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginTop: 8 }}>+ Add table</button>
                   </div>
                   <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10, marginTop: 10 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>MENUS SHOWN AT THIS STORE</div>
