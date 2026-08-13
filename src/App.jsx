@@ -43,6 +43,28 @@ function getStoreToken() {
   } catch { return null; }
 }
 
+// Fetch a store's dining tables (is_table=true) for the picker.
+async function fetchTables(locationId) {
+  if (!locationId) return [];
+  try {
+    const r = await fetch(SUPABASE_URL + "/rest/v1/menu_tables?location_id=eq." + locationId + "&is_table=eq.true&active=eq.true&select=id,label,qr_token", { headers: H });
+    if (!r.ok) return [];
+    const rows = await r.json();
+    return (rows || []).sort((a, b) => (parseInt(String(a.label).replace(/\D/g, "")) || 0) - (parseInt(String(b.label).replace(/\D/g, "")) || 0));
+  } catch { return []; }
+}
+
+// If the current token is itself a table's QR token, return that table row.
+async function tableFromToken(token) {
+  if (!token) return null;
+  try {
+    const r = await fetch(SUPABASE_URL + "/rest/v1/menu_tables?qr_token=eq." + encodeURIComponent(token) + "&is_table=eq.true&select=id,label,location_id", { headers: H });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return rows && rows.length ? rows[0] : null;
+  } catch { return null; }
+}
+
 // Resolve token -> which store/brand this tablet is.
 async function resolveStore(token) {
   if (!token) return null;
@@ -737,6 +759,31 @@ function MenuPicker({ menus, bg, onPick, onClose }) {
   );
 }
 
+function TablePicker({ tables, current, onPick, onClose, required }) {
+  return (
+    <div style={{ position: "absolute", inset: 0, background: "var(--bg)", zIndex: 50, display: "flex", flexDirection: "column", padding: "28px 22px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 28, color: "var(--ink)" }}>Select your table</div>
+        {!required && <div onClick={onClose} style={{ fontSize: 15, color: "var(--muted)", cursor: "pointer", padding: 8 }}>Close</div>}
+      </div>
+      <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 22 }}>Tap your table number so we bring your order to you.</div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 12, overflowY: "auto", paddingBottom: 20 }}>
+        {tables.map((t) => {
+          const active = current && current.id === t.id;
+          const num = String(t.label).replace(/[^0-9]/g, "") || t.label;
+          return (
+            <div key={t.id} onClick={() => onPick(t)} style={{ aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRadius: 20, cursor: "pointer", background: active ? "var(--accent)" : "var(--bg3)", color: active ? "#F7F4EC" : "var(--ink)", boxShadow: active ? "0 12px 28px -10px rgba(94,122,77,.6)" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 34, transition: "all .12s" }}>
+              {num}
+              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".08em", opacity: .7, marginTop: 2 }}>TABLE</span>
+            </div>
+          );
+        })}
+        {tables.length === 0 && <div style={{ gridColumn: "1/-1", fontSize: 15, color: "var(--faint)" }}>No tables set up for this store yet.</div>}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [screen, setScreen] = useState("welcome");
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
@@ -758,6 +805,11 @@ export default function App() {
   const [lines, setLines] = useState([]);
   const [pickupName, setPickupName] = useState("");
   const [orderNo, setOrderNo] = useState(null);
+  // Dining-table state. tableMode: "none" (takeaway) | "pick" (tablet, must choose) | "fixed" (phone scanned a table QR)
+  const [tableMode, setTableMode] = useState("none");
+  const [tables, setTables] = useState([]);
+  const [table, setTable] = useState(null);          // chosen table row {id,label,...}
+  const [showTablePicker, setShowTablePicker] = useState(false);
   const [placing, setPlacing] = useState(false);
   const [orderErr, setOrderErr] = useState(null);
   const addToBag = (line) => { setLines((p) => [...p, line]); setScreen("browse"); };
@@ -769,10 +821,14 @@ export default function App() {
 
   const placeOrder = async () => {
     if (placing) return;
+    // On a tablet (pick mode), a table must be chosen before the order can send.
+    if (tableMode === "pick" && !table) { setShowTablePicker(true); return; }
     setPlacing(true); setOrderErr(null);
+    const dineIn = (tableMode === "pick" || tableMode === "fixed") && table;
     const payload = {
       qr_token: getStoreToken() || null,
-      order_type: "takeaway",
+      table_id: dineIn ? table.id : null,
+      order_type: dineIn ? "dine_in" : "takeaway",
       pickup_name: pickupName || null,
       items: lines.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: (l.mods || []).map((m) => m.option_id) })),
     };
@@ -802,6 +858,31 @@ export default function App() {
     let alive = true;
     const token = getStoreToken();
     fetchSettings().then(setSettings);
+    // Determine dining-table mode from the token.
+    (async () => {
+      if (!token) { setTableMode("none"); return; }
+      const scanned = await tableFromToken(token);
+      if (!alive) return;
+      if (scanned) {
+        // Phone scanned a specific table's QR -> table is fixed.
+        setTable({ id: scanned.id, label: scanned.label });
+        setTableMode("fixed");
+        setTables(await fetchTables(scanned.location_id));
+      } else {
+        // Token is a tablet link (or store token) -> customer must pick a table.
+        const st = await resolveStore(token);
+        const loc = st && st.location_id ? st.location_id : null;
+        if (!alive) return;
+        if (loc) {
+          const tbls = await fetchTables(loc);
+          if (!alive) return;
+          setTables(tbls);
+          setTableMode(tbls.length ? "pick" : "none");
+        } else {
+          setTableMode("none");
+        }
+      }
+    })();
     fetchLive(token).then((res) => {
       if (!alive || !res || !res.menus || !res.menus.length) return;
       setMenus(res.menus);
@@ -845,12 +926,23 @@ export default function App() {
       <div style={{ width: "100vw", height: "100dvh", margin: 0 }}>
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
+            {(tableMode === "pick" || tableMode === "fixed") && screen !== "confirm" && (
+              <div onClick={() => { if (tableMode !== "fixed") setShowTablePicker(true); }} style={{ position: "absolute", top: 14, right: 14, zIndex: 40, background: table ? "var(--accent)" : "rgba(180,70,47,.92)", color: "#F7F4EC", borderRadius: 999, padding: "8px 14px", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 13, boxShadow: "0 8px 20px -8px rgba(0,0,0,.4)", cursor: tableMode === "fixed" ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+                {table ? ("Table " + String(table.label).replace(/[^0-9]/g, "")) : "Pick a table"}
+                {tableMode !== "fixed" && <span style={{ fontSize: 11, opacity: .8 }}>change</span>}
+              </div>
+            )}
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settings} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
+            {(showTablePicker || (tableMode === "pick" && !table && screen === "bag")) && (
+              <TablePicker tables={tables} current={table} required={tableMode === "pick" && !table}
+                onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }}
+                onClose={() => setShowTablePicker(false)} />
+            )}
           </div>
         </div>
       </div>
