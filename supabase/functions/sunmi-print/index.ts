@@ -56,6 +56,45 @@ const json = (body: unknown, status = 200) =>
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
+const DEFAULT_STATION = "kitchen";
+
+// For each order-item row, resolve the effective station:
+//   item.station  (if set)  ->  its category.station  ->  DEFAULT_STATION
+async function resolveLineStations(
+  rows: Array<Record<string, unknown>>,
+): Promise<string[]> {
+  const itemIds = [...new Set(rows.map((r) => r.item_id).filter(Boolean).map(String))];
+  const itemStation = new Map<string, string | null>();
+  const itemCategory = new Map<string, string | null>();
+  if (itemIds.length) {
+    const { data: mi } = await supabase
+      .from("menu_items")
+      .select("id, station, category_id")
+      .in("id", itemIds);
+    for (const r of mi ?? []) {
+      itemStation.set(String(r.id), (r.station as string) ?? null);
+      itemCategory.set(String(r.id), (r.category_id as string) ?? null);
+    }
+  }
+  const catIds = [...new Set([...itemCategory.values()].filter(Boolean).map(String))];
+  const catStation = new Map<string, string | null>();
+  if (catIds.length) {
+    const { data: mc } = await supabase
+      .from("menu_categories")
+      .select("id, station")
+      .in("id", catIds);
+    for (const r of mc ?? []) catStation.set(String(r.id), (r.station as string) ?? null);
+  }
+  return rows.map((r) => {
+    const id = r.item_id ? String(r.item_id) : "";
+    const own = itemStation.get(id);
+    if (own) return own;
+    const cat = itemCategory.get(id);
+    const cs = cat ? catStation.get(cat) : null;
+    return cs || DEFAULT_STATION;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Build the receipt model from a menu_orders row + its menu_order_items
 // ---------------------------------------------------------------------------
@@ -67,11 +106,14 @@ async function loadReceiptOrder(
   // Items
   const { data: itemRows, error: itemsErr } = await supabase
     .from("menu_order_items")
-    .select("name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total")
+    .select("item_id, name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total")
     .eq("order_id", orderId);
   if (itemsErr) throw new Error("menu_order_items lookup failed: " + itemsErr.message);
 
-  const items: ReceiptItem[] = (itemRows ?? []).map((it) => {
+  // Resolve each line's station: item.station ?? its category.station ?? "kitchen".
+  const stationByLine = await resolveLineStations(itemRows ?? []);
+
+  const items: ReceiptItem[] = (itemRows ?? []).map((it, i) => {
     const mods = it.modifiers_snapshot as Record<string, unknown> | null;
     return {
       qty: it.qty ?? 1,
@@ -79,7 +121,7 @@ async function loadReceiptOrder(
       price: typeof it.line_total === "number"
         ? it.line_total
         : parseFloat(String(it.line_total ?? "")) || undefined,
-      // {"milk":"Oat","size":"Regular"} -> ["Milk: Oat", "Size: Regular"]
+      station: stationByLine[i],
       modifiers: mods
         ? Object.entries(mods).map(([k, v]) => `${cap(k)}: ${v}`)
         : [],
@@ -151,15 +193,17 @@ async function loadReceiptOrder(
 // Printer routing: printers.location_id (uuid of menu_locations) first,
 // then fall back to the single active printer (proving phase convenience).
 // ---------------------------------------------------------------------------
-async function findPrinter(locationId?: string) {
+// All active printers for a location. Falls back to the single active printer
+// (proving phase) only when no location is given or none are mapped.
+async function findPrinters(locationId?: string): Promise<Array<Record<string, unknown>>> {
   if (locationId) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("printers")
       .select("*")
       .eq("active", true)
-      .eq("location_id", locationId)
-      .maybeSingle();
-    if (data) return data;
+      .eq("location_id", locationId);
+    if (error) throw new Error("printers lookup failed: " + error.message);
+    if (data && data.length) return data;
   }
   const { data: all, error } = await supabase
     .from("printers")
@@ -167,7 +211,7 @@ async function findPrinter(locationId?: string) {
     .eq("active", true);
   if (error) throw new Error("printers lookup failed: " + error.message);
   if (!all || all.length === 0) throw new Error("no active printers configured");
-  if (all.length === 1) return all[0]; // single-store proving phase
+  if (all.length === 1) return [all[0]]; // single-store proving phase
   throw new Error(
     `no printer mapped to location ${locationId ?? "(none)"} and multiple printers active`,
   );
@@ -178,11 +222,12 @@ async function logJob(fields: Record<string, unknown>) {
   if (error) console.error("print_jobs insert failed:", error.message);
 }
 
-async function alreadyPrinted(orderId: string): Promise<boolean> {
+async function alreadyPrinted(orderId: string, sn: string): Promise<boolean> {
   const { data } = await supabase
     .from("print_jobs")
     .select("id")
     .eq("order_id", orderId)
+    .eq("printer_sn", sn)
     .eq("status", "sent")
     .limit(1);
   return !!data && data.length > 0;
@@ -194,33 +239,76 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
   if (rec.status === "cancelled") {
     return { skipped: true, reason: "order is cancelled" };
   }
-  if (!force && (await alreadyPrinted(orderId))) {
-    return { skipped: true, reason: "already printed" };
-  }
 
-  const printer = await findPrinter(
+  const printers = await findPrinters(
     rec.location_id ? String(rec.location_id) : undefined,
   );
+  // Build the full order once (items now each carry a station).
   const order = await loadReceiptOrder(rec);
-  const contentHex = await receiptHexFor(order);
+  const allItems = order.items as Array<ReceiptItem & { station?: string }>;
 
-  // trade_no max 32 chars: UUID without dashes is exactly 32.
-  // Reprints need a fresh trade_no or Sunmi de-dupes them (10071705).
-  const base = orderId.replace(/-/g, "").slice(0, 32);
-  const tradeNo = force ? (base.slice(0, 26) + Date.now().toString(36)).slice(0, 32) : base;
+  // Which stations actually have printers here? If a printer's station has no
+  // items, it is skipped. If only one printer exists, it prints everything
+  // (station filtering is a no-op) so single-printer stores are unaffected.
+  const stations = new Set(printers.map((p) => String((p as any).station ?? DEFAULT_STATION)));
+  const singlePrinter = printers.length === 1;
 
-  const res = await sunmi.pushContent(printer.sn, tradeNo, contentHex);
+  const results: Array<Record<string, unknown>> = [];
 
-  const success = ok(res);
-  await logJob({
-    order_id: orderId,
-    printer_sn: printer.sn,
-    status: success ? "sent" : "failed",
-    response: res,
-    error: success ? null : res.msg ?? "unknown Sunmi error",
-  });
-  if (!success) throw new Error("Sunmi pushContent failed: " + JSON.stringify(res));
-  return { printed: true, printer: printer.sn, sunmi: res };
+  for (const printer of printers) {
+    const sn = String((printer as any).sn);
+    const station = String((printer as any).station ?? DEFAULT_STATION);
+
+    // Filter this order's items to those for this printer's station.
+    // Single-printer store => print everything regardless of station.
+    const lines = singlePrinter
+      ? allItems
+      : allItems.filter((it) => {
+          const s = it.station ?? DEFAULT_STATION;
+          // If an item's station has no dedicated printer, fall it back to
+          // the kitchen printer so nothing is silently dropped.
+          if (stations.has(s)) return s === station;
+          return station === DEFAULT_STATION;
+        });
+
+    if (lines.length === 0) {
+      results.push({ printer: sn, station, skipped: true, reason: "no items for this station" });
+      continue;
+    }
+
+    if (!force && (await alreadyPrinted(orderId, sn))) {
+      results.push({ printer: sn, station, skipped: true, reason: "already printed" });
+      continue;
+    }
+
+    const stationOrder: ReceiptOrder = { ...order, items: lines };
+    const contentHex = await receiptHexFor(stationOrder);
+
+    // trade_no <=32 chars, unique per printer (station suffix) and per reprint.
+    const base = orderId.replace(/-/g, "").slice(0, 24);
+    const tag = force ? Date.now().toString(36) : station.slice(0, 3);
+    const tradeNo = (base + tag).slice(0, 32);
+
+    const res = await sunmi.pushContent(sn, tradeNo, contentHex);
+    const success = ok(res);
+    await logJob({
+      order_id: orderId,
+      printer_sn: sn,
+      status: success ? "sent" : "failed",
+      response: res,
+      error: success ? null : res.msg ?? "unknown Sunmi error",
+    });
+    results.push({ printer: sn, station, printed: success, sunmi: res });
+    if (!success) {
+      console.error(`pushContent failed for ${sn} (${station}):`, JSON.stringify(res));
+    }
+  }
+
+  const anyPrinted = results.some((r) => r.printed);
+  if (!anyPrinted && results.every((r) => r.skipped)) {
+    return { skipped: true, reason: "nothing to print", results };
+  }
+  return { printed: anyPrinted, results };
 }
 
 // ---------------------------------------------------------------------------

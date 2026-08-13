@@ -442,7 +442,7 @@ function PrintersModal({ pin, locations, onClose }) {
   const [busy, setBusy] = useState(false);
   const [adding, setAdding] = useState(false);
   const [scan, setScan] = useState(false);
-  const [form, setForm] = useState({ sn: "", label: "", location_id: "" });
+  const [form, setForm] = useState({ sn: "", label: "", location_id: "", station: "kitchen" });
 
   const load = async () => {
     setMsg("");
@@ -467,8 +467,9 @@ function PrintersModal({ pin, locations, onClose }) {
         store_id: slugFor(loc),
         location_id: form.location_id,
         shop_id: 1,
+        station: form.station || "kitchen",
       });
-      setForm({ sn: "", label: "", location_id: "" });
+      setForm({ sn: "", label: "", location_id: "", station: "kitchen" });
       setAdding(false); setScan(false);
       await load();
     } catch (e) { setMsg(e.message); }
@@ -490,6 +491,11 @@ function PrintersModal({ pin, locations, onClose }) {
     const loc = locations.find((l) => l.id === location_id);
     setBusy(true);
     try { await callAdmin(pin, "printer_update", { id: p.id, fields: { location_id, store_id: slugFor(loc) } }); await load(); }
+    catch (e) { setMsg(e.message); } finally { setBusy(false); }
+  };
+  const changeStation = async (p, station) => {
+    setBusy(true);
+    try { await callAdmin(pin, "printer_update", { id: p.id, fields: { station } }); await load(); }
     catch (e) { setMsg(e.message); } finally { setBusy(false); }
   };
   const removePrinter = async (p) => {
@@ -521,7 +527,7 @@ function PrintersModal({ pin, locations, onClose }) {
           {printers === null && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>Loading…</div>}
           {printers && printers.length === 0 && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>No printers yet. Add one below.</div>}
           {printers && printers.map((p, idx) => (
-            <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1.2fr 90px 150px", gap: 12, alignItems: "center", padding: "13px 16px", borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .55 }}>
+            <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 110px 90px 140px", gap: 12, alignItems: "center", padding: "13px 16px", borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .55 }}>
               <div style={{ display: "flex", alignItems: "center" }}>
                 <Dot online={p.online} />
                 <div>
@@ -534,6 +540,13 @@ function PrintersModal({ pin, locations, onClose }) {
                   style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid " + T.line, background: T.bg, color: T.ink, maxWidth: "100%" }}>
                   <option value="">— unassigned —</option>
                   {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                </select>
+              </div>
+              <div>
+                <select value={p.station || "kitchen"} onChange={(e) => changeStation(p, e.target.value)}
+                  style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid " + T.line, background: T.bg, color: T.ink }}>
+                  <option value="kitchen">Kitchen</option>
+                  <option value="counter">Counter</option>
                 </select>
               </div>
               <div>
@@ -574,9 +587,16 @@ function PrintersModal({ pin, locations, onClose }) {
               {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
 
+            <label style={{ fontSize: 12, fontWeight: 700, color: T.muted, textTransform: "uppercase", letterSpacing: ".05em", display: "block", marginTop: 14 }}>Station</label>
+            <select value={form.station} onChange={(e) => setForm({ ...form, station: e.target.value })}
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 14, padding: "10px 12px", borderRadius: 10, border: "1px solid " + T.line, background: T.bg, color: T.ink, marginTop: 6 }}>
+              <option value="kitchen">Kitchen (food)</option>
+              <option value="counter">Counter / bar (drinks)</option>
+            </select>
+
             <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
               <button disabled={busy} onClick={addPrinter} style={{ fontSize: 14, fontWeight: 600, color: "#fff", background: T.accent, border: "none", borderRadius: 10, padding: "11px 20px", cursor: "pointer", opacity: busy ? .6 : 1 }}>{busy ? "Binding…" : "Add printer"}</button>
-              <button disabled={busy} onClick={() => { setAdding(false); setScan(false); setForm({ sn: "", label: "", location_id: "" }); setMsg(""); }} style={{ fontSize: 14, fontWeight: 600, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 10, padding: "11px 20px", cursor: "pointer" }}>Cancel</button>
+              <button disabled={busy} onClick={() => { setAdding(false); setScan(false); setForm({ sn: "", label: "", location_id: "", station: "kitchen" }); setMsg(""); }} style={{ fontSize: 14, fontWeight: 600, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 10, padding: "11px 20px", cursor: "pointer" }}>Cancel</button>
             </div>
             <div style={{ fontSize: 12, color: T.muted, marginTop: 12 }}>Adding binds the printer to your Sunmi account. If it's a brand-new unit, accept the transfer in the Sunmi portal first.</div>
           </div>
@@ -723,7 +743,16 @@ export default function Admin() {
 
         {level === "items" && section && (
           <div>
-            <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, color: T.muted, fontWeight: 600 }}>This section prints to:</span>
+                <select value={section.station || "kitchen"} onChange={(e) => act("update_category", { id: section.id, fields: { station: e.target.value } })}
+                  style={{ fontSize: 13, padding: "6px 10px", borderRadius: 8, border: "1px solid " + T.line, background: T.card, color: T.ink }}>
+                  <option value="kitchen">Kitchen (food)</option>
+                  <option value="counter">Counter / bar (drinks)</option>
+                </select>
+                <span style={{ fontSize: 12, color: T.faint }}>Items follow this unless individually overridden (chip on each item).</span>
+              </div>
               <button onClick={() => { const n = window.prompt("Item name?"); if (n) act("create_item", { category_id: catId, name: n, price: 0 }); }} style={{ fontSize: 13, fontWeight: 600, border: "1px solid " + T.line, background: T.card, color: T.accent, borderRadius: 8, padding: "8px 14px", cursor: "pointer" }}>+ Add item</button>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -740,6 +769,19 @@ export default function Admin() {
                     <span onClick={() => act("update_item", { id: it.id, fields: { available: !it.available } })} style={{ width: 38, height: 22, borderRadius: 12, background: it.available ? T.accent : "#cfcabd", position: "relative", cursor: "pointer" }}>
                       <span style={{ position: "absolute", top: 2, left: it.available ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff" }} />
                     </span>
+                    {(() => {
+                      const catStation = (section && section.station) || "kitchen";
+                      const eff = it.station || catStation;
+                      const label = it.station ? (it.station === "counter" ? "Counter" : "Kitchen") : (eff === "counter" ? "Counter*" : "Kitchen*");
+                      const next = it.station == null ? "kitchen" : it.station === "kitchen" ? "counter" : null;
+                      return (
+                        <span onClick={() => act("update_item", { id: it.id, fields: { station: next } })}
+                          title={it.station ? "Overriding category station — click to cycle" : "Inheriting from category (*) — click to set"}
+                          style={{ fontSize: 11, fontWeight: 700, padding: "4px 8px", borderRadius: 20, cursor: "pointer",
+                            background: eff === "counter" ? "rgba(120,100,160,.14)" : "rgba(94,122,77,.14)",
+                            color: eff === "counter" ? "#6C5AA0" : T.accent }}>{label}</span>
+                      );
+                    })()}
                     <span onClick={() => setEditItem(it)} style={{ color: T.accent, fontSize: 13, cursor: "pointer", fontWeight: 600 }}>edit</span>
                     <span onClick={() => { if (window.confirm("Delete '" + it.name + "'?")) act("delete_item", { id: it.id }); }} style={{ color: T.danger, fontSize: 18, cursor: "pointer" }}>×</span>
                   </div>
