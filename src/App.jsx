@@ -392,242 +392,55 @@ function timeAgo(ts, now) {
   return hrs + "h " + (mins % 60) + "m ago";
 }
 
-function Drawer({ orders = [], onClose, tableMode, table, onPickTable }) {
+function Drawer({ orders = [], onClose }) {
   const [now, setNow] = useState(Date.now());
   const [openOrder, setOpenOrder] = useState(null);
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(id); }, []);
   return (
-    <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
-      {/* blurred menu behind (right) */}
-      <div style={{position: 'absolute', right: '0', top: '0', width: '330px', height: '100%', filter: 'blur(7px)', opacity: '.55'}}>
-        <div style={{margin: '80px 20px 0', height: '160px', borderRadius: '22px', background: 'linear-gradient(120deg,#5d7a52,#9fb585)'}}></div>
-        <div style={{display: 'flex', gap: '14px', margin: '80px 20px 0'}}><div style={{flex: '1', height: '200px', borderRadius: '18px', background: '#E6DAC0'}}></div><div style={{flex: '1', height: '200px', borderRadius: '18px', background: '#DBB877'}}></div></div>
-      </div>
-      <div style={{position: 'absolute', right: '0', top: '0', width: '330px', height: '100%', background: 'rgba(225,232,210,.4)'}}></div>
-      {/* drawer */}
-      <div style={{position: 'absolute', left: '0', top: '0', width: '470px', height: '100%', background: 'var(--bg2)', boxShadow: '18px 0 50px rgba(50,60,40,.16)', padding: '22px 22px 0', overflow: 'hidden'}}>
-        <div onClick={onClose} style={{width: '54px', height: '54px', borderRadius: '50%', background: 'var(--chip)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#36492C', marginBottom: '18px', cursor: 'pointer'}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></div>
-        <div style={{display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', height: 'calc(100% - 94px)', paddingRight: 4}}>
-          {tableMode === "pick" && (
-            <div onClick={onPickTable} style={{ borderRadius: 18, background: table ? 'var(--accent)' : 'rgba(180,70,47,.10)', boxShadow: table ? 'none' : 'inset 0 0 0 1px rgba(180,70,47,.35)', padding: '14px 16px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <div>
-                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', color: table ? 'rgba(247,244,236,.8)' : 'rgba(180,70,47,.9)', marginBottom: 2 }}>YOUR TABLE</div>
-                <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, color: table ? '#F7F4EC' : 'var(--ink)' }}>{table ? table.label : "Tap to choose"}</div>
+    <div style={{ width: "100%", height: "100%", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)" }}>
+      <div style={{ position: "absolute", left: 0, top: 0, width: "100%", maxWidth: 520, height: "100%", background: "var(--bg2)", boxShadow: "18px 0 50px rgba(50,60,40,.16)", padding: "22px 22px 0", display: "flex", flexDirection: "column" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
+          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, color: "var(--ink)" }}>Your orders</div>
+          <div onClick={onClose} style={{ width: 48, height: 48, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", paddingBottom: 24 }}>
+          {orders.length === 0 && (
+            <div style={{ textAlign: "center", color: "var(--faint)", fontSize: 15, marginTop: 60 }}>No orders yet.<br/>Your placed orders will appear here.</div>
+          )}
+          {orders.map((o, i) => (
+            <div key={i} onClick={() => setOpenOrder(openOrder === i ? null : i)} style={{ borderRadius: 16, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)", padding: "14px 16px", cursor: "pointer" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 4 }}>
+                <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>Order #{o.no}{o.table ? " \u00b7 " + o.table : ""}</span>
+                <span style={{ fontSize: 12, color: "var(--muted)" }}>{timeAgo(o.at, now)}</span>
               </div>
-              <div style={{ fontSize: 13, fontWeight: 600, color: table ? 'rgba(247,244,236,.9)' : 'var(--accent)' }}>{table ? "Change" : "Select"}</div>
-            </div>
-          )}
-          {tableMode === "fixed" && table && (
-            <div style={{ borderRadius: 18, background: 'var(--accent)', padding: '14px 16px', display: 'flex', flexDirection: 'column' }}>
-              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: '.06em', color: 'rgba(247,244,236,.8)', marginBottom: 2 }}>YOUR TABLE</div>
-              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, color: '#F7F4EC' }}>{table.label}</div>
-            </div>
-          )}
-          {orders.length > 0 && (
-            <div style={{ borderRadius: 18, background: 'var(--bg)', boxShadow: 'inset 0 0 0 1px var(--line)', padding: 16 }}>
-              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, color: 'var(--ink)', marginBottom: 12 }}>Your orders</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                {orders.map((o, i) => (
-                  <div key={i} onClick={() => setOpenOrder(openOrder === i ? null : i)} style={{ borderRadius: 14, background: 'var(--bg2)', boxShadow: 'inset 0 0 0 1px var(--line)', padding: '12px 14px', cursor: 'pointer' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                      <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15, color: 'var(--ink)' }}>Order #{o.no}{o.table ? " · " + o.table : ""}</span>
-                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{timeAgo(o.at, now)}</span>
+              {openOrder === i ? (
+                <div style={{ marginTop: 8 }}>
+                  {o.items.map((it, j) => (
+                    <div key={j} style={{ display: "flex", justifyContent: "space-between", fontSize: 15, color: "var(--ink)", padding: "4px 0" }}>
+                      <span>{it.qty > 1 ? it.qty + "\u00d7 " : ""}{it.name}</span>
                     </div>
-                    {openOrder === i ? (
-                      <div style={{ marginTop: 6 }}>
-                        {o.items.map((it, j) => (
-                          <div key={j} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 14, color: 'var(--ink)', padding: '3px 0' }}>
-                            <span>{it.qty > 1 ? it.qty + "× " : ""}{it.name}</span>
-                          </div>
-                        ))}
-                        <div style={{ borderTop: '1px solid var(--line)', marginTop: 8, paddingTop: 8, display: 'flex', justifyContent: 'space-between', fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
-                          <span>Total</span><span>{money(o.total)}</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--faint)', marginTop: 6 }}>Ordered {timeAgo(o.at, now)}</div>
-                      </div>
-                    ) : (
-                      <>
-                        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{o.items.map((it) => (it.qty > 1 ? it.qty + "× " : "") + it.name).join(", ")}</div>
-                        <div style={{ fontSize: 13, color: 'var(--faint)', marginTop: 4 }}>{o.count} item{o.count === 1 ? "" : "s"} · {money(o.total)} · tap for details</div>
-                      </>
-                    )}
+                  ))}
+                  <div style={{ borderTop: "1px solid var(--line)", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>
+                    <span>Total</span><span>{money(o.total)}</span>
                   </div>
-                ))}
-              </div>
+                  <div style={{ fontSize: 12, color: "var(--faint)", marginTop: 6 }}>Ordered {timeAgo(o.at, now)}</div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 13, color: "var(--muted)" }}>{o.items.map((it) => (it.qty > 1 ? it.qty + "\u00d7 " : "") + it.name).join(", ")}</div>
+                  <div style={{ fontSize: 13, color: "var(--faint)", marginTop: 4 }}>{o.count} item{o.count === 1 ? "" : "s"} \u00b7 {money(o.total)} \u00b7 tap for details</div>
+                </>
+              )}
             </div>
-          )}
-          <div style={{borderRadius: '18px', padding: '5px', background: '#E6CFA0', boxShadow: '0 0 0 1px rgba(120,90,40,.25)'}}>
-            <div style={{position: 'relative', height: '138px', borderRadius: '14px', overflow: 'hidden', background: 'linear-gradient(160deg,#E8CB97,#DBB877)'}}>
-              <div style={{position: 'absolute', left: '50%', top: '54%', transform: 'translate(-50%,-50%)', width: '120px', height: '120px', borderRadius: '50%', background: 'radial-gradient(60% 60% at 50% 40%,#EDE4D2,#CDB389 72%)'}}></div>
-              <div style={{position: 'absolute', left: '14px', bottom: '12px', background: '#fff', borderRadius: '11px', padding: '8px 16px', fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '16px', color: 'var(--ink)'}}>Seasonal Menu</div>
-            </div>
-          </div>
-          <div style={{position: 'relative', height: '148px', borderRadius: '18px', overflow: 'hidden', background: 'linear-gradient(160deg,#9CB07F,#7E9A66)', boxShadow: 'inset 0 0 0 1px var(--line)'}}>
-            <div style={{position: 'absolute', right: '24px', top: '30px', width: '88px', height: '96px', borderRadius: '10px 10px 28px 28px', background: 'linear-gradient(160deg,#a9c08a,#8aa56c)'}}></div>
-            <div style={{position: 'absolute', left: '14px', bottom: '12px', background: '#fff', borderRadius: '11px', padding: '8px 16px', fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '16px', color: 'var(--ink)'}}>Signature Matchas</div>
-          </div>
-          <div style={{position: 'relative', height: '148px', borderRadius: '18px', overflow: 'hidden', background: 'linear-gradient(160deg,#C9A06A,#A9743F)', boxShadow: 'inset 0 0 0 1px var(--line)'}}>
-            <div style={{position: 'absolute', right: '30px', top: '24px', width: '78px', height: '100px', borderRadius: '8px 8px 16px 16px', background: 'linear-gradient(160deg,#e8d3ab,#cf9a5c)'}}></div>
-            <div style={{position: 'absolute', left: '14px', bottom: '12px', background: '#fff', borderRadius: '11px', padding: '8px 16px', fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '16px', color: 'var(--ink)'}}>Signature Lattes Iced</div>
-          </div>
-          <div style={{position: 'relative', height: '148px', borderRadius: '18px', overflow: 'hidden', background: 'linear-gradient(160deg,#7a5236,#5a3a24)', boxShadow: 'inset 0 0 0 1px var(--line)'}}>
-            <div style={{position: 'absolute', right: '30px', top: '22px', width: '74px', height: '104px', borderRadius: '8px 8px 18px 18px', background: 'linear-gradient(160deg,#6b4a30,#4a2f1c)'}}></div>
-            <div style={{position: 'absolute', left: '14px', bottom: '12px', background: '#fff', borderRadius: '11px', padding: '8px 16px', fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '16px', color: 'var(--ink)'}}>Iced Cocoa</div>
-          </div>
-          <div style={{position: 'relative', height: '148px', borderRadius: '18px', overflow: 'hidden', background: 'linear-gradient(160deg,#b98a5e,#946a44)', boxShadow: 'inset 0 0 0 1px var(--line)'}}>
-            <div style={{position: 'absolute', left: '14px', bottom: '12px', background: '#fff', borderRadius: '11px', padding: '8px 16px', fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '16px', color: 'var(--ink)'}}>Hot Cocoa</div>
-          </div>
+          ))}
         </div>
-      </div>
-      {/* scrollbar hint */}
-      <div style={{position: 'absolute', left: '484px', top: '96px', width: '4px', height: '120px', borderRadius: '3px', background: 'rgba(80,90,60,.3)'}}></div>
-    </div>
-  );
-}
-// ============ ITEM DETAIL (interactive) ============
-function ItemDetail({ item, onAdd, onClose }) {
-  const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: ["Milk"], modifiers: [] };
-  const [qty, setQty] = useState(1);
-  const groups = it.modifiers || [];
-  // selection state: { [groupId]: Set of optionIds }
-  const [sel, setSel] = useState(() => {
-    const init = {};
-    groups.forEach((g) => {
-      // pre-select first option if the group is required single-select
-      if (g.required && (g.max_select || 1) === 1 && g.options && g.options.length) {
-        init[g.id] = [g.options[0].id];
-      } else {
-        init[g.id] = [];
-      }
-    });
-    return init;
-  });
-
-  // Reset selections whenever the item changes (guards against shared modifier state bleeding across items)
-  useEffect(() => {
-    const init = {};
-    (it.modifiers || []).forEach((g) => {
-      if (g.required && (g.max_select || 1) === 1 && g.options && g.options.length) init[g.id] = [g.options[0].id];
-      else init[g.id] = [];
-    });
-    setSel(init);
-    setQty(1);
-  }, [it.id]);
-
-  const toggleOption = (g, optId) => {
-    setSel((prev) => {
-      const cur = prev[g.id] || [];
-      const single = (g.max_select || 1) === 1;
-      let next;
-      if (single) {
-        next = [optId]; // radio: replace
-      } else {
-        if (cur.includes(optId)) next = cur.filter((x) => x !== optId);
-        else if (cur.length < (g.max_select || 99)) next = [...cur, optId];
-        else next = cur; // at max
-      }
-      return { ...prev, [g.id]: next };
-    });
-  };
-
-  // compute price with modifier deltas
-  const modTotal = groups.reduce((sum, g) => {
-    const chosen = sel[g.id] || [];
-    return sum + (g.options || []).filter((o) => chosen.includes(o.id)).reduce((s, o) => s + Number(o.price_delta || 0), 0);
-  }, 0);
-  const unit = it.price + modTotal;
-
-  // collect chosen modifiers for the cart line
-  const chosenMods = groups.flatMap((g) =>
-    (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id)).map((o) => ({ group: g.name, name: o.name, price_delta: Number(o.price_delta || 0), option_id: o.id }))
-  );
-
-  // required groups must have a selection to enable Add
-  const missingRequired = groups.some((g) => g.required && (sel[g.id] || []).length < (g.min_select || 1));
-
-  return (
-    <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
-      {/* hero */}
-      <div style={{ position: "relative", height: it.image_url ? 600 : 520, backgroundImage: it.image_url ? `url(${it.image_url})` : "linear-gradient(165deg,#EFE6DE,#E7DAD2)", backgroundSize: "cover", backgroundPosition: "center", overflow: "hidden", flex: "none" }}>
-        <div onClick={onClose} style={{ position: "absolute", top: 24, right: 28, width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", zIndex: 3, cursor: "pointer" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></div>
-        {!it.image_url && (<>
-        <div style={{ position: "absolute", left: "50%", top: "54%", transform: "translate(-50%,-50%) rotate(-7deg)", width: 420, height: 175, borderRadius: 40, background: "linear-gradient(150deg,#b6824a,#8a5a2c)", boxShadow: "0 30px 50px -18px rgba(80,50,20,.4)" }} />
-        <div style={{ position: "absolute", left: "50%", top: "46%", transform: "translate(-50%,-50%)", width: 200, height: 200 }}>
-          <div style={{ position: "absolute", bottom: 0, width: 200, height: 188, borderRadius: "14px 14px 50px 50px", overflow: "hidden", background: it.bg || "linear-gradient(180deg,#7c9a55,#86a35f 42%,#cfd8b8 62%,#efeee2)", boxShadow: "inset 0 0 30px rgba(60,80,30,.3)" }}>
-            {it.prod && <div style={{ position: "absolute", left: "50%", top: "44%", transform: "translate(-50%,-50%)", width: 130, height: 130, borderRadius: "50%", background: it.prod, filter: "blur(3px)", opacity: .85 }} />}
-            <div style={{ position: "absolute", left: 16, top: 0, bottom: 0, width: 26, background: "linear-gradient(90deg,rgba(255,255,255,.32),transparent)" }} />
-          </div>
-          <div style={{ position: "absolute", top: 0, width: 200, height: 28, borderRadius: "50%", background: "rgba(255,255,255,.5)" }} />
-        </div>
-        </>)}
-      </div>
-
-      {/* body */}
-      <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none", padding: "26px 32px 0" }}>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-          {(it.tags || []).map((t) => <span key={t} style={{ fontFamily: "'Poppins',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", color: "#fff", background: "var(--accent)", padding: "5px 12px", borderRadius: 16 }}>{t}</span>)}
-        </div>
-        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 34, lineHeight: 1.05, color: "var(--ink)" }}>{it.name}</div>
-        <div style={{ fontSize: 16, color: "var(--muted)", marginTop: 8 }}>{it.desc}</div>
-
-        {it.allergens && it.allergens.length > 0 && (
-          <div style={{ marginTop: 16 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", marginBottom: 8 }}>ALLERGENS</div>
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-              {it.allergens.map((a) => (
-                <span key={a} style={{ fontSize: 13, fontWeight: 600, color: "#8a5a2c", background: "#F5E9DC", border: "1px solid #E5CDB2", padding: "6px 14px", borderRadius: 20 }}>{a}</span>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {groups.map((g) => {
-          const single = (g.max_select || 1) === 1;
-          const chosen = sel[g.id] || [];
-          return (
-            <div key={g.id} style={{ marginTop: 18, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 16, padding: "16px 18px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>{g.name || ""}</div>
-                {g.required
-                  ? <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", background: "var(--accentSoft, #EFEAD9)", padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
-                  : <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>{g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional"}</span>}
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-                {(g.options || []).map((o) => {
-                  const on = chosen.includes(o.id);
-                  return (
-                    <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
-                      <span style={{ fontSize: 16, color: "var(--ink)" }}>{o.name}{Number(o.price_delta) ? <span style={{ color: "var(--accent)", fontSize: 14, fontWeight: 600 }}> +£{Number(o.price_delta).toFixed(2)}</span> : null}</span>
-                      <div style={{ width: 26, height: 26, borderRadius: single ? "50%" : 7, border: on ? "2px solid var(--accent)" : "2px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center", background: on && !single ? "var(--accent)" : "transparent" }}>
-                        {on && single && <div style={{ width: 13, height: 13, borderRadius: "50%", background: "var(--accent)" }} />}
-                        {on && !single && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-
-        <div style={{ height: 120 }} />
-      </div>
-
-      {/* sticky add */}
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 32px 28px", background: "linear-gradient(to top,var(--bg3) 72%,transparent)", display: "flex", alignItems: "center", gap: 16 }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 18, background: "var(--bg)", borderRadius: 40, padding: "12px 20px" }}>
-          <span onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ fontSize: 24, color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
-          <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, minWidth: 16, textAlign: "center" }}>{qty}</span>
-          <span onClick={() => setQty((q) => q + 1)} style={{ fontSize: 22, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
-        </div>
-        <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: chosenMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: missingRequired ? "not-allowed" : "pointer", opacity: missingRequired ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
       </div>
     </div>
   );
 }
 
-// ============ BAG (data-driven) ============
-function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true }) {
+
+function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable }) {
   const subtotal = lines.reduce((s, l) => s + l.unit * l.qty, 0);
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const setQty = (i, d) => setLines((p) => p.map((l, x) => x === i ? { ...l, qty: Math.max(1, l.qty + d) } : l));
@@ -644,6 +457,15 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none", padding: "0 28px" }}>
+        {(tableMode === "pick" || tableMode === "fixed") && (
+          <div onClick={() => { if (tableMode === "pick" && onPickTable) onPickTable(); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", background: table ? "var(--bg3)" : "rgba(180,70,47,.08)", borderRadius: 18, boxShadow: table ? "inset 0 0 0 1px var(--line)" : "inset 0 0 0 1px rgba(180,70,47,.35)", marginBottom: 14, cursor: tableMode === "pick" ? "pointer" : "default" }}>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: table ? "var(--muted)" : "rgba(180,70,47,.9)", marginBottom: 3 }}>YOUR TABLE</div>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, color: "var(--ink)" }}>{table ? table.label : "Tap to choose your table"}</div>
+            </div>
+            {tableMode === "pick" && <div style={{ fontSize: 14, fontWeight: 600, color: "var(--accent)" }}>{table ? "Change" : "Select"}</div>}
+          </div>
+        )}
         {lines.length === 0 && <div style={{ textAlign: "center", color: "var(--muted)", marginTop: 80, fontSize: 17 }}>Your bag is empty.<br />Add something from the menu.</div>}
         {lines.map((l, i) => (
           <div key={i} style={{ display: "flex", gap: 16, padding: 18, background: "var(--bg3)", borderRadius: 18, boxShadow: "inset 0 0 0 1px var(--line)", marginBottom: 14 }}>
@@ -870,7 +692,12 @@ export default function App() {
   const [table, setTable] = useState(null);          // chosen table row {id,label,...}
   const [showTablePicker, setShowTablePicker] = useState(false);
   const orderingOn = settings.ordering_enabled !== "off" && settings.ordering_enabled !== false;
-  const [sessionOrders, setSessionOrders] = useState([]);   // this tablet's placed orders this session
+  const [sessionOrders, setSessionOrders] = useState(() => {
+    try { const raw = localStorage.getItem("still_order_history"); return raw ? JSON.parse(raw) : []; } catch { return []; }
+  });   // this tablet's placed orders, persisted across refresh
+  useEffect(() => {
+    try { localStorage.setItem("still_order_history", JSON.stringify(sessionOrders.slice(0, 50))); } catch {}
+  }, [sessionOrders]);
   const [placing, setPlacing] = useState(false);
   const [orderErr, setOrderErr] = useState(null);
   const addToBag = (line) => { setLines((p) => [...p, line]); setScreen("browse"); };
@@ -998,9 +825,9 @@ export default function App() {
 
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settings} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
-            <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} tableMode={tableMode} table={table} onPickTable={() => { setScreen("browse"); setShowTablePicker(true); }} /></div>
+            <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
-            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} /></div>
+            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={() => setShowTablePicker(true)} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
             {orderingOn && (showTablePicker || (tableMode === "pick" && !table && screen === "bag")) && (
               <TablePicker tables={tables} current={table} required={tableMode === "pick" && !table}
