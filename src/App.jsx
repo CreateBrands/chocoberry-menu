@@ -770,11 +770,9 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 12, overflowY: "auto", paddingBottom: 20 }}>
         {tables.map((t) => {
           const active = current && current.id === t.id;
-          const num = String(t.label).replace(/[^0-9]/g, "") || t.label;
           return (
-            <div key={t.id} onClick={() => onPick(t)} style={{ aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRadius: 20, cursor: "pointer", background: active ? "var(--accent)" : "var(--bg3)", color: active ? "#F7F4EC" : "var(--ink)", boxShadow: active ? "0 12px 28px -10px rgba(94,122,77,.6)" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 34, transition: "all .12s" }}>
-              {num}
-              <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: ".08em", opacity: .7, marginTop: 2 }}>TABLE</span>
+            <div key={t.id} onClick={() => onPick(t)} style={{ aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRadius: 20, cursor: "pointer", background: active ? "var(--accent)" : "var(--bg3)", color: active ? "#F7F4EC" : "var(--ink)", boxShadow: active ? "0 12px 28px -10px rgba(94,122,77,.6)" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 28, textAlign: "center", padding: 6, wordBreak: "break-word", lineHeight: 1.1 }}>
+              {t.label}
             </div>
           );
         })}
@@ -810,6 +808,7 @@ export default function App() {
   const [tables, setTables] = useState([]);
   const [table, setTable] = useState(null);          // chosen table row {id,label,...}
   const [showTablePicker, setShowTablePicker] = useState(false);
+  const orderingOn = settings.ordering_enabled !== "off" && settings.ordering_enabled !== false;
   const [placing, setPlacing] = useState(false);
   const [orderErr, setOrderErr] = useState(null);
   const addToBag = (line) => { setLines((p) => [...p, line]); setScreen("browse"); };
@@ -822,7 +821,7 @@ export default function App() {
   const placeOrder = async () => {
     if (placing) return;
     // On a tablet (pick mode), a table must be chosen before the order can send.
-    if (tableMode === "pick" && !table) { setShowTablePicker(true); return; }
+    if (orderingOn && tableMode === "pick" && !table) { setShowTablePicker(true); return; }
     setPlacing(true); setOrderErr(null);
     const dineIn = (tableMode === "pick" || tableMode === "fixed") && table;
     const payload = {
@@ -926,9 +925,9 @@ export default function App() {
       <div style={{ width: "100vw", height: "100dvh", margin: 0 }}>
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
-            {(tableMode === "pick" || tableMode === "fixed") && screen !== "confirm" && (
+            {orderingOn && (tableMode === "pick" || tableMode === "fixed") && screen !== "confirm" && (
               <div onClick={() => { if (tableMode !== "fixed") setShowTablePicker(true); }} style={{ position: "absolute", top: 14, right: 14, zIndex: 40, background: table ? "var(--accent)" : "rgba(180,70,47,.92)", color: "#F7F4EC", borderRadius: 999, padding: "8px 14px", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 13, boxShadow: "0 8px 20px -8px rgba(0,0,0,.4)", cursor: tableMode === "fixed" ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                {table ? ("Table " + String(table.label).replace(/[^0-9]/g, "")) : "Pick a table"}
+                {table ? table.label : "Pick a table"}
                 {tableMode !== "fixed" && <span style={{ fontSize: 11, opacity: .8 }}>change</span>}
               </div>
             )}
@@ -938,7 +937,7 @@ export default function App() {
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
-            {(showTablePicker || (tableMode === "pick" && !table && screen === "bag")) && (
+            {orderingOn && (showTablePicker || (tableMode === "pick" && !table && screen === "bag")) && (
               <TablePicker tables={tables} current={table} required={tableMode === "pick" && !table}
                 onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }}
                 onClose={() => setShowTablePicker(false)} />
