@@ -218,7 +218,7 @@ function Welcome({ bg, menus, onPick, w = {} }) {
   );
 }
 // ============ DATA-DRIVEN BROWSE ============
-function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, bagCount, heroSlides }) {
+function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, bagCount, heroSlides }) {
   const HEROX = (heroSlides && heroSlides.length) ? heroSlides : HERO;
   const [added, setAdded] = useState(false);
   const flashAdded = () => { setAdded(true); setTimeout(() => setAdded(false), 1100); };
