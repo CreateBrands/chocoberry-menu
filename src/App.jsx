@@ -382,7 +382,18 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
   );
 }
 
-function Drawer() {
+function timeAgo(ts, now) {
+  const secs = Math.max(0, Math.floor((now - ts) / 1000));
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return mins + " min ago";
+  const hrs = Math.floor(mins / 60);
+  return hrs + "h " + (mins % 60) + "m ago";
+}
+
+function Drawer({ orders = [] }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const id = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(id); }, []);
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       {/* blurred menu behind (right) */}
@@ -394,7 +405,24 @@ function Drawer() {
       {/* drawer */}
       <div style={{position: 'absolute', left: '0', top: '0', width: '470px', height: '100%', background: 'var(--bg2)', boxShadow: '18px 0 50px rgba(50,60,40,.16)', padding: '22px 22px 0', overflow: 'hidden'}}>
         <div style={{width: '54px', height: '54px', borderRadius: '50%', background: 'var(--chip)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#36492C', marginBottom: '18px'}}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></div>
-        <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
+        <div style={{display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto', height: 'calc(100% - 94px)', paddingRight: 4}}>
+          {orders.length > 0 && (
+            <div style={{ borderRadius: 18, background: 'var(--bg)', boxShadow: 'inset 0 0 0 1px var(--line)', padding: 16 }}>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, color: 'var(--ink)', marginBottom: 12 }}>Your orders</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {orders.map((o, i) => (
+                  <div key={i} style={{ borderRadius: 14, background: 'var(--bg2)', boxShadow: 'inset 0 0 0 1px var(--line)', padding: '12px 14px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                      <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15, color: 'var(--ink)' }}>Order #{o.no}{o.table ? " · " + o.table : ""}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{timeAgo(o.at, now)}</span>
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--muted)' }}>{o.items.map((it) => (it.qty > 1 ? it.qty + "× " : "") + it.name).join(", ")}</div>
+                    <div style={{ fontSize: 13, color: 'var(--faint)', marginTop: 4 }}>{o.count} item{o.count === 1 ? "" : "s"} · {money(o.total)}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           <div style={{borderRadius: '18px', padding: '5px', background: '#E6CFA0', boxShadow: '0 0 0 1px rgba(120,90,40,.25)'}}>
             <div style={{position: 'relative', height: '138px', borderRadius: '14px', overflow: 'hidden', background: 'linear-gradient(160deg,#E8CB97,#DBB877)'}}>
               <div style={{position: 'absolute', left: '50%', top: '54%', transform: 'translate(-50%,-50%)', width: '120px', height: '120px', borderRadius: '50%', background: 'radial-gradient(60% 60% at 50% 40%,#EDE4D2,#CDB389 72%)'}}></div>
@@ -809,6 +837,7 @@ export default function App() {
   const [table, setTable] = useState(null);          // chosen table row {id,label,...}
   const [showTablePicker, setShowTablePicker] = useState(false);
   const orderingOn = settings.ordering_enabled !== "off" && settings.ordering_enabled !== false;
+  const [sessionOrders, setSessionOrders] = useState([]);   // this tablet's placed orders this session
   const [placing, setPlacing] = useState(false);
   const [orderErr, setOrderErr] = useState(null);
   const addToBag = (line) => { setLines((p) => [...p, line]); setScreen("browse"); };
@@ -840,6 +869,14 @@ export default function App() {
       const resp = await res.json();
       if (!res.ok) throw new Error(resp.error || ("HTTP " + res.status));
       setOrderNo(resp.order_no);
+      setSessionOrders((prev) => [{
+        no: resp.order_no,
+        at: Date.now(),
+        table: (dineIn && table) ? table.label : null,
+        count: lines.reduce((s2, l) => s2 + l.qty, 0),
+        total: lines.reduce((s2, l) => s2 + (l.unit || l.item.price || 0) * l.qty, 0),
+        items: lines.map((l) => ({ name: l.item.name, qty: l.qty })),
+      }, ...prev]);
       setScreen("confirm");
     } catch (e) {
       // Fallback so the demo flow still completes if the function isn't deployed yet.
@@ -926,14 +963,15 @@ export default function App() {
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
             {orderingOn && (tableMode === "pick" || tableMode === "fixed") && screen !== "confirm" && (
-              <div onClick={() => { if (tableMode !== "fixed") setShowTablePicker(true); }} style={{ position: "absolute", top: 14, right: 14, zIndex: 40, background: table ? "var(--accent)" : "rgba(180,70,47,.92)", color: "#F7F4EC", borderRadius: 999, padding: "8px 14px", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 13, boxShadow: "0 8px 20px -8px rgba(0,0,0,.4)", cursor: tableMode === "fixed" ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6 }}>
-                {table ? table.label : "Pick a table"}
-                {tableMode !== "fixed" && <span style={{ fontSize: 11, opacity: .8 }}>change</span>}
+              <div onClick={() => { if (tableMode !== "fixed") setShowTablePicker(true); }} title={table ? ("Table: " + table.label) : "Pick a table"} style={{ position: "absolute", bottom: 16, left: 16, zIndex: 40, width: 44, height: 44, borderRadius: "50%", background: table ? "var(--accent)" : "rgba(180,70,47,.92)", color: "#F7F4EC", boxShadow: "0 6px 16px -6px rgba(0,0,0,.45)", cursor: tableMode === "fixed" ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", opacity: .9 }}>
+                {table
+                  ? <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 13, lineHeight: 1, textAlign: "center", padding: 2, wordBreak: "break-word" }}>{table.label.length > 4 ? table.label.slice(0, 4) : table.label}</span>
+                  : <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 10h18M6 10V7a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v3M5 10l1 9M19 10l-1 9M9 19h6"/></svg>}
               </div>
             )}
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settings} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
-            <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer /></div>
+            <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
