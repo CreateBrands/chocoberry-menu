@@ -440,6 +440,149 @@ function Drawer({ orders = [], onClose }) {
 }
 
 
+function ItemDetail({ item, onAdd, onClose }) {
+  const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: ["Milk"], modifiers: [] };
+  const [qty, setQty] = useState(1);
+  const groups = it.modifiers || [];
+  // selection state: { [groupId]: Set of optionIds }
+  const [sel, setSel] = useState(() => {
+    const init = {};
+    groups.forEach((g) => {
+      // pre-select first option if the group is required single-select
+      if (g.required && (g.max_select || 1) === 1 && g.options && g.options.length) {
+        init[g.id] = [g.options[0].id];
+      } else {
+        init[g.id] = [];
+      }
+    });
+    return init;
+  });
+
+  // Reset selections whenever the item changes (guards against shared modifier state bleeding across items)
+  useEffect(() => {
+    const init = {};
+    (it.modifiers || []).forEach((g) => {
+      if (g.required && (g.max_select || 1) === 1 && g.options && g.options.length) init[g.id] = [g.options[0].id];
+      else init[g.id] = [];
+    });
+    setSel(init);
+    setQty(1);
+  }, [it.id]);
+
+  const toggleOption = (g, optId) => {
+    setSel((prev) => {
+      const cur = prev[g.id] || [];
+      const single = (g.max_select || 1) === 1;
+      let next;
+      if (single) {
+        next = [optId]; // radio: replace
+      } else {
+        if (cur.includes(optId)) next = cur.filter((x) => x !== optId);
+        else if (cur.length < (g.max_select || 99)) next = [...cur, optId];
+        else next = cur; // at max
+      }
+      return { ...prev, [g.id]: next };
+    });
+  };
+
+  // compute price with modifier deltas
+  const modTotal = groups.reduce((sum, g) => {
+    const chosen = sel[g.id] || [];
+    return sum + (g.options || []).filter((o) => chosen.includes(o.id)).reduce((s, o) => s + Number(o.price_delta || 0), 0);
+  }, 0);
+  const unit = it.price + modTotal;
+
+  // collect chosen modifiers for the cart line
+  const chosenMods = groups.flatMap((g) =>
+    (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id)).map((o) => ({ group: g.name, name: o.name, price_delta: Number(o.price_delta || 0), option_id: o.id }))
+  );
+
+  // required groups must have a selection to enable Add
+  const missingRequired = groups.some((g) => g.required && (sel[g.id] || []).length < (g.min_select || 1));
+
+  return (
+    <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
+      {/* hero */}
+      <div style={{ position: "relative", height: it.image_url ? 600 : 520, backgroundImage: it.image_url ? `url(${it.image_url})` : "linear-gradient(165deg,#EFE6DE,#E7DAD2)", backgroundSize: "cover", backgroundPosition: "center", overflow: "hidden", flex: "none" }}>
+        <div onClick={onClose} style={{ position: "absolute", top: 24, right: 28, width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", zIndex: 3, cursor: "pointer" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></div>
+        {!it.image_url && (<>
+        <div style={{ position: "absolute", left: "50%", top: "54%", transform: "translate(-50%,-50%) rotate(-7deg)", width: 420, height: 175, borderRadius: 40, background: "linear-gradient(150deg,#b6824a,#8a5a2c)", boxShadow: "0 30px 50px -18px rgba(80,50,20,.4)" }} />
+        <div style={{ position: "absolute", left: "50%", top: "46%", transform: "translate(-50%,-50%)", width: 200, height: 200 }}>
+          <div style={{ position: "absolute", bottom: 0, width: 200, height: 188, borderRadius: "14px 14px 50px 50px", overflow: "hidden", background: it.bg || "linear-gradient(180deg,#7c9a55,#86a35f 42%,#cfd8b8 62%,#efeee2)", boxShadow: "inset 0 0 30px rgba(60,80,30,.3)" }}>
+            {it.prod && <div style={{ position: "absolute", left: "50%", top: "44%", transform: "translate(-50%,-50%)", width: 130, height: 130, borderRadius: "50%", background: it.prod, filter: "blur(3px)", opacity: .85 }} />}
+            <div style={{ position: "absolute", left: 16, top: 0, bottom: 0, width: 26, background: "linear-gradient(90deg,rgba(255,255,255,.32),transparent)" }} />
+          </div>
+          <div style={{ position: "absolute", top: 0, width: 200, height: 28, borderRadius: "50%", background: "rgba(255,255,255,.5)" }} />
+        </div>
+        </>)}
+      </div>
+
+      {/* body */}
+      <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none", padding: "26px 32px 0" }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+          {(it.tags || []).map((t) => <span key={t} style={{ fontFamily: "'Poppins',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", color: "#fff", background: "var(--accent)", padding: "5px 12px", borderRadius: 16 }}>{t}</span>)}
+        </div>
+        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 34, lineHeight: 1.05, color: "var(--ink)" }}>{it.name}</div>
+        <div style={{ fontSize: 16, color: "var(--muted)", marginTop: 8 }}>{it.desc}</div>
+
+        {it.allergens && it.allergens.length > 0 && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", marginBottom: 8 }}>ALLERGENS</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {it.allergens.map((a) => (
+                <span key={a} style={{ fontSize: 13, fontWeight: 600, color: "#8a5a2c", background: "#F5E9DC", border: "1px solid #E5CDB2", padding: "6px 14px", borderRadius: 20 }}>{a}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {groups.map((g) => {
+          const single = (g.max_select || 1) === 1;
+          const chosen = sel[g.id] || [];
+          return (
+            <div key={g.id} style={{ marginTop: 18, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 16, padding: "16px 18px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>{g.name || ""}</div>
+                {g.required
+                  ? <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", background: "var(--accentSoft, #EFEAD9)", padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
+                  : <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>{g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional"}</span>}
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                {(g.options || []).map((o) => {
+                  const on = chosen.includes(o.id);
+                  return (
+                    <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
+                      <span style={{ fontSize: 16, color: "var(--ink)" }}>{o.name}{Number(o.price_delta) ? <span style={{ color: "var(--accent)", fontSize: 14, fontWeight: 600 }}> +£{Number(o.price_delta).toFixed(2)}</span> : null}</span>
+                      <div style={{ width: 26, height: 26, borderRadius: single ? "50%" : 7, border: on ? "2px solid var(--accent)" : "2px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center", background: on && !single ? "var(--accent)" : "transparent" }}>
+                        {on && single && <div style={{ width: 13, height: 13, borderRadius: "50%", background: "var(--accent)" }} />}
+                        {on && !single && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
+
+        <div style={{ height: 120 }} />
+      </div>
+
+      {/* sticky add */}
+      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 32px 28px", background: "linear-gradient(to top,var(--bg3) 72%,transparent)", display: "flex", alignItems: "center", gap: 16 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 18, background: "var(--bg)", borderRadius: 40, padding: "12px 20px" }}>
+          <span onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ fontSize: 24, color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
+          <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, minWidth: 16, textAlign: "center" }}>{qty}</span>
+          <span onClick={() => setQty((q) => q + 1)} style={{ fontSize: 22, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
+        </div>
+        <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: chosenMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: missingRequired ? "not-allowed" : "pointer", opacity: missingRequired ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
+      </div>
+    </div>
+  );
+}
+
+// ============ BAG (data-driven) ============
+
 function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable }) {
   const subtotal = lines.reduce((s, l) => s + l.unit * l.qty, 0);
   const count = lines.reduce((s, l) => s + l.qty, 0);
