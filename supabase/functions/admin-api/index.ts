@@ -52,14 +52,34 @@ Deno.serve(async (req) => {
     switch (action) {
       // ---- READ: everything the admin UI needs in one call ----
       case "load": {
-        const [cats, items, locs, overrides] = await Promise.all([
+        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus] = await Promise.all([
           admin.from("menu_categories").select("*").order("sort_order"),
           admin.from("menu_items").select("*").order("sort_order"),
           admin.from("menu_locations").select("id,name,slug,active,brand_id").order("name"),
           admin.from("menu_item_overrides").select("*"),
+          admin.from("menu_app_settings").select("key,value"),
+          admin.from("menu_menus").select("*").order("sort_order"),
+          admin.from("menu_modifier_groups").select("*"),
+          admin.from("menu_modifiers").select("*").order("sort_order"),
+          admin.from("menu_item_modifiers").select("*"),
+          admin.from("menu_tables").select("*"),
+          admin.from("menu_location_menus").select("*"),
         ]);
         for (const r of [cats, items, locs, overrides]) if (r.error) throw r.error;
-        return json({ ok: true, categories: cats.data, items: items.data, locations: locs.data, overrides: overrides.data });
+        return json({
+          ok: true,
+          categories: cats.data,
+          items: items.data,
+          locations: locs.data,
+          overrides: overrides.data,
+          settings: settings.data ?? [],
+          menus: menus.data ?? [],
+          modifierGroups: modGroups.data ?? [],
+          modifierOptions: modOptions.data ?? [],
+          itemModifiers: itemMods.data ?? [],
+          tables: tables.data ?? [],
+          locationMenus: locMenus.data ?? [],
+        });
       }
 
       // ---- MASTER ITEM: update fields ----
@@ -224,6 +244,229 @@ Deno.serve(async (req) => {
         const patch: any = {};
         for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
         const { error } = await admin.from("menu_categories").update(patch).eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- SETTINGS: upsert a key/value into menu_app_settings ----
+      case "set_setting": {
+        const { key, value } = data || {};
+        if (!key) return json({ error: "key required" }, 400);
+        const { error } = await admin.from("menu_app_settings")
+          .upsert({ key, value: value ?? null, updated_at: new Date().toISOString() },
+                  { onConflict: "key" });
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- MENUS ----
+      case "create_menu": {
+        const { brand_id, name, sort_order } = data || {};
+        if (!name) return json({ error: "name required" }, 400);
+        const { data: row, error } = await admin.from("menu_menus")
+          .insert({ brand_id: brand_id ?? null, name, sort_order: sort_order ?? 0, active: true })
+          .select("id").single();
+        if (error) throw error;
+        return json({ ok: true, id: row.id });
+      }
+      case "update_menu": {
+        const { id, fields } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const allowed = ["name", "sort_order", "active", "available_from", "available_to", "days_of_week", "pos_menu_id"];
+        const patch: any = {};
+        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
+        const { error } = await admin.from("menu_menus").update(patch).eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      case "delete_menu": {
+        const { id } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const { error } = await admin.from("menu_menus").delete().eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- CATEGORY delete ----
+      case "delete_category": {
+        const { id } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const { error } = await admin.from("menu_categories").delete().eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- MODIFIER GROUPS ----
+      case "create_mod_group": {
+        const { brand_id, name, min_select, max_select, required } = data || {};
+        if (!name) return json({ error: "name required" }, 400);
+        const { data: row, error } = await admin.from("menu_modifier_groups")
+          .insert({ brand_id: brand_id ?? null, name, min_select: min_select ?? 0, max_select: max_select ?? 1, required: required ?? false })
+          .select("id").single();
+        if (error) throw error;
+        return json({ ok: true, id: row.id });
+      }
+      case "update_mod_group": {
+        const { id, fields } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const allowed = ["name", "name_ar", "min_select", "max_select", "required", "pos_group_id"];
+        const patch: any = {};
+        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
+        const { error } = await admin.from("menu_modifier_groups").update(patch).eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      case "delete_mod_group": {
+        const { id } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const { error } = await admin.from("menu_modifier_groups").delete().eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- MODIFIER OPTIONS ----
+      case "create_mod_option": {
+        const { group_id, name, price_delta, sort_order } = data || {};
+        if (!group_id || !name) return json({ error: "group_id and name required" }, 400);
+        const { data: row, error } = await admin.from("menu_modifiers")
+          .insert({ group_id, name, price_delta: price_delta ?? 0, sort_order: sort_order ?? 0 })
+          .select("id").single();
+        if (error) throw error;
+        return json({ ok: true, id: row.id });
+      }
+      case "update_mod_option": {
+        const { id, fields } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const allowed = ["name", "name_ar", "price_delta", "sort_order", "pos_id"];
+        const patch: any = {};
+        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
+        const { error } = await admin.from("menu_modifiers").update(patch).eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      case "delete_mod_option": {
+        const { id } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const { error } = await admin.from("menu_modifiers").delete().eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- ITEM <-> MODIFIER GROUP links ----
+      case "set_item_mod_groups": {
+        const { item_id, group_ids } = data || {};
+        if (!item_id) return json({ error: "item_id required" }, 400);
+        const ids: string[] = Array.isArray(group_ids) ? group_ids : [];
+        // Replace the set: delete existing links, insert the new ones.
+        const del = await admin.from("menu_item_modifiers").delete().eq("item_id", item_id);
+        if (del.error) throw del.error;
+        if (ids.length) {
+          const rows = ids.map((g) => ({ item_id, group_id: g }));
+          const { error } = await admin.from("menu_item_modifiers").insert(rows);
+          if (error) throw error;
+        }
+        return json({ ok: true });
+      }
+
+      // ---- STORES (menu_locations) ----
+      case "create_store": {
+        const { name, slug, brand_id } = data || {};
+        if (!name) return json({ error: "name required" }, 400);
+        const { data: row, error } = await admin.from("menu_locations")
+          .insert({ name, slug: slug ?? null, brand_id: brand_id ?? null, active: true })
+          .select("id").single();
+        if (error) throw error;
+        return json({ ok: true, id: row.id });
+      }
+      case "update_store": {
+        const { id, fields } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const allowed = ["name", "slug", "active", "brand_id"];
+        const patch: any = {};
+        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
+        const { error } = await admin.from("menu_locations").update(patch).eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      case "delete_store": {
+        const { id } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const { error } = await admin.from("menu_locations").delete().eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- STORE <-> MENU assignment ----
+      case "set_store_menus": {
+        const { location_id, menu_ids } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const ids: string[] = Array.isArray(menu_ids) ? menu_ids : [];
+        const del = await admin.from("menu_location_menus").delete().eq("location_id", location_id);
+        if (del.error) throw del.error;
+        if (ids.length) {
+          const rows = ids.map((m) => ({ location_id, menu_id: m }));
+          const { error } = await admin.from("menu_location_menus").insert(rows);
+          if (error) throw error;
+        }
+        return json({ ok: true });
+      }
+
+      // ---- TABLES / QR tokens ----
+      case "create_token": {
+        const { location_id, label } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const token = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+        const { data: row, error } = await admin.from("menu_tables")
+          .insert({ location_id, label: label ?? "Tablet", qr_token: token, active: true })
+          .select("id, qr_token").single();
+        if (error) throw error;
+        return json({ ok: true, id: row.id, qr_token: row.qr_token });
+      }
+      case "delete_token": {
+        const { id } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const { error } = await admin.from("menu_tables").delete().eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- REORDER (generic sort_order updater) ----
+      case "reorder": {
+        const { table, ids } = data || {};
+        const okTables = ["menu_menus", "menu_categories", "menu_items"];
+        if (!okTables.includes(table) || !Array.isArray(ids)) return json({ error: "bad reorder" }, 400);
+        for (let i = 0; i < ids.length; i++) {
+          const { error } = await admin.from(table).update({ sort_order: i }).eq("id", ids[i]);
+          if (error) throw error;
+        }
+        return json({ ok: true });
+      }
+
+      // ---- DINING TABLES (real tables, is_table=true) ----
+      case "create_table": {
+        const { location_id, label } = data || {};
+        if (!location_id || !label) return json({ error: "location_id and label required" }, 400);
+        const token = "t_" + crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+        const { data: row, error } = await admin.from("menu_tables")
+          .insert({ location_id, label, qr_token: token, active: true, is_table: true })
+          .select("id, qr_token").single();
+        if (error) throw error;
+        return json({ ok: true, id: row.id, qr_token: row.qr_token });
+      }
+      case "update_table": {
+        const { id, fields } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const allowed = ["label", "active"];
+        const patch: any = {};
+        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
+        const { error } = await admin.from("menu_tables").update(patch).eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      case "delete_table": {
+        const { id } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const { error } = await admin.from("menu_tables").delete().eq("id", id);
         if (error) throw error;
         return json({ ok: true });
       }
