@@ -1,3 +1,5 @@
+import React, { useState } from "react";
+
 /* ─────────────────────────────────────────────────────────────────────────────
    MENU OVERVIEW — the whole menu on one page, laid out the way Uber Eats does:
    collapsible category sections with an item count, and each row showing its
@@ -14,17 +16,18 @@
    matches the existing "<Store> — Prices" modal exactly, because tills charge
    different prices at different sites and a single master price is a fiction.
 
-   Drop this above `export default function Admin()` in Admin.jsx.
+   Lives in its own file: import it into Admin.jsx rather than pasting 200
+   lines into an already-large component.
    ───────────────────────────────────────────────────────────────────────── */
-function MenuOverview({ state, T, act, onEditItem, onClose }) {
-  const [collapsed, setCollapsed] = React.useState({});
-  const [storeId, setStoreId] = React.useState("");     // "" = master prices
-  const [q, setQ] = React.useState("");
-  const [draft, setDraft] = React.useState({});          // id -> in-progress text
-  const [saving, setSaving] = React.useState({});
+export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
+  const [collapsed, setCollapsed] = useState({});
+  const [storeId, setStoreId] = useState("");     // "" = master prices
+  const [q, setQ] = useState("");
+  const [draft, setDraft] = useState({});          // id -> in-progress text
+  const [saving, setSaving] = useState({});
 
   const menus = [...(state.menus || [])].sort((a, b) => a.sort_order - b.sort_order);
-  const [menuId, setMenuId] = React.useState(menus[0]?.id || null);
+  const [menuId, setMenuId] = useState(menus[0]?.id || null);
 
   const sections = (state.categories || [])
     .filter((c) => c.menu_id === menuId)
