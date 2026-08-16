@@ -53,7 +53,9 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
     const raw = (draft[key] ?? "").trim();
     setSaving((s) => ({ ...s, [key]: true }));
     try {
-      if (storeId) {
+      if (bandId) {
+        await act("set_band_price", { band_id: bandId, item_id: item.id, price: raw === "" ? null : parseFloat(raw) });
+      } else if (storeId) {
         // Blank clears the override so the item falls back to the master price.
         // `available` is carried through untouched so editing a price can't
         // accidentally un-hide an item that was deliberately hidden here.
@@ -85,7 +87,9 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
     const raw = (optDraft[opt.id] ?? "").trim();
     setSaving((s) => ({ ...s, [opt.id]: true }));
     try {
-      if (storeId) {
+      if (bandId) {
+        await act("set_band_option_price", { band_id: bandId, option_id: opt.id, price_delta: raw === "" ? null : parseFloat(raw) });
+      } else if (storeId) {
         const mv = optOverrideFor(opt.id);
         await act("set_mod_override", {
           option_id: opt.id, location_id: storeId,
@@ -140,7 +144,9 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
             <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 19 }}>Menu overview</div>
             <div style={{ fontSize: 12.5, color: T.muted, marginTop: 2 }}>
               {totalShown} item{totalShown === 1 ? "" : "s"} across {sections.length} section{sections.length === 1 ? "" : "s"}
-              {storeId ? " · showing this store's prices" : " · showing master prices"}
+              {bandId ? " · editing the " + ((state.priceBands || []).find((b) => b.id === bandId)?.name || "band") + " band"
+                : storeId ? " · exceptions for this store only"
+                : " · item master prices"}
             </div>
           </div>
 
@@ -151,10 +157,21 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
             </select>
           )}
 
-          <select value={storeId} onChange={(e) => setStoreId(e.target.value)}
+          {/* One selector, not two: you are always editing exactly one price
+              list, and making that a single choice removes the "which of these
+              two dropdowns wins?" question entirely. */}
+          <select value={scope} onChange={(e) => setScope(e.target.value)}
             style={{ padding: "8px 10px", borderRadius: 8, border: "1px solid " + T.line, background: "#fff", fontSize: 13.5, fontFamily: "inherit" }}>
-            <option value="">Master prices</option>
-            {(state.locations || []).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+            <option value="">Item master prices</option>
+            <optgroup label="Price bands">
+              {(state.priceBands || []).map((b) => <option key={b.id} value={"band:" + b.id}>{b.name}</option>)}
+            </optgroup>
+            <optgroup label="Store exceptions">
+              {(state.locations || []).map((l) => {
+                const bn = (state.priceBands || []).find((b) => b.id === l.price_band_id)?.name;
+                return <option key={l.id} value={"store:" + l.id}>{l.name}{bn ? ` (${bn})` : ""}</option>;
+              })}
+            </optgroup>
           </select>
 
           <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items…"
@@ -187,7 +204,9 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
 
                 {isOpen && rows.map((it) => {
                   const ov = overrideFor(it.id);
-                  const shownPrice = storeId ? (ov && ov.price != null ? ov.price : null) : it.price;
+                  const shownPrice = bandId ? bandPriceOf(it.id, bandId)
+                    : storeId ? (ov && ov.price != null ? ov.price : null)
+                    : it.price;
                   const hidden = storeId ? (!!ov && ov.available === false) : it.published === false;
                   const gs = groupsFor(it.id);
                   const key = it.id;
@@ -222,7 +241,7 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
                       {/* master reference, when a store is selected */}
                       {storeId && (
                         <div style={{ fontSize: 12, color: T.muted, textAlign: "right", minWidth: 78 }}>
-                          master {money(it.price)}
+                          band {money(inheritedPrice(it))}
                         </div>
                       )}
 
@@ -232,7 +251,7 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
                         onChange={(e) => setDraft((d) => ({ ...d, [key]: e.target.value }))}
                         onBlur={() => { if (draft[key] !== undefined) savePrice(it); }}
                         onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setDraft((d) => { const n = { ...d }; delete n[key]; return n; }); }}
-                        placeholder={storeId ? "master" : "0.00"}
+                        placeholder={storeId ? "band" : "0.00"}
                         disabled={!!saving[key]}
                         style={{ ...inputStyle, borderColor: draft[key] !== undefined ? T.accent : T.line }}
                       />
@@ -272,19 +291,22 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
                               {opts.length === 0 && <div style={{ fontSize: 12, color: T.muted, opacity: .7 }}>No options in this group.</div>}
                               {opts.map((o) => {
                                 const mv = optOverrideFor(o.id);
-                                const shownDelta = storeId ? (mv && mv.price_delta != null ? mv.price_delta : null) : o.price_delta;
+                                const bandDelta = storeBandId ? bandOptPriceOf(o.id, storeBandId) : null;
+                                const shownDelta = bandId ? bandOptPriceOf(o.id, bandId)
+                                  : storeId ? (mv && mv.price_delta != null ? mv.price_delta : null)
+                                  : o.price_delta;
                                 const optHidden = storeId && !!mv && mv.available === false;
                                 return (
                                 <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", opacity: optHidden ? 0.5 : 1 }}>
                                   <span style={{ flex: 1, fontSize: 13, color: T.ink }}>{o.name}</span>
-                                  {storeId && <span style={{ fontSize: 11.5, color: T.muted }}>master +{Number(o.price_delta || 0).toFixed(2)}</span>}
+                                  {storeId && <span style={{ fontSize: 11.5, color: T.muted }}>band +{Number(bandDelta != null ? bandDelta : (o.price_delta || 0)).toFixed(2)}</span>}
                                   <input
                                     value={optDraft[o.id] ?? (shownDelta == null ? "" : String(shownDelta))}
                                     onChange={(e) => setOptDraft((d) => ({ ...d, [o.id]: e.target.value }))}
                                     onBlur={() => { if (optDraft[o.id] !== undefined) saveOption(o); }}
                                     onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setOptDraft((d) => { const n = { ...d }; delete n[o.id]; return n; }); }}
                                     disabled={!!saving[o.id]}
-                                    placeholder={storeId ? "master" : "+0.00"}
+                                    placeholder={storeId ? "band" : "+0.00"}
                                     style={{ ...inputStyle, width: 76, borderColor: optDraft[o.id] !== undefined ? T.accent : T.line }}
                                   />
                                   {storeId && (
@@ -310,7 +332,7 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
         </div>
 
         <div style={{ padding: "12px 22px", borderTop: "1px solid " + T.line, background: T.card, fontSize: 12.5, color: T.muted }}>
-          Click a price to edit it{storeId ? " for this store — clear the box to fall back to the master price" : ""}. Click an item name to open the full editor.
+          Click a price to edit it{bandId ? " for this band — every store on it moves together" : storeId ? " for this store only — clear the box to fall back to its band" : ""}. Click an item name to open the full editor.
         </div>
       </div>
     </div>
