@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import MenuOverview from "./MenuOverview";
+import PriceBands from "./PriceBands";
 
 // ============================================================
 // Menu Admin — MyMenu-style. Menu > Section > Item drill-down,
@@ -626,6 +627,7 @@ export default function Admin() {
   const [showStores, setShowStores] = useState(false);
   const [showPrinters, setShowPrinters] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
+  const [showBands, setShowBands] = useState(false);
   const [storeView, setStoreView] = useState(null); // store id for price editor
   const [modOpen, setModOpen] = useState({});
   const [modEdit, setModEdit] = useState(null);
@@ -661,6 +663,7 @@ export default function Admin() {
         {[
           ["menus", "Menus", "🍽"],
           ["overview", "Overview", "📋"],
+          ["bands", "Price bands", "🏷"],
           ["modifiers", "Modifiers", "⚙"],
           ["appearance", "Appearance", "🎨"],
           ["welcome", "Welcome", "🏠"],
@@ -699,6 +702,7 @@ export default function Admin() {
               if (key === "stores") setShowStores(true);
               if (key === "printers") setShowPrinters(true);
               if (key === "overview") setShowOverview(true);
+              if (key === "bands") setShowBands(true);
               if (key === "settings") setShowAppearance(true);
             }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, marginBottom: 2, cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500, background: active ? T.accentSoft || "#EFEAD9" : "transparent", color: active ? T.accent : T.muted }}>
               <span style={{ fontSize: 15 }}>{icon}</span>{label}
@@ -811,6 +815,7 @@ export default function Admin() {
       {editItem && <ItemEditor pin={pin} item={editItem} groups={state.modifierGroups || []} itemGroupIds={(state.itemModifiers || []).filter((im) => im.item_id === editItem.id).map((im) => im.group_id)} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); reload(); }} />}
       {showPrinters && <PrintersModal pin={pin} locations={state.locations} onClose={() => setShowPrinters(false)} />}
       {showOverview && <MenuOverview state={state} T={T} act={act} onEditItem={setEditItem} onClose={() => setShowOverview(false)} />}
+      {showBands && <PriceBands state={state} T={T} act={act} onClose={() => setShowBands(false)} />}
       {showAppearance && (
         <div onClick={() => setShowAppearance(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "88vh", overflowY: "auto" }}>
