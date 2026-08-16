@@ -1,5 +1,3 @@
-import React, { useState } from "react";
-
 /* ─────────────────────────────────────────────────────────────────────────────
    MENU OVERVIEW — the whole menu on one page, laid out the way Uber Eats does:
    collapsible category sections with an item count, and each row showing its
@@ -16,20 +14,17 @@ import React, { useState } from "react";
    matches the existing "<Store> — Prices" modal exactly, because tills charge
    different prices at different sites and a single master price is a fiction.
 
-   Lives in its own file: import it into Admin.jsx rather than pasting 200
-   lines into an already-large component.
+   Drop this above `export default function Admin()` in Admin.jsx.
    ───────────────────────────────────────────────────────────────────────── */
-export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
-  const [collapsed, setCollapsed] = useState({});
-  const [storeId, setStoreId] = useState("");     // "" = master prices
-  const [q, setQ] = useState("");
-  const [draft, setDraft] = useState({});          // id -> in-progress text
-  const [saving, setSaving] = useState({});
-  const [openItem, setOpenItem] = useState({});          // item id -> modifiers expanded
-  const [optDraft, setOptDraft] = useState({});          // option id -> in-progress text
+function MenuOverview({ state, T, act, onEditItem, onClose }) {
+  const [collapsed, setCollapsed] = React.useState({});
+  const [storeId, setStoreId] = React.useState("");     // "" = master prices
+  const [q, setQ] = React.useState("");
+  const [draft, setDraft] = React.useState({});          // id -> in-progress text
+  const [saving, setSaving] = React.useState({});
 
   const menus = [...(state.menus || [])].sort((a, b) => a.sort_order - b.sort_order);
-  const [menuId, setMenuId] = useState(menus[0]?.id || null);
+  const [menuId, setMenuId] = React.useState(menus[0]?.id || null);
 
   const sections = (state.categories || [])
     .filter((c) => c.menu_id === menuId)
@@ -64,45 +59,13 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
           available: ov ? ov.available : null,
         });
       } else {
-        // admin-api's update_item takes { id, fields } and copies from an
-        // allow-list — a flat { id, price } silently does nothing.
-        if (raw !== "") await act("update_item", { id: item.id, fields: { price: parseFloat(raw) } });
+        if (raw !== "") await act("update_item", { id: item.id, price: parseFloat(raw) });
       }
     } finally {
       setSaving((s) => ({ ...s, [key]: false }));
       setDraft((d) => { const n = { ...d }; delete n[key]; return n; });
     }
   };
-
-  // MODIFIER PRICING — master values go through update_mod_option (which must
-  // carry name + sort_order or the edge function nulls them). With a store
-  // selected it writes menu_modifier_overrides instead, exactly like item
-  // prices: blank clears the override and the option inherits the master.
-  const optOverrideFor = (optionId) =>
-    storeId ? (state.modifierOverrides || []).find((m) => m.option_id === optionId && m.location_id === storeId) : null;
-
-  const saveOption = async (opt) => {
-    const raw = (optDraft[opt.id] ?? "").trim();
-    setSaving((s) => ({ ...s, [opt.id]: true }));
-    try {
-      if (storeId) {
-        const mv = optOverrideFor(opt.id);
-        await act("set_mod_override", {
-          option_id: opt.id, location_id: storeId,
-          price_delta: raw === "" ? null : parseFloat(raw),
-          available: mv ? mv.available : null,
-        });
-      } else {
-        await act("update_mod_option", { id: opt.id, name: opt.name, price_delta: raw === "" ? 0 : parseFloat(raw), sort_order: opt.sort_order });
-      }
-    } finally {
-      setSaving((s) => ({ ...s, [opt.id]: false }));
-      setOptDraft((d) => { const n = { ...d }; delete n[opt.id]; return n; });
-    }
-  };
-  const optionsFor = (groupId) =>
-    (state.modifierOptions || []).filter((o) => o.group_id === groupId)
-      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
 
   const matches = (it) => {
     if (!q.trim()) return true;
@@ -187,9 +150,8 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
                   const gs = groupsFor(it.id);
                   const key = it.id;
                   return (
-                    <div key={it.id} style={{ borderTop: "1px solid " + T.line }}>
-                    <div
-                      style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 22px", opacity: hidden ? 0.5 : 1 }}>
+                    <div key={it.id}
+                      style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 22px", borderTop: "1px solid " + T.line, opacity: hidden ? 0.5 : 1 }}>
 
                       {/* thumbnail */}
                       {it.image_url
@@ -203,14 +165,7 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
                           {hidden && <span style={{ fontSize: 10.5, fontWeight: 600, color: T.muted, border: "1px solid " + T.line, borderRadius: 5, padding: "1px 5px" }}>HIDDEN</span>}
                         </div>
                         <div style={{ fontSize: 12.5, color: T.muted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {gs.length
-                            ? <span onClick={(e) => { e.stopPropagation(); setOpenItem((p) => ({ ...p, [it.id]: !p[it.id] })); }}
-                                style={{ cursor: "pointer", color: T.accent, fontWeight: 500 }}>
-                                {openItem[it.id] ? "▾" : "▸"} {gs.map((g) => g.name).join(", ")}
-                                {" · "}{gs.reduce((n, g) => n + optionsFor(g.id).length, 0)} option
-                                {gs.reduce((n, g) => n + optionsFor(g.id).length, 0) === 1 ? "" : "s"}
-                              </span>
-                            : <span style={{ opacity: .6 }}>No modifiers</span>}
+                          {gs.length ? gs.map((g) => g.name).join(", ") : <span style={{ opacity: .6 }}>No modifiers</span>}
                         </div>
                       </div>
 
@@ -237,68 +192,13 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
                       <span
                         onClick={() => storeId
                           ? act("set_override", { item_id: it.id, location_id: storeId, price: ov ? ov.price : null, available: hidden ? true : false })
-                          : act("update_item", { id: it.id, fields: { published: hidden } })}
+                          : act("update_item", { id: it.id, published: hidden })}
                         style={{ fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", padding: "6px 10px", borderRadius: 8, border: "1px solid " + T.line, color: hidden ? "#b4462f" : T.accent }}>
                         {hidden ? "Hidden" : "Shown"}
                       </span>
                     </div>
-
-                    {/* MODIFIER PRICING — expanded under the item. Options are
-                        shared across every item using that group, so a change
-                        here changes it everywhere the group is attached; the
-                        note says so rather than letting it surprise anyone.
-                        Prices are deltas (+£0.50 on top of the item price). With
-                        a store selected these edit that store's override, same
-                        as item prices; blank inherits the master. */}
-                    {openItem[it.id] && gs.length > 0 && (
-                      <div style={{ padding: "4px 22px 14px 88px", background: T.bg, borderTop: "1px solid " + T.line }}>
-                        {gs.map((g) => {
-                          const opts = optionsFor(g.id);
-                          const usedBy = (state.itemModifiers || []).filter((im) => im.group_id === g.id).length;
-                          return (
-                            <div key={g.id} style={{ marginTop: 10 }}>
-                              <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6, display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
-                                <span>{g.name}</span>
-                                <span style={{ fontWeight: 400, color: T.muted, fontSize: 11.5 }}>
-                                  {g.required ? `required · pick ${g.min_select || 1}` : `optional · up to ${g.max_select || 1}`}
-                                  {usedBy > 1 ? ` · shared with ${usedBy - 1} other item${usedBy - 1 === 1 ? "" : "s"}` : ""}
-                                </span>
-                              </div>
-                              {opts.length === 0 && <div style={{ fontSize: 12, color: T.muted, opacity: .7 }}>No options in this group.</div>}
-                              {opts.map((o) => {
-                                const mv = optOverrideFor(o.id);
-                                const shownDelta = storeId ? (mv && mv.price_delta != null ? mv.price_delta : null) : o.price_delta;
-                                const optHidden = storeId && !!mv && mv.available === false;
-                                return (
-                                <div key={o.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "5px 0", opacity: optHidden ? 0.5 : 1 }}>
-                                  <span style={{ flex: 1, fontSize: 13, color: T.ink }}>{o.name}</span>
-                                  {storeId && <span style={{ fontSize: 11.5, color: T.muted }}>master +{Number(o.price_delta || 0).toFixed(2)}</span>}
-                                  <input
-                                    value={optDraft[o.id] ?? (shownDelta == null ? "" : String(shownDelta))}
-                                    onChange={(e) => setOptDraft((d) => ({ ...d, [o.id]: e.target.value }))}
-                                    onBlur={() => { if (optDraft[o.id] !== undefined) saveOption(o); }}
-                                    onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setOptDraft((d) => { const n = { ...d }; delete n[o.id]; return n; }); }}
-                                    disabled={!!saving[o.id]}
-                                    placeholder={storeId ? "master" : "+0.00"}
-                                    style={{ ...inputStyle, width: 76, borderColor: optDraft[o.id] !== undefined ? T.accent : T.line }}
-                                  />
-                                  {storeId && (
-                                    <span onClick={() => act("set_mod_override", { option_id: o.id, location_id: storeId, price_delta: mv ? mv.price_delta : null, available: optHidden ? null : false })}
-                                      style={{ fontSize: 11.5, fontWeight: 600, cursor: "pointer", padding: "4px 8px", borderRadius: 6, border: "1px solid " + T.line, color: optHidden ? "#b4462f" : T.accent, whiteSpace: "nowrap" }}>
-                                      {optHidden ? "Hidden" : "Shown"}
-                                    </span>
-                                  )}
-                                </div>
-                                );
-                              })}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                })}
               </div>
             );
           })}
