@@ -631,7 +631,7 @@ export default function Admin() {
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], tables: res.tables || [], locationMenus: res.locationMenus || [] });
+  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   const getSetting = (k) => { const row = (state && state.settings || []).find((s) => s.key === k); return row ? row.value : ""; };
