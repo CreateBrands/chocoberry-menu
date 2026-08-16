@@ -21,7 +21,15 @@ import React, { useState } from "react";
    ───────────────────────────────────────────────────────────────────────── */
 export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
   const [collapsed, setCollapsed] = useState({});
-  const [storeId, setStoreId] = useState("");     // "" = master prices
+  // scope = "" (item master) | "band:<id>" | "store:<id>"
+  const [scope, setScope] = useState("");
+  const bandId = scope.startsWith("band:") ? scope.slice(5) : "";
+  const storeId = scope.startsWith("store:") ? scope.slice(6) : "";
+  // A store inherits its band, so that band's price is the reference a store
+  // exception is measured against — not the item's master price.
+  const storeBandId = storeId
+    ? ((state.locations || []).find((l) => l.id === storeId)?.price_band_id || "")
+    : "";
   const [q, setQ] = useState("");
   const [draft, setDraft] = useState({});          // id -> in-progress text
   const [saving, setSaving] = useState({});
@@ -47,6 +55,15 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
     storeId ? (state.overrides || []).find((o) => o.item_id === itemId && o.location_id === storeId) : null;
 
   const money = (n) => (n == null || n === "" ? "—" : "£" + Number(n).toFixed(2));
+  const bandPriceOf = (itemId, bId) =>
+    (state.bandPrices || []).find((p) => p.item_id === itemId && p.band_id === bId)?.price ?? null;
+  const bandOptPriceOf = (optId, bId) =>
+    (state.bandOptionPrices || []).find((p) => p.option_id === optId && p.band_id === bId)?.price_delta ?? null;
+  // What this item costs before any per-store exception.
+  const inheritedPrice = (item) => {
+    const b = storeBandId ? bandPriceOf(item.id, storeBandId) : null;
+    return b != null ? b : item.price;
+  };
 
   const savePrice = async (item) => {
     const key = item.id;
