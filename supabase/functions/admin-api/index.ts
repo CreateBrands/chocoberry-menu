@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
         const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus, modOverrides, bands, bandPrices, bandOptPrices] = await Promise.all([
           admin.from("menu_categories").select("*").order("sort_order"),
           admin.from("menu_items").select("*").order("sort_order"),
-          admin.from("menu_locations").select("id,name,slug,active,brand_id").order("name"),
+          admin.from("menu_locations").select("id,name,slug,active,brand_id,price_band_id").order("name"),
           admin.from("menu_item_overrides").select("*"),
           admin.from("menu_app_settings").select("key,value"),
           admin.from("menu_menus").select("*").order("sort_order"),
