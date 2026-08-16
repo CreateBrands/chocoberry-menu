@@ -1,480 +1,314 @@
-// ============================================================
-// admin-api — PIN-gated menu admin write API.
-// The browser never holds the service-role key. It sends a PIN
-// + an action; this function verifies the PIN and performs the
-// write with the service role. One function, several actions.
-// ============================================================
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// ---------------------------------------------------------------------------
+// sunmi-print — Supabase Edge Function (final, mapped to menu_orders schema)
+//
+//   { "action": "bind",   "sn": "...", "shop_id": 1 }        one-time per printer
+//   { "action": "status", "sn": "..." }                      is it online?
+//   { "action": "test",   "sn": "..." }                      print a test slip
+//   { "action": "print-order", "order_id": "<uuid>" }        (re)print an order
+//
+// ...plus Supabase Database Webhook payloads on menu_orders INSERT
+// ({ "type": "INSERT", "table": "menu_orders", "record": {...} }).
+//
+// Deploy with --no-verify-jwt; every request must carry
+//   x-print-secret: <PRINT_WEBHOOK_SECRET>
+// Secrets: SUNMI_APP_ID, SUNMI_APP_KEY, PRINT_WEBHOOK_SECRET
+// ---------------------------------------------------------------------------
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-};
+import { createClient } from "npm:@supabase/supabase-js@2";
+import { SunmiClient, ok } from "../_shared/sunmi.ts";
+import {
+  buildOrderReceipt,
+  buildTestReceipt,
+  type ReceiptOrder,
+  type ReceiptItem,
+} from "../_shared/escpos.ts";
+import { buildOrderRasterHex } from "../_shared/raster.ts";
+
+// "raster" = Uber-style image tickets (real typography); anything else = text
+const RECEIPT_MODE = Deno.env.get("RECEIPT_MODE") ?? "text";
+
+async function receiptHexFor(order: ReceiptOrder): Promise<string> {
+  if (RECEIPT_MODE === "raster") {
+    try {
+      return await buildOrderRasterHex(order);
+    } catch (e) {
+      console.error("raster render failed, falling back to text:", e);
+    }
+  }
+  return buildOrderReceipt(order).toHex();
+}
+
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+);
+
+const sunmi = new SunmiClient(
+  Deno.env.get("SUNMI_APP_ID") ?? "",
+  Deno.env.get("SUNMI_APP_KEY") ?? "",
+);
+
 const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
+const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
-  const ADMIN_PIN = Deno.env.get("ADMIN_PIN");
-  if (!ADMIN_PIN) return json({ error: "admin pin not configured" }, 500);
+// ---------------------------------------------------------------------------
+// Build the receipt model from a menu_orders row + its menu_order_items
+// ---------------------------------------------------------------------------
+async function loadReceiptOrder(
+  rec: Record<string, unknown>,
+): Promise<ReceiptOrder> {
+  const orderId = String(rec.id);
 
-  let payload: any;
-  try { payload = await req.json(); } catch { return json({ error: "bad json" }, 400); }
+  // Items
+  const { data: itemRows, error: itemsErr } = await supabase
+    .from("menu_order_items")
+    .select("name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total")
+    .eq("order_id", orderId);
+  if (itemsErr) throw new Error("menu_order_items lookup failed: " + itemsErr.message);
 
-  const { pin, action, data } = payload || {};
-  if (!pin || pin !== ADMIN_PIN) return json({ error: "unauthorized" }, 401);
+  const items: ReceiptItem[] = (itemRows ?? []).map((it) => {
+    const mods = it.modifiers_snapshot as Record<string, unknown> | null;
+    return {
+      qty: it.qty ?? 1,
+      name: it.name_snapshot ?? "Item",
+      price: typeof it.line_total === "number"
+        ? it.line_total
+        : parseFloat(String(it.line_total ?? "")) || undefined,
+      // {"milk":"Oat","size":"Regular"} -> ["Milk: Oat", "Size: Regular"]
+      modifiers: mods
+        ? Object.entries(mods).map(([k, v]) => `${cap(k)}: ${v}`)
+        : [],
+    };
+  });
 
-  const admin = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
+  // Dine-in table name (best-effort: tolerate unknown column naming)
+  let tableLabel: string | undefined;
+  if (rec.table_id) {
+    const { data: t } = await supabase
+      .from("menu_tables")
+      .select("*")
+      .eq("id", String(rec.table_id))
+      .maybeSingle();
+    if (t) {
+      const tt = t as Record<string, unknown>;
+      const raw = tt.name ?? tt.label ?? tt.table_number ?? tt.number ?? tt.code;
+      if (raw != null) {
+        const s = String(raw);
+        tableLabel = /^\d+$/.test(s) ? `Table ${s}` : s;
+      }
+    }
+  }
 
-  // Call the sunmi-print function server-side, so the print secret
-  // (PRINT_WEBHOOK_SECRET) never reaches the browser.
-  const callSunmi = async (payload: Record<string, unknown>) => {
-    const res = await fetch(Deno.env.get("SUPABASE_URL")! + "/functions/v1/sunmi-print", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-print-secret": Deno.env.get("PRINT_WEBHOOK_SECRET") ?? "",
-      },
-      body: JSON.stringify(payload),
-    });
-    let body: any = null;
-    try { body = await res.json(); } catch { /* non-json */ }
-    return { ok: res.ok, status: res.status, body };
+  // Store name (best-effort)
+  let storeName: string | undefined;
+  if (rec.location_id) {
+    const { data: loc } = await supabase
+      .from("menu_locations")
+      .select("*")
+      .eq("id", String(rec.location_id))
+      .maybeSingle();
+    if (loc) {
+      const ll = loc as Record<string, unknown>;
+      const raw = ll.name ?? ll.label ?? ll.title;
+      if (raw != null) storeName = String(raw);
+    }
+  }
+
+  const orderType =
+    rec.order_type === "dine_in"
+      ? `DINE-IN${tableLabel ? " - " + tableLabel : ""}`
+      : "TAKEAWAY";
+
+  const created = rec.created_at ? String(rec.created_at) : undefined;
+  const placedAt = new Date(created ?? Date.now()).toLocaleString("en-GB", {
+    timeZone: "Europe/London",
+  });
+
+  const num = (v: unknown) => {
+    const x = typeof v === "string" ? parseFloat(v) : (v as number);
+    return typeof x === "number" && !isNaN(x) ? x : undefined;
   };
 
+  return {
+    orderNumber: orderId.replace(/-/g, "").slice(0, 6).toUpperCase(),
+    placedAt,
+    orderType,
+    customerName: rec.pickup_name ? String(rec.pickup_name) : undefined,
+    items,
+    subtotal: num(rec.subtotal),
+    total: num(rec.total),
+    notes: rec.customer_note ? String(rec.customer_note) : undefined,
+    storeName,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Printer routing: printers.location_id (uuid of menu_locations) first,
+// then fall back to the single active printer (proving phase convenience).
+// ---------------------------------------------------------------------------
+async function findPrinter(locationId?: string) {
+  if (locationId) {
+    const { data } = await supabase
+      .from("printers")
+      .select("*")
+      .eq("active", true)
+      .eq("location_id", locationId)
+      .maybeSingle();
+    if (data) return data;
+  }
+  const { data: all, error } = await supabase
+    .from("printers")
+    .select("*")
+    .eq("active", true);
+  if (error) throw new Error("printers lookup failed: " + error.message);
+  if (!all || all.length === 0) throw new Error("no active printers configured");
+  if (all.length === 1) return all[0]; // single-store proving phase
+  throw new Error(
+    `no printer mapped to location ${locationId ?? "(none)"} and multiple printers active`,
+  );
+}
+
+async function logJob(fields: Record<string, unknown>) {
+  const { error } = await supabase.from("print_jobs").insert(fields);
+  if (error) console.error("print_jobs insert failed:", error.message);
+}
+
+async function alreadyPrinted(orderId: string): Promise<boolean> {
+  const { data } = await supabase
+    .from("print_jobs")
+    .select("id")
+    .eq("order_id", orderId)
+    .eq("status", "sent")
+    .limit(1);
+  return !!data && data.length > 0;
+}
+
+async function printOrder(rec: Record<string, unknown>, force = false) {
+  const orderId = String(rec.id);
+
+  if (rec.status === "cancelled") {
+    return { skipped: true, reason: "order is cancelled" };
+  }
+  if (!force && (await alreadyPrinted(orderId))) {
+    return { skipped: true, reason: "already printed" };
+  }
+
+  const printer = await findPrinter(
+    rec.location_id ? String(rec.location_id) : undefined,
+  );
+  const order = await loadReceiptOrder(rec);
+  const contentHex = await receiptHexFor(order);
+
+  // trade_no max 32 chars: UUID without dashes is exactly 32.
+  // Reprints need a fresh trade_no or Sunmi de-dupes them (10071705).
+  const base = orderId.replace(/-/g, "").slice(0, 32);
+  const tradeNo = force ? (base.slice(0, 26) + Date.now().toString(36)).slice(0, 32) : base;
+
+  const res = await sunmi.pushContent(printer.sn, tradeNo, contentHex);
+
+  const success = ok(res);
+  await logJob({
+    order_id: orderId,
+    printer_sn: printer.sn,
+    status: success ? "sent" : "failed",
+    response: res,
+    error: success ? null : res.msg ?? "unknown Sunmi error",
+  });
+  if (!success) throw new Error("Sunmi pushContent failed: " + JSON.stringify(res));
+  return { printed: true, printer: printer.sn, sunmi: res };
+}
+
+// ---------------------------------------------------------------------------
+
+Deno.serve(async (req) => {
+  const secret = Deno.env.get("PRINT_WEBHOOK_SECRET");
+  if (!secret || req.headers.get("x-print-secret") !== secret) {
+    return json({ error: "unauthorized" }, 401);
+  }
+
+  let body: Record<string, unknown>;
   try {
-    switch (action) {
-      // ---- READ: everything the admin UI needs in one call ----
-      case "load": {
-        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus] = await Promise.all([
-          admin.from("menu_categories").select("*").order("sort_order"),
-          admin.from("menu_items").select("*").order("sort_order"),
-          admin.from("menu_locations").select("id,name,slug,active,brand_id").order("name"),
-          admin.from("menu_item_overrides").select("*"),
-          admin.from("menu_app_settings").select("key,value"),
-          admin.from("menu_menus").select("*").order("sort_order"),
-          admin.from("menu_modifier_groups").select("*"),
-          admin.from("menu_modifiers").select("*").order("sort_order"),
-          admin.from("menu_item_modifiers").select("*"),
-          admin.from("menu_tables").select("*"),
-          admin.from("menu_location_menus").select("*"),
-        ]);
-        for (const r of [cats, items, locs, overrides]) if (r.error) throw r.error;
-        return json({
-          ok: true,
-          categories: cats.data,
-          items: items.data,
-          locations: locs.data,
-          overrides: overrides.data,
-          settings: settings.data ?? [],
-          menus: menus.data ?? [],
-          modifierGroups: modGroups.data ?? [],
-          modifierOptions: modOptions.data ?? [],
-          itemModifiers: itemMods.data ?? [],
-          tables: tables.data ?? [],
-          locationMenus: locMenus.data ?? [],
-        });
-      }
+    body = await req.json();
+  } catch {
+    return json({ error: "invalid JSON" }, 400);
+  }
 
-      // ---- MASTER ITEM: update fields ----
-      case "update_item": {
-        const { id, fields } = data;
-        if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "description", "price", "allergens", "tags", "available", "published", "sort_order", "category_id", "image_url", "station"];
-        const patch: any = {};
-        for (const k of allowed) if (k in fields) patch[k] = fields[k];
-        const { error } = await admin.from("menu_items").update(patch).eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
+  try {
+    // Database webhook: fires on menu_orders INSERT
+    if (body.type === "INSERT" && body.record) {
+      const result = await printOrder(body.record as Record<string, unknown>);
+      return json(result);
+    }
 
-      // ---- MASTER ITEM: create ----
-      case "create_item": {
-        const { category_id, name, price } = data;
-        if (!category_id || !name) return json({ error: "category_id and name required" }, 400);
-        const { data: row, error } = await admin.from("menu_items")
-          .insert({ category_id, name, price: price ?? 0, available: true, published: true })
-          .select("id").single();
-        if (error) throw error;
-        return json({ ok: true, id: row.id });
-      }
-
-      // ---- MASTER ITEM: delete ----
-      case "delete_item": {
-        const { id } = data;
-        if (!id) return json({ error: "no id" }, 400);
-        const { error } = await admin.from("menu_items").delete().eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- CATEGORY: create ----
-      case "create_category": {
-        const { brand_id, name, sort_order } = data;
-        if (!name) return json({ error: "name required" }, 400);
-        const { data: row, error } = await admin.from("menu_categories")
-          .insert({ brand_id: brand_id ?? null, name, sort_order: sort_order ?? 0, active: true })
-          .select("id").single();
-        if (error) throw error;
-        return json({ ok: true, id: row.id });
-      }
-
-      // ---- OVERRIDE: set (upsert) per-store price/availability ----
-      case "set_override": {
-        const { item_id, location_id, price, available } = data;
-        if (!item_id || !location_id) return json({ error: "item_id and location_id required" }, 400);
-        // null clears that dimension (inherit master). If both null, remove the row.
-        if ((price === null || price === undefined) && (available === null || available === undefined)) {
-          const { error } = await admin.from("menu_item_overrides")
-            .delete().eq("item_id", item_id).eq("location_id", location_id);
-          if (error) throw error;
-          return json({ ok: true, cleared: true });
+    switch (body.action) {
+      case "bind": {
+        const shopId = Number(body.shop_id);
+        if (!Number.isInteger(shopId)) {
+          return json({ error: "shop_id must be an integer (Sunmi requirement)" }, 400);
         }
-        const { error } = await admin.from("menu_item_overrides")
-          .upsert({ item_id, location_id, price: price ?? null, available: available ?? null, updated_at: new Date().toISOString() },
-                  { onConflict: "item_id,location_id" });
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- PRINTERS: list, with live online/offline from Sunmi ----
-      case "printer_list": {
-        const { data: printers, error } = await admin
-          .from("printers").select("*").order("created_at", { ascending: true });
-        if (error) throw error;
-        // Query Sunmi status for each printer in parallel (best-effort).
-        const withStatus = await Promise.all((printers ?? []).map(async (p: any) => {
-          let online: boolean | null = null;
-          try {
-            const r = await callSunmi({ action: "status", sn: p.sn });
-            const d = r.body?.data ?? r.body;
-            const v = d?.is_online ?? d?.online ?? d?.status;
-            online = v === 1 || v === true || v === "online" ? true
-                   : v === 0 || v === false || v === "offline" ? false : null;
-          } catch { online = null; }
-          return { ...p, online };
-        }));
-        return json({ ok: true, printers: withStatus });
-      }
-
-      // ---- PRINTERS: bind a new one and register it ----
-      case "printer_add": {
-        const { sn, label, store_id, location_id, shop_id, station } = data || {};
-        if (!sn || !store_id) return json({ error: "sn and store_id required" }, 400);
-        const bind = await callSunmi({ action: "bind", sn, shop_id: shop_id ?? 1 });
-        const code = bind.body?.code;
-        const msgText = String(bind.body?.msg ?? "").toLowerCase();
-        const alreadyBound = msgText.includes("already") && msgText.includes("bound");
-        if (!(bind.ok && (code === 1 || code === 0 || code === undefined)) && !alreadyBound) {
-          // Surface the Sunmi error in plain terms for the UI.
-          const msg = bind.body?.msg || ("bind failed (HTTP " + bind.status + ")");
-          const hint = String(bind.body?.code) === "10071704"
-            ? " — this serial isn't in your Sunmi account/channel yet. Accept the transfer in the Sunmi portal, wait a minute, then try again."
-            : "";
-          return json({ error: msg + hint }, 400);
+        const res = await sunmi.bindShop(String(body.sn), shopId);
+        if (ok(res)) {
+          await supabase
+            .from("printers")
+            .update({ bound_at: new Date().toISOString() })
+            .eq("sn", String(body.sn));
         }
-        // If it's already bound to us, that's fine — just register the row.
-        const { data: row, error } = await admin.from("printers")
-          .insert({
-            sn,
-            label: label ?? null,
-            store_id,
-            location_id: location_id ?? null,
-            shop_id: String(shop_id ?? 1),
-            station: station ?? "kitchen",
-            active: true,
-            bound_at: new Date().toISOString(),
-          })
-          .select("*").single();
-        if (error) throw error;
-        return json({ ok: true, printer: row });
+        return json(res, ok(res) ? 200 : 502);
       }
-
-      // ---- PRINTERS: update label / store / active ----
-      case "printer_update": {
-        const { id, fields } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["label", "store_id", "location_id", "active", "station"];
-        const patch: any = {};
-        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
-        const { error } = await admin.from("printers").update(patch).eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
+      case "status": {
+        const res = await sunmi.onlineStatus(String(body.sn));
+        return json(res, ok(res) ? 200 : 502);
       }
-
-      // ---- PRINTERS: remove from registry ----
-      case "printer_remove": {
-        const { id } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const { error } = await admin.from("printers").delete().eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
+      case "test-raster": {
+        // Payload/compat probe: renders a full sample ticket in raster mode
+        const sample: ReceiptOrder = {
+          orderNumber: "A3F92C",
+          placedAt: new Date().toLocaleString("en-GB", { timeZone: "Europe/London" }),
+          orderType: "DINE-IN - Table 4",
+          customerName: "Sarah",
+          items: [
+            { qty: 1, name: "Signature Chocoberry Waffle", price: 9.95, modifiers: ["Sauce: Milk Chocolate", "Extra: Strawberries"] },
+            { qty: 2, name: "Iced Latte", price: 8.5, modifiers: ["Milk: Oat", "Size: Regular"] },
+            { qty: 1, name: "Cookie Dough Sundae Supreme with Belgian Chocolate", price: 8.45 },
+          ],
+          subtotal: 26.9,
+          total: 26.9,
+          notes: "Nut allergy on the waffle please",
+          storeName: "London Road",
+        };
+        const hex = await buildOrderRasterHex(sample);
+        const res = await sunmi.pushContent(String(body.sn), "raster" + Date.now(), hex);
+        return json({ hexLength: hex.length, sunmi: res }, ok(res) ? 200 : 502);
       }
-
-      // ---- PRINTERS: test print ----
-      case "printer_test": {
-        const { sn } = data || {};
-        if (!sn) return json({ error: "no sn" }, 400);
-        const r = await callSunmi({ action: "test", sn });
-        if (!r.ok || (r.body?.code !== undefined && r.body.code !== 1 && r.body.code !== 0)) {
-          return json({ error: r.body?.msg || ("test failed (HTTP " + r.status + ")") }, 400);
-        }
-        return json({ ok: true });
+      case "test": {
+        const receipt = buildTestReceipt(`SN ${body.sn}`);
+        const res = await sunmi.pushContent(
+          String(body.sn),
+          "test" + Date.now(),
+          receipt.toHex(),
+        );
+        return json(res, ok(res) ? 200 : 502);
       }
-
-      // ---- PRINTERS: live status for one ----
-      case "printer_status": {
-        const { sn } = data || {};
-        if (!sn) return json({ error: "no sn" }, 400);
-        const r = await callSunmi({ action: "status", sn });
-        return json({ ok: true, status: r.body });
+      case "print-order": {
+        const { data, error } = await supabase
+          .from("menu_orders")
+          .select("*")
+          .eq("id", String(body.order_id))
+          .single();
+        if (error || !data) return json({ error: "order not found" }, 404);
+        const result = await printOrder(data, body.force === true);
+        return json(result);
       }
-
-      // ---- CATEGORY: set station (kitchen/counter default for its items) ----
-      case "update_category": {
-        const { id, fields } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "station", "sort_order", "active", "image_url"];
-        const patch: any = {};
-        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
-        const { error } = await admin.from("menu_categories").update(patch).eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- SETTINGS: upsert a key/value into menu_app_settings ----
-      case "set_setting": {
-        const { key, value } = data || {};
-        if (!key) return json({ error: "key required" }, 400);
-        const { error } = await admin.from("menu_app_settings")
-          .upsert({ key, value: value ?? null, updated_at: new Date().toISOString() },
-                  { onConflict: "key" });
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- MENUS ----
-      case "create_menu": {
-        const { brand_id, name, sort_order } = data || {};
-        if (!name) return json({ error: "name required" }, 400);
-        const { data: row, error } = await admin.from("menu_menus")
-          .insert({ brand_id: brand_id ?? null, name, sort_order: sort_order ?? 0, active: true })
-          .select("id").single();
-        if (error) throw error;
-        return json({ ok: true, id: row.id });
-      }
-      case "update_menu": {
-        const { id, fields } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "sort_order", "active", "available_from", "available_to", "days_of_week", "pos_menu_id"];
-        const patch: any = {};
-        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
-        const { error } = await admin.from("menu_menus").update(patch).eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-      case "delete_menu": {
-        const { id } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const { error } = await admin.from("menu_menus").delete().eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- CATEGORY delete ----
-      case "delete_category": {
-        const { id } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const { error } = await admin.from("menu_categories").delete().eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- MODIFIER GROUPS ----
-      case "create_mod_group": {
-        const { brand_id, name, min_select, max_select, required } = data || {};
-        if (!name) return json({ error: "name required" }, 400);
-        const { data: row, error } = await admin.from("menu_modifier_groups")
-          .insert({ brand_id: brand_id ?? null, name, min_select: min_select ?? 0, max_select: max_select ?? 1, required: required ?? false })
-          .select("id").single();
-        if (error) throw error;
-        return json({ ok: true, id: row.id });
-      }
-      case "update_mod_group": {
-        const { id, fields } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "name_ar", "min_select", "max_select", "required", "pos_group_id"];
-        const patch: any = {};
-        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
-        const { error } = await admin.from("menu_modifier_groups").update(patch).eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-      case "delete_mod_group": {
-        const { id } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const { error } = await admin.from("menu_modifier_groups").delete().eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- MODIFIER OPTIONS ----
-      case "create_mod_option": {
-        const { group_id, name, price_delta, sort_order } = data || {};
-        if (!group_id || !name) return json({ error: "group_id and name required" }, 400);
-        const { data: row, error } = await admin.from("menu_modifiers")
-          .insert({ group_id, name, price_delta: price_delta ?? 0, sort_order: sort_order ?? 0 })
-          .select("id").single();
-        if (error) throw error;
-        return json({ ok: true, id: row.id });
-      }
-      case "update_mod_option": {
-        const { id, fields } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "name_ar", "price_delta", "sort_order", "pos_id"];
-        const patch: any = {};
-        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
-        const { error } = await admin.from("menu_modifiers").update(patch).eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-      case "delete_mod_option": {
-        const { id } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const { error } = await admin.from("menu_modifiers").delete().eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- ITEM <-> MODIFIER GROUP links ----
-      case "set_item_mod_groups": {
-        const { item_id, group_ids } = data || {};
-        if (!item_id) return json({ error: "item_id required" }, 400);
-        const ids: string[] = Array.isArray(group_ids) ? group_ids : [];
-        // Replace the set: delete existing links, insert the new ones.
-        const del = await admin.from("menu_item_modifiers").delete().eq("item_id", item_id);
-        if (del.error) throw del.error;
-        if (ids.length) {
-          const rows = ids.map((g) => ({ item_id, group_id: g }));
-          const { error } = await admin.from("menu_item_modifiers").insert(rows);
-          if (error) throw error;
-        }
-        return json({ ok: true });
-      }
-
-      // ---- STORES (menu_locations) ----
-      case "create_store": {
-        const { name, slug, brand_id } = data || {};
-        if (!name) return json({ error: "name required" }, 400);
-        const { data: row, error } = await admin.from("menu_locations")
-          .insert({ name, slug: slug ?? null, brand_id: brand_id ?? null, active: true })
-          .select("id").single();
-        if (error) throw error;
-        return json({ ok: true, id: row.id });
-      }
-      case "update_store": {
-        const { id, fields } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "slug", "active", "brand_id"];
-        const patch: any = {};
-        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
-        const { error } = await admin.from("menu_locations").update(patch).eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-      case "delete_store": {
-        const { id } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const { error } = await admin.from("menu_locations").delete().eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- STORE <-> MENU assignment ----
-      case "set_store_menus": {
-        const { location_id, menu_ids } = data || {};
-        if (!location_id) return json({ error: "location_id required" }, 400);
-        const ids: string[] = Array.isArray(menu_ids) ? menu_ids : [];
-        const del = await admin.from("menu_location_menus").delete().eq("location_id", location_id);
-        if (del.error) throw del.error;
-        if (ids.length) {
-          const rows = ids.map((m) => ({ location_id, menu_id: m }));
-          const { error } = await admin.from("menu_location_menus").insert(rows);
-          if (error) throw error;
-        }
-        return json({ ok: true });
-      }
-
-      // ---- TABLES / QR tokens ----
-      case "create_token": {
-        const { location_id, label } = data || {};
-        if (!location_id) return json({ error: "location_id required" }, 400);
-        const token = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
-        const { data: row, error } = await admin.from("menu_tables")
-          .insert({ location_id, label: label ?? "Tablet", qr_token: token, active: true })
-          .select("id, qr_token").single();
-        if (error) throw error;
-        return json({ ok: true, id: row.id, qr_token: row.qr_token });
-      }
-      case "delete_token": {
-        const { id } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const { error } = await admin.from("menu_tables").delete().eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
-      // ---- REORDER (generic sort_order updater) ----
-      case "reorder": {
-        const { table, ids } = data || {};
-        const okTables = ["menu_menus", "menu_categories", "menu_items"];
-        if (!okTables.includes(table) || !Array.isArray(ids)) return json({ error: "bad reorder" }, 400);
-        for (let i = 0; i < ids.length; i++) {
-          const { error } = await admin.from(table).update({ sort_order: i }).eq("id", ids[i]);
-          if (error) throw error;
-        }
-        return json({ ok: true });
-      }
-
-      // ---- DINING TABLES (real tables, is_table=true) ----
-      case "create_table": {
-        const { location_id, label } = data || {};
-        if (!location_id || !label) return json({ error: "location_id and label required" }, 400);
-        const token = "t_" + crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-        const { data: row, error } = await admin.from("menu_tables")
-          .insert({ location_id, label, qr_token: token, active: true, is_table: true })
-          .select("id, qr_token").single();
-        if (error) throw error;
-        return json({ ok: true, id: row.id, qr_token: row.qr_token });
-      }
-      case "update_table": {
-        const { id, fields } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["label", "active"];
-        const patch: any = {};
-        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
-        const { error } = await admin.from("menu_tables").update(patch).eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-      case "delete_table": {
-        const { id } = data || {};
-        if (!id) return json({ error: "no id" }, 400);
-        const { error } = await admin.from("menu_tables").delete().eq("id", id);
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
       default:
-        return json({ error: "unknown action: " + action }, 400);
+        return json({ error: "unknown action" }, 400);
     }
   } catch (e) {
-    return json({ error: String((e as any)?.message ?? e) }, 500);
+    console.error(e);
+    return json({ error: String((e as Error)?.message ?? e) }, 500);
   }
 });
