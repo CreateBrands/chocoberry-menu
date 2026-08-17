@@ -472,16 +472,15 @@ const ALLERGEN_LABEL = {
 function AllergenGate({ item, store, contains, may, onAccept }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
-  const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
 
-  // Contact details are optional on purpose. Someone unwilling to give them
-  // can still read the allergen information — refusing to show it would be
-  // both the less safe outcome and the harder one to defend.
-  const REQUIRE_CONTACT = false;
+  // Name only — the least personal data that still gives a usable record.
+  // Required, per the store's allergen policy. Flip to false if you'd rather
+  // someone who won't give a name could still read the information.
+  const REQUIRE_NAME = true;
 
   const accept = async () => {
-    if (REQUIRE_CONTACT && !name.trim()) return;
+    if (REQUIRE_NAME && !name.trim()) return;
     setBusy(true);
     await recordAllergenAck({
       location_id: store?.id || null,
@@ -489,7 +488,6 @@ function AllergenGate({ item, store, contains, may, onAccept }) {
       item_name: item?.name || null,
       store_name: store?.name || null,
       customer_name: name.trim() || null,
-      customer_phone: phone.trim() || null,
       allergens_shown: contains,
       may_contain_shown: may,
     });
@@ -549,18 +547,21 @@ function AllergenGate({ item, store, contains, may, onAccept }) {
       </div>
 
       <div style={{ marginTop: 12 }}>
-        <div style={{ fontSize: 12.5, fontWeight: 600 }}>Your name {REQUIRE_CONTACT ? "" : <span style={{ fontWeight: 400, color: "var(--muted)" }}>(optional)</span>}</div>
-        <input style={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
-        <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 10 }}>Contact number <span style={{ fontWeight: 400, color: "var(--muted)" }}>(optional)</span></div>
-        <input style={field} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" inputMode="tel" />
+        <div style={{ fontSize: 12.5, fontWeight: 600 }}>Your name</div>
+        <input style={field} value={name} onChange={(e) => setName(e.target.value)}
+          placeholder="Name" autoComplete="name" />
         <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.5 }}>
           We keep a record of allergen enquiries for food safety purposes.
         </div>
       </div>
 
-      <button onClick={accept} disabled={busy}
-        style={{ width: "100%", marginTop: 14, border: "none", background: "var(--ink, #2F3326)", color: "#fff", fontFamily: "inherit", fontSize: 15, fontWeight: 600, padding: "14px 18px", borderRadius: 999, cursor: "pointer", opacity: busy ? .6 : 1 }}>
-        {busy ? "One moment…" : "I understand and accept the risk — show allergen information"}
+      {/* Disabled rather than silently ignoring the click — a button that does
+          nothing reads as a broken app, not as a missing field. */}
+      <button onClick={accept} disabled={busy || (REQUIRE_NAME && !name.trim())}
+        style={{ width: "100%", marginTop: 14, border: "none", background: "var(--ink, #2F3326)", color: "#fff", fontFamily: "inherit", fontSize: 15, fontWeight: 600, padding: "14px 18px", borderRadius: 999, cursor: (REQUIRE_NAME && !name.trim()) ? "not-allowed" : "pointer", opacity: (busy || (REQUIRE_NAME && !name.trim())) ? .45 : 1 }}>
+        {busy ? "One moment…"
+          : (REQUIRE_NAME && !name.trim()) ? "Enter your name to continue"
+          : "I understand and accept the risk — show allergen information"}
       </button>
     </div>
   );
