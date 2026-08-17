@@ -1026,6 +1026,29 @@ export default function App() {
   // clears when the bag is reset after an order.
   const [allergensUnlocked, setAllergensUnlocked] = useState(false);
 
+  // Plenty of customers browse on the tablet and then order at the till, so the
+  // acceptance can't only be cleared when an order is placed IN the app — that
+  // path may never happen. Two resets cover it:
+  //   * going back to the welcome screen (one customer finishing, next starting)
+  //   * a period of no interaction, for a tablet simply put down and walked away from
+  // Both matter: an unlocked tablet would show the next person allergen
+  // information they never accepted the policy for.
+  const IDLE_RESET_MS = 3 * 60 * 1000;
+  useEffect(() => {
+    if (screen === "welcome" && allergensUnlocked) setAllergensUnlocked(false);
+  }, [screen, allergensUnlocked]);
+
+  useEffect(() => {
+    if (!allergensUnlocked) return;
+    let t;
+    const arm = () => { clearTimeout(t); t = setTimeout(() => { setAllergensUnlocked(false); setScreen("welcome"); }, IDLE_RESET_MS); };
+    const events = ["pointerdown", "keydown", "touchstart", "scroll"];
+    events.forEach((e) => window.addEventListener(e, arm, { passive: true }));
+    arm();
+    return () => { clearTimeout(t); events.forEach((e) => window.removeEventListener(e, arm)); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allergensUnlocked]);
+
   const placeOrder = async () => {
     if (placing) return;
     // On a tablet (pick mode), a table must be chosen before the order can send.
