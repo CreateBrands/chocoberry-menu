@@ -441,6 +441,23 @@ function Drawer({ orders = [], onClose }) {
 }
 
 
+// ALLERGEN POLICY — the information is hidden until the customer has been
+// shown the disclaimer and accepted it. Each acceptance is recorded.
+const ALLERGEN_POLICY_VERSION = "v1";
+
+async function recordAllergenAck(payload) {
+  // Best-effort: never let a failed write stop someone reading the allergens.
+  // Withholding the information because logging failed would be the worse of
+  // the two outcomes by a distance.
+  try {
+    await fetch(SUPABASE_URL + "/rest/v1/menu_allergen_ack", {
+      method: "POST",
+      headers: { ...H, Prefer: "return=minimal" },
+      body: JSON.stringify({ ...payload, policy_version: ALLERGEN_POLICY_VERSION, user_agent: navigator.userAgent }),
+    });
+  } catch (e) { /* ignore */ }
+}
+
 // Codes are stored uppercase for matching; customers see words.
 const ALLERGEN_LABEL = {
   WHEAT: "Wheat", RYE: "Rye", BARLEY: "Barley", OATS: "Oats", GLUTEN: "Gluten",
@@ -452,7 +469,104 @@ const ALLERGEN_LABEL = {
   SULPHITES: "Sulphur dioxide / sulphites", LUPIN: "Lupin", MOLLUSCS: "Molluscs",
 };
 
-function ItemDetail({ item, onAdd, onClose }) {
+function AllergenGate({ item, store, contains, may, onAccept }) {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // Contact details are optional on purpose. Someone unwilling to give them
+  // can still read the allergen information — refusing to show it would be
+  // both the less safe outcome and the harder one to defend.
+  const REQUIRE_CONTACT = false;
+
+  const accept = async () => {
+    if (REQUIRE_CONTACT && !name.trim()) return;
+    setBusy(true);
+    await recordAllergenAck({
+      location_id: store?.id || null,
+      item_id: item?.id || null,
+      item_name: item?.name || null,
+      store_name: store?.name || null,
+      customer_name: name.trim() || null,
+      customer_phone: phone.trim() || null,
+      allergens_shown: contains,
+      may_contain_shown: may,
+    });
+    setBusy(false);
+    onAccept();
+  };
+
+  const field = {
+    width: "100%", boxSizing: "border-box", fontSize: 15, padding: "12px 14px",
+    borderRadius: 12, border: "1px solid rgba(0,0,0,.14)", outline: "none",
+    fontFamily: "inherit", marginTop: 8,
+  };
+
+  if (!open) {
+    return (
+      <div style={{ marginTop: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", marginBottom: 8 }}>ALLERGENS</div>
+        <div style={{ position: "relative", borderRadius: 14, overflow: "hidden", border: "1px solid rgba(0,0,0,.1)" }}>
+          {/* The real chips, blurred — so it's visibly information being held
+              back rather than an empty box that looks like "no allergens". */}
+          <div style={{ filter: "blur(7px)", pointerEvents: "none", userSelect: "none", padding: 14, display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {[...contains, ...may].slice(0, 8).map((a, i) => (
+              <span key={i} style={{ fontSize: 13, fontWeight: 600, color: "#8a3c2c", background: "#F7E3DE", padding: "6px 14px", borderRadius: 20 }}>{ALLERGEN_LABEL[a] || a}</span>
+            ))}
+            {contains.length + may.length === 0 && (
+              <span style={{ fontSize: 13, color: "#8a5a2c", background: "#F5E9DC", padding: "6px 14px", borderRadius: 20 }}>Allergen information</span>
+            )}
+          </div>
+          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.55)" }}>
+            <button onClick={() => setOpen(true)}
+              style={{ border: "none", background: "var(--ink, #2F3326)", color: "#fff", fontFamily: "inherit", fontSize: 14, fontWeight: 600, padding: "10px 18px", borderRadius: 999, cursor: "pointer" }}>
+              Click to view allergen information
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 16, border: "1px solid rgba(0,0,0,.12)", borderRadius: 14, padding: 16, background: "#FFFDF8" }}>
+      <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 10 }}>Before we show you this</div>
+      <div style={{ fontSize: 13.5, lineHeight: 1.6, color: "var(--muted)" }}>
+        <p style={{ margin: "0 0 10px" }}>
+          <b>Please speak to the store manager or supervisor before placing your order</b> if you or
+          anyone in your party has a food allergy or intolerance.
+        </p>
+        <p style={{ margin: "0 0 10px" }}>
+          Allergen information is provided as a <b>guideline only</b>. Our kitchens are not
+          allergen-free environments: ingredients are handled, prepared and cooked in shared
+          spaces using shared equipment, so cross-contamination cannot be ruled out for any item.
+        </p>
+        <p style={{ margin: "0 0 10px" }}>
+          Recipes and suppliers can change. We cannot guarantee that any product is free from a
+          particular allergen.
+        </p>
+      </div>
+
+      <div style={{ marginTop: 12 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 600 }}>Your name {REQUIRE_CONTACT ? "" : <span style={{ fontWeight: 400, color: "var(--muted)" }}>(optional)</span>}</div>
+        <input style={field} value={name} onChange={(e) => setName(e.target.value)} placeholder="Name" />
+        <div style={{ fontSize: 12.5, fontWeight: 600, marginTop: 10 }}>Contact number <span style={{ fontWeight: 400, color: "var(--muted)" }}>(optional)</span></div>
+        <input style={field} value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="Phone" inputMode="tel" />
+        <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 8, lineHeight: 1.5 }}>
+          We keep a record of allergen enquiries for food safety purposes.
+        </div>
+      </div>
+
+      <button onClick={accept} disabled={busy}
+        style={{ width: "100%", marginTop: 14, border: "none", background: "var(--ink, #2F3326)", color: "#fff", fontFamily: "inherit", fontSize: 15, fontWeight: 600, padding: "14px 18px", borderRadius: 999, cursor: "pointer", opacity: busy ? .6 : 1 }}>
+        {busy ? "One moment…" : "I understand and accept the risk — show allergen information"}
+      </button>
+    </div>
+  );
+}
+
+function ItemDetail({ item, store, onAdd, onClose }) {
   const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: [], allergensContains: ["MILK"], allergensMay: [], modifiers: [] };
   const [qty, setQty] = useState(1);
   const groups = it.modifiers || [];
@@ -519,6 +633,8 @@ function ItemDetail({ item, onAdd, onClose }) {
     ...groups.flatMap((g) => (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id))
       .flatMap((o) => o.allergens_contains || [])),
   ])].sort();
+  // Resets per item: accepting for one product doesn't reveal every other.
+  const [allergensUnlocked, setAllergensUnlocked] = useState(false);
   const liveMay = [...new Set([
     ...(it.allergensMay || []),
     ...groups.flatMap((g) => (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id))
@@ -556,7 +672,12 @@ function ItemDetail({ item, onAdd, onClose }) {
             selected (oat milk, Nutella, crushed pistachio) is folded in live,
             so the panel describes the drink they are about to order rather than
             the base item. */}
-        {(liveContains.length > 0 || liveMay.length > 0) && (
+        {!allergensUnlocked && (
+          <AllergenGate item={it} store={store} contains={liveContains} may={liveMay}
+            onAccept={() => setAllergensUnlocked(true)} />
+        )}
+
+        {allergensUnlocked && (liveContains.length > 0 || liveMay.length > 0) && (
           <div style={{ marginTop: 16 }}>
             {liveContains.length > 0 && (
               <>
@@ -579,7 +700,8 @@ function ItemDetail({ item, onAdd, onClose }) {
               </>
             )}
             <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.5 }}>
-              Prepared in a kitchen that handles allergens. If you have an allergy, please speak to a member of staff before ordering.
+              <b>Speak to the store manager or supervisor before ordering.</b> This is a guideline only —
+              our kitchens are not allergen-free environments and cross-contamination cannot be ruled out.
             </div>
           </div>
         )}
@@ -1017,7 +1139,7 @@ export default function App() {
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settings} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} /></div>
-            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
+            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={() => setShowTablePicker(true)} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
             {orderingOn && (showTablePicker || (tableMode === "pick" && !table && screen === "bag")) && (
