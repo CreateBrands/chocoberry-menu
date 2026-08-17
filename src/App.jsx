@@ -117,7 +117,6 @@ async function fetchLive(token) {
     c.items.push({
       id: row.item_id, name: row.item_name, desc: row.description, price: Number(row.price),
       tags: row.tags || [], allergens: row.allergens || [],
-      allergensContains: row.allergens_contains || [], allergensMay: row.allergens_may || [],
       bg: row.gradient_bg, prod: row.gradient_prod, image_url: row.image_url,
       modifiers: row.modifiers || [],
     });
@@ -441,19 +440,8 @@ function Drawer({ orders = [], onClose }) {
 }
 
 
-// Codes are stored uppercase for matching; customers see words.
-const ALLERGEN_LABEL = {
-  WHEAT: "Wheat", RYE: "Rye", BARLEY: "Barley", OATS: "Oats", GLUTEN: "Gluten",
-  CRUSTACEANS: "Crustaceans", EGGS: "Eggs", FISH: "Fish", PEANUTS: "Peanuts",
-  SOYA: "Soya", MILK: "Milk", ALMOND: "Almond", HAZELNUT: "Hazelnut",
-  WALNUT: "Walnut", PISTACHIO: "Pistachio", CASHEW: "Cashew", PECAN: "Pecan",
-  BRAZIL: "Brazil nut", MACADAMIA: "Macadamia", OTHER_NUTS: "Other nuts",
-  CELERY: "Celery", MUSTARD: "Mustard", SESAME: "Sesame",
-  SULPHITES: "Sulphur dioxide / sulphites", LUPIN: "Lupin", MOLLUSCS: "Molluscs",
-};
-
 function ItemDetail({ item, onAdd, onClose }) {
-  const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: [], allergensContains: ["MILK"], allergensMay: [], modifiers: [] };
+  const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: ["Milk"], modifiers: [] };
   const [qty, setQty] = useState(1);
   const groups = it.modifiers || [];
   // selection state: { [groupId]: Set of optionIds }
@@ -512,19 +500,6 @@ function ItemDetail({ item, onAdd, onClose }) {
   // required groups must have a selection to enable Add
   const missingRequired = groups.some((g) => g.required && (sel[g.id] || []).length < (g.min_select || 1));
 
-  // Item's own allergens plus those of every option currently selected.
-  // "contains" wins over "may contain" if an allergen appears in both.
-  const liveContains = [...new Set([
-    ...(it.allergensContains || []),
-    ...groups.flatMap((g) => (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id))
-      .flatMap((o) => o.allergens_contains || [])),
-  ])].sort();
-  const liveMay = [...new Set([
-    ...(it.allergensMay || []),
-    ...groups.flatMap((g) => (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id))
-      .flatMap((o) => o.allergens_may || [])),
-  ])].filter((a) => !liveContains.includes(a)).sort();
-
   return (
     <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
       {/* hero */}
@@ -550,36 +525,13 @@ function ItemDetail({ item, onAdd, onClose }) {
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 34, lineHeight: 1.05, color: "var(--ink)" }}>{it.name}</div>
         <div style={{ fontSize: 16, color: "var(--muted)", marginTop: 8 }}>{it.desc}</div>
 
-        {/* ALLERGENS — two separate statements, because "contains milk" and
-            "may contain traces of milk" are different claims and the old single
-            list could not tell them apart. Anything the customer has actually
-            selected (oat milk, Nutella, crushed pistachio) is folded in live,
-            so the panel describes the drink they are about to order rather than
-            the base item. */}
-        {(liveContains.length > 0 || liveMay.length > 0) && (
+        {it.allergens && it.allergens.length > 0 && (
           <div style={{ marginTop: 16 }}>
-            {liveContains.length > 0 && (
-              <>
-                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", marginBottom: 8 }}>CONTAINS</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {liveContains.map((a) => (
-                    <span key={a} style={{ fontSize: 13, fontWeight: 600, color: "#8a3c2c", background: "#F7E3DE", border: "1px solid #E5BFB2", padding: "6px 14px", borderRadius: 20 }}>{ALLERGEN_LABEL[a] || a}</span>
-                  ))}
-                </div>
-              </>
-            )}
-            {liveMay.length > 0 && (
-              <>
-                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", margin: liveContains.length ? "14px 0 8px" : "0 0 8px" }}>MAY CONTAIN</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {liveMay.map((a) => (
-                    <span key={a} style={{ fontSize: 13, fontWeight: 600, color: "#8a5a2c", background: "#F5E9DC", border: "1px dashed #E5CDB2", padding: "6px 14px", borderRadius: 20 }}>{ALLERGEN_LABEL[a] || a}</span>
-                  ))}
-                </div>
-              </>
-            )}
-            <div style={{ fontSize: 11.5, color: "var(--muted)", marginTop: 10, lineHeight: 1.5 }}>
-              Prepared in a kitchen that handles allergens. If you have an allergy, please speak to a member of staff before ordering.
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", marginBottom: 8 }}>ALLERGENS</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {it.allergens.map((a) => (
+                <span key={a} style={{ fontSize: 13, fontWeight: 600, color: "#8a5a2c", background: "#F5E9DC", border: "1px solid #E5CDB2", padding: "6px 14px", borderRadius: 20 }}>{a}</span>
+              ))}
             </div>
           </div>
         )}
