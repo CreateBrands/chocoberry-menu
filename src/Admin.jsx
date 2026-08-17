@@ -298,11 +298,85 @@ const lbl = { fontSize: 11, fontWeight: 700, color: "#7E8470", marginBottom: 4, 
 const inp2 = { width: "100%", boxSizing: "border-box", border: "1px solid #E8DCC6", borderRadius: 8, padding: "8px 10px", fontSize: 13, fontFamily: "inherit" };
 
 
+// The 14 declarable allergens, with the specific cereals and nuts named —
+// UK labelling expects "wheat" and "hazelnut", not "gluten" and "nuts".
+const ALLERGENS = [
+  ["WHEAT","Wheat"], ["RYE","Rye"], ["BARLEY","Barley"], ["OATS","Oats"],
+  ["GLUTEN","Gluten (unspecified)"],
+  ["MILK","Milk"], ["EGGS","Eggs"], ["SOYA","Soya"], ["FISH","Fish"],
+  ["CRUSTACEANS","Crustaceans"], ["MOLLUSCS","Molluscs"],
+  ["PEANUTS","Peanuts"], ["ALMOND","Almond"], ["HAZELNUT","Hazelnut"],
+  ["WALNUT","Walnut"], ["PISTACHIO","Pistachio"], ["CASHEW","Cashew"],
+  ["PECAN","Pecan"], ["BRAZIL","Brazil nut"], ["MACADAMIA","Macadamia"],
+  ["OTHER_NUTS","Other nuts"],
+  ["CELERY","Celery"], ["MUSTARD","Mustard"], ["SESAME","Sesame"],
+  ["SULPHITES","Sulphur dioxide / sulphites"], ["LUPIN","Lupin"],
+];
+
+// Two separate sections rather than one cycling chip: an allergen that IS in
+// the product and one that MIGHT be are different claims, and you need to see
+// both lists at once to check them. Cycling also made a mis-click awkward to
+// undo. Selecting in one list removes from the other, because nothing can
+// sensibly be both.
+function AllergenPicker({ contains, may, onChange, T }) {
+  const Section = ({ title, hint, picked, other, onPick, tone }) => (
+    <div style={{ marginTop: 10 }}>
+      <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".04em", color: tone.text, marginBottom: 2 }}>{title}</div>
+      <div style={{ fontSize: 11.5, color: T.muted, marginBottom: 7 }}>{hint}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {ALLERGENS.map(([code, label]) => {
+          const on = picked.includes(code);
+          // An allergen already claimed by the other section is shown faintly
+          // so it's obvious why clicking it moves it rather than duplicating.
+          const claimed = !on && other.includes(code);
+          return (
+            <span key={code}
+              onClick={() => onPick(on ? picked.filter((x) => x !== code) : [...picked, code])}
+              title={claimed ? "Currently in the other list — clicking moves it here" : undefined}
+              style={{
+                fontSize: 12.5, padding: "5px 10px", borderRadius: 16, cursor: "pointer", userSelect: "none",
+                background: on ? tone.bg : "#fff",
+                border: (on ? "1px " + tone.borderStyle + " " + tone.border : "1px solid " + T.line),
+                color: on ? tone.text : (claimed ? "#c9c3b4" : T.muted),
+                fontWeight: on ? 600 : 500,
+              }}>
+              {label}
+            </span>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div>
+      <Section
+        title="CONTAINS"
+        hint="An ingredient of this item."
+        picked={contains} other={may}
+        onPick={(next) => onChange(next, may.filter((x) => !next.includes(x)))}
+        tone={{ bg: "#F7E3DE", border: "#C98A78", borderStyle: "solid", text: "#8a3c2c" }}
+      />
+      <Section
+        title="MAY CONTAIN"
+        hint="Cross-contamination risk — shared equipment, fryer or preparation area."
+        picked={may} other={contains}
+        onPick={(next) => onChange(contains.filter((x) => !next.includes(x)), next)}
+        tone={{ bg: "#F5E9DC", border: "#C9A87C", borderStyle: "dashed", text: "#8a5a2c" }}
+      />
+      <div style={{ fontSize: 11.5, color: T.muted, marginTop: 10, lineHeight: 1.5 }}>
+        Leaving both blank means "not filled in" — it does not tell a customer the item is free of allergens.
+      </div>
+    </div>
+  );
+}
+
 function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSaved }) {
   const [modIds, setModIds] = useState(itemGroupIds);
   const [f, setF] = useState({
     name: item.name || "", description: item.description || "", price: item.price ?? 0,
-    allergens: (item.allergens || []).join(", "), image_url: item.image_url || "", published: item.published !== false,
+    allergensContains: item.allergens_contains || [], allergensMay: item.allergens_may || [],
+    image_url: item.image_url || "", published: item.published !== false,
   });
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -312,7 +386,7 @@ function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSave
     try {
       await callAdmin(pin, "update_item", { id: item.id, fields: {
         name: f.name, description: f.description, price: Number(f.price),
-        allergens: f.allergens.split(",").map((s) => s.trim()).filter(Boolean),
+        allergens_contains: f.allergensContains, allergens_may: f.allergensMay,
         image_url: f.image_url || null, published: f.published,
       }});
       await callAdmin(pin, "set_item_mod_groups", { item_id: item.id, group_ids: modIds });
@@ -334,8 +408,9 @@ function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSave
         <textarea style={{ ...inp, minHeight: 90, resize: "vertical" }} value={f.description} onChange={(e) => set("description", e.target.value)} />
         <div style={lab}>Price (£)</div>
         <input style={inp} type="number" step="0.01" value={f.price} onChange={(e) => set("price", e.target.value)} />
-        <div style={lab}>Allergens <span style={{ fontWeight: 400, color: T.muted }}>(comma-separated)</span></div>
-        <input style={inp} value={f.allergens} onChange={(e) => set("allergens", e.target.value)} placeholder="Milk, Soya, Nuts" />
+        <div style={lab}>Allergens</div>
+        <AllergenPicker T={T} contains={f.allergensContains} may={f.allergensMay}
+          onChange={(c, m) => setF((p) => ({ ...p, allergensContains: c, allergensMay: m }))} />
         <div style={lab}>Image</div>
         <ImageUpload value={f.image_url} onChange={(v) => set("image_url", v)} prefix="items" />
         {groups.length > 0 && (
@@ -772,7 +847,7 @@ export default function Admin() {
                     <div style={{ width: 46, height: 46, borderRadius: 8, background: it.image_url ? `center/cover url(${it.image_url})` : (it.gradient_bg || "linear-gradient(160deg,#EAD9C4,#C99E74)") }} />
                     <div style={{ flex: 1 }}>
                       <div style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{it.name}</div>
-                      <div style={{ fontSize: 12, color: T.faint }}>{money(it.price)}{it.allergens && it.allergens.length ? " · " + it.allergens.join(", ") : ""}</div>
+                      <div style={{ fontSize: 12, color: T.faint }}>{money(it.price)}{(it.allergens_contains || []).length ? " · " + it.allergens_contains.join(", ") : ""}{(it.allergens_may || []).length ? " · may: " + it.allergens_may.join(", ") : ""}</div>
                     </div>
                     <span onClick={() => act("update_item", { id: it.id, fields: { available: !it.available } })} style={{ width: 38, height: 22, borderRadius: 12, background: it.available ? T.accent : "#cfcabd", position: "relative", cursor: "pointer" }}>
                       <span style={{ position: "absolute", top: 2, left: it.available ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff" }} />
