@@ -492,7 +492,7 @@ function AllergenGate({ item, store, contains, may, onAccept }) {
       may_contain_shown: may,
     });
     setBusy(false);
-    onAccept();
+    onAccept(name.trim());
   };
 
   const field = {
@@ -567,7 +567,7 @@ function AllergenGate({ item, store, contains, may, onAccept }) {
   );
 }
 
-function ItemDetail({ item, store, onAdd, onClose }) {
+function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergensAccepted }) {
   const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: [], allergensContains: ["MILK"], allergensMay: [], modifiers: [] };
   const [qty, setQty] = useState(1);
   const groups = it.modifiers || [];
@@ -634,8 +634,6 @@ function ItemDetail({ item, store, onAdd, onClose }) {
     ...groups.flatMap((g) => (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id))
       .flatMap((o) => o.allergens_contains || [])),
   ])].sort();
-  // Resets per item: accepting for one product doesn't reveal every other.
-  const [allergensUnlocked, setAllergensUnlocked] = useState(false);
   const liveMay = [...new Set([
     ...(it.allergensMay || []),
     ...groups.flatMap((g) => (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id))
@@ -675,7 +673,7 @@ function ItemDetail({ item, store, onAdd, onClose }) {
             the base item. */}
         {!allergensUnlocked && (
           <AllergenGate item={it} store={store} contains={liveContains} may={liveMay}
-            onAccept={() => setAllergensUnlocked(true)} />
+            onAccept={onAllergensAccepted} />
         )}
 
         {allergensUnlocked && (liveContains.length > 0 || liveMay.length > 0) && (
@@ -1021,6 +1019,13 @@ export default function App() {
     setScreen("browse");
   };
 
+  // ALLERGEN POLICY — accepted once per customer, not once per item. Asking
+  // again on every product would train people to click through it, which is
+  // the opposite of the point. Deliberately NOT persisted: on a shared store
+  // tablet one customer's acceptance must not carry over to the next, so it
+  // clears when the bag is reset after an order.
+  const [allergensUnlocked, setAllergensUnlocked] = useState(false);
+
   const placeOrder = async () => {
     if (placing) return;
     // On a tablet (pick mode), a table must be chosen before the order can send.
@@ -1140,9 +1145,14 @@ export default function App() {
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settings} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} /></div>
-            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} /></div>
+            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
+              setAllergensUnlocked(true);
+              // They've just typed their name for the allergen record; don't
+              // ask for it again at checkout.
+              if (nm && !pickupName) setPickupName(nm);
+            }} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={() => setShowTablePicker(true)} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
             {orderingOn && (showTablePicker || (tableMode === "pick" && !table && screen === "bag")) && (
               <TablePicker tables={tables} current={table} required={tableMode === "pick" && !table}
                 onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }}
