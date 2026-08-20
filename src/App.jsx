@@ -427,6 +427,11 @@ function Drawer({ orders = [], onClose, locationId }) {
   // All-tablets orders from DB
   const [allOrders, setAllOrders] = useState(null);
   const [collapsed, setCollapsed] = useState({}); // tablet_no -> bool
+  const [summary, setSummary] = useState(null);
+  const [payingOrder, setPayingOrder] = useState(null); // order id showing pay controls
+  const [discType, setDiscType] = useState(""); // "" | "percent" | "amount"
+  const [discVal, setDiscVal] = useState("");
+  const [savingPaid, setSavingPaid] = useState(false);
   // Item availability
   const [items, setItems] = useState(null);
   const [savingItem, setSavingItem] = useState(null);
@@ -455,7 +460,7 @@ function Drawer({ orders = [], onClose, locationId }) {
 
   async function loadAllOrders() {
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,created_at,menu_order_items(name_snapshot,qty,modifiers_snapshot,line_total)"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,paid_method,paid_amount,discount_type,discount_value,created_at,menu_order_items(name_snapshot,qty,modifiers_snapshot,line_total)"
         + (locationId ? "&location_id=eq." + locationId : "")
         + "&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
@@ -464,6 +469,47 @@ function Drawer({ orders = [], onClose, locationId }) {
     } catch (e) {
       setAllOrders([]);
     }
+    loadSummary();
+  }
+
+  async function loadSummary() {
+    if (!locationId) return;
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin, action: "day_summary", data: { location_id: locationId } }),
+      });
+      const j = await r.json();
+      if (j && j.summary) setSummary(j.summary);
+    } catch { /* ignore */ }
+  }
+
+  async function markPaid(o, method) {
+    setSavingPaid(true);
+    try {
+      const body = { pin, action: "mark_paid", data: { order_id: o.id, method } };
+      if (discType && discVal !== "" && !isNaN(Number(discVal))) {
+        body.data.discount_type = discType;
+        body.data.discount_value = Number(discVal);
+      }
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H, body: JSON.stringify(body),
+      });
+      if (!r.ok) throw new Error("pay");
+      setPayingOrder(null); setDiscType(""); setDiscVal("");
+      await loadAllOrders(); // refresh statuses + summary
+    } catch { /* leave open */ } finally { setSavingPaid(false); }
+  }
+
+  async function markUnpaid(o) {
+    setSavingPaid(true);
+    try {
+      await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin, action: "mark_unpaid", data: { order_id: o.id } }),
+      });
+      await loadAllOrders();
+    } catch { /* ignore */ } finally { setSavingPaid(false); }
   }
 
   async function loadItems() {
@@ -563,6 +609,17 @@ function Drawer({ orders = [], onClose, locationId }) {
 
             {view === "orders" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24 }}>
+                {summary && (
+                  <div style={{ borderRadius: 14, background: "var(--bg3)", padding: "14px 16px", marginBottom: 4 }}>
+                    <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, color: "var(--ink)", marginBottom: 8 }}>Today's sales</div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 3 }}><span style={{ color: "var(--muted)" }}>Total taken</span><span style={{ fontWeight: 700 }}>{money(summary.total)}</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}><span style={{ color: "var(--muted)" }}>Cash</span><span>{money(summary.cash)}</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}><span style={{ color: "var(--muted)" }}>Card</span><span>{money(summary.card)}</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}><span style={{ color: "var(--muted)" }}>Paid orders</span><span>{summary.paid_count}</span></div>
+                    {summary.unpaid_count > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#b4462f" }}><span>Unpaid ({summary.unpaid_count})</span><span>{money(summary.unpaid_total)}</span></div>}
+                    {summary.discount_total > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--faint)", marginTop: 2 }}><span>Discounts given</span><span>{money(summary.discount_total)}</span></div>}
+                  </div>
+                )}
                 {allOrders === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading orders…</div>}
                 {allOrders && allOrders.length === 0 && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>No orders yet.</div>}
                 {groupKeys.map((gk) => (
@@ -579,7 +636,7 @@ function Drawer({ orders = [], onClose, locationId }) {
                           return (
                             <div key={o.id} onClick={() => setOpenOrder(openOrder === okey ? null : okey)} style={{ borderRadius: 12, background: "var(--bg2)", boxShadow: "inset 0 0 0 1px var(--line)", padding: "11px 13px", marginTop: 8, cursor: "pointer" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                                <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
+                                <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}{o.paid_method ? <span style={{ fontSize: 11, fontWeight: 600, color: "#3c5a2e", marginLeft: 8 }}>● paid</span> : <span style={{ fontSize: 11, fontWeight: 600, color: "#b4462f", marginLeft: 8 }}>● unpaid</span>}</span>
                                 <span style={{ fontSize: 12, color: "var(--muted)" }}>{timeAgo(new Date(o.created_at).getTime(), now)}</span>
                               </div>
                               <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{its.map((it) => (it.qty > 1 ? it.qty + "× " : "") + it.name_snapshot).join(", ")}</div>
@@ -603,6 +660,29 @@ function Drawer({ orders = [], onClose, locationId }) {
                                     {reprinting === okey ? "Reprinting…" : "↻ Reprint slip"}
                                   </div>
                                   {reprintMsg && reprintMsg.key === okey && <div style={{ fontSize: 12, color: "var(--accent)", marginTop: 6, textAlign: "center" }}>{reprintMsg.text}</div>}
+                                  {/* Payment controls */}
+                                  {o.paid_method ? (
+                                    <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "#eaf1e4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: "#3c5a2e" }}>Paid · {o.paid_method === "cash" ? "Cash" : "Card"}{o.paid_amount != null && Number(o.paid_amount) !== Number(o.total) ? " · " + money(o.paid_amount) + (o.discount_type ? " (disc)" : "") : ""}</span>
+                                      <span onClick={(e) => { e.stopPropagation(); markUnpaid(o); }} style={{ fontSize: 12, color: "var(--muted)", cursor: "pointer", textDecoration: "underline" }}>Undo</span>
+                                    </div>
+                                  ) : payingOrder === okey ? (
+                                    <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, padding: "12px", borderRadius: 10, background: "var(--bg3)" }}>
+                                      <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
+                                        <span onClick={() => { setDiscType(discType === "percent" ? "" : "percent"); }} style={{ flex: 1, textAlign: "center", padding: "7px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: discType === "percent" ? "var(--accent)" : "var(--bg2)", color: discType === "percent" ? "#F7F4EC" : "var(--ink)" }}>% off</span>
+                                        <span onClick={() => { setDiscType(discType === "amount" ? "" : "amount"); }} style={{ flex: 1, textAlign: "center", padding: "7px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: discType === "amount" ? "var(--accent)" : "var(--bg2)", color: discType === "amount" ? "#F7F4EC" : "var(--ink)" }}>£ off</span>
+                                        {discType && <input type="number" value={discVal} onChange={(e) => setDiscVal(e.target.value)} placeholder={discType === "percent" ? "%" : "£"} style={{ width: 60, padding: "7px 8px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 13 }} />}
+                                      </div>
+                                      <div style={{ display: "flex", gap: 8 }}>
+                                        <span onClick={() => markPaid(o, "cash")} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "#3c5a2e", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: savingPaid ? .6 : 1 }}>Cash</span>
+                                        <span onClick={() => markPaid(o, "card")} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "#2e4a5a", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: savingPaid ? .6 : 1 }}>Card</span>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div onClick={(e) => { e.stopPropagation(); setPayingOrder(okey); setDiscType(""); setDiscVal(""); }} style={{ marginTop: 10, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                                      Mark paid
+                                    </div>
+                                  )}
                                 </div>
                               )}
                             </div>

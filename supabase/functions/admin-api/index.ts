@@ -361,6 +361,86 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      // ---- TILL: mark an order paid (cash/card) with optional discount ----
+      case "mark_paid": {
+        const { order_id, method, discount_type = null, discount_value = null } = data || {};
+        if (!order_id || (method !== "cash" && method !== "card")) {
+          return json({ error: "order_id and method (cash|card) required" }, 400);
+        }
+        // Fetch the order total so we compute the paid amount server-side.
+        const { data: ord, error: oErr } = await admin
+          .from("menu_orders").select("id, total").eq("id", order_id).single();
+        if (oErr || !ord) return json({ error: "order not found" }, 404);
+        const total = Number(ord.total) || 0;
+        let paid = total;
+        // Apply discount if provided. percent = % off; amount = £ off.
+        const dv = discount_value == null ? null : Number(discount_value);
+        if (discount_type === "percent" && dv != null) {
+          paid = Math.max(0, total * (1 - dv / 100));
+        } else if (discount_type === "amount" && dv != null) {
+          paid = Math.max(0, total - dv);
+        }
+        paid = Math.round(paid * 100) / 100; // 2dp
+        const { error } = await admin.from("menu_orders").update({
+          paid_method: method,
+          paid_amount: paid,
+          discount_type: (discount_type === "percent" || discount_type === "amount") ? discount_type : null,
+          discount_value: dv,
+          paid_at: new Date().toISOString(),
+        }).eq("id", order_id);
+        if (error) throw error;
+        return json({ ok: true, paid_amount: paid });
+      }
+
+      // ---- TILL: mark an order UNPAID again (undo) ----
+      case "mark_unpaid": {
+        const { order_id } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const { error } = await admin.from("menu_orders").update({
+          paid_method: null, paid_amount: null, discount_type: null, discount_value: null, paid_at: null,
+        }).eq("id", order_id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- TILL: today's sales summary for a location ----
+      case "day_summary": {
+        const { location_id } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        // Start of today (server local). Orders paid today count toward the summary.
+        const start = new Date(); start.setHours(0, 0, 0, 0);
+        const { data: rows, error } = await admin
+          .from("menu_orders")
+          .select("total, paid_method, paid_amount, discount_type, discount_value, paid_at")
+          .eq("location_id", location_id)
+          .gte("created_at", start.toISOString());
+        if (error) throw error;
+        let cash = 0, card = 0, paidCount = 0, unpaidTotal = 0, unpaidCount = 0, discountTotal = 0;
+        for (const r of rows || []) {
+          if (r.paid_method === "cash" || r.paid_method === "card") {
+            const amt = Number(r.paid_amount ?? r.total) || 0;
+            if (r.paid_method === "cash") cash += amt; else card += amt;
+            paidCount++;
+            const orig = Number(r.total) || 0;
+            if (amt < orig) discountTotal += (orig - amt);
+          } else {
+            unpaidTotal += Number(r.total) || 0;
+            unpaidCount++;
+          }
+        }
+        const round = (n) => Math.round(n * 100) / 100;
+        return json({
+          ok: true,
+          summary: {
+            total: round(cash + card),
+            cash: round(cash), card: round(card),
+            paid_count: paidCount,
+            unpaid_total: round(unpaidTotal), unpaid_count: unpaidCount,
+            discount_total: round(discountTotal),
+          },
+        });
+      }
+
       // ---- MENUS ----
       case "create_menu": {
         const { brand_id, name, sort_order } = data || {};
