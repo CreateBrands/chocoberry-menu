@@ -430,6 +430,7 @@ function Drawer({ orders = [], onClose, locationId }) {
   // Item availability
   const [items, setItems] = useState(null);
   const [savingItem, setSavingItem] = useState(null);
+  const [itemSearch, setItemSearch] = useState("");
 
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(id); }, []);
 
@@ -465,9 +466,14 @@ function Drawer({ orders = [], onClose, locationId }) {
 
   async function loadItems() {
     try {
-      // Items with their per-location override availability.
-      const r = await fetch(SUPABASE_URL + "/rest/v1/menu_items?select=id,name,available,category_id&published=eq.true&order=name.asc", { headers: H });
+      // Items with image + category, plus their per-location override availability.
+      const r = await fetch(SUPABASE_URL + "/rest/v1/menu_items?select=id,name,available,category_id,image_url&published=eq.true&order=name.asc", { headers: H });
       const base = r.ok ? await r.json() : [];
+      // Category names for grouping.
+      const rc = await fetch(SUPABASE_URL + "/rest/v1/menu_categories?select=id,name,sort_order", { headers: H });
+      const cats = rc.ok ? await rc.json() : [];
+      const catName = new Map(cats.map((c) => [c.id, c.name]));
+      const catSort = new Map(cats.map((c) => [c.id, c.sort_order ?? 999]));
       let ov = [];
       if (locationId) {
         const r2 = await fetch(SUPABASE_URL + "/rest/v1/menu_item_overrides?select=item_id,available&location_id=eq." + locationId, { headers: H });
@@ -476,6 +482,8 @@ function Drawer({ orders = [], onClose, locationId }) {
       const ovMap = new Map(ov.map((o) => [o.item_id, o.available]));
       setItems(base.map((it) => ({
         ...it,
+        category: catName.get(it.category_id) || "Other",
+        categorySort: catSort.get(it.category_id) ?? 999,
         // effective availability: override wins, else base
         effective: ovMap.has(it.id) && ovMap.get(it.id) !== null ? ovMap.get(it.id) : it.available !== false,
       })));
@@ -606,17 +614,42 @@ function Drawer({ orders = [], onClose, locationId }) {
             )}
 
             {view === "items" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8, overflowY: "auto", paddingBottom: 24 }}>
-                {items === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading items\u2026</div>}
-                {items && items.map((it) => (
-                  <div key={it.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderRadius: 12, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)" }}>
-                    <span style={{ fontSize: 15, color: it.effective ? "var(--ink)" : "var(--faint)", textDecoration: it.effective ? "none" : "line-through" }}>{it.name}</span>
-                    <div onClick={() => toggleItem(it)} style={{ width: 58, height: 30, borderRadius: 16, background: it.effective ? "var(--accent)" : "var(--line)", position: "relative", cursor: "pointer", opacity: savingItem === it.id ? .5 : 1, transition: "background .15s", flexShrink: 0 }}>
-                      <div style={{ position: "absolute", top: 3, left: it.effective ? 31 : 3, width: 24, height: 24, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
-                    </div>
-                  </div>
-                ))}
-                {items && items.length > 0 && <div style={{ fontSize: 12, color: "var(--faint)", textAlign: "center", marginTop: 8 }}>Green = online (available). Grey = offline (hidden from customers).</div>}
+              <div style={{ display: "flex", flexDirection: "column", overflow: "hidden", flex: 1 }}>
+                <input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Search items\u2026"
+                  style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", marginBottom: 12, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 15 }} />
+                <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", paddingBottom: 24 }}>
+                  {items === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading items\u2026</div>}
+                  {items && (() => {
+                    const q = itemSearch.trim().toLowerCase();
+                    const filtered = q ? items.filter((it) => it.name.toLowerCase().includes(q)) : items;
+                    const byCat = {};
+                    for (const it of filtered) (byCat[it.category] = byCat[it.category] || []).push(it);
+                    const cats = Object.keys(byCat).sort((a, b) => {
+                      const sa = byCat[a][0].categorySort, sb = byCat[b][0].categorySort;
+                      return sa - sb || a.localeCompare(b);
+                    });
+                    if (filtered.length === 0) return <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 30 }}>No items match.</div>;
+                    return cats.map((cat) => (
+                      <div key={cat}>
+                        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 8, textTransform: "uppercase" }}>{cat}</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          {byCat[cat].map((it) => (
+                            <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 12, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)" }}>
+                              <div style={{ width: 46, height: 46, borderRadius: 10, background: "var(--bg3)", flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                {it.image_url ? <img src={it.image_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: it.effective ? 1 : .4 }} /> : <span style={{ fontSize: 18, color: "var(--faint)" }}>\ud83c\udf7d</span>}
+                              </div>
+                              <span style={{ flex: 1, fontSize: 15, color: it.effective ? "var(--ink)" : "var(--faint)", textDecoration: it.effective ? "none" : "line-through" }}>{it.name}</span>
+                              <div onClick={() => toggleItem(it)} style={{ width: 58, height: 30, borderRadius: 16, background: it.effective ? "var(--accent)" : "var(--line)", position: "relative", cursor: "pointer", opacity: savingItem === it.id ? .5 : 1, transition: "background .15s", flexShrink: 0 }}>
+                                <div style={{ position: "absolute", top: 3, left: it.effective ? 31 : 3, width: 24, height: 24, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ));
+                  })()}
+                  {items && items.length > 0 && <div style={{ fontSize: 12, color: "var(--faint)", textAlign: "center", marginTop: 8 }}>Green = online. Grey = offline (hidden from customers).</div>}
+                </div>
               </div>
             )}
           </>
