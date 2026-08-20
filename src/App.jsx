@@ -640,10 +640,10 @@ function Drawer({ orders = [], onClose, locationId }) {
                     const forceOpen = !!q || offlineOnly;
                     return cats.map((cat) => {
                       const offCount = byCat[cat].filter((it) => !it.effective).length;
-                      const open = forceOpen ? true : (catCollapsed[cat] === false);
+                      const open = forceOpen ? true : (catCollapsed[cat] === true);
                       return (
                         <div key={cat} style={{ borderRadius: 12, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)", overflow: "hidden" }}>
-                          <div onClick={() => setCatCollapsed((c) => ({ ...c, [cat]: !(c[cat] === false) ? false : true }))} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", cursor: "pointer", background: "var(--bg3)" }}>
+                          <div onClick={() => setCatCollapsed((c) => ({ ...c, [cat]: !c[cat] }))} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", cursor: "pointer", background: "var(--bg3)" }}>
                             <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--ink)" }}>{cat}</span>
                             <span style={{ fontSize: 12, color: "var(--muted)" }}>{offCount > 0 ? offCount + " offline \u00b7 " : ""}{byCat[cat].length} item{byCat[cat].length === 1 ? "" : "s"} {open ? "\u25be" : "\u25b8"}</span>
                           </div>
