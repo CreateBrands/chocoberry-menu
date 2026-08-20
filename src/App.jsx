@@ -43,6 +43,25 @@ function getStoreToken() {
   } catch { return null; }
 }
 
+// The tablet's own number: set once via ?tablet=3 (device remembers it).
+// Used to prefix order numbers (e.g. T3-014) so staff know which tablet an order came from.
+function getTabletNumber() {
+  try {
+    const url = new URLSearchParams(window.location.search).get("tablet");
+    if (url) { localStorage.setItem("still_tablet_no", url); return url; }
+    return localStorage.getItem("still_tablet_no") || null;
+  } catch { return null; }
+}
+
+// Format an order number for display: T{tablet}-{padded sequence}, e.g. "T3-014".
+// Falls back to just the padded sequence if no tablet number is set on the device.
+function formatOrderNo(seq) {
+  const n = Number(seq);
+  const padded = Number.isFinite(n) ? String(n).padStart(3, "0") : String(seq ?? "");
+  const tablet = getTabletNumber();
+  return tablet ? `T${tablet}-${padded}` : padded;
+}
+
 // Fetch a store's dining tables (is_table=true) for the picker.
 async function fetchTables(locationId) {
   if (!locationId) return [];
@@ -417,8 +436,13 @@ function Drawer({ orders = [], onClose }) {
               {openOrder === i ? (
                 <div style={{ marginTop: 8 }}>
                   {o.items.map((it, j) => (
-                    <div key={j} style={{ display: "flex", justifyContent: "space-between", fontSize: 15, color: "var(--ink)", padding: "4px 0" }}>
-                      <span>{it.qty > 1 ? it.qty + "\u00d7 " : ""}{it.name}</span>
+                    <div key={j} style={{ padding: "4px 0" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, color: "var(--ink)" }}>
+                        <span>{it.qty > 1 ? it.qty + "\u00d7 " : ""}{it.name}</span>
+                      </div>
+                      {it.mods && it.mods.length > 0 && (
+                        <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 2, paddingLeft: 2 }}>{it.mods.join(", ")}</div>
+                      )}
                     </div>
                   ))}
                   <div style={{ borderTop: "1px solid var(--line)", marginTop: 8, paddingTop: 8, display: "flex", justifyContent: "space-between", fontSize: 15, fontWeight: 600, color: "var(--ink)" }}>
@@ -827,7 +851,7 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
 }
 
 
-function Confirm({ orderNo, pickupName }) {
+function Confirm({ orderNo, pickupName, table }) {
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '460px', left: '40px', top: '70px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.17),transparent 68%)', filter: 'blur(8px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
@@ -839,6 +863,10 @@ function Confirm({ orderNo, pickupName }) {
           <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>PICKUP</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{pickupName || 'Guest'}</div></div>
           <div style={{width: '1px', background: 'var(--line)'}}></div>
           <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>ORDER</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{'#' + (orderNo || '—')}</div></div>
+          {table && (<>
+          <div style={{width: '1px', background: 'var(--line)'}}></div>
+          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>TABLE</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{table.label}</div></div>
+          </>)}
           <div style={{width: '1px', background: 'var(--line)'}}></div>
           <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>READY IN</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>~6 min</div></div>
         </div>
@@ -955,6 +983,21 @@ function MenuPicker({ menus, bg, onPick, onClose }) {
 }
 
 function TablePicker({ tables, current, onPick, onClose, required }) {
+  // Group tables by their letter prefix (FL, FH, BB...) so each zone is its own row.
+  const zoneOrder = ["FL", "FH", "BB"];
+  const groups = {};
+  for (const t of tables) {
+    const m = String(t.label).match(/^([A-Za-z]+)/);
+    const zone = m ? m[1].toUpperCase() : "OTHER";
+    (groups[zone] = groups[zone] || []).push(t);
+  }
+  // Ordered zone list: known zones first (in zoneOrder), then any others.
+  const zones = [
+    ...zoneOrder.filter((z) => groups[z]),
+    ...Object.keys(groups).filter((z) => !zoneOrder.includes(z)).sort(),
+  ];
+  const zoneLabel = { FL: "Front Left", FH: "Front Hall", BB: "Back" };
+
   return (
     <div style={{ position: "absolute", inset: 0, background: "var(--bg)", zIndex: 50, display: "flex", flexDirection: "column", padding: "28px 22px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -962,16 +1005,25 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
         {!required && <div onClick={onClose} style={{ fontSize: 15, color: "var(--muted)", cursor: "pointer", padding: 8 }}>Close</div>}
       </div>
       <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 22 }}>Tap your table number so we bring your order to you.</div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 12, overflowY: "auto", paddingBottom: 20 }}>
-        {tables.map((t) => {
-          const active = current && current.id === t.id;
-          return (
-            <div key={t.id} onClick={() => onPick(t)} style={{ aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRadius: 20, cursor: "pointer", background: active ? "var(--accent)" : "var(--bg3)", color: active ? "#F7F4EC" : "var(--ink)", boxShadow: active ? "0 12px 28px -10px rgba(94,122,77,.6)" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 28, textAlign: "center", padding: 6, wordBreak: "break-word", lineHeight: 1.1 }}>
-              {t.label}
+      <div style={{ overflowY: "auto", paddingBottom: 20 }}>
+        {zones.map((zone) => (
+          <div key={zone} style={{ marginBottom: 20 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".08em", color: "var(--muted)", marginBottom: 10 }}>
+              {(zoneLabel[zone] || zone).toUpperCase()}
             </div>
-          );
-        })}
-        {tables.length === 0 && <div style={{ gridColumn: "1/-1", fontSize: 15, color: "var(--faint)" }}>No tables set up for this store yet.</div>}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 12 }}>
+              {groups[zone].map((t) => {
+                const active = current && current.id === t.id;
+                return (
+                  <div key={t.id} onClick={() => onPick(t)} style={{ aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRadius: 20, cursor: "pointer", background: active ? "var(--accent)" : "var(--bg3)", color: active ? "#F7F4EC" : "var(--ink)", boxShadow: active ? "0 12px 28px -10px rgba(94,122,77,.6)" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 28, textAlign: "center", padding: 6, wordBreak: "break-word", lineHeight: 1.1 }}>
+                    {t.label}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {tables.length === 0 && <div style={{ fontSize: 15, color: "var(--faint)" }}>No tables set up for this store yet.</div>}
       </div>
     </div>
   );
@@ -1070,21 +1122,21 @@ export default function App() {
       });
       const resp = await res.json();
       if (!res.ok) throw new Error(resp.error || ("HTTP " + res.status));
-      setOrderNo(resp.order_no);
+      setOrderNo(formatOrderNo(resp.order_no));
       setSessionOrders((prev) => [{
-        no: resp.order_no,
+        no: formatOrderNo(resp.order_no),
         at: Date.now(),
         table: (dineIn && table) ? table.label : null,
         count: lines.reduce((s2, l) => s2 + l.qty, 0),
         total: lines.reduce((s2, l) => s2 + (l.unit || l.item.price || 0) * l.qty, 0),
-        items: lines.map((l) => ({ name: l.item.name, qty: l.qty })),
+        items: lines.map((l) => ({ name: l.item.name, qty: l.qty, mods: (l.mods || []).map((m) => m.name) })),
       }, ...prev]);
       setScreen("confirm");
     } catch (e) {
       // Fallback so the demo flow still completes if the function isn't deployed yet.
       console.warn("place-order failed, using local number:", e.message);
       setOrderErr(e.message);
-      setOrderNo(Math.floor(200 + Math.random() * 800));
+      setOrderNo(formatOrderNo(Math.floor(200 + Math.random() * 800)));
       setScreen("confirm");
     } finally {
       setPlacing(false);
@@ -1175,9 +1227,17 @@ export default function App() {
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={() => setShowTablePicker(true)} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); if (tableMode === "pick") setTable(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); if (tableMode === "pick") setTable(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} /></div>
+            {/* Staff: pre-set the table before handing the tablet to the customer.
+                Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
+            {orderingOn && tableMode === "pick" && screen === "welcome" && (
+              <div onClick={() => setShowTablePicker(true)}
+                style={{ position: "absolute", top: 14, right: 14, zIndex: 40, padding: "8px 14px", borderRadius: 20, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontSize: 12, fontWeight: 700, letterSpacing: ".04em", color: "var(--muted)", cursor: "pointer", opacity: 0.85 }}>
+                {table ? `Table: ${table.label}` : "Staff · Set table"}
+              </div>
+            )}
             {orderingOn && (showTablePicker || (tableMode === "pick" && !table && screen === "bag")) && (
-              <TablePicker tables={tables} current={table} required={tableMode === "pick" && !table}
+              <TablePicker tables={tables} current={table} required={tableMode === "pick" && !table && screen === "bag"}
                 onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }}
                 onClose={() => setShowTablePicker(false)} />
             )}
