@@ -575,6 +575,11 @@ function PrintersModal({ pin, locations, onClose }) {
     try { await callAdmin(pin, "printer_update", { id: p.id, fields: { station } }); await load(); }
     catch (e) { setMsg(e.message); } finally { setBusy(false); }
   };
+  const changeCopies = async (p, copies) => {
+    setBusy(true);
+    try { await callAdmin(pin, "printer_update", { id: p.id, fields: { copies: parseInt(copies, 10) || 1 } }); await load(); }
+    catch (e) { setMsg(e.message); } finally { setBusy(false); }
+  };
   const removePrinter = async (p) => {
     if (!window.confirm("Remove " + (p.label || p.sn) + " from the list? (The printer stays bound in Sunmi; this only unregisters it here.)")) return;
     setBusy(true);
@@ -604,7 +609,7 @@ function PrintersModal({ pin, locations, onClose }) {
           {printers === null && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>Loading…</div>}
           {printers && printers.length === 0 && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>No printers yet. Add one below.</div>}
           {printers && printers.map((p, idx) => (
-            <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 110px 90px 140px", gap: 12, alignItems: "center", padding: "13px 16px", borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .55 }}>
+            <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 110px 96px 90px 140px", gap: 12, alignItems: "center", padding: "13px 16px", borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .55 }}>
               <div style={{ display: "flex", alignItems: "center" }}>
                 <Dot online={p.online} />
                 <div>
@@ -624,6 +629,15 @@ function PrintersModal({ pin, locations, onClose }) {
                   style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid " + T.line, background: T.bg, color: T.ink }}>
                   <option value="kitchen">Kitchen</option>
                   <option value="counter">Counter</option>
+                </select>
+              </div>
+              <div>
+                <select value={p.copies || 1} onChange={(e) => changeCopies(p, e.target.value)} title="How many copies of each slip this printer prints"
+                  style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid " + T.line, background: T.bg, color: T.ink }}>
+                  <option value={1}>1 copy</option>
+                  <option value={2}>2 copies</option>
+                  <option value={3}>3 copies</option>
+                  <option value={4}>4 copies</option>
                 </select>
               </div>
               <div>
