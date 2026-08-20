@@ -431,6 +431,8 @@ function Drawer({ orders = [], onClose, locationId }) {
   const [items, setItems] = useState(null);
   const [savingItem, setSavingItem] = useState(null);
   const [itemSearch, setItemSearch] = useState("");
+  const [catCollapsed, setCatCollapsed] = useState({}); // category -> bool (undefined = collapsed by default)
+  const [offlineOnly, setOfflineOnly] = useState(false);
 
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(id); }, []);
 
@@ -616,37 +618,53 @@ function Drawer({ orders = [], onClose, locationId }) {
             {view === "items" && (
               <div style={{ display: "flex", flexDirection: "column", overflow: "hidden", flex: 1 }}>
                 <input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Search items\u2026"
-                  style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", marginBottom: 12, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 15 }} />
-                <div style={{ display: "flex", flexDirection: "column", gap: 14, overflowY: "auto", paddingBottom: 24 }}>
+                  style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", marginBottom: 10, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 15 }} />
+                <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+                  <div onClick={() => setOfflineOnly(false)} style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 16, cursor: "pointer", fontSize: 13, fontWeight: 600, background: !offlineOnly ? "var(--accent)" : "var(--bg3)", color: !offlineOnly ? "#F7F4EC" : "var(--ink)" }}>All items</div>
+                  <div onClick={() => setOfflineOnly(true)} style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 16, cursor: "pointer", fontSize: 13, fontWeight: 600, background: offlineOnly ? "#b4462f" : "var(--bg3)", color: offlineOnly ? "#F7F4EC" : "var(--ink)" }}>Offline only</div>
+                </div>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24 }}>
                   {items === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading items\u2026</div>}
                   {items && (() => {
                     const q = itemSearch.trim().toLowerCase();
-                    const filtered = q ? items.filter((it) => it.name.toLowerCase().includes(q)) : items;
+                    let filtered = q ? items.filter((it) => it.name.toLowerCase().includes(q)) : items;
+                    if (offlineOnly) filtered = filtered.filter((it) => !it.effective);
                     const byCat = {};
                     for (const it of filtered) (byCat[it.category] = byCat[it.category] || []).push(it);
                     const cats = Object.keys(byCat).sort((a, b) => {
                       const sa = byCat[a][0].categorySort, sb = byCat[b][0].categorySort;
                       return sa - sb || a.localeCompare(b);
                     });
-                    if (filtered.length === 0) return <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 30 }}>No items match.</div>;
-                    return cats.map((cat) => (
-                      <div key={cat}>
-                        <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 8, textTransform: "uppercase" }}>{cat}</div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                          {byCat[cat].map((it) => (
-                            <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 12px", borderRadius: 12, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)" }}>
-                              <div style={{ width: 46, height: 46, borderRadius: 10, background: "var(--bg3)", flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                {it.image_url ? <img src={it.image_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: it.effective ? 1 : .4 }} /> : <span style={{ fontSize: 18, color: "var(--faint)" }}>\ud83c\udf7d</span>}
-                              </div>
-                              <span style={{ flex: 1, fontSize: 15, color: it.effective ? "var(--ink)" : "var(--faint)", textDecoration: it.effective ? "none" : "line-through" }}>{it.name}</span>
-                              <div onClick={() => toggleItem(it)} style={{ width: 58, height: 30, borderRadius: 16, background: it.effective ? "var(--accent)" : "var(--line)", position: "relative", cursor: "pointer", opacity: savingItem === it.id ? .5 : 1, transition: "background .15s", flexShrink: 0 }}>
-                                <div style={{ position: "absolute", top: 3, left: it.effective ? 31 : 3, width: 24, height: 24, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
-                              </div>
+                    if (filtered.length === 0) return <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 30 }}>{offlineOnly ? "Nothing is offline." : "No items match."}</div>;
+                    // Auto-expand when searching or filtering; otherwise collapsed by default.
+                    const forceOpen = !!q || offlineOnly;
+                    return cats.map((cat) => {
+                      const offCount = byCat[cat].filter((it) => !it.effective).length;
+                      const open = forceOpen ? true : (catCollapsed[cat] === false);
+                      return (
+                        <div key={cat} style={{ borderRadius: 12, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)", overflow: "hidden" }}>
+                          <div onClick={() => setCatCollapsed((c) => ({ ...c, [cat]: !(c[cat] === false) ? false : true }))} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", cursor: "pointer", background: "var(--bg3)" }}>
+                            <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--ink)" }}>{cat}</span>
+                            <span style={{ fontSize: 12, color: "var(--muted)" }}>{offCount > 0 ? offCount + " offline \u00b7 " : ""}{byCat[cat].length} item{byCat[cat].length === 1 ? "" : "s"} {open ? "\u25be" : "\u25b8"}</span>
+                          </div>
+                          {open && (
+                            <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 10px" }}>
+                              {byCat[cat].map((it) => (
+                                <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", borderRadius: 12, background: "var(--bg2)", boxShadow: "inset 0 0 0 1px var(--line)" }}>
+                                  <div style={{ width: 46, height: 46, borderRadius: 10, background: "var(--bg3)", flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                                    {it.image_url ? <img src={it.image_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: it.effective ? 1 : .4 }} /> : <span style={{ fontSize: 18, color: "var(--faint)" }}>\ud83c\udf7d</span>}
+                                  </div>
+                                  <span style={{ flex: 1, fontSize: 15, color: it.effective ? "var(--ink)" : "var(--faint)", textDecoration: it.effective ? "none" : "line-through" }}>{it.name}</span>
+                                  <div onClick={() => toggleItem(it)} style={{ width: 58, height: 30, borderRadius: 16, background: it.effective ? "var(--accent)" : "var(--line)", position: "relative", cursor: "pointer", opacity: savingItem === it.id ? .5 : 1, transition: "background .15s", flexShrink: 0 }}>
+                                    <div style={{ position: "absolute", top: 3, left: it.effective ? 31 : 3, width: 24, height: 24, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                                  </div>
+                                </div>
+                              ))}
                             </div>
-                          ))}
+                          )}
                         </div>
-                      </div>
-                    ));
+                      );
+                    });
                   })()}
                   {items && items.length > 0 && <div style={{ fontSize: 12, color: "var(--faint)", textAlign: "center", marginTop: 8 }}>Green = online. Grey = offline (hidden from customers).</div>}
                 </div>
