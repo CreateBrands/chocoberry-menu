@@ -440,6 +440,14 @@ function Drawer({ orders = [], onClose, locationId }) {
   const [offlineOnly, setOfflineOnly] = useState(false);
 
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(id); }, []);
+  const [vh, setVh] = useState(typeof window !== "undefined" ? window.innerHeight : 800);
+  useEffect(() => {
+    const onR = () => setVh(window.innerHeight);
+    window.addEventListener("resize", onR);
+    return () => window.removeEventListener("resize", onR);
+  }, []);
+  // Explicit pixel height for the scroll area: viewport minus header+tabs (~150px).
+  const scrollH = Math.max(200, vh - 150);
 
   async function submitPin() {
     if (!pin) return;
@@ -600,7 +608,7 @@ function Drawer({ orders = [], onClose, locationId }) {
             <div onClick={submitPin} style={{ marginTop: 18, display: "inline-block", padding: "12px 34px", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: checking ? .6 : 1 }}>{checking ? "Checking…" : "Unlock"}</div>
           </div>
         ) : (
-          <div style={{ position: "absolute", left: 22, right: 22, top: 80, bottom: 0, display: "flex", flexDirection: "column" }}>
+          <div>
             {/* Tabs */}
             <div style={{ display: "flex", gap: 10, marginBottom: 16, flexShrink: 0 }}>
               <div onClick={() => setView("orders")} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "orders" ? "var(--accent)" : "var(--bg3)", color: view === "orders" ? "#F7F4EC" : "var(--ink)" }}>Orders</div>
@@ -608,7 +616,7 @@ function Drawer({ orders = [], onClose, locationId }) {
             </div>
 
             {view === "orders" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24, flex: 1, minHeight: 0 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24, height: scrollH, WebkitOverflowScrolling: "touch" }}>
                 {summary && (
                   <div style={{ borderRadius: 14, background: "var(--bg3)", padding: "14px 16px", marginBottom: 4 }}>
                     <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, color: "var(--ink)", marginBottom: 8 }}>Today's sales</div>
@@ -696,7 +704,7 @@ function Drawer({ orders = [], onClose, locationId }) {
             )}
 
             {view === "items" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24, flex: 1, minHeight: 0 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24, height: scrollH, WebkitOverflowScrolling: "touch" }}>
                 <input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Search items…"
                   style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", marginBottom: 10, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 15 }} />
                 <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
