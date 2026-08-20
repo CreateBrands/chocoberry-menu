@@ -1041,7 +1041,7 @@ export default function App() {
   useEffect(() => {
     if (!allergensUnlocked) return;
     let t;
-    const arm = () => { clearTimeout(t); t = setTimeout(() => { setAllergensUnlocked(false); setScreen("welcome"); }, IDLE_RESET_MS); };
+    const arm = () => { clearTimeout(t); t = setTimeout(() => { setAllergensUnlocked(false); if (tableMode === "pick") setTable(null); setScreen("welcome"); }, IDLE_RESET_MS); };
     const events = ["pointerdown", "keydown", "touchstart", "scroll"];
     events.forEach((e) => window.addEventListener(e, arm, { passive: true }));
     arm();
@@ -1175,7 +1175,7 @@ export default function App() {
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={() => setShowTablePicker(true)} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); if (tableMode === "pick") setTable(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} /></div>
             {orderingOn && (showTablePicker || (tableMode === "pick" && !table && screen === "bag")) && (
               <TablePicker tables={tables} current={table} required={tableMode === "pick" && !table}
                 onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }}
