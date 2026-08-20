@@ -1097,7 +1097,10 @@ export default function Admin() {
                   <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>TABLET LINKS</div>
                     {tokens.map((tk) => {
-                      const url = window.location.origin + "/?store=" + tk.qr_token;
+                      // Pull the tablet number from its label ("Tablet 3" -> 3) and bake it
+                      // into the link + QR, so setting up a tablet from here sets its number too.
+                      const tnum = (String(tk.label || "").match(/\d+/) || [])[0];
+                      const url = window.location.origin + "/?store=" + tk.qr_token + (tnum ? "&tablet=" + tnum : "");
                       const qr = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=" + encodeURIComponent(url);
                       return (
                         <div key={tk.id} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, padding: 8, border: "1px solid " + T.line, borderRadius: 10, background: T.bg }}>
