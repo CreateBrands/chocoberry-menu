@@ -616,14 +616,14 @@ function Drawer({ orders = [], onClose, locationId }) {
             )}
 
             {view === "items" && (
-              <div style={{ display: "flex", flexDirection: "column", overflow: "hidden", flex: 1 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24 }}>
                 <input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Search items…"
                   style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", marginBottom: 10, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 15 }} />
                 <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                   <div onClick={() => setOfflineOnly(false)} style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 16, cursor: "pointer", fontSize: 13, fontWeight: 600, background: !offlineOnly ? "var(--accent)" : "var(--bg3)", color: !offlineOnly ? "#F7F4EC" : "var(--ink)" }}>All items</div>
                   <div onClick={() => setOfflineOnly(true)} style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 16, cursor: "pointer", fontSize: 13, fontWeight: 600, background: offlineOnly ? "#b4462f" : "var(--bg3)", color: offlineOnly ? "#F7F4EC" : "var(--ink)" }}>Offline only</div>
                 </div>
-                <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24 }}>
+                <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                   {items === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading items…</div>}
                   {items && (() => {
                     const q = itemSearch.trim().toLowerCase();
