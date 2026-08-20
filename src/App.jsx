@@ -1063,6 +1063,7 @@ export default function App() {
     try { localStorage.setItem("still_order_history", JSON.stringify(sessionOrders.slice(0, 50))); } catch {}
   }, [sessionOrders]);
   const [placing, setPlacing] = useState(false);
+  const [confirmingOrder, setConfirmingOrder] = useState(false);
   const [orderErr, setOrderErr] = useState(null);
   const addToBag = (line) => { setLines((p) => [...p, line]); setScreen("browse"); };
   const pickMenu = (m) => {
@@ -1103,6 +1104,8 @@ export default function App() {
 
   const placeOrder = async () => {
     if (placing) return;
+    // Guard: never place an empty bag (mis-tap protection).
+    if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
     // On a tablet (pick mode), a table must be chosen before the order can send.
     if (orderingOn && tableMode === "pick" && !table) { setShowTablePicker(true); return; }
     setPlacing(true); setOrderErr(null);
@@ -1226,7 +1229,11 @@ export default function App() {
               // ask for it again at checkout.
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
-            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={placeOrder} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={() => setShowTablePicker(true)} /></div>
+            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={() => {
+              if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
+              if (orderingOn && tableMode === "pick" && !table) { setShowTablePicker(true); return; }
+              setConfirmingOrder(true);
+            }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={() => setShowTablePicker(true)} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); if (tableMode === "pick") setTable(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
@@ -1240,6 +1247,25 @@ export default function App() {
               <TablePicker tables={tables} current={table} required={tableMode === "pick" && !table && screen === "bag"}
                 onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }}
                 onClose={() => setShowTablePicker(false)} />
+            )}
+            {confirmingOrder && (
+              <div style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(30,35,25,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+                onClick={() => { if (!placing) setConfirmingOrder(false); }}>
+                <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 440, background: "var(--bg)", borderRadius: 26, padding: "34px 28px", textAlign: "center", boxShadow: "0 30px 80px -20px rgba(0,0,0,.4)" }}>
+                  <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 26, color: "var(--ink)", marginBottom: 8 }}>Place this order?</div>
+                  <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 8 }}>
+                    {lines.reduce((s, l) => s + l.qty, 0)} item{lines.reduce((s, l) => s + l.qty, 0) === 1 ? "" : "s"}
+                    {table ? ` · Table ${table.label}` : ""}
+                  </div>
+                  <div style={{ fontSize: 13, color: "var(--faint)", marginBottom: 26 }}>You’ll pay at the counter.</div>
+                  <div style={{ display: "flex", gap: 12 }}>
+                    <div onClick={() => { if (!placing) setConfirmingOrder(false); }}
+                      style={{ flex: 1, padding: "16px 0", borderRadius: 30, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, color: "var(--ink)", cursor: "pointer" }}>Not yet</div>
+                    <div onClick={() => { if (placing) return; setConfirmingOrder(false); placeOrder(); }}
+                      style={{ flex: 1, padding: "16px 0", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, boxShadow: "0 14px 30px -14px rgba(94,122,77,.55)", cursor: "pointer", opacity: placing ? 0.6 : 1 }}>{placing ? "Placing…" : "Yes, place order"}</div>
+                  </div>
+                </div>
+              </div>
             )}
           </div>
         </div>
