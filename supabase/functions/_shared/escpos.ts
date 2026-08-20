@@ -120,6 +120,8 @@ export interface ReceiptItem {
 
 export interface ReceiptOrder {
   orderNumber: string;
+  tabletNo?: string; // tablet the order came from, prefixes the order number (T3-014)
+  reprint?: boolean; // true when this is a re-print of an already-printed order
   placedAt: string; // pre-formatted local time string
   orderType?: string; // "Collection", "Delivery", "Table 4" ...
   customerName?: string;
@@ -143,12 +145,21 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
   // Header
   r.align(1).size(1, 1).bold(true).line("CHOCOBERRY").bold(false).size(0, 0);
   if (o.storeName) r.line(o.storeName);
+  // Reprint marker — makes a duplicate slip unmistakable so it isn't taken as a new order.
+  if (o.reprint) {
+    r.feed(1).size(1, 1).bold(true).line("*** REPRINT ***").line("DUPLICATE").bold(false).size(0, 0);
+  }
   r.feed(1);
 
   // Order number — big, this is what the kitchen looks for
-  r.size(1, 2).bold(true).line(`#${o.orderNumber}`).bold(false).size(0, 0);
+  r.size(1, 2).bold(true).line(`#${o.tabletNo ? "T" + o.tabletNo + "-" : ""}${o.orderNumber}`).bold(false).size(0, 0);
   if (o.orderType) r.size(0, 1).line(o.orderType.toUpperCase()).size(0, 0);
   r.line(o.placedAt);
+
+  // Pay-at-counter banner — tells staff the order is UNPAID and how much to charge.
+  if (typeof o.total === "number") {
+    r.feed(1).size(1, 1).bold(true).line("PAY AT TILL").line(gbp(o.total)).bold(false).size(0, 0);
+  }
   r.feed(1);
 
   // Customer block

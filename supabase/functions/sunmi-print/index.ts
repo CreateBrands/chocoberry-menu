@@ -177,7 +177,7 @@ async function loadReceiptOrder(
   };
 
   return {
-    orderNumber: orderId.replace(/-/g, "").slice(0, 6).toUpperCase(),
+    orderNumber: rec.order_no ? String(rec.order_no) : orderId.replace(/-/g, "").slice(0, 6).toUpperCase(),
     placedAt,
     orderType,
     customerName: rec.pickup_name ? String(rec.pickup_name) : undefined,
@@ -185,6 +185,7 @@ async function loadReceiptOrder(
     subtotal: num(rec.subtotal),
     total: num(rec.total),
     notes: rec.customer_note ? String(rec.customer_note) : undefined,
+    tabletNo: rec.tablet_no ? String(rec.tablet_no) : undefined,
     storeName,
   };
 }
@@ -245,6 +246,7 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
   );
   // Build the full order once (items now each carry a station).
   const order = await loadReceiptOrder(rec);
+  if (force) (order as any).reprint = true; // reprint => slip shows a DUPLICATE banner
   const allItems = order.items as Array<ReceiptItem & { station?: string }>;
 
   // Which stations actually have printers here? If a printer's station has no
@@ -286,7 +288,7 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
 
     // trade_no <=32 chars, unique per printer (station suffix) and per reprint.
     const base = orderId.replace(/-/g, "").slice(0, 24);
-    const tag = force ? Date.now().toString(36) : station.slice(0, 3);
+    const tag = (force ? Date.now().toString(36) : "") + sn.slice(-5);
     const tradeNo = (base + tag).slice(0, 32);
 
     const res = await sunmi.pushContent(sn, tradeNo, contentHex);

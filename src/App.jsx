@@ -415,7 +415,28 @@ function timeAgo(ts, now) {
 function Drawer({ orders = [], onClose }) {
   const [now, setNow] = useState(Date.now());
   const [openOrder, setOpenOrder] = useState(null);
+  const [reprinting, setReprinting] = useState(null);
+  const [reprintMsg, setReprintMsg] = useState(null);
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(id); }, []);
+
+  async function reprint(o, i, e) {
+    if (e) e.stopPropagation();
+    if (!o.orderId) { setReprintMsg({ i, text: "Can\u2019t reprint this one." }); return; }
+    setReprinting(i); setReprintMsg(null);
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/sunmi-print", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY },
+        body: JSON.stringify({ action: "print-order", order_id: o.orderId, force: true }),
+      });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      setReprintMsg({ i, text: "Reprint sent to the kitchen." });
+    } catch (err) {
+      setReprintMsg({ i, text: "Reprint failed \u2014 try again." });
+    } finally {
+      setReprinting(null);
+    }
+  }
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)" }}>
       <div style={{ position: "absolute", left: 0, top: 0, width: "100%", maxWidth: 520, height: "100%", background: "var(--bg2)", boxShadow: "18px 0 50px rgba(50,60,40,.16)", padding: "22px 22px 0", display: "flex", flexDirection: "column" }}>
@@ -452,6 +473,12 @@ function Drawer({ orders = [], onClose }) {
                     <span>Total</span><span>{money(o.total)}</span>
                   </div>
                   <div style={{ fontSize: 12, color: "var(--faint)", marginTop: 6 }}>Ordered {timeAgo(o.at, now)}</div>
+                  <div onClick={(e) => reprint(o, i, e)} style={{ marginTop: 12, textAlign: "center", padding: "12px 0", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, color: "var(--ink)", cursor: "pointer", opacity: reprinting === i ? 0.6 : 1 }}>
+                    {reprinting === i ? "Reprinting\u2026" : "\u21bb Reprint slip (duplicate)"}
+                  </div>
+                  {reprintMsg && reprintMsg.i === i && (
+                    <div style={{ fontSize: 12, color: "var(--accent)", marginTop: 8, textAlign: "center" }}>{reprintMsg.text}</div>
+                  )}
                 </div>
               ) : (
                 <>
@@ -1106,6 +1133,7 @@ export default function App() {
       setOrderNo(formatOrderNo(resp.order_no));
       setSessionOrders((prev) => [{
         no: formatOrderNo(resp.order_no),
+        orderId: resp.order_id,
         at: Date.now(),
         table: (dineIn && table) ? table.label : null,
         count: lines.reduce((s2, l) => s2 + l.qty, 0),
