@@ -510,7 +510,7 @@ function Drawer({ orders = [], onClose, locationId }) {
 
   async function reprint(o, key, e) {
     if (e) e.stopPropagation();
-    if (!o.id && !o.orderId) { setReprintMsg({ key, text: "Can\u2019t reprint this one." }); return; }
+    if (!o.id && !o.orderId) { setReprintMsg({ key, text: "Can’t reprint this one." }); return; }
     setReprinting(key); setReprintMsg(null);
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/sunmi-print", {
@@ -520,7 +520,7 @@ function Drawer({ orders = [], onClose, locationId }) {
       if (!r.ok) throw new Error("HTTP " + r.status);
       setReprintMsg({ key, text: "Reprint sent to the kitchen." });
     } catch (err) {
-      setReprintMsg({ key, text: "Reprint failed \u2014 try again." });
+      setReprintMsg({ key, text: "Reprint failed — try again." });
     } finally { setReprinting(null); }
   }
 
@@ -551,7 +551,7 @@ function Drawer({ orders = [], onClose, locationId }) {
             <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitPin()} placeholder="PIN" autoFocus
               style={{ width: 200, textAlign: "center", padding: "14px 0", fontSize: 22, letterSpacing: 6, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)" }} />
             {pinErr && <div style={{ color: "#b4462f", fontSize: 14, marginTop: 10 }}>{pinErr}</div>}
-            <div onClick={submitPin} style={{ marginTop: 18, display: "inline-block", padding: "12px 34px", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: checking ? .6 : 1 }}>{checking ? "Checking\u2026" : "Unlock"}</div>
+            <div onClick={submitPin} style={{ marginTop: 18, display: "inline-block", padding: "12px 34px", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: checking ? .6 : 1 }}>{checking ? "Checking…" : "Unlock"}</div>
           </div>
         ) : (
           <>
@@ -563,13 +563,13 @@ function Drawer({ orders = [], onClose, locationId }) {
 
             {view === "orders" && (
               <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24 }}>
-                {allOrders === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading orders\u2026</div>}
+                {allOrders === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading orders…</div>}
                 {allOrders && allOrders.length === 0 && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>No orders yet.</div>}
                 {groupKeys.map((gk) => (
                   <div key={gk} style={{ borderRadius: 14, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)", overflow: "hidden" }}>
                     <div onClick={() => setCollapsed((c) => ({ ...c, [gk]: !c[gk] }))} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 16px", cursor: "pointer", background: "var(--bg3)" }}>
                       <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16 }}>{gk}</span>
-                      <span style={{ fontSize: 13, color: "var(--muted)" }}>{groups[gk].length} order{groups[gk].length === 1 ? "" : "s"} {collapsed[gk] ? "\u25b8" : "\u25be"}</span>
+                      <span style={{ fontSize: 13, color: "var(--muted)" }}>{groups[gk].length} order{groups[gk].length === 1 ? "" : "s"} {collapsed[gk] ? "▸" : "▾"}</span>
                     </div>
                     {!collapsed[gk] && (
                       <div style={{ padding: "6px 10px 10px" }}>
@@ -582,13 +582,13 @@ function Drawer({ orders = [], onClose, locationId }) {
                                 <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
                                 <span style={{ fontSize: 12, color: "var(--muted)" }}>{timeAgo(new Date(o.created_at).getTime(), now)}</span>
                               </div>
-                              <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{its.map((it) => (it.qty > 1 ? it.qty + "\u00d7 " : "") + it.name_snapshot).join(", ")}</div>
+                              <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{its.map((it) => (it.qty > 1 ? it.qty + "× " : "") + it.name_snapshot).join(", ")}</div>
                               {openOrder === okey && (
                                 <div style={{ marginTop: 8 }}>
                                   {its.map((it, j) => (
                                     <div key={j} style={{ padding: "3px 0" }}>
                                       <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14 }}>
-                                        <span>{it.qty > 1 ? it.qty + "\u00d7 " : ""}{it.name_snapshot}</span>
+                                        <span>{it.qty > 1 ? it.qty + "× " : ""}{it.name_snapshot}</span>
                                         <span>{money(it.line_total)}</span>
                                       </div>
                                       {it.modifiers_snapshot && Object.keys(it.modifiers_snapshot).length > 0 && (
@@ -600,7 +600,7 @@ function Drawer({ orders = [], onClose, locationId }) {
                                     <span>Total</span><span>{money(o.total)}</span>
                                   </div>
                                   <div onClick={(e) => reprint(o, okey, e)} style={{ marginTop: 10, textAlign: "center", padding: "10px 0", borderRadius: 10, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: reprinting === okey ? .6 : 1 }}>
-                                    {reprinting === okey ? "Reprinting\u2026" : "\u21bb Reprint slip"}
+                                    {reprinting === okey ? "Reprinting…" : "↻ Reprint slip"}
                                   </div>
                                   {reprintMsg && reprintMsg.key === okey && <div style={{ fontSize: 12, color: "var(--accent)", marginTop: 6, textAlign: "center" }}>{reprintMsg.text}</div>}
                                 </div>
@@ -617,14 +617,14 @@ function Drawer({ orders = [], onClose, locationId }) {
 
             {view === "items" && (
               <div style={{ display: "flex", flexDirection: "column", overflow: "hidden", flex: 1 }}>
-                <input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Search items\u2026"
+                <input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Search items…"
                   style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", marginBottom: 10, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 15 }} />
                 <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
                   <div onClick={() => setOfflineOnly(false)} style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 16, cursor: "pointer", fontSize: 13, fontWeight: 600, background: !offlineOnly ? "var(--accent)" : "var(--bg3)", color: !offlineOnly ? "#F7F4EC" : "var(--ink)" }}>All items</div>
                   <div onClick={() => setOfflineOnly(true)} style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 16, cursor: "pointer", fontSize: 13, fontWeight: 600, background: offlineOnly ? "#b4462f" : "var(--bg3)", color: offlineOnly ? "#F7F4EC" : "var(--ink)" }}>Offline only</div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24 }}>
-                  {items === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading items\u2026</div>}
+                  {items === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading items…</div>}
                   {items && (() => {
                     const q = itemSearch.trim().toLowerCase();
                     let filtered = q ? items.filter((it) => it.name.toLowerCase().includes(q)) : items;
@@ -645,14 +645,14 @@ function Drawer({ orders = [], onClose, locationId }) {
                         <div key={cat} style={{ borderRadius: 12, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)", overflow: "hidden" }}>
                           <div onClick={() => setCatCollapsed((c) => ({ ...c, [cat]: !c[cat] }))} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", cursor: "pointer", background: "var(--bg3)" }}>
                             <span style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase", color: "var(--ink)" }}>{cat}</span>
-                            <span style={{ fontSize: 12, color: "var(--muted)" }}>{offCount > 0 ? offCount + " offline \u00b7 " : ""}{byCat[cat].length} item{byCat[cat].length === 1 ? "" : "s"} {open ? "\u25be" : "\u25b8"}</span>
+                            <span style={{ fontSize: 12, color: "var(--muted)" }}>{offCount > 0 ? offCount + " offline · " : ""}{byCat[cat].length} item{byCat[cat].length === 1 ? "" : "s"} {open ? "▾" : "▸"}</span>
                           </div>
                           {open && (
                             <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 10px" }}>
                               {byCat[cat].map((it) => (
                                 <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "8px 10px", borderRadius: 12, background: "var(--bg2)", boxShadow: "inset 0 0 0 1px var(--line)" }}>
                                   <div style={{ width: 46, height: 46, borderRadius: 10, background: "var(--bg3)", flexShrink: 0, overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                                    {it.image_url ? <img src={it.image_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: it.effective ? 1 : .4 }} /> : <span style={{ fontSize: 18, color: "var(--faint)" }}>\ud83c\udf7d</span>}
+                                    {it.image_url ? <img src={it.image_url} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", opacity: it.effective ? 1 : .4 }} /> : <span style={{ fontSize: 18, color: "var(--faint)" }}>🍽</span>}
                                   </div>
                                   <span style={{ flex: 1, fontSize: 15, color: it.effective ? "var(--ink)" : "var(--faint)", textDecoration: it.effective ? "none" : "line-through" }}>{it.name}</span>
                                   <div onClick={() => toggleItem(it)} style={{ width: 58, height: 30, borderRadius: 16, background: it.effective ? "var(--accent)" : "var(--line)", position: "relative", cursor: "pointer", opacity: savingItem === it.id ? .5 : 1, transition: "background .15s", flexShrink: 0 }}>
@@ -1075,7 +1075,7 @@ function Confirm({ orderNo, pickupName, table }) {
         <div style={{display: 'flex', gap: '30px', marginTop: '40px', flexWrap: 'wrap', justifyContent: 'center'}}>
           {pickupName ? (<div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>NAME</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{pickupName}</div></div>) : null}
           {pickupName ? <div style={{width: '1px', background: 'var(--line)'}}></div> : null}
-          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>ORDER</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{orderNo || '\u2014'}</div></div>
+          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>ORDER</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{orderNo || '—'}</div></div>
           {table ? (<><div style={{width: '1px', background: 'var(--line)'}}></div>
           <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>TABLE</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{table.label}</div></div></>) : null}
         </div>
