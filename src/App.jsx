@@ -460,7 +460,7 @@ function Drawer({ orders = [], onClose, locationId }) {
 
   async function loadAllOrders() {
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,paid_method,paid_amount,discount_type,discount_value,created_at,menu_order_items(name_snapshot,qty,modifiers_snapshot,line_total)"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,paid_method,paid_amount,discount_type,discount_value,created_at,menu_tables(label),menu_order_items(name_snapshot,qty,modifiers_snapshot,line_total)"
         + (locationId ? "&location_id=eq." + locationId : "")
         + "&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
@@ -600,15 +600,15 @@ function Drawer({ orders = [], onClose, locationId }) {
             <div onClick={submitPin} style={{ marginTop: 18, display: "inline-block", padding: "12px 34px", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: checking ? .6 : 1 }}>{checking ? "Checking…" : "Unlock"}</div>
           </div>
         ) : (
-          <>
+          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
             {/* Tabs */}
-            <div style={{ display: "flex", gap: 10, marginBottom: 16 }}>
+            <div style={{ display: "flex", gap: 10, marginBottom: 16, flexShrink: 0 }}>
               <div onClick={() => setView("orders")} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "orders" ? "var(--accent)" : "var(--bg3)", color: view === "orders" ? "#F7F4EC" : "var(--ink)" }}>Orders</div>
               <div onClick={() => { setView("items"); if (!items) loadItems(); }} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "items" ? "var(--accent)" : "var(--bg3)", color: view === "items" ? "#F7F4EC" : "var(--ink)" }}>Items online/offline</div>
             </div>
 
             {view === "orders" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24, flex: 1, minHeight: 0 }}>
                 {summary && (
                   <div style={{ borderRadius: 14, background: "var(--bg3)", padding: "14px 16px", marginBottom: 4 }}>
                     <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, color: "var(--ink)", marginBottom: 8 }}>Today's sales</div>
@@ -637,7 +637,7 @@ function Drawer({ orders = [], onClose, locationId }) {
                             <div key={o.id} onClick={() => setOpenOrder(openOrder === okey ? null : okey)} style={{ borderRadius: 12, background: "var(--bg2)", boxShadow: "inset 0 0 0 1px var(--line)", padding: "11px 13px", marginTop: 8, cursor: "pointer" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
                                 <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}{o.paid_method ? <span style={{ fontSize: 11, fontWeight: 600, color: "#3c5a2e", marginLeft: 8 }}>● paid</span> : <span style={{ fontSize: 11, fontWeight: 600, color: "#b4462f", marginLeft: 8 }}>● unpaid</span>}</span>
-                                <span style={{ fontSize: 12, color: "var(--muted)" }}>{timeAgo(new Date(o.created_at).getTime(), now)}</span>
+                                <span style={{ fontSize: 12, color: "var(--muted)" }}>{o.menu_tables && o.menu_tables.label ? o.menu_tables.label + " · " : ""}{timeAgo(new Date(o.created_at).getTime(), now)}</span>
                               </div>
                               <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{its.map((it) => (it.qty > 1 ? it.qty + "× " : "") + it.name_snapshot).join(", ")}</div>
                               {openOrder === okey && (
@@ -696,7 +696,7 @@ function Drawer({ orders = [], onClose, locationId }) {
             )}
 
             {view === "items" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24, flex: 1, minHeight: 0 }}>
                 <input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Search items…"
                   style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", marginBottom: 10, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 15 }} />
                 <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
@@ -750,7 +750,7 @@ function Drawer({ orders = [], onClose, locationId }) {
                 </div>
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>
