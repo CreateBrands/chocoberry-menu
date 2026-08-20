@@ -858,44 +858,18 @@ function Confirm({ orderNo, pickupName, table }) {
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '460px', left: '40px', top: '70px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.17),transparent 68%)', filter: 'blur(8px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
-      <div style={{position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '70px 48px 0'}}>
+      <div style={{position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '90px 48px 0'}}>
         <div style={{width: '104px', height: '104px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F7F4EC', boxShadow: '0 18px 42px -10px rgba(94,122,77,.5)'}}><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7"></path></svg></div>
         <div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '42px', lineHeight: '1.08', marginTop: '28px'}}>We're on it{pickupName ? ', ' + pickupName : ''}.</div>
-        <div style={{fontSize: '16px', color: 'var(--muted)', marginTop: '14px', lineHeight: '1.6'}}>Your order is being made with care.<br />We'll call your name at the counter.</div>
-        <div style={{display: 'flex', gap: '30px', marginTop: '28px'}}>
-          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>PICKUP</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{pickupName || 'Guest'}</div></div>
-          <div style={{width: '1px', background: 'var(--line)'}}></div>
-          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>ORDER</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{'#' + (orderNo || '—')}</div></div>
-          {table && (<>
-          <div style={{width: '1px', background: 'var(--line)'}}></div>
-          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>TABLE</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{table.label}</div></div>
-          </>)}
-          <div style={{width: '1px', background: 'var(--line)'}}></div>
-          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>READY IN</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>~6 min</div></div>
+        <div style={{fontSize: '16px', color: 'var(--muted)', marginTop: '14px', lineHeight: '1.6'}}>Your order has been sent to the kitchen.<br />Please pay at the counter.</div>
+        <div style={{display: 'flex', gap: '30px', marginTop: '40px', flexWrap: 'wrap', justifyContent: 'center'}}>
+          {pickupName ? (<div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>NAME</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{pickupName}</div></div>) : null}
+          {pickupName ? <div style={{width: '1px', background: 'var(--line)'}}></div> : null}
+          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>ORDER</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{orderNo || '\u2014'}</div></div>
+          {table ? (<><div style={{width: '1px', background: 'var(--line)'}}></div>
+          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>TABLE</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{table.label}</div></div></>) : null}
         </div>
-      </div>
-      <div style={{position: 'relative', margin: '42px 48px 0', padding: '26px 28px', background: 'var(--bg3)', border: '1px solid var(--line)', borderRadius: '22px'}}>
-        <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '13px', fontWeight: '700', letterSpacing: '.16em', color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '22px'}}>Order Status</div>
-        <div style={{display: 'flex', gap: '18px', alignItems: 'flex-start'}}>
-          <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center'}}><div style={{width: '22px', height: '22px', borderRadius: '50%', background: 'var(--accent)'}}></div><div style={{width: '2px', height: '42px', background: 'var(--accent)'}}></div></div>
-          <div><div style={{fontSize: '17px', fontWeight: '700'}}>Order received</div><div style={{fontSize: '14px', color: 'var(--muted)', marginTop: '2px'}}>7:52 AM</div></div>
-        </div>
-        <div style={{display: 'flex', gap: '18px', alignItems: 'flex-start'}}>
-          <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center'}}><div style={{width: '22px', height: '22px', borderRadius: '50%', background: 'var(--accent)', boxShadow: '0 0 0 5px rgba(94,122,77,.18)'}}></div><div style={{width: '2px', height: '42px', background: 'var(--line)'}}></div></div>
-          <div><div style={{fontSize: '17px', fontWeight: '700'}}>Being made <span style={{fontSize: '13px', color: 'var(--accent)'}}>· now</span></div><div style={{fontSize: '14px', color: 'var(--muted)', marginTop: '2px'}}>Whisking your matcha, pulling shots</div></div>
-        </div>
-        <div style={{display: 'flex', gap: '18px', alignItems: 'flex-start'}}>
-          <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center'}}><div style={{width: '22px', height: '22px', borderRadius: '50%', background: 'transparent', border: '2px solid var(--line)'}}></div><div style={{width: '2px', height: '42px', background: 'var(--line)'}}></div></div>
-          <div><div style={{fontSize: '17px', fontWeight: '700', color: 'var(--muted)'}}>Almost ready</div></div>
-        </div>
-        <div style={{display: 'flex', gap: '18px', alignItems: 'flex-start'}}>
-          <div style={{display: 'flex', flexDirection: 'column', alignItems: 'center'}}><div style={{width: '22px', height: '22px', borderRadius: '50%', background: 'transparent', border: '2px solid var(--line)'}}></div></div>
-          <div><div style={{fontSize: '17px', fontWeight: '700', color: 'var(--muted)'}}>Ready at the counter</div></div>
-        </div>
-      </div>
-      <div style={{position: 'absolute', left: '0', right: '0', bottom: '0', padding: '0 48px 34px', display: 'flex', gap: '14px'}}>
-        <div style={{flex: '1', textAlign: 'center', background: 'var(--bg3)', boxShadow: 'inset 0 0 0 1.5px var(--line)', color: 'var(--ink)', padding: '18px 0', borderRadius: '40px', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600'}}>Add an item</div>
-        <div style={{flex: '1', textAlign: 'center', background: 'var(--accent)', color: '#F7F4EC', padding: '18px 0', borderRadius: '40px', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600'}}>Track Order</div>
+        <div style={{marginTop: '46px', fontSize: '15px', fontWeight: '600', letterSpacing: '.06em', color: 'var(--muted)'}}>Tap anywhere to start a new order</div>
       </div>
     </div>
   );
@@ -1118,6 +1092,7 @@ export default function App() {
       table_id: dineIn ? table.id : null,
       order_type: dineIn ? "dine_in" : "takeaway",
       pickup_name: pickupName || null,
+      tablet_no: getTabletNumber() || null,
       items: lines.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: (l.mods || []).map((m) => m.option_id) })),
     };
     try {
