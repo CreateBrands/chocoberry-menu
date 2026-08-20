@@ -600,7 +600,7 @@ function Drawer({ orders = [], onClose, locationId }) {
             <div onClick={submitPin} style={{ marginTop: 18, display: "inline-block", padding: "12px 34px", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: checking ? .6 : 1 }}>{checking ? "Checking…" : "Unlock"}</div>
           </div>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
+          <div style={{ position: "absolute", left: 22, right: 22, top: 80, bottom: 0, display: "flex", flexDirection: "column" }}>
             {/* Tabs */}
             <div style={{ display: "flex", gap: 10, marginBottom: 16, flexShrink: 0 }}>
               <div onClick={() => setView("orders")} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "orders" ? "var(--accent)" : "var(--bg3)", color: view === "orders" ? "#F7F4EC" : "var(--ink)" }}>Orders</div>
