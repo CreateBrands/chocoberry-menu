@@ -420,7 +420,10 @@ function Drawer({ orders = [], onClose }) {
     <div style={{ width: "100%", height: "100%", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)" }}>
       <div style={{ position: "absolute", left: 0, top: 0, width: "100%", maxWidth: 520, height: "100%", background: "var(--bg2)", boxShadow: "18px 0 50px rgba(50,60,40,.16)", padding: "22px 22px 0", display: "flex", flexDirection: "column" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, color: "var(--ink)" }}>Your orders</div>
+          <div>
+            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, color: "var(--ink)" }}>Your orders</div>
+            {getTabletNumber() && <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginTop: 2 }}>TABLET {getTabletNumber()}</div>}
+          </div>
           <div onClick={onClose} style={{ width: 48, height: 48, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12, overflowY: "auto", paddingBottom: 24 }}>
