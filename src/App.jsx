@@ -616,7 +616,7 @@ function Drawer({ orders = [], onClose, locationId }) {
             </div>
 
             {view === "orders" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24, height: scrollH, WebkitOverflowScrolling: "touch" }}>
+              <div style={{ overflowY: "auto", paddingBottom: 24, height: scrollH, WebkitOverflowScrolling: "touch" }}>
                 {summary && (
                   <div style={{ borderRadius: 14, background: "var(--bg3)", padding: "14px 16px", marginBottom: 4 }}>
                     <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, color: "var(--ink)", marginBottom: 8 }}>Today's sales</div>
@@ -631,7 +631,7 @@ function Drawer({ orders = [], onClose, locationId }) {
                 {allOrders === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading orders…</div>}
                 {allOrders && allOrders.length === 0 && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>No orders yet.</div>}
                 {groupKeys.map((gk) => (
-                  <div key={gk} style={{ borderRadius: 14, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)", overflow: "hidden" }}>
+                  <div key={gk} style={{ borderRadius: 14, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)", overflow: "hidden", marginBottom: 10 }}>
                     <div onClick={() => setCollapsed((c) => ({ ...c, [gk]: !c[gk] }))} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 16px", cursor: "pointer", background: "var(--bg3)" }}>
                       <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16 }}>{gk}</span>
                       <span style={{ fontSize: 13, color: "var(--muted)" }}>{groups[gk].length} order{groups[gk].length === 1 ? "" : "s"} {collapsed[gk] ? "▸" : "▾"}</span>
@@ -704,7 +704,7 @@ function Drawer({ orders = [], onClose, locationId }) {
             )}
 
             {view === "items" && (
-              <div style={{ display: "flex", flexDirection: "column", gap: 10, overflowY: "auto", paddingBottom: 24, height: scrollH, WebkitOverflowScrolling: "touch" }}>
+              <div style={{ overflowY: "auto", paddingBottom: 24, height: scrollH, WebkitOverflowScrolling: "touch" }}>
                 <input value={itemSearch} onChange={(e) => setItemSearch(e.target.value)} placeholder="Search items…"
                   style={{ width: "100%", boxSizing: "border-box", padding: "12px 14px", marginBottom: 10, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 15 }} />
                 <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
