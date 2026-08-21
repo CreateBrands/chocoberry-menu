@@ -439,7 +439,7 @@ function timeAgo(ts, now) {
   return hrs + "h " + (mins % 60) + "m ago";
 }
 
-function Drawer({ orders = [], onClose, locationId }) {
+function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   const [now, setNow] = useState(Date.now());
   const [openOrder, setOpenOrder] = useState(null);
   const [reprinting, setReprinting] = useState(null);
@@ -841,6 +841,12 @@ function Drawer({ orders = [], onClose, locationId }) {
                                     {reprinting === okey ? "Reprinting…" : "↻ Reprint slip"}
                                   </div>
                                   {reprintMsg && reprintMsg.key === okey && <div style={{ fontSize: 12, color: "var(--accent)", marginTop: 6, textAlign: "center" }}>{reprintMsg.text}</div>}
+                                  {/* Add items to this order (staff) */}
+                                  {!o.paid_method && onAddItems && (o.id || o.orderId) && (
+                                    <div onClick={(e) => { e.stopPropagation(); onAddItems(o.id || o.orderId); }} style={{ marginTop: 10, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--accent)", color: "var(--accent)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                                      + Add items to this order
+                                    </div>
+                                  )}
                                   {/* Payment controls */}
                                   {o.paid_method ? (
                                     <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "#eaf1e4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -1529,6 +1535,15 @@ export default function App() {
     setOrderNo(null);
     setScreen("browse");
   }
+  // Staff variant: add items to a specific order chosen from the drawer's order list.
+  function addItemsToOrder(orderId) {
+    if (!orderId) return;
+    setAppendOrderId(orderId);
+    setLines([]);
+    setPickupName("");
+    setOrderNo(null);
+    setScreen("browse");
+  }
   // Dining-table state. tableMode: "none" (takeaway) | "pick" (tablet, must choose) | "fixed" (phone scanned a table QR)
   const [tableMode, setTableMode] = useState("none");
   const [tables, setTables] = useState([]);
@@ -1821,7 +1836,7 @@ export default function App() {
 
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settings} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
-            <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} /></div>
+            <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
               setAllergensUnlocked(true);
               // They've just typed their name for the allergen record; don't
