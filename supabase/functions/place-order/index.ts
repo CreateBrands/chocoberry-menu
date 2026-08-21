@@ -7,10 +7,6 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Option price deltas — keep in sync with the menu's option model.
-const SIZE_DELTA: Record<string, number> = { Regular: 0, Large: 0.6 };
-const MILK_DELTA: Record<string, number> = { Whole: 0, Oat: 0, Almond: 0.6 };
-
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -25,7 +21,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { qr_token, order_type = "takeaway", pickup_name = null, customer_note = null, items = [] } = body;
+    const { qr_token, table_id: bodyTableId = null, location_id: bodyLocationId = null, order_type: bodyOrderType = null, pickup_name = null, customer_note = null, tablet_no = null, items = [] } = body;
 
     if (!Array.isArray(items) || items.length === 0) {
       return new Response(JSON.stringify({ error: "no items" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
@@ -37,10 +33,16 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Resolve table (dine-in) from qr_token if provided.
+    // Resolve the dining table two ways:
+    //  - tablet picker sends table_id directly
+    //  - phone QR sends qr_token, which resolves to a table
     let table_id: string | null = null;
-    let location_id: string | null = null;
-    if (qr_token) {
+    let location_id: string | null = bodyLocationId;
+    if (bodyTableId) {
+      const { data: tbl } = await admin
+        .from("menu_tables").select("id, location_id").eq("id", bodyTableId).eq("active", true).single();
+      if (tbl) { table_id = tbl.id; location_id = location_id ?? tbl.location_id; }
+    } else if (qr_token) {
       const { data: tbl } = await admin
         .from("menu_tables").select("id, location_id").eq("qr_token", qr_token).eq("active", true).single();
       if (tbl) { table_id = tbl.id; location_id = tbl.location_id; }
@@ -50,6 +52,17 @@ Deno.serve(async (req) => {
       const { data: loc } = await admin.from("menu_locations").select("id").eq("active", true).limit(1).single();
       location_id = loc?.id ?? null;
     }
+    // Safety net: refuse orders when this store has paused ordering (a cached
+    // tablet could otherwise bypass the client-side block).
+    if (location_id) {
+      const { data: setg } = await admin.from("menu_app_settings")
+        .select("value").eq("key", "accepting_orders:" + location_id).maybeSingle();
+      if (setg && setg.value === "off") {
+        return new Response(JSON.stringify({ error: "not_accepting", message: "This store isn't taking orders right now." }), { status: 409, headers: { ...cors, "Content-Type": "application/json" } });
+      }
+    }
+    // A resolved table means dine-in; otherwise honour the requested type (default takeaway).
+    const order_type = table_id ? "dine_in" : (bodyOrderType || "takeaway");
 
     // Look up REAL prices for every item id; recompute totals server-side.
     const ids = [...new Set(items.map((l: any) => l.item_id))];
@@ -58,17 +71,106 @@ Deno.serve(async (req) => {
     if (itemErr) throw itemErr;
     const byId = new Map((dbItems ?? []).map((i: any) => [i.id, i]));
 
+    // Resolve the store's price band + per-location overrides so the charged
+    // price matches EXACTLY what the tablet menu shows. store_menu_full resolves
+    // an item's price as coalesce(override.price, band.price, item.price) — we do
+    // the same here, or customers get charged the wrong (base) price.
+    let bandId: string | null = null;
+    if (location_id) {
+      const { data: loc } = await admin
+        .from("menu_locations").select("price_band_id").eq("id", location_id).single();
+      bandId = loc?.price_band_id ?? null;
+    }
+    // Per-location item overrides (price + availability).
+    const overrideById = new Map<string, { price: number | null; available: boolean | null }>();
+    if (location_id && ids.length) {
+      const { data: ovs } = await admin
+        .from("menu_item_overrides").select("item_id, price, available").eq("location_id", location_id).in("item_id", ids);
+      for (const o of ovs ?? []) overrideById.set(o.item_id, { price: o.price, available: o.available });
+    }
+    // Band prices for this store's band.
+    const bandPriceById = new Map<string, number>();
+    if (bandId && ids.length) {
+      const { data: bps } = await admin
+        .from("menu_band_prices").select("item_id, price").eq("band_id", bandId).in("item_id", ids);
+      for (const b of bps ?? []) if (b.price != null) bandPriceById.set(b.item_id, Number(b.price));
+    }
+    // Resolve an item's effective price: override -> band -> base (mirrors the RPC).
+    const priceFor = (itemId: string, base: number): number => {
+      const ov = overrideById.get(itemId);
+      if (ov && ov.price != null) return Number(ov.price);
+      if (bandPriceById.has(itemId)) return bandPriceById.get(itemId)!;
+      return base;
+    };
+
+    // Resolve every chosen modifier option id -> {name, price_delta, group}.
+    // The client sends items[].modifiers = [option_id, ...].
+    const allModIds = [...new Set(
+      items.flatMap((l: any) => Array.isArray(l.modifiers) ? l.modifiers : []).filter(Boolean),
+    )] as string[];
+    const modById = new Map<string, { name: string; delta: number; group_id: string }>();
+    const groupName = new Map<string, string>();
+    if (allModIds.length) {
+      const { data: mods } = await admin
+        .from("menu_modifiers").select("id, group_id, name, price_delta").in("id", allModIds);
+      // Per-location option overrides and band option prices, mirroring the RPC's
+      // coalesce(override_delta, band_delta, base_delta).
+      const ovDelta = new Map<string, number>();
+      if (location_id) {
+        const { data: mv } = await admin
+          .from("menu_modifier_overrides").select("option_id, price_delta").eq("location_id", location_id).in("option_id", allModIds);
+        for (const v of mv ?? []) if (v.price_delta != null) ovDelta.set(v.option_id, Number(v.price_delta));
+      }
+      const bandDelta = new Map<string, number>();
+      if (bandId) {
+        const { data: bop } = await admin
+          .from("menu_band_option_prices").select("option_id, price_delta").eq("band_id", bandId).in("option_id", allModIds);
+        for (const b of bop ?? []) if (b.price_delta != null) bandDelta.set(b.option_id, Number(b.price_delta));
+      }
+      for (const m of mods ?? []) {
+        const delta = ovDelta.has(m.id) ? ovDelta.get(m.id)!
+          : bandDelta.has(m.id) ? bandDelta.get(m.id)!
+          : (Number(m.price_delta) || 0);
+        modById.set(m.id, { name: m.name, delta, group_id: m.group_id });
+      }
+      const gids = [...new Set((mods ?? []).map((m: any) => m.group_id).filter(Boolean))] as string[];
+      if (gids.length) {
+        const { data: groups } = await admin
+          .from("menu_modifier_groups").select("id, name").in("id", gids);
+        for (const g of groups ?? []) groupName.set(g.id, g.name);
+      }
+    }
+
     let subtotal = 0;
     const orderItems = [];
     for (const l of items) {
       const dbi = byId.get(l.item_id);
-      if (!dbi || dbi.available === false) {
+      const ov = overrideById.get(l.item_id);
+      // Availability: override wins, else the item's own flag (mirrors the RPC).
+      const isAvailable = ov && ov.available != null ? ov.available : (dbi?.available !== false);
+      if (!dbi || !isAvailable) {
         return new Response(JSON.stringify({ error: `item unavailable: ${l.item_id}` }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
       }
       const qty = Math.max(1, parseInt(l.qty) || 1);
-      const size = SIZE_DELTA[l.size] !== undefined ? l.size : "Regular";
-      const milk = MILK_DELTA[l.milk] !== undefined ? l.milk : "Oat";
-      const unit = Number(dbi.price) + SIZE_DELTA[size] + MILK_DELTA[milk];
+
+      // Only the modifiers the customer actually chose for THIS line. Items
+      // with no modifiers get an empty snapshot — no phantom Milk/Size.
+      const chosen = (Array.isArray(l.modifiers) ? l.modifiers : [])
+        .map((id: string) => modById.get(id))
+        .filter(Boolean) as Array<{ name: string; delta: number; group_id: string }>;
+
+      // Effective price: override -> band -> base, same as the tablet menu shows.
+      let unit = priceFor(l.item_id, Number(dbi.price));
+      const snapshot: Record<string, string> = {};
+      for (const m of chosen) {
+        unit += m.delta;
+        const key = groupName.get(m.group_id) || "Option";
+        // Multi-select groups (max_select > 1) can have several chosen options.
+        // Accumulate them under the same group key instead of overwriting, so
+        // e.g. "Choose Topping: Strawberry, Banana" — not just the last one.
+        snapshot[key] = snapshot[key] ? `${snapshot[key]}, ${m.name}` : m.name;
+      }
+
       const line_total = unit * qty;
       subtotal += line_total;
       orderItems.push({
@@ -76,15 +178,23 @@ Deno.serve(async (req) => {
         name_snapshot: dbi.name,
         price_snapshot: unit,
         qty,
-        modifiers_snapshot: { size, milk },
+        modifiers_snapshot: snapshot,
         line_total,
       });
     }
 
-    // Insert order header.
+    // Compute the human order number BEFORE inserting, so it's on the row the
+    // instant the print webhook fires. (Counting before insert => this order is
+    // the +1.) Doing it after via UPDATE raced the webhook and printed a UUID.
+    const { data: seqRow } = await admin
+      .from("menu_orders").select("id", { count: "exact", head: false })
+      .gte("created_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
+    const order_no = 200 + ((seqRow?.length ?? 0) + 1);
+
+    // Insert order header (order_no included up front).
     const { data: order, error: ordErr } = await admin
       .from("menu_orders")
-      .insert({ location_id, table_id, order_type, pickup_name, customer_note, subtotal, total: subtotal, status: "placed" })
+      .insert({ location_id, table_id, order_type, pickup_name, customer_note, tablet_no, order_no, subtotal, total: subtotal, status: "placed" })
       .select("id, created_at")
       .single();
     if (ordErr) throw ordErr;
@@ -94,13 +204,7 @@ Deno.serve(async (req) => {
     const { error: liErr } = await admin.from("menu_order_items").insert(lines);
     if (liErr) throw liErr;
 
-    // Short human order number from the row's created order.
-    const { data: seqRow } = await admin
-      .from("menu_orders").select("id", { count: "exact", head: false })
-      .gte("created_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
-    const order_no = 200 + ((seqRow?.length ?? 1));
-
-    return new Response(JSON.stringify({ ok: true, order_id: order.id, order_no, total: subtotal }), {
+    return new Response(JSON.stringify({ ok: true, order_id: order.id, order_no, tablet_no, total: subtotal }), {
       headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (e) {

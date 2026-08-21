@@ -435,6 +435,32 @@ function Drawer({ orders = [], onClose, locationId }) {
   const [closingDay, setClosingDay] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [closeMsg, setCloseMsg] = useState("");
+  const [accepting, setAccepting] = useState(null); // null=unknown, true/false
+  const [savingAccepting, setSavingAccepting] = useState(false);
+
+  async function loadAccepting() {
+    if (!locationId) return;
+    try {
+      const r = await fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?key=eq." + encodeURIComponent("accepting_orders:" + locationId) + "&select=value", { headers: H });
+      const rows = r.ok ? await r.json() : [];
+      // Default to accepting (true) if no setting exists yet.
+      setAccepting(rows.length ? rows[0].value !== "off" : true);
+    } catch { setAccepting(true); }
+  }
+
+  async function toggleAccepting() {
+    if (!locationId) return;
+    const next = !accepting;
+    setSavingAccepting(true);
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin, action: "set_setting", data: { key: "accepting_orders:" + locationId, value: next ? "on" : "off" } }),
+      });
+      if (!r.ok) throw new Error("save");
+      setAccepting(next);
+    } catch { /* leave */ } finally { setSavingAccepting(false); }
+  }
 
   async function closeDay() {
     if (!locationId) return;
@@ -482,6 +508,7 @@ function Drawer({ orders = [], onClose, locationId }) {
       if (!r.ok) throw new Error("bad");
       setUnlocked(true);
       loadAllOrders();
+      loadAccepting();
     } catch {
       setPinErr("Wrong PIN.");
     } finally { setChecking(false); }
@@ -636,6 +663,18 @@ function Drawer({ orders = [], onClose, locationId }) {
               <div onClick={() => setView("orders")} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "orders" ? "var(--accent)" : "var(--bg3)", color: view === "orders" ? "#F7F4EC" : "var(--ink)" }}>Orders</div>
               <div onClick={() => { setView("items"); if (!items) loadItems(); }} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "items" ? "var(--accent)" : "var(--bg3)", color: view === "items" ? "#F7F4EC" : "var(--ink)" }}>Items online/offline</div>
             </div>
+
+            {accepting !== null && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderRadius: 12, background: accepting ? "#eaf1e4" : "#f6e4e0", marginBottom: 14, flexShrink: 0 }}>
+                <div>
+                  <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15, color: "var(--ink)" }}>Accept customer orders</div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{accepting ? "On — customers can place orders" : "Off — ordering paused"}</div>
+                </div>
+                <div onClick={toggleAccepting} style={{ width: 58, height: 30, borderRadius: 16, background: accepting ? "#3c5a2e" : "var(--line)", position: "relative", cursor: "pointer", opacity: savingAccepting ? .5 : 1, transition: "background .15s", flexShrink: 0 }}>
+                  <div style={{ position: "absolute", top: 3, left: accepting ? 31 : 3, width: 24, height: 24, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                </div>
+              </div>
+            )}
 
             {view === "orders" && (
               <div style={{ overflowY: "auto", paddingBottom: 24, height: scrollH, WebkitOverflowScrolling: "touch" }}>
@@ -1352,6 +1391,7 @@ export default function App() {
   const [data, setData] = useState(SEED);       // current menu's categories
   const [source, setSource] = useState("seed");
   const [store, setStore] = useState(null);
+  const [acceptingOrders, setAcceptingOrders] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settings, setSettings] = useState({});
   const [activeCat, setActiveCat] = useState(0);
@@ -1493,6 +1533,14 @@ export default function App() {
       setStore(res.store || null);
       setData(res.menus[0].categories);
       setSource("live");
+      // Check whether this store is currently accepting customer orders.
+      const loc = res.store && (res.store.id || res.store.location_id);
+      if (loc) {
+        fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?key=eq." + encodeURIComponent("accepting_orders:" + loc) + "&select=value", { headers: H })
+          .then((r) => r.ok ? r.json() : [])
+          .then((rows) => { if (alive) setAcceptingOrders(rows.length ? rows[0].value !== "off" : true); })
+          .catch(() => {});
+      }
     }).catch((e) => console.warn("seed fallback:", e.message));
     return () => { alive = false; };
   }, []);
@@ -1541,6 +1589,7 @@ export default function App() {
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={() => {
+              if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
               if (orderingOn && tableMode === "pick" && !table) { setShowTablePicker(true); return; }
               setConfirmingOrder(true);
