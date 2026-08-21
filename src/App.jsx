@@ -1461,6 +1461,8 @@ export default function App() {
   const [data, setData] = useState(SEED);       // current menu's categories
   const [source, setSource] = useState("seed");
   const [store, setStore] = useState(null);
+  const storeRef = useRef(null);
+  useEffect(() => { storeRef.current = store; }, [store]);
   const [acceptingOrders, setAcceptingOrders] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settings, setSettings] = useState({});
@@ -1618,13 +1620,25 @@ export default function App() {
       }).catch((e) => console.warn("menu refresh:", e.message));
     };
     refreshMenu();
+    // Accepting-orders state gets its OWN fast poll (every 10s) so staff pausing
+    // or resuming ordering from the drawer takes effect on customer tablets
+    // within seconds — no app reopen or reload needed. It's a tiny query.
+    const checkAccepting = () => {
+      const loc = storeRef.current && (storeRef.current.id || storeRef.current.location_id);
+      if (!loc) return;
+      fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?key=eq." + encodeURIComponent("accepting_orders:" + loc) + "&select=value&t=" + Date.now(), { headers: H, cache: "no-store" })
+        .then((r) => r.ok ? r.json() : [])
+        .then((rows) => { if (alive) setAcceptingOrders(rows.length ? rows[0].value !== "off" : true); })
+        .catch(() => {});
+    };
+    const acceptTimer = setInterval(checkAccepting, 10000);
     // Poll every 60s for menu/price/availability/ordering changes.
     const refreshTimer = setInterval(refreshMenu, 60000);
     // Also refresh the moment the tablet is brought back to the foreground.
     const onVisible = () => { if (document.visibilityState === "visible") refreshMenu(); };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", refreshMenu);
-    return () => { alive = false; clearInterval(refreshTimer); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", refreshMenu); };
+    return () => { alive = false; clearInterval(refreshTimer); clearInterval(acceptTimer); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", refreshMenu); };
   }, []);
 
   useEffect(() => {
