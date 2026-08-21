@@ -725,6 +725,15 @@ export default function Admin() {
   const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
+  // Optimistic availability toggle: flip the switch in the UI instantly, then
+  // persist. If the write fails, reload() (in the catch) restores the true state.
+  const toggleItemAvailable = async (it) => {
+    const next = !it.available;
+    setState((s) => ({ ...s, items: s.items.map((x) => x.id === it.id ? { ...x, available: next } : x) }));
+    setMsg("");
+    try { await callAdmin(pin, "update_item", { id: it.id, fields: { available: next } }); }
+    catch (e) { setMsg(e.message); reload(); }
+  };
   const getSetting = (k) => { const row = (state && state.settings || []).find((s) => s.key === k); return row ? row.value : ""; };
 
 
@@ -863,7 +872,7 @@ export default function Admin() {
                       <div style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{it.name}</div>
                       <div style={{ fontSize: 12, color: T.faint }}>{money(it.price)}{(it.allergens_contains || []).length ? " · " + it.allergens_contains.join(", ") : ""}{(it.allergens_may || []).length ? " · may: " + it.allergens_may.join(", ") : ""}</div>
                     </div>
-                    <span onClick={() => act("update_item", { id: it.id, fields: { available: !it.available } })} style={{ width: 38, height: 22, borderRadius: 12, background: it.available ? T.accent : "#cfcabd", position: "relative", cursor: "pointer" }}>
+                    <span onClick={() => toggleItemAvailable(it)} style={{ width: 38, height: 22, borderRadius: 12, background: it.available ? T.accent : "#cfcabd", position: "relative", cursor: "pointer" }}>
                       <span style={{ position: "absolute", top: 2, left: it.available ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff" }} />
                     </span>
                     {(() => {
