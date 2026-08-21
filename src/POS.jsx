@@ -160,32 +160,32 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
         {/* LEFT COLUMN — masters (top, dark zone) + subcategories (below, light, scroll) */}
-        <div style={{ width: 154, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
+        <div style={{ width: 168, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
           {/* master categories — pinned at the top, dark zone */}
           <div style={{ background: P.masterBg, padding: "9px 9px", display: "flex", flexDirection: "column", gap: 5 }}>
             {catList.map((m, i) => {
               const on = activeCat === i;
               return (
-                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} style={{ borderRadius: 11, padding: "11px 6px", textAlign: "center", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, fontSize: 12.5, fontWeight: 500, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 10px rgba(13,148,136,.35)" : "none" }}>
-                  <span style={{ display: "flex", height: 20 }}>{menuIcon(m.name, on)}</span>
+                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} style={{ borderRadius: 12, padding: "14px 6px", textAlign: "center", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontSize: 15, fontWeight: 500, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 10px rgba(13,148,136,.35)" : "none" }}>
+                  <span style={{ display: "flex", height: 24 }}>{menuIcon(m.name, on)}</span>
                   <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name}</span>
                 </div>
               );
             })}
           </div>
           {/* subcategories of the active master — light zone, scrollable */}
-          {master && <div style={{ padding: "8px 9px 3px", fontSize: 10, color: "#b3b8c0", textAlign: "center", letterSpacing: ".5px", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name}</div>}
+          {master && <div style={{ padding: "9px 9px 4px", fontSize: 12, color: "#94a3b8", textAlign: "center", letterSpacing: ".5px", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name}</div>}
           <div style={{ flex: 1, overflowY: "auto", padding: "3px 9px 9px", display: "flex", flexDirection: "column", gap: 6 }}>
             {subs.map((s, i) => {
               const on = activeSub === i && !search;
               return (
-                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 10, padding: "11px 8px", textAlign: "center", cursor: "pointer", fontSize: 12, fontWeight: 500, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder), boxShadow: on ? "0 4px 10px rgba(13,148,136,.28)" : "none" }}>
+                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 11, padding: "14px 8px", textAlign: "center", cursor: "pointer", fontSize: 15, fontWeight: 500, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder), boxShadow: on ? "0 4px 10px rgba(13,148,136,.28)" : "none" }}>
                   {s.name}
-                  <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, color: on ? "rgba(255,255,255,.72)" : "#5eb0a6" }}>{s.items.length}</div>
+                  <div style={{ fontSize: 12, marginTop: 3, fontWeight: 400, color: on ? "rgba(255,255,255,.72)" : "#5eb0a6" }}>{s.items.length}</div>
                 </div>
               );
             })}
-            {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 12, textAlign: "center", marginTop: 20 }}>No categories</div>}
+            {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 14, textAlign: "center", marginTop: 20 }}>No categories</div>}
           </div>
         </div>
 
@@ -193,14 +193,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "16px 20px 0" }}>
             <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 14, padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 18, color: P.muted2 }}>⌕</span>
+              <span style={{ fontSize: 20, color: P.muted2 }}>⌕</span>
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
-                style={{ flex: 1, border: "none", outline: "none", background: "transparent", padding: "12px 0", fontSize: 14, color: P.ink, fontFamily: "inherit" }} />
+                style={{ flex: 1, border: "none", outline: "none", background: "transparent", padding: "14px 0", fontSize: 16, color: P.ink, fontFamily: "inherit" }} />
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 20px 10px" }}>
-            <span style={{ fontSize: 17, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
-            <span style={{ fontSize: 12, color: P.muted2 }}>{shown.length} items</span>
+            <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
+            <span style={{ fontSize: 14, color: P.muted2 }}>{shown.length} items</span>
           </div>
           <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gridAutoRows: "min-content", gap: 14, overflowY: "auto" }}>
             {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
@@ -210,16 +210,16 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               const hasMods = it.modifiers && it.modifiers.length;
               return (
                 <div key={it.id} onClick={() => addItem(it)} style={{ background: P.panel, borderRadius: 18, overflow: "hidden", boxShadow: "0 3px 10px rgba(18,21,28,.08)", border: "1px solid #f0f1f3", cursor: "pointer", position: "relative" }}>
-                  {hasMods ? <div style={{ position: "absolute", top: 9, left: 9, background: "rgba(255,255,255,.94)", borderRadius: 20, padding: "3px 10px", fontSize: 10, fontWeight: 500, color: "#8a5a2c", boxShadow: "0 1px 3px rgba(0,0,0,.12)", zIndex: 2 }}>Choices</div> : null}
+                  {hasMods ? <div style={{ position: "absolute", top: 9, left: 9, background: "rgba(255,255,255,.94)", borderRadius: 20, padding: "4px 11px", fontSize: 12, fontWeight: 500, color: "#8a5a2c", boxShadow: "0 1px 3px rgba(0,0,0,.12)", zIndex: 2 }}>Choices</div> : null}
                   <div style={{ height: 82, background: it.image_url ? "#f0f1f3" : fb.grad, display: "flex", alignItems: "center", justifyContent: "center", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : fb.grad, backgroundSize: "cover", backgroundPosition: "center" }}>
                     {!it.image_url && <span style={{ fontSize: 30 }}>{fb.icon}</span>}
                   </div>
                   <div style={{ padding: "11px 13px 13px", display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 6 }}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.3, minHeight: 34 }}>{it.name}</div>
-                      <div style={{ color: P.ink, fontWeight: 500, fontSize: 16, marginTop: 2 }}>{gbp(it.price)}</div>
+                      <div style={{ fontWeight: 500, fontSize: 15, lineHeight: 1.3, minHeight: 40 }}>{it.name}</div>
+                      <div style={{ color: P.ink, fontWeight: 500, fontSize: 19, marginTop: 3 }}>{gbp(it.price)}</div>
                     </div>
-                    <span style={{ width: 31, height: 31, flexShrink: 0, borderRadius: 11, background: P.tealBg, color: P.tealDeep, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 21, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 1px 4px rgba(13,148,136,.18)" }}>+</span>
+                    <span style={{ width: 38, height: 38, flexShrink: 0, borderRadius: 12, background: P.tealBg, color: P.tealDeep, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 1px 4px rgba(13,148,136,.18)" }}>+</span>
                   </div>
                 </div>
               );
@@ -228,36 +228,36 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         </div>
 
         {/* ORDER TICKET */}
-        <div style={{ width: 328, flexShrink: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
+        <div style={{ width: 344, flexShrink: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
           <div style={{ padding: "17px 19px 14px", borderBottom: "1px solid " + P.line2 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 13 }}>
-              <span style={{ fontWeight: 500, fontSize: 16, letterSpacing: "-.2px" }}>Current order</span>
-              <span style={{ fontSize: 12, color: P.muted, background: "#f3f4f6", padding: "4px 11px", borderRadius: 20, fontWeight: 500 }}>{itemCount} item{itemCount === 1 ? "" : "s"}</span>
+              <span style={{ fontWeight: 500, fontSize: 19, letterSpacing: "-.2px" }}>Current order</span>
+              <span style={{ fontSize: 12, color: P.muted, background: "#f3f4f6", padding: "5px 12px", borderRadius: 20, fontWeight: 500, fontSize: 14 }}>{itemCount} item{itemCount === 1 ? "" : "s"}</span>
             </div>
             <div style={{ display: "flex", gap: 7 }}>
               <select value={table ? table.id : ""} onChange={(e) => { const t = tablesList.find((x) => x.id === e.target.value); setTable(t ? { id: t.id, label: t.label } : null); }}
-                style={{ flex: 1, textAlign: "center", padding: "10px 6px", borderRadius: 12, border: "none", fontSize: 13, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", background: table ? grad : P.chip, color: table ? "#fff" : "#7a828e", boxShadow: table ? "0 4px 10px rgba(229,57,122,.28)" : "none" }}>
+                style={{ flex: 1, textAlign: "center", padding: "13px 6px", borderRadius: 12, border: "none", fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", background: table ? grad : P.chip, color: table ? "#fff" : "#7a828e", boxShadow: table ? "0 4px 10px rgba(229,57,122,.28)" : "none" }}>
                 <option value="">Table…</option>
                 {tablesList.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
-              <div onClick={() => setTable(null)} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 12, background: !table ? grad : P.chip, color: !table ? "#fff" : "#7a828e", fontSize: 13, fontWeight: 500, cursor: "pointer", boxShadow: !table ? "0 4px 10px rgba(229,57,122,.28)" : "none" }}>Takeaway</div>
+              <div onClick={() => setTable(null)} style={{ flex: 1, textAlign: "center", padding: "13px 0", borderRadius: 12, background: !table ? grad : P.chip, color: !table ? "#fff" : "#7a828e", fontSize: 15, fontWeight: 500, cursor: "pointer", boxShadow: !table ? "0 4px 10px rgba(229,57,122,.28)" : "none" }}>Takeaway</div>
             </div>
           </div>
 
           <div style={{ flex: 1, padding: "4px 17px", overflowY: "auto" }}>
-            {ticket.length === 0 && <div style={{ color: P.muted2, textAlign: "center", marginTop: 48, fontSize: 14 }}>Tap items to build the order</div>}
+            {ticket.length === 0 && <div style={{ color: P.muted2, textAlign: "center", marginTop: 48, fontSize: 16 }}>Tap items to build the order</div>}
             {ticket.map((l) => (
               <div key={l.key} style={{ padding: "14px 0", borderBottom: "1px solid #f4f5f7" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <span style={{ fontWeight: 500, fontSize: 14 }}>{l.item.name}</span>
-                  <span style={{ fontWeight: 500, fontSize: 14 }}>{gbp(l.unit * l.qty)}</span>
+                  <span style={{ fontWeight: 500, fontSize: 16 }}>{l.item.name}</span>
+                  <span style={{ fontWeight: 500, fontSize: 16 }}>{gbp(l.unit * l.qty)}</span>
                 </div>
-                {l.mods.length > 0 && <div style={{ fontSize: 12, color: "#8a5a2c", marginTop: 4 }}>+ {l.mods.map((m) => m.name).join(", ")}</div>}
+                {l.mods.length > 0 && <div style={{ fontSize: 13, color: "#8a5a2c", marginTop: 4 }}>+ {l.mods.map((m) => m.name).join(", ")}</div>}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 11 }}>
-                  <span onClick={() => setQty(l.key, -1)} style={{ width: 32, height: 32, borderRadius: 10, background: P.chip, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#616976", cursor: "pointer", fontSize: 18, fontWeight: 500 }}>−</span>
-                  <span style={{ fontWeight: 500, minWidth: 18, textAlign: "center", fontSize: 15 }}>{l.qty}</span>
-                  <span onClick={() => setQty(l.key, 1)} style={{ width: 32, height: 32, borderRadius: 10, background: P.chip, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#616976", cursor: "pointer", fontSize: 18, fontWeight: 500 }}>+</span>
-                  <span onClick={() => removeLine(l.key)} style={{ marginLeft: "auto", width: 32, height: 32, borderRadius: 10, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#c94a4a", cursor: "pointer", fontSize: 16 }}>✕</span>
+                  <span onClick={() => setQty(l.key, -1)} style={{ width: 38, height: 38, borderRadius: 11, background: P.chip, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#616976", cursor: "pointer", fontSize: 22, fontWeight: 500 }}>−</span>
+                  <span style={{ fontWeight: 500, minWidth: 24, textAlign: "center", fontSize: 18 }}>{l.qty}</span>
+                  <span onClick={() => setQty(l.key, 1)} style={{ width: 38, height: 38, borderRadius: 11, background: P.chip, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#616976", cursor: "pointer", fontSize: 22, fontWeight: 500 }}>+</span>
+                  <span onClick={() => removeLine(l.key)} style={{ marginLeft: "auto", width: 38, height: 38, borderRadius: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#c94a4a", cursor: "pointer", fontSize: 16 }}>✕</span>
                 </div>
               </div>
             ))}
@@ -265,32 +265,32 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
           <div style={{ borderTop: "1px solid " + P.line, padding: "16px 19px", background: "#fbfbfc" }}>
             {msg && <div style={{ fontSize: 13, textAlign: "center", marginBottom: 10, color: (msg.includes("fail") || msg.includes("Wrong")) ? "#c94a4a" : "#16a34a" }}>{msg}</div>}
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#7a828e", marginBottom: 12 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, color: "#7a828e", marginBottom: 12 }}>
               <span>Subtotal</span><span>{gbp(subtotal)}</span>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 15, paddingTop: 12, borderTop: "1px dashed #e2e4e8" }}>
-              <span style={{ fontSize: 15, fontWeight: 500 }}>Total</span>
-              <span style={{ fontSize: 26, fontWeight: 500, letterSpacing: "-.6px" }}>{gbp(subtotal)}</span>
+              <span style={{ fontSize: 18, fontWeight: 500 }}>Total</span>
+              <span style={{ fontSize: 32, fontWeight: 500, letterSpacing: "-.6px" }}>{gbp(subtotal)}</span>
             </div>
 
             {!placed ? (
               <div style={{ display: "flex", gap: 9 }}>
-                <div onClick={clearAll} style={{ width: 54, textAlign: "center", padding: "17px 0", borderRadius: 15, background: P.chip, color: "#616976", cursor: "pointer", fontSize: 15 }}>✕</div>
-                <div onClick={sendOrder} style={{ flex: 1, textAlign: "center", padding: "17px 0", borderRadius: 15, background: ticket.length ? grad : "#d7dade", color: "#fff", fontWeight: 500, fontSize: 16, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 7px 18px rgba(229,57,122,.34)" : "none", opacity: sending ? .6 : 1 }}>{sending ? "Sending…" : "Send to kitchen"}</div>
+                <div onClick={clearAll} style={{ width: 58, textAlign: "center", padding: "19px 0", borderRadius: 15, background: P.chip, color: "#616976", cursor: "pointer", fontSize: 18 }}>✕</div>
+                <div onClick={sendOrder} style={{ flex: 1, textAlign: "center", padding: "19px 0", borderRadius: 15, background: ticket.length ? grad : "#d7dade", color: "#fff", fontWeight: 500, fontSize: 19, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 7px 18px rgba(229,57,122,.34)" : "none", opacity: sending ? .6 : 1 }}>{sending ? "Sending…" : "Send to kitchen"}</div>
               </div>
             ) : (
               <div>
                 <div style={{ display: "flex", gap: 8, marginBottom: 9 }}>
                   {[["cash", "Cash"], ["card", "Card"]].map(([m, label]) => (
-                    <div key={m} onClick={() => setPayMethod(m)} style={{ flex: 1, textAlign: "center", padding: "13px 0", borderRadius: 12, cursor: "pointer", fontWeight: 500, fontSize: 15, background: payMethod === m ? grad : P.chip, color: payMethod === m ? "#fff" : "#5f6774" }}>{label}</div>
+                    <div key={m} onClick={() => setPayMethod(m)} style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 12, cursor: "pointer", fontWeight: 500, fontSize: 17, background: payMethod === m ? grad : P.chip, color: payMethod === m ? "#fff" : "#5f6774" }}>{label}</div>
                   ))}
                 </div>
                 <input type="text" inputMode="numeric" value={payPin} onChange={(e) => setPayPin(e.target.value.replace(/\D/g, ""))} placeholder="Staff PIN"
                   autoComplete="off" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
                   style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 18, letterSpacing: 5, padding: "12px 0", borderRadius: 12, border: "1px solid " + P.line, background: "#fff", color: P.ink, marginBottom: 9, WebkitTextSecurity: "disc", textSecurity: "disc", fontFamily: "inherit" }} />
                 <div style={{ display: "flex", gap: 9 }}>
-                  <div onClick={clearAll} style={{ padding: "15px 18px", textAlign: "center", borderRadius: 14, background: P.chip, color: "#616976", fontWeight: 500, cursor: "pointer", fontSize: 14 }}>New</div>
-                  <div onClick={takePayment} style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 14, background: (payMethod && payPin) ? "linear-gradient(140deg,#22c55e,#16a34a)" : "#d7dade", color: "#fff", fontWeight: 500, fontSize: 15, cursor: (payMethod && payPin) ? "pointer" : "default", opacity: payBusy ? .6 : 1 }}>{payBusy ? "…" : "Take payment"}</div>
+                  <div onClick={clearAll} style={{ padding: "17px 20px", textAlign: "center", borderRadius: 14, background: P.chip, color: "#616976", fontWeight: 500, cursor: "pointer", fontSize: 16 }}>New</div>
+                  <div onClick={takePayment} style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 14, background: (payMethod && payPin) ? "linear-gradient(140deg,#22c55e,#16a34a)" : "#d7dade", color: "#fff", fontWeight: 500, fontSize: 18, cursor: (payMethod && payPin) ? "pointer" : "default", opacity: payBusy ? .6 : 1 }}>{payBusy ? "…" : "Take payment"}</div>
                 </div>
               </div>
             )}
@@ -302,7 +302,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       {modItem && (
         <div onClick={() => setModItem(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.4)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, padding: 22, width: 420, maxWidth: "100%", maxHeight: "82vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(18,21,28,.3)" }}>
-            <div style={{ fontWeight: 500, fontSize: 19 }}>{modItem.name}</div>
+            <div style={{ fontWeight: 500, fontSize: 22 }}>{modItem.name}</div>
             <div style={{ color: P.muted, fontSize: 13, marginBottom: 16 }}>{gbp(modItem.price)} · choose options</div>
             {(modItem.modifiers || []).map((g) => (
               <div key={g.id} style={{ marginBottom: 15 }}>
@@ -312,7 +312,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     const on = (modSel[g.id] || []).includes(o.id);
                     return (
                       <div key={o.id} onClick={() => setModSel((prev) => { const cur = prev[g.id] || []; const single = g.max === 1 || g.single; const next = on ? cur.filter((x) => x !== o.id) : (single ? [o.id] : [...cur, o.id]); return { ...prev, [g.id]: next }; })}
-                        style={{ padding: "10px 14px", borderRadius: 11, cursor: "pointer", fontSize: 14, fontWeight: 500, background: on ? grad : P.chip, color: on ? "#fff" : P.ink }}>
+                        style={{ padding: "12px 16px", borderRadius: 11, cursor: "pointer", fontSize: 16, fontWeight: 500, background: on ? grad : P.chip, color: on ? "#fff" : P.ink }}>
                         {o.name}{Number(o.price_delta) ? " +" + gbp(o.price_delta) : ""}
                       </div>
                     );
