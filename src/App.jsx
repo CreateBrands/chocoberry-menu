@@ -516,7 +516,7 @@ function Drawer({ orders = [], onClose, locationId }) {
 
   async function loadAllOrders() {
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,paid_method,paid_amount,discount_type,discount_value,created_at,menu_tables(label),menu_order_items(name_snapshot,qty,modifiers_snapshot,line_total)"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,paid_method,paid_amount,discount_type,discount_value,print_failed,created_at,menu_tables(label),menu_order_items(name_snapshot,qty,modifiers_snapshot,line_total)"
         + (locationId ? "&location_id=eq." + locationId : "")
         + "&closed_at=is.null"
         + "&order=created_at.desc&limit=200";
@@ -622,6 +622,8 @@ function Drawer({ orders = [], onClose, locationId }) {
       });
       if (!r.ok) throw new Error("HTTP " + r.status);
       setReprintMsg({ key, text: "Reprint sent to the kitchen." });
+      // Refresh so a now-successful print clears the failed flag (and problems section).
+      setTimeout(() => { loadAllOrders(); }, 1200);
     } catch (err) {
       setReprintMsg({ key, text: "Reprint failed — try again." });
     } finally { setReprinting(null); }
@@ -701,6 +703,26 @@ function Drawer({ orders = [], onClose, locationId }) {
                   </div>
                 )}
                 {closeMsg && <div style={{ fontSize: 13, color: "var(--accent)", textAlign: "center", padding: "4px 0 8px" }}>{closeMsg}</div>}
+                {allOrders && allOrders.some((o) => o.print_failed) && (
+                  <div style={{ borderRadius: 14, background: "#f6e4e0", padding: "12px 14px", marginBottom: 6, boxShadow: "inset 0 0 0 1px #e0b4a8" }}>
+                    <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14, color: "#b4462f", marginBottom: 8 }}>⚠ Print problems ({allOrders.filter((o) => o.print_failed).length})</div>
+                    {allOrders.filter((o) => o.print_failed).map((o) => {
+                      const okey = "pf:" + o.id;
+                      return (
+                        <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderTop: "1px solid #e8c9bf" }}>
+                          <div>
+                            <span style={{ fontWeight: 600, fontSize: 14 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
+                            {o.menu_tables && o.menu_tables.label && <span style={{ fontSize: 12, color: "var(--muted)", marginLeft: 6 }}>{o.menu_tables.label}</span>}
+                          </div>
+                          <div onClick={(e) => reprint(o, okey, e)} style={{ fontSize: 12, fontWeight: 600, color: "#F7F4EC", background: "#b4462f", padding: "7px 14px", borderRadius: 8, cursor: "pointer", opacity: reprinting === okey ? .6 : 1 }}>
+                            {reprinting === okey ? "Printing…" : "↻ Reprint"}
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 8 }}>Check the printer (paper, power, connection), then reprint.</div>
+                  </div>
+                )}
                 {allOrders === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading orders…</div>}
                 {allOrders && allOrders.length === 0 && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>No orders yet.</div>}
                 {groupKeys.map((gk) => (
@@ -717,7 +739,7 @@ function Drawer({ orders = [], onClose, locationId }) {
                           return (
                             <div key={o.id} onClick={() => setOpenOrder(openOrder === okey ? null : okey)} style={{ borderRadius: 12, background: "var(--bg2)", boxShadow: "inset 0 0 0 1px var(--line)", padding: "11px 13px", marginTop: 8, cursor: "pointer" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                                <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}{o.paid_method ? <span style={{ fontSize: 11, fontWeight: 600, color: "#3c5a2e", marginLeft: 8 }}>● paid</span> : <span style={{ fontSize: 11, fontWeight: 600, color: "#b4462f", marginLeft: 8 }}>● unpaid</span>}</span>
+                                <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}{o.paid_method ? <span style={{ fontSize: 11, fontWeight: 600, color: "#3c5a2e", marginLeft: 8 }}>● paid</span> : <span style={{ fontSize: 11, fontWeight: 600, color: "#b4462f", marginLeft: 8 }}>● unpaid</span>}{o.print_failed && <span style={{ fontSize: 10, fontWeight: 700, color: "#F7F4EC", background: "#b4462f", padding: "2px 6px", borderRadius: 4, marginLeft: 8 }}>PRINT FAILED</span>}</span>
                                 <span style={{ fontSize: 12, color: "var(--muted)" }}>{o.menu_tables && o.menu_tables.label ? o.menu_tables.label + " · " : ""}{timeAgo(new Date(o.created_at).getTime(), now)}</span>
                               </div>
                               <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{its.map((it) => (it.qty > 1 ? it.qty + "× " : "") + it.name_snapshot).join(", ")}</div>

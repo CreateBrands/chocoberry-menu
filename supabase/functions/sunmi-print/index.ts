@@ -304,27 +304,48 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
       const tag = (force ? Date.now().toString(36) : "") + sn.slice(-5) + (copy > 0 ? "c" + copy : "");
       const tradeNo = (base + tag).slice(0, 32);
 
-      const res = await sunmi.pushContent(sn, tradeNo, contentHex);
+      // Try up to 3 times with a short backoff — most print failures are a
+      // momentary network blip, so an auto-retry clears them before staff
+      // ever notice. Only a persistent failure gets flagged.
+      let res = await sunmi.pushContent(sn, tradeNo, contentHex);
+      let attempts = 1;
+      while (!ok(res) && attempts < 3) {
+        await new Promise((r) => setTimeout(r, 800 * attempts));
+        res = await sunmi.pushContent(sn, tradeNo + "r" + attempts, contentHex);
+        attempts++;
+      }
       const success = ok(res);
       await logJob({
         order_id: orderId,
         printer_sn: sn,
         status: success ? "sent" : "failed",
         response: res,
-        error: success ? null : res.msg ?? "unknown Sunmi error",
+        error: success ? null : (res.msg ?? "unknown Sunmi error") + " (after " + attempts + " attempts)",
       });
-      results.push({ printer: sn, station, copy: copy + 1, printed: success, sunmi: res });
+      results.push({ printer: sn, station, copy: copy + 1, printed: success, attempts, sunmi: res });
       if (!success) {
-        console.error(`pushContent failed for ${sn} (${station}) copy ${copy + 1}:`, JSON.stringify(res));
+        console.error(`pushContent failed for ${sn} (${station}) copy ${copy + 1} after ${attempts} attempts:`, JSON.stringify(res));
       }
     }
   }
 
   const anyPrinted = results.some((r) => r.printed);
+  // Flag the order if any real (non-skipped) print attempt failed, so the staff
+  // drawer can surface it. Clear the flag when everything that tried, printed.
+  const attempted = results.filter((r) => !r.skipped);
+  const anyFailed = attempted.some((r) => r.printed === false);
+  try {
+    if (anyFailed) {
+      await supabase.from("menu_orders").update({ print_failed: true }).eq("id", orderId);
+    } else if (attempted.length > 0 && attempted.every((r) => r.printed)) {
+      await supabase.from("menu_orders").update({ print_failed: false }).eq("id", orderId);
+    }
+  } catch (e) { console.error("print_failed flag update error:", e); }
+
   if (!anyPrinted && results.every((r) => r.skipped)) {
     return { skipped: true, reason: "nothing to print", results };
   }
-  return { printed: anyPrinted, results };
+  return { printed: anyPrinted, failed: anyFailed, results };
 }
 
 // ---------------------------------------------------------------------------
