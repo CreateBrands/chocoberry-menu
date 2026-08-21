@@ -21,6 +21,26 @@ function fallbackFor(name = "", cat = "") {
   return { icon: "🍽", grad: "linear-gradient(140deg,#f6eedc,#dec89d)" };
 }
 
+// Top-level menu icons — same set the customer tablet uses in its bottom nav.
+function menuIcon(name, active) {
+  const c = active ? "#fff" : "currentColor";
+  const p = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+  const n = (name || "").toLowerCase();
+  if (n.includes("dessert") || n.includes("cake") || n.includes("sweet"))
+    return <svg {...p}><path d="M4 16h16M6 16c0-3 2-5 6-5s6 2 6 5M9 8c0-1 .5-2 3-2s3 1 3 2M12 3v1" /></svg>;
+  if (n.includes("breakfast") || n.includes("brunch") || n.includes("egg"))
+    return <svg {...p}><circle cx="10" cy="13" r="6" /><circle cx="10" cy="13" r="2.2" /><path d="M16 9h3a2 2 0 0 1 0 4h-2" /></svg>;
+  if (n.includes("dinner") || n.includes("main") || n.includes("meal"))
+    return <svg {...p}><path d="M4 18h16M6 18a6 6 0 0 1 12 0M12 6v0" /><path d="M12 6a2 2 0 0 1 0-2" /></svg>;
+  if (n.includes("cold") || n.includes("iced") || n.includes("juice") || n.includes("soft") || n.includes("shake") || n.includes("drink") || n.includes("mocktail"))
+    return <svg {...p}><path d="M7 8h10l-1 12H8zM7 8l-.5-3h11L17 8M10 12v4M14 12v4" /></svg>;
+  if (n.includes("hot") || n.includes("coffee") || n.includes("tea") || n.includes("latte") || n.includes("chocolate") || n.includes("matcha"))
+    return <svg {...p}><path d="M5 9h11v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM16 10h2a2 2 0 0 1 0 4h-2M8 3c-.4 1 .4 2 0 3M12 3c-.4 1 .4 2 0 3" /></svg>;
+  if (n.includes("kid") || n.includes("child"))
+    return <svg {...p}><path d="M8 21h8M12 21v-6M8 10a4 4 0 0 1 8 0zM7.5 10h9l-1.2 5H8.7z" /></svg>;
+  return <svg {...p}><path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 0-3 2-3 5s1 4 3 4M17 3v18" /></svg>;
+}
+
 // ===========================================================================
 // Full POS screen (large tablet, landscape). Light theme.
 // Three zones: category rail · item grid · order ticket.
@@ -42,6 +62,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [payBusy, setPayBusy] = useState(false);
 
   // ---- Load menu (same source as the customer app) ----
+  // Keep the top-level MENU grouping (Desserts, Drinks, Breakfast…) — the left
+  // rail shows these, matching the customer tablet's bottom nav.
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -49,14 +71,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const body = loc ? { loc } : { loc: null };
         const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/store_menu_full", { method: "POST", headers: H, body: JSON.stringify(body), cache: "no-store" });
         const rows = r.ok ? await r.json() : [];
-        const m = new Map();
+        const menuMap = new Map();
         for (const row of rows) {
           if (row.available === false) continue;
-          let c = m.get(row.category_id);
-          if (!c) { c = { id: row.category_id, name: row.category_name, sort: row.category_sort ?? 0, items: [] }; m.set(row.category_id, c); }
-          c.items.push({ id: row.item_id, name: row.item_name, price: Number(row.price), image_url: row.image_url, modifiers: row.modifiers || [] });
+          let mn = menuMap.get(row.menu_id);
+          if (!mn) { mn = { id: row.menu_id, name: row.menu_name, sort: row.menu_sort ?? 0, items: [] }; menuMap.set(row.menu_id, mn); }
+          mn.items.push({ id: row.item_id, name: row.item_name, price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [] });
         }
-        if (alive) setCats([...m.values()].sort((a, b) => a.sort - b.sort));
+        if (alive) setCats([...menuMap.values()].sort((a, b) => a.sort - b.sort));
       } catch { if (alive) setCats([]); }
     })();
     return () => { alive = false; };
@@ -134,11 +156,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         <div style={{ width: 114, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column", padding: "15px 12px", gap: 5, overflowY: "auto" }}>
           {catList.map((c, i) => {
             const on = activeCat === i && !search;
-            const fb = fallbackFor("", c.name);
             return (
               <div key={c.id} onClick={() => { setActiveCat(i); setSearch(""); }} style={{ borderRadius: 16, padding: "14px 6px", textAlign: "center", cursor: "pointer", background: on ? grad : "transparent", color: on ? "#fff" : "#616976", boxShadow: on ? "0 5px 14px rgba(229,57,122,.32)" : "none" }}>
-                <div style={{ fontSize: 23 }}>{fb.icon}</div>
-                <div style={{ fontSize: 11, marginTop: 5, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
+                <div style={{ display: "flex", justifyContent: "center", height: 24 }}>{menuIcon(c.name, on)}</div>
+                <div style={{ fontSize: 11, marginTop: 6, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
                 <div style={{ fontSize: 10, marginTop: 2, color: on ? "rgba(255,255,255,.75)" : "#b3b8c0" }}>{c.items.length}</div>
               </div>
             );
@@ -162,7 +183,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
             {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
             {shown.map((it) => {
-              const fb = fallbackFor(it.name, catList[activeCat] ? catList[activeCat].name : "");
+              const fb = fallbackFor(it.name, it.category || "");
               const hasMods = it.modifiers && it.modifiers.length;
               return (
                 <div key={it.id} onClick={() => addItem(it)} style={{ background: P.panel, borderRadius: 18, overflow: "hidden", boxShadow: "0 3px 10px rgba(18,21,28,.08)", border: "1px solid #f0f1f3", cursor: "pointer", position: "relative" }}>
