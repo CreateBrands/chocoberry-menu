@@ -464,8 +464,44 @@ Deno.serve(async (req) => {
         return json(result);
       }
 
+      // SAFETY NET: re-push any recent order that never got confirmed printed.
+      // Sunmi's own cloud queue recovers orders that reached it (paper/power/
+      // network). This catches the earlier gap — orders whose print webhook never
+      // fired or whose push failed — so nothing is silently lost. Meant to run on
+      // a schedule (e.g. every 2-3 min via Supabase cron) but can be called ad hoc.
+      case "sweep-unprinted": {
+        const sinceMin = Number(body.since_minutes) || 180; // default: last 3h
+        const sinceIso = new Date(Date.now() - sinceMin * 60000).toISOString();
+        // Candidate orders: created recently, not archived (closed_at null).
+        const { data: orders, error } = await supabase
+          .from("menu_orders")
+          .select("*")
+          .gte("created_at", sinceIso)
+          .is("closed_at", null)
+          .order("created_at", { ascending: true });
+        if (error) throw error;
+        // Which orders already have at least one confirmed ("sent") print job?
+        const ids = (orders || []).map((o: any) => o.id);
+        const printedSet = new Set<string>();
+        if (ids.length) {
+          const { data: jobs } = await supabase
+            .from("print_jobs").select("order_id").eq("status", "sent").in("order_id", ids);
+          for (const j of jobs || []) printedSet.add(j.order_id);
+        }
+        const missing = (orders || []).filter((o: any) => !printedSet.has(o.id));
+        const results = [];
+        for (const o of missing) {
+          try {
+            const r = await printOrder(o, false);
+            results.push({ order_id: o.id, order_no: o.order_no, repushed: true, printed: (r as any).printed ?? false });
+          } catch (e) {
+            results.push({ order_id: o.id, order_no: o.order_no, repushed: false, error: String(e) });
+          }
+        }
+        return json({ ok: true, checked: orders?.length ?? 0, repushed: results.length, results });
+      }
+
       case "print-summary": {
-        // End-of-day Z-report. Prints to every kitchen printer at the location's
         // store (or all printers if we can't resolve one).
         const s = body.summary || {};
         const storeName = String(body.store_name || "");

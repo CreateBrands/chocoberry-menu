@@ -440,6 +440,12 @@ Deno.serve(async (req) => {
         });
       }
 
+      // ---- PRINT SAFETY NET: staff-triggered re-push of any unprinted orders ----
+      case "sweep_unprinted": {
+        const r = await callSunmi({ action: "sweep-unprinted", since_minutes: (data && data.since_minutes) || 180 });
+        return json({ ok: r.ok, result: r.body });
+      }
+
       // ---- TILL: close the day — snapshot totals, then archive open orders ----
       case "close_day": {
         const { location_id } = data || {};

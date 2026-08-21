@@ -438,6 +438,22 @@ function Drawer({ orders = [], onClose, locationId }) {
   const [accepting, setAccepting] = useState(null); // null=unknown, true/false
   const [savingAccepting, setSavingAccepting] = useState(false);
   const [printers, setPrinters] = useState(null);
+  const [sweeping, setSweeping] = useState(false);
+  const [sweepMsg, setSweepMsg] = useState("");
+
+  async function sweepUnprinted() {
+    setSweeping(true); setSweepMsg("");
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin, action: "sweep_unprinted", data: { since_minutes: 180 } }),
+      });
+      const j = await r.json();
+      const n = j?.result?.repushed ?? 0;
+      setSweepMsg(n === 0 ? "All recent orders have printed." : "Re-sent " + n + " unprinted order" + (n === 1 ? "" : "s") + " to the printer.");
+      setTimeout(() => loadAllOrders(), 1500);
+    } catch { setSweepMsg("Couldn't run the check — try again."); } finally { setSweeping(false); }
+  }
 
   async function loadPrinters() {
     try {
@@ -692,13 +708,21 @@ function Drawer({ orders = [], onClose, locationId }) {
             )}
 
             {printers && printers.length > 0 && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14, flexShrink: 0 }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 10, flexShrink: 0 }}>
                 {printers.map((p) => (
                   <div key={p.sn} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: p.online === false ? "#f6e4e0" : "var(--bg3)", color: p.online === false ? "#b4462f" : "var(--muted)" }}>
                     <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.online === false ? "#b4462f" : p.online === true ? "#3c5a2e" : "#c9a94a", display: "inline-block" }} />
                     {(p.name || p.sn) + ": " + (p.online === false ? "OFFLINE" : p.online === true ? "online" : "unknown")}
                   </div>
                 ))}
+              </div>
+            )}
+            {unlocked && (
+              <div style={{ marginBottom: 14, flexShrink: 0 }}>
+                <div onClick={sweepUnprinted} style={{ textAlign: "center", padding: "10px 0", borderRadius: 10, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontSize: 13, fontWeight: 600, cursor: "pointer", opacity: sweeping ? .6 : 1 }}>
+                  {sweeping ? "Checking…" : "↻ Reprint any missed orders"}
+                </div>
+                {sweepMsg && <div style={{ fontSize: 12, color: "var(--accent)", textAlign: "center", marginTop: 6 }}>{sweepMsg}</div>}
               </div>
             )}
 
