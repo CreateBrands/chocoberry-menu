@@ -64,6 +64,12 @@ Deno.serve(async (req) => {
     // A resolved table means dine-in; otherwise honour the requested type (default takeaway).
     const order_type = table_id ? "dine_in" : (bodyOrderType || "takeaway");
 
+    // Safety net: a dine-in tablet (requires_table) must have a table. This can't
+    // be bypassed by a cached/tampered tablet — no table, no order.
+    if (body.requires_table === true && !table_id) {
+      return new Response(JSON.stringify({ error: "table_required", message: "Please ask a staff member to set your table before ordering." }), { status: 409, headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
     // Look up REAL prices for every item id; recompute totals server-side.
     const ids = [...new Set(items.map((l: any) => l.item_id))];
     const { data: dbItems, error: itemErr } = await admin

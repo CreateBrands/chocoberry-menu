@@ -1642,14 +1642,20 @@ export default function App() {
     if (placing) return;
     // Guard: never place an empty bag (mis-tap protection).
     if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
-    // On a tablet (pick mode), a table must be chosen before the order can send.
-    if (orderingOn && tableMode === "pick" && !table) { openTablePicker(); return; }
+    // On a tablet (pick mode), a table MUST be set before ordering. If it isn't,
+    // tell the customer to ask staff (setting the table is PIN-gated).
+    if (orderingOn && tableMode === "pick" && !table) {
+      setOrderErr("Please ask a staff member to set your table before ordering.");
+      openTablePicker();
+      return;
+    }
     setPlacing(true); setOrderErr(null);
     const dineIn = (tableMode === "pick" || tableMode === "fixed") && table;
     const payload = {
       qr_token: getStoreToken() || null,
       table_id: dineIn ? table.id : null,
       order_type: dineIn ? "dine_in" : "takeaway",
+      requires_table: tableMode === "pick",
       pickup_name: pickupName || null,
       tablet_no: getTabletNumber() || null,
       items: lines.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: (l.mods || []).map((m) => m.option_id) })),
@@ -1825,7 +1831,7 @@ export default function App() {
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => {
               if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
-              if (orderingOn && tableMode === "pick" && !table) { openTablePicker(); return; }
+              if (orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
             }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
