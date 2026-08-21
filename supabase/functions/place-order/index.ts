@@ -65,8 +65,9 @@ Deno.serve(async (req) => {
     const order_type = table_id ? "dine_in" : (bodyOrderType || "takeaway");
 
     // Safety net: a dine-in tablet (requires_table) must have a table. This can't
-    // be bypassed by a cached/tampered tablet — no table, no order.
-    if (body.requires_table === true && !table_id) {
+    // be bypassed by a cached/tampered tablet — no table, no order. (Appending to an
+    // existing order is exempt: that order already has its table.)
+    if (body.requires_table === true && !table_id && !append_to_order_id) {
       return new Response(JSON.stringify({ error: "table_required", message: "Please ask a staff member to set your table before ordering." }), { status: 409, headers: { ...cors, "Content-Type": "application/json" } });
     }
 
