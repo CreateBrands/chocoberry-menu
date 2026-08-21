@@ -537,6 +537,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   // Item availability
   const [items, setItems] = useState(null);
   const [savingItem, setSavingItem] = useState(null);
+  const [itemMsg, setItemMsg] = useState("");
   const [itemSearch, setItemSearch] = useState("");
   const [catCollapsed, setCatCollapsed] = useState({}); // category -> bool (undefined = collapsed by default)
   const [offlineOnly, setOfflineOnly] = useState(false);
@@ -653,18 +654,21 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   }
 
   async function toggleItem(it) {
-    if (!locationId) { return; }
-    setSavingItem(it.id);
+    if (!locationId) { setItemMsg("Can't change stock — store not linked."); return; }
     const next = !it.effective;
+    // Flip immediately (optimistic), then persist. Revert + message if it fails.
+    setItems((prev) => prev.map((x) => x.id === it.id ? { ...x, effective: next } : x));
+    setSavingItem(it.id); setItemMsg("");
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
         body: JSON.stringify({ pin, action: "set_override", data: { item_id: it.id, location_id: locationId, price: null, available: next } }),
       });
-      if (!r.ok) throw new Error("save");
-      setItems((prev) => prev.map((x) => x.id === it.id ? { ...x, effective: next } : x));
-    } catch {
-      // leave as-is on failure
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error === "unauthorized" ? "PIN not accepted" : "save failed"); }
+    } catch (err) {
+      // revert the optimistic flip and tell the user why
+      setItems((prev) => prev.map((x) => x.id === it.id ? { ...x, effective: !next } : x));
+      setItemMsg(err.message === "PIN not accepted" ? "PIN not accepted — reopen the drawer." : "Couldn't update — try again.");
     } finally { setSavingItem(null); }
   }
 
@@ -891,6 +895,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                   <div onClick={() => setOfflineOnly(true)} style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 16, cursor: "pointer", fontSize: 13, fontWeight: 600, background: offlineOnly ? "#b4462f" : "var(--bg3)", color: offlineOnly ? "#F7F4EC" : "var(--ink)" }}>Offline only</div>
                 </div>
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  {itemMsg && <div style={{ fontSize: 13, fontWeight: 600, color: "#b4462f", textAlign: "center", padding: "8px 0" }}>{itemMsg}</div>}
                   {items === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading items…</div>}
                   {items && (() => {
                     const q = itemSearch.trim().toLowerCase();
