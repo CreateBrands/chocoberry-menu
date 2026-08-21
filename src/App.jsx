@@ -107,7 +107,7 @@ async function fetchLive(token) {
   let rows;
   try {
     const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/store_menu_full", {
-      method: "POST", headers: H, body: JSON.stringify(body),
+      method: "POST", headers: H, body: JSON.stringify(body), cache: "no-store",
     });
     if (!r.ok) throw new Error("store_menu_full " + r.status);
     rows = await r.json();
@@ -1527,27 +1527,40 @@ export default function App() {
         }
       }
     })();
-    fetchLive(token).then((res) => {
-      if (!alive || !res || !res.menus || !res.menus.length) return;
-      setMenus(res.menus);
-      setStore(res.store || null);
-      setData(res.menus[0].categories);
-      setSource("live");
-      // Check whether this store is currently accepting customer orders.
-      const loc = res.store && (res.store.id || res.store.location_id);
-      if (loc) {
-        fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?key=eq." + encodeURIComponent("accepting_orders:" + loc) + "&select=value", { headers: H })
-          .then((r) => r.ok ? r.json() : [])
-          .then((rows) => { if (alive) setAcceptingOrders(rows.length ? rows[0].value !== "off" : true); })
-          .catch(() => {});
-      }
-    }).catch((e) => console.warn("seed fallback:", e.message));
-    return () => { alive = false; };
+    // Refresh menu + settings from the network. Called on mount, on an
+    // interval, and whenever the tablet regains focus — so price/availability
+    // changes and the ordering on/off switch propagate without a manual reload.
+    // It only swaps in fresh menu DATA; it never disturbs the customer's bag or
+    // which screen they're on.
+    const refreshMenu = () => {
+      fetchLive(token).then((res) => {
+        if (!alive || !res || !res.menus || !res.menus.length) return;
+        setMenus(res.menus);
+        setStore(res.store || null);
+        setSource("live");
+        const loc = res.store && (res.store.id || res.store.location_id);
+        if (loc) {
+          fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?key=eq." + encodeURIComponent("accepting_orders:" + loc) + "&select=value&t=" + Date.now(), { headers: H, cache: "no-store" })
+            .then((r) => r.ok ? r.json() : [])
+            .then((rows) => { if (alive) setAcceptingOrders(rows.length ? rows[0].value !== "off" : true); })
+            .catch(() => {});
+        }
+      }).catch((e) => console.warn("menu refresh:", e.message));
+    };
+    refreshMenu();
+    // Poll every 60s for menu/price/availability/ordering changes.
+    const refreshTimer = setInterval(refreshMenu, 60000);
+    // Also refresh the moment the tablet is brought back to the foreground.
+    const onVisible = () => { if (document.visibilityState === "visible") refreshMenu(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", refreshMenu);
+    return () => { alive = false; clearInterval(refreshTimer); document.removeEventListener("visibilitychange", onVisible); window.removeEventListener("focus", refreshMenu); };
   }, []);
 
   useEffect(() => {
-    if (menus && menus[activeMenu]) { setData(menus[activeMenu].categories); setActiveCat(0); }
+    if (menus && menus[activeMenu]) setData(menus[activeMenu].categories);
   }, [activeMenu, menus]);
+  useEffect(() => { setActiveCat(0); }, [activeMenu]);
 
   const openItem = (it) => { setSelItem(it); setScreen("item"); };
 
