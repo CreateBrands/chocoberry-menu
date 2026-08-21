@@ -1504,6 +1504,33 @@ export default function App() {
   const [tables, setTables] = useState([]);
   const [table, setTable] = useState(null);          // chosen table row {id,label,...}
   const [showTablePicker, setShowTablePicker] = useState(false);
+  const [tableUnlocked, setTableUnlocked] = useState(false); // staff PIN verified to change table
+  const [tablePinPrompt, setTablePinPrompt] = useState(false); // showing the PIN modal
+  const [tablePinValue, setTablePinValue] = useState("");
+  const [tablePinChecking, setTablePinChecking] = useState(false);
+  const [tablePinErr, setTablePinErr] = useState("");
+
+  // Open the table picker, but require a staff PIN first (once per session) so
+  // customers can't change the table number. Staff enter the PIN once and can
+  // then set/change the table; it re-locks on idle reset.
+  function openTablePicker() {
+    if (tableUnlocked) { setShowTablePicker(true); return; }
+    setTablePinValue(""); setTablePinErr(""); setTablePinPrompt(true);
+  }
+  async function verifyTablePin() {
+    if (!tablePinValue) return;
+    setTablePinChecking(true); setTablePinErr("");
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin: tablePinValue, action: "load", data: {} }),
+      });
+      if (!r.ok) throw new Error("bad");
+      setTableUnlocked(true);
+      setTablePinPrompt(false);
+      setShowTablePicker(true);
+    } catch { setTablePinErr("Wrong PIN."); } finally { setTablePinChecking(false); }
+  }
   const orderingOn = settings.ordering_enabled !== "off" && settings.ordering_enabled !== false;
   const [sessionOrders, setSessionOrders] = useState(() => {
     try { const raw = localStorage.getItem("still_order_history"); return raw ? JSON.parse(raw) : []; } catch { return []; }
@@ -1543,7 +1570,7 @@ export default function App() {
   useEffect(() => {
     if (!allergensUnlocked) return;
     let t;
-    const arm = () => { clearTimeout(t); t = setTimeout(() => { setAllergensUnlocked(false); if (tableMode === "pick") setTable(null); setScreen("welcome"); }, IDLE_RESET_MS); };
+    const arm = () => { clearTimeout(t); t = setTimeout(() => { setAllergensUnlocked(false); setTableUnlocked(false); setScreen("welcome"); }, IDLE_RESET_MS); };
     const events = ["pointerdown", "keydown", "touchstart", "scroll"];
     events.forEach((e) => window.addEventListener(e, arm, { passive: true }));
     arm();
@@ -1556,7 +1583,7 @@ export default function App() {
     // Guard: never place an empty bag (mis-tap protection).
     if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
     // On a tablet (pick mode), a table must be chosen before the order can send.
-    if (orderingOn && tableMode === "pick" && !table) { setShowTablePicker(true); return; }
+    if (orderingOn && tableMode === "pick" && !table) { openTablePicker(); return; }
     setPlacing(true); setOrderErr(null);
     const dineIn = (tableMode === "pick" || tableMode === "fixed") && table;
     const payload = {
@@ -1735,22 +1762,36 @@ export default function App() {
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={() => {
               if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
-              if (orderingOn && tableMode === "pick" && !table) { setShowTablePicker(true); return; }
+              if (orderingOn && tableMode === "pick" && !table) { openTablePicker(); return; }
               setConfirmingOrder(true);
-            }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={() => setShowTablePicker(true)} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); if (tableMode === "pick") setTable(null); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} /></div>
+            }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
             {orderingOn && tableMode === "pick" && screen === "welcome" && (
-              <div onClick={() => setShowTablePicker(true)}
+              <div onClick={openTablePicker}
                 style={{ position: "absolute", top: 14, right: 14, zIndex: 40, padding: "8px 14px", borderRadius: 20, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontSize: 12, fontWeight: 700, letterSpacing: ".04em", color: "var(--muted)", cursor: "pointer", opacity: 0.85 }}>
                 {table ? `Table: ${table.label}` : "Staff · Set table"}
               </div>
             )}
-            {orderingOn && (showTablePicker || (tableMode === "pick" && !table && screen === "bag")) && (
-              <TablePicker tables={tables} current={table} required={tableMode === "pick" && !table && screen === "bag"}
+            {orderingOn && showTablePicker && (
+              <TablePicker tables={tables} current={table} required={false}
                 onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }}
                 onClose={() => setShowTablePicker(false)} />
+            )}
+            {tablePinPrompt && (
+              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setTablePinPrompt(false)}>
+                <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg2)", borderRadius: 20, padding: 28, maxWidth: 360, width: "100%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
+                  <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
+                  <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 19, color: "var(--ink)", marginBottom: 6 }}>Staff only</div>
+                  <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 18 }}>Enter the staff PIN to set or change the table number.</div>
+                  <input type="password" inputMode="numeric" value={tablePinValue} onChange={(e) => setTablePinValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && verifyTablePin()} placeholder="PIN" autoFocus
+                    style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 22, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg3)", color: "var(--ink)", marginBottom: 6 }} />
+                  {tablePinErr && <div style={{ color: "#b4462f", fontSize: 13, marginBottom: 6 }}>{tablePinErr}</div>}
+                  <div onClick={verifyTablePin} style={{ marginTop: 12, padding: "12px 0", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: tablePinChecking ? .6 : 1 }}>{tablePinChecking ? "Checking…" : "Unlock"}</div>
+                  <div onClick={() => setTablePinPrompt(false)} style={{ marginTop: 10, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}>Cancel</div>
+                </div>
+              </div>
             )}
             {confirmingOrder && (
               <div style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(30,35,25,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
