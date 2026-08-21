@@ -679,8 +679,11 @@ Deno.serve(async (req) => {
         const { location_id, label } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
         const token = crypto.randomUUID().replace(/-/g, "").slice(0, 12);
+        // is_table:false marks this as a TABLET link (not a dining table). The admin
+        // splits the two lists on this flag; without it the row defaults to null and
+        // wrongly shows up under Dining Tables.
         const { data: row, error } = await admin.from("menu_tables")
-          .insert({ location_id, label: label ?? "Tablet", qr_token: token, active: true })
+          .insert({ location_id, label: label ?? "Tablet", qr_token: token, active: true, is_table: false })
           .select("id, qr_token").single();
         if (error) throw error;
         return json({ ok: true, id: row.id, qr_token: row.qr_token });
