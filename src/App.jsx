@@ -1687,14 +1687,16 @@ export default function App() {
       setOrderNo(formatOrderNo(resp.order_no));
       setLastOrderId(resp.order_id);
       setAppendOrderId(null); // adding (if any) is now done
+      const placedLines = lines; // snapshot for the session-history entry below
+      setLines([]);              // empty the bag immediately so it can't be placed again
       setSessionOrders((prev) => [{
         no: formatOrderNo(resp.order_no),
         orderId: resp.order_id,
         at: Date.now(),
         table: (dineIn && table) ? table.label : null,
-        count: lines.reduce((s2, l) => s2 + l.qty, 0),
-        total: lines.reduce((s2, l) => s2 + (l.unit || l.item.price || 0) * l.qty, 0),
-        items: lines.map((l) => ({ name: l.item.name, qty: l.qty, mods: (l.mods || []).map((m) => m.name) })),
+        count: placedLines.reduce((s2, l) => s2 + l.qty, 0),
+        total: placedLines.reduce((s2, l) => s2 + (l.unit || l.item.price || 0) * l.qty, 0),
+        items: placedLines.map((l) => ({ name: l.item.name, qty: l.qty, mods: (l.mods || []).map((m) => m.name) })),
       }, ...prev]);
       setScreen("confirm");
     } catch (e) {
