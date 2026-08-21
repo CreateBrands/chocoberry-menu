@@ -62,14 +62,39 @@ function receiptTree(o: ReceiptOrder): Node {
           el("div", {}, o.notes)),
         rule()]
       : []),
-    ...o.items.flatMap((it) => [
-      row(`${it.qty} x ${it.name}`,
-        typeof it.price === "number" ? gbp(it.price) : "",
-        { fontWeight: 700, fontSize: 27, maxWidth: "430px" },
-        { fontWeight: 700, fontSize: 27 }),
-      ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
-      el("div", { height: 6 }),
-    ]),
+    // Items. When items were added to an existing order, split into ORIGINAL and
+    // ADDED sections so the kitchen sees clearly what's new and doesn't remake the
+    // first part. Otherwise render a single flat list.
+    ...(o.hasAdditions
+      ? [
+          el("div", { fontWeight: 700, fontSize: 30, marginBottom: 4 }, "ORIGINAL ORDER"),
+          ...o.items.filter((it) => !it.added).flatMap((it) => [
+            row(`${it.qty} x ${it.name}`,
+              typeof it.price === "number" ? gbp(it.price) : "",
+              { fontWeight: 700, fontSize: 27, maxWidth: "430px" },
+              { fontWeight: 700, fontSize: 27 }),
+            ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
+            el("div", { height: 6 }),
+          ]),
+          el("div", { flexDirection: "column", alignItems: "center", width: "100%", background: "#000", color: "#fff", padding: "6px 0", marginTop: 6, marginBottom: 6 },
+            el("div", { fontSize: 40, fontWeight: 700, letterSpacing: 2 }, "* * *  ADDED  * * *")),
+          ...o.items.filter((it) => it.added).flatMap((it) => [
+            row(`${it.qty} x ${it.name}`,
+              typeof it.price === "number" ? gbp(it.price) : "",
+              { fontWeight: 700, fontSize: 30, maxWidth: "430px" },
+              { fontWeight: 700, fontSize: 30 }),
+            ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
+            el("div", { height: 6 }),
+          ]),
+        ]
+      : o.items.flatMap((it) => [
+          row(`${it.qty} x ${it.name}`,
+            typeof it.price === "number" ? gbp(it.price) : "",
+            { fontWeight: 700, fontSize: 27, maxWidth: "430px" },
+            { fontWeight: 700, fontSize: 27 }),
+          ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
+          el("div", { height: 6 }),
+        ])),
     rule(),
     ...(typeof o.subtotal === "number" && o.subtotal !== o.total
       ? [row("Subtotal", gbp(o.subtotal))]
@@ -81,6 +106,11 @@ function receiptTree(o: ReceiptOrder): Node {
       ? [row("Amount due", gbp(o.total), { fontWeight: 700, fontSize: 30 }, { fontWeight: 700, fontSize: 30 })]
       : []),
     rule(),
+    ...(o.hasAdditions
+      ? [el("div", { flexDirection: "column", alignItems: "center", width: "100%", background: "#000", color: "#fff", padding: "10px 0", marginBottom: 6 },
+          el("div", { fontSize: 34, fontWeight: 700 }, "DISCARD PREVIOUS"),
+          el("div", { fontSize: 34, fontWeight: 700 }, "SLIP FOR THIS ORDER"))]
+      : []),
     el("div", { justifyContent: "center", width: "100%", fontSize: 22 },
       `Chocoberry${o.storeName ? " - " + o.storeName : ""} - thank you!`),
   );
