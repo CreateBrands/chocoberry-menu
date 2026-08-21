@@ -1476,6 +1476,8 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
 
 export default function App() {
   const [screen, setScreen] = useState("welcome");
+  const screenRef = useRef("welcome");
+  useEffect(() => { screenRef.current = screen; }, [screen]);
   const [online, setOnline] = useState(typeof navigator !== "undefined" ? navigator.onLine : true);
   useEffect(() => {
     const on = () => setOnline(true), off = () => setOnline(false);
@@ -1497,6 +1499,8 @@ export default function App() {
   const [activeCat, setActiveCat] = useState(0);
   const [selItem, setSelItem] = useState(null);
   const [lines, setLines] = useState([]);
+  const linesRef = useRef([]);
+  useEffect(() => { linesRef.current = lines; }, [lines]);
   const [pickupName, setPickupName] = useState("");
   const [orderNo, setOrderNo] = useState(null);
   // Dining-table state. tableMode: "none" (takeaway) | "pick" (tablet, must choose) | "fixed" (phone scanned a table QR)
@@ -1563,6 +1567,35 @@ export default function App() {
   // Both matter: an unlocked tablet would show the next person allergen
   // information they never accepted the policy for.
   const IDLE_RESET_MS = 3 * 60 * 1000;
+
+  // Auto-update: when a new app version is deployed, tablets pick it up on their
+  // own — no manual close-and-reopen. Every build produces a new hashed JS bundle
+  // in index.html; we record ours on load, then poll index.html and, if the
+  // deployed bundle differs, reload — but ONLY when the tablet is idle (welcome
+  // screen, empty bag) so we never interrupt a customer mid-order.
+  const myBundleRef = useRef(null);
+  useEffect(() => {
+    let stop = false;
+    const readBundle = (html) => { const m = html.match(/assets\/index-[\w-]+\.js/); return m ? m[0] : null; };
+    // Record the version we're currently running.
+    fetch("/index.html?v=" + Date.now(), { cache: "no-store" })
+      .then((r) => r.ok ? r.text() : "").then((html) => { myBundleRef.current = readBundle(html); }).catch(() => {});
+    const check = () => {
+      if (stop) return;
+      // Only reload when idle: on the welcome screen with an empty bag.
+      const idle = screenRef.current === "welcome" && (linesRef.current || []).length === 0;
+      if (!idle) return;
+      fetch("/index.html?v=" + Date.now(), { cache: "no-store" })
+        .then((r) => r.ok ? r.text() : "").then((html) => {
+          const deployed = readBundle(html);
+          if (deployed && myBundleRef.current && deployed !== myBundleRef.current) {
+            window.location.reload();
+          }
+        }).catch(() => {});
+    };
+    const t = setInterval(check, 120000); // every 2 minutes
+    return () => { stop = true; clearInterval(t); };
+  }, []);
   useEffect(() => {
     if (screen === "welcome" && allergensUnlocked) setAllergensUnlocked(false);
   }, [screen, allergensUnlocked]);
