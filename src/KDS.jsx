@@ -42,6 +42,16 @@ export default function KDS() {
   const [fullscreen, setFullscreen] = useState(false);
   const [undo, setUndo] = useState(null);
   const [rushIds, setRushIds] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("kds_rush") || "[]")); } catch { return new Set(); } });
+  // Orders/payment view state
+  const [view, setView] = useState("kitchen");      // "kitchen" | "orders"
+  const [orderFilter, setOrderFilter] = useState("unpaid"); // unpaid | paid | all
+  const [payFor, setPayFor] = useState(null);       // order awaiting payment action
+  const [payPin, setPayPin] = useState("");         // PIN entered to confirm payment
+  const [payMethod, setPayMethod] = useState(null); // cash | card chosen, awaiting PIN
+  const [payDiscType, setPayDiscType] = useState(null); // null | percent | amount
+  const [payDiscVal, setPayDiscVal] = useState("");
+  const [payBusy, setPayBusy] = useState(false);
+  const [payErr, setPayErr] = useState("");
   const prevIds = useRef(new Set());
   const audioCtx = useRef(null);
   const scale = SIZES[size] || 1;
@@ -77,7 +87,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status,station)"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,total,paid_method,paid_amount,paid_at,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status,station)"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.asc&limit=200";
       if (loc) url += "&location_id=eq." + loc;
@@ -105,6 +115,26 @@ export default function KDS() {
     setOrders((prev) => prev.map((o) => ({ ...o, menu_order_items: o.menu_order_items.map((it) => it.id === id ? { ...it, ...body } : it) })));
     try { await fetch(SUPABASE_URL + "/rest/v1/menu_order_items?id=eq." + id, { method: "PATCH", headers: { ...H, Prefer: "return=minimal" }, body: JSON.stringify(body) }); } catch {}
   }
+
+  // Take payment on an order — PIN is verified at this moment (viewing is open,
+  // paying needs the staff PIN). Reuses the same admin-api mark_paid the till uses.
+  async function takePayment() {
+    if (!payFor || !payMethod || !payPin) { setPayErr("Enter the staff PIN."); return; }
+    setPayBusy(true); setPayErr("");
+    try {
+      const data = { order_id: payFor.id, method: payMethod };
+      if (payDiscType && payDiscVal) { data.discount_type = payDiscType; data.discount_value = Number(payDiscVal); }
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin: payPin, action: "mark_paid", data }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error === "unauthorized" ? "Wrong PIN." : "Payment failed."); }
+      // Close the pay panel and refresh.
+      setPayFor(null); setPayMethod(null); setPayPin(""); setPayDiscType(null); setPayDiscVal("");
+      load();
+    } catch (e) { setPayErr(e.message || "Payment failed."); } finally { setPayBusy(false); }
+  }
+  function closePay() { setPayFor(null); setPayMethod(null); setPayPin(""); setPayDiscType(null); setPayDiscVal(""); setPayErr(""); }
 
   const start = (o) => patchOrder(o.id, { status: "preparing", kds_started_at: new Date().toISOString() });
   const bump = (o) => {
@@ -135,6 +165,16 @@ export default function KDS() {
   active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0));
   const completed = orders.filter((o) => o.status === BUMP_TO).map(filterStation).filter(Boolean)
     .sort((a, b) => new Date(b.kds_bumped_at || b.created_at) - new Date(a.kds_bumped_at || a.created_at));
+
+  // Orders/payment view: all non-closed orders, split by paid state. Unpaid float
+  // to the top (most-waited first) so staff see what needs collecting.
+  const isPaid = (o) => !!o.paid_method;
+  const payOrders = orders.slice();
+  const unpaidOrders = payOrders.filter((o) => !isPaid(o)).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  const paidOrders = payOrders.filter((o) => isPaid(o)).sort((a, b) => new Date(b.paid_at || b.created_at) - new Date(a.paid_at || a.created_at));
+  const shownOrders = orderFilter === "unpaid" ? unpaidOrders : orderFilter === "paid" ? paidOrders : [...unpaidOrders, ...paidOrders];
+  const totalUnpaid = unpaidOrders.reduce((s, o) => s + Number(o.total || 0), 0);
+  const totalTaken = paidOrders.reduce((s, o) => s + Number(o.paid_amount != null ? o.paid_amount : o.total || 0), 0);
 
   const allday = {};
   for (const o of active) for (const it of (o.menu_order_items || [])) {
@@ -190,6 +230,14 @@ export default function KDS() {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "linear-gradient(180deg,#161a23,#0f131a)", borderBottom: "1px solid #20252f", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 4px 16px -8px rgba(0,0,0,.6)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
+          <div style={{ display: "flex", background: "#0c0f16", borderRadius: 10, padding: 3, gap: 2 }}>
+            {[["kitchen", "Kitchen"], ["orders", "Orders"]].map(([v, label]) => (
+              <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#9aa3b2" }}>
+                {label}{v === "orders" && unpaidOrders.length ? " " + unpaidOrders.length : ""}
+              </div>
+            ))}
+          </div>
+          {view === "kitchen" && (
           <div style={{ display: "flex", gap: 6 }}>
             {[["active", "Active"], ["allday", "All-day"], ["completed", "Done"]].map(([t, label]) => (
               <div key={t} onClick={() => setTab(t)} className="kbtn" style={{ padding: "7px 15px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, background: tab === t ? "#ec4899" : "#20242f", transition: "background .12s" }}>
@@ -197,6 +245,7 @@ export default function KDS() {
               </div>
             ))}
           </div>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 13 }}>
           <Stat label="Time" value={nowClock} />
@@ -225,7 +274,7 @@ export default function KDS() {
         </div>
       </div>
 
-      {tab === "active" && (
+      {view === "kitchen" && tab === "active" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(268) + "px, 1fr))", gap: F(12), padding: F(16), alignItems: "start" }}>
           {active.length === 0 && <div style={{ color: "#6b7280", padding: 48, fontSize: 18 }}>No active orders.</div>}
           {active.map((o, i) => {
@@ -286,7 +335,7 @@ export default function KDS() {
         </div>
       )}
 
-      {tab === "allday" && (
+      {view === "kitchen" && tab === "allday" && (
         <div style={{ padding: F(16), maxWidth: 620 }}>
           <div style={{ fontSize: F(14), color: "#9ca3af", marginBottom: 12 }}>Everything working right now, across all active orders:</div>
           {alldayRows.length === 0 && <div style={{ color: "#6b7280" }}>Nothing in the queue.</div>}
@@ -299,7 +348,7 @@ export default function KDS() {
         </div>
       )}
 
-      {tab === "completed" && (
+      {view === "kitchen" && tab === "completed" && (
         <div style={{ padding: F(16) }}>
           <div style={{ fontSize: F(14), color: "#9ca3af", marginBottom: 12 }}>Recently bumped {DOT} tap Recall to bring one back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(244) + "px, 1fr))", gap: F(12) }}>
@@ -313,6 +362,95 @@ export default function KDS() {
                 <div onClick={() => recall(o)} className="kbtn" style={{ textAlign: "center", padding: F(8) + "px 0", background: "#1e40af", fontWeight: 700, fontSize: F(13), cursor: "pointer" }}>{ARROW + " Recall"}</div>
               </div>
             ))}
+          </div>
+        </div>
+      )}
+
+      {view === "orders" && (
+        <div style={{ padding: F(16) }}>
+          {/* Summary strip */}
+          <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
+            <div style={{ flex: 1, minWidth: 160, background: "linear-gradient(180deg,#1c1712,#161009)", border: "1px solid #3a2e17", borderRadius: 12, padding: "12px 16px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", letterSpacing: ".04em" }}>UNPAID</div>
+              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2 }}>GBP {totalUnpaid.toFixed(2)}</div>
+              <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 2 }}>{unpaidOrders.length} order{unpaidOrders.length === 1 ? "" : "s"}</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 160, background: "linear-gradient(180deg,#121a16,#0d130f)", border: "1px solid #1c3a2a", borderRadius: 12, padding: "12px 16px" }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: "#4ade80", letterSpacing: ".04em" }}>TAKEN TODAY</div>
+              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2 }}>GBP {totalTaken.toFixed(2)}</div>
+              <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 2 }}>{paidOrders.length} paid</div>
+            </div>
+          </div>
+          {/* Filter chips */}
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {[["unpaid", "Unpaid", unpaidOrders.length], ["paid", "Paid", paidOrders.length], ["all", "All", unpaidOrders.length + paidOrders.length]].map(([f, label, n]) => (
+              <div key={f} onClick={() => setOrderFilter(f)} className="kbtn" style={{ padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, background: orderFilter === f ? "#ec4899" : "#20242f", color: orderFilter === f ? "#fff" : "#cbd5e1" }}>{label} {n}</div>
+            ))}
+          </div>
+          {/* Order rows */}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
+            {shownOrders.length === 0 && <div style={{ color: "#6b7280", padding: 40, fontSize: 17 }}>No {orderFilter === "all" ? "" : orderFilter} orders.</div>}
+            {shownOrders.map((o) => {
+              const paid = isPaid(o);
+              const items = o.menu_order_items || [];
+              const preview = items.map((it) => it.qty + "x " + it.name_snapshot).join(", ");
+              const tbl = o.menu_tables?.label || (o.order_type === "dine_in" ? "Dine In" : "Takeaway");
+              const waited = Math.floor(minsSince(o.created_at, now));
+              return (
+                <div key={o.id} onClick={() => { if (!paid) { setPayFor(o); setPayMethod(null); setPayPin(""); setPayErr(""); } }}
+                  style={{ background: paid ? "linear-gradient(180deg,#121a16,#0e130f)" : "linear-gradient(180deg,#1c1712,#15100a)", border: "1px solid " + (paid ? "#1c3a2a" : "#3a2e17"), borderLeft: "4px solid " + (paid ? "#4ade80" : "#fbbf24"), borderRadius: 12, padding: "12px 14px", cursor: paid ? "default" : "pointer" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontWeight: 800, fontSize: 17 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: 20, background: paid ? "#14532d" : "#7c5310", color: paid ? "#86efac" : "#fcd34d" }}>{paid ? (o.paid_method === "card" ? "PAID · CARD" : "PAID · CASH") : "UNPAID"}</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: "#cbd5e1", fontWeight: 600 }}>{tbl}{!paid && <span style={{ color: "#9aa3b2", fontWeight: 500 }}> · waiting {waited}m</span>}</div>
+                  <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</div>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
+                    <span style={{ fontSize: 20, fontWeight: 800 }}>GBP {Number(paid && o.paid_amount != null ? o.paid_amount : o.total || 0).toFixed(2)}</span>
+                    {!paid && <span style={{ fontSize: 13, fontWeight: 700, color: "#f472b6" }}>Take payment ›</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Payment panel */}
+      {payFor && (
+        <div onClick={closePay} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "linear-gradient(180deg,#1a212c,#12161d)", border: "1px solid #2a3340", borderRadius: 18, padding: 22, width: 380, maxWidth: "100%", boxShadow: "0 30px 80px -20px rgba(0,0,0,.8)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontWeight: 800, fontSize: 19 }}>{(payFor.tablet_no ? "T" + payFor.tablet_no + "-" : "#") + (payFor.order_no ?? "")}</span>
+              <span onClick={closePay} className="kbtn" style={{ cursor: "pointer", color: "#9aa3b2", fontSize: 20 }}>{X}</span>
+            </div>
+            <div style={{ fontSize: 13, color: "#9aa3b2", marginBottom: 12 }}>{payFor.menu_tables?.label || "Takeaway"}</div>
+            {(() => { const base = Number(payFor.total || 0); let due = base; if (payDiscType === "percent" && payDiscVal) due = base * (1 - Number(payDiscVal) / 100); else if (payDiscType === "amount" && payDiscVal) due = base - Number(payDiscVal); due = Math.max(0, due);
+              return (
+                <div style={{ textAlign: "center", padding: "10px 0 16px" }}>
+                  <div style={{ fontSize: 13, color: "#9aa3b2" }}>Amount due</div>
+                  <div style={{ fontSize: 34, fontWeight: 800 }}>GBP {due.toFixed(2)}</div>
+                  {payDiscType && payDiscVal ? <div style={{ fontSize: 12, color: "#fbbf24" }}>was GBP {base.toFixed(2)}</div> : null}
+                </div>
+              ); })()}
+            {/* Discount (optional) */}
+            <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+              <div onClick={() => { setPayDiscType(payDiscType === "percent" ? null : "percent"); setPayDiscVal(""); }} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 700, background: payDiscType === "percent" ? "#3730a3" : "#20242f" }}>% off</div>
+              <div onClick={() => { setPayDiscType(payDiscType === "amount" ? null : "amount"); setPayDiscVal(""); }} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 700, background: payDiscType === "amount" ? "#3730a3" : "#20242f" }}>GBP off</div>
+              {payDiscType && <input type="number" value={payDiscVal} onChange={(e) => setPayDiscVal(e.target.value)} placeholder={payDiscType === "percent" ? "%" : "GBP"} style={{ width: 70, textAlign: "center", borderRadius: 9, border: "1px solid #374151", background: "#0f131a", color: "#fff", fontSize: 15 }} />}
+            </div>
+            {/* Method */}
+            <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+              {[["cash", "Cash"], ["card", "Card"]].map(([m, label]) => (
+                <div key={m} onClick={() => setPayMethod(m)} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, cursor: "pointer", fontSize: 16, fontWeight: 800, background: payMethod === m ? "#ec4899" : "#20242f", border: "1px solid " + (payMethod === m ? "#ec4899" : "#2a3340") }}>{label}</div>
+              ))}
+            </div>
+            {/* PIN — required to confirm */}
+            <input type="text" inputMode="numeric" value={payPin} onChange={(e) => setPayPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && takePayment()} placeholder="Staff PIN to confirm"
+              autoComplete="off" name="kds-code-nosave" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
+              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #374151", background: "#0f131a", color: "#fff", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
+            {payErr && <div style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 8 }}>{payErr}</div>}
+            <div onClick={takePayment} className="kbtn" style={{ textAlign: "center", padding: "13px 0", borderRadius: 30, background: (payMethod && payPin) ? "#16a34a" : "#334155", color: "#fff", fontWeight: 800, fontSize: 16, cursor: (payMethod && payPin) ? "pointer" : "default", opacity: payBusy ? .6 : 1 }}>{payBusy ? "Processing…" : "Confirm payment"}</div>
           </div>
         </div>
       )}
