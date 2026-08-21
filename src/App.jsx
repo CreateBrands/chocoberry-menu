@@ -1270,7 +1270,7 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: table ? "var(--muted)" : "rgba(180,70,47,.9)", marginBottom: 3 }}>YOUR TABLE</div>
               <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, color: "var(--ink)" }}>{table ? table.label : "Tap to choose your table"}</div>
             </div>
-            {tableMode === "pick" && <div style={{ fontSize: 14, fontWeight: 600, color: "var(--accent)" }}>{table ? "Change" : "Select"}</div>}
+            {tableMode === "pick" && <div style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)", display: "flex", alignItems: "center", gap: 4 }}>🔒 {table ? "Change" : "Set"}</div>}
           </div>
         )}
         {lines.length === 0 && <div style={{ textAlign: "center", color: "var(--muted)", marginTop: 80, fontSize: 17 }}>Your bag is empty.<br />Add something from the menu.</div>}
@@ -1776,8 +1776,8 @@ export default function App() {
             )}
             {orderingOn && showTablePicker && (
               <TablePicker tables={tables} current={table} required={false}
-                onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }}
-                onClose={() => setShowTablePicker(false)} />
+                onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); setTableUnlocked(false); }}
+                onClose={() => { setShowTablePicker(false); setTableUnlocked(false); }} />
             )}
             {tablePinPrompt && (
               <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setTablePinPrompt(false)}>
