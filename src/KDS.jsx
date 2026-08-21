@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import POS from "./POS.jsx";
 
 // ============================================================================
 // Create Brands / Chocoberry — Kitchen Display System (v2, comprehensive)
@@ -60,6 +61,13 @@ export default function KDS() {
   useEffect(() => { try { localStorage.setItem("kds_rush", JSON.stringify([...rushIds])); } catch {} }, [rushIds]);
   // Remember the linked location so a reload keeps this screen pointed at its store.
   useEffect(() => { if (loc) { try { localStorage.setItem("kds_loc", loc); } catch {} } }, [loc]);
+  // Tables for the POS table selector (dining tables at this location).
+  const [posTables, setPosTables] = useState([]);
+  useEffect(() => {
+    if (!loc) return;
+    fetch(SUPABASE_URL + "/rest/v1/menu_tables?location_id=eq." + loc + "&is_table=eq.true&active=eq.true&select=id,label&order=label.asc", { headers: H })
+      .then((r) => r.ok ? r.json() : []).then((rows) => setPosTables(rows || [])).catch(() => {});
+  }, [loc]);
 
   useEffect(() => {
     const token = getParam("store");
@@ -272,7 +280,7 @@ export default function KDS() {
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
           <div style={{ display: "flex", background: "#0c0f16", borderRadius: 10, padding: 3, gap: 2 }}>
-            {[["kitchen", "Kitchen"], ["orders", "Orders"]].map(([v, label]) => (
+            {[["kitchen", "Kitchen"], ["orders", "Orders"], ["pos", "POS"]].map(([v, label]) => (
               <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#9aa3b2" }}>
                 {label}{v === "orders" && unpaidOrders.length ? " " + unpaidOrders.length : ""}
               </div>
@@ -412,6 +420,10 @@ export default function KDS() {
             ))}
           </div>
         </div>
+      )}
+
+      {view === "pos" && (
+        <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables} />
       )}
 
       {view === "orders" && (
