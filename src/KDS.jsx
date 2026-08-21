@@ -136,6 +136,25 @@ export default function KDS() {
   }
   function closePay() { setPayFor(null); setPayMethod(null); setPayPin(""); setPayDiscType(null); setPayDiscVal(""); setPayErr(""); }
 
+  // Print (reprint) a slip for an order from the KDS Orders view — same action the
+  // staff drawer uses. force:true so it always prints even if already printed.
+  const [printingId, setPrintingId] = useState(null);
+  const [printMsg, setPrintMsg] = useState(null);
+  async function printSlip(o, e) {
+    if (e) e.stopPropagation();
+    if (!o.id) return;
+    setPrintingId(o.id); setPrintMsg(null);
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/sunmi-print", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ action: "print-order", order_id: o.id, force: true }),
+      });
+      if (!r.ok) throw new Error("http " + r.status);
+      setPrintMsg({ id: o.id, text: "Slip sent to printer" });
+    } catch { setPrintMsg({ id: o.id, text: "Print failed — try again" }); }
+    finally { setPrintingId(null); setTimeout(() => setPrintMsg(null), 3000); }
+  }
+
   const start = (o) => patchOrder(o.id, { status: "preparing", kds_started_at: new Date().toISOString() });
   const bump = (o) => {
     const prevStatus = o.status;
@@ -415,6 +434,9 @@ export default function KDS() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
                     <span style={{ fontSize: 20, fontWeight: 800 }}>GBP {Number(paid && o.paid_amount != null ? o.paid_amount : o.total || 0).toFixed(2)}</span>
                     {!paid && <span style={{ fontSize: 13, fontWeight: 700, color: "#f472b6" }}>Take payment ›</span>}
+                  </div>
+                  <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ marginTop: 8, textAlign: "center", padding: "8px 0", borderRadius: 8, background: "#20242f", border: "1px solid #2f3542", fontSize: 13, fontWeight: 700, color: "#cbd5e1", cursor: "pointer", opacity: printingId === o.id ? .6 : 1 }}>
+                    {printingId === o.id ? "Printing…" : (printMsg && printMsg.id === o.id ? printMsg.text : "🖨 Print slip")}
                   </div>
                 </div>
               );
