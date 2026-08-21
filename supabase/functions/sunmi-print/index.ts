@@ -19,6 +19,7 @@ import { SunmiClient, ok } from "../_shared/sunmi.ts";
 import {
   buildOrderReceipt,
   buildTestReceipt,
+  Receipt,
   type ReceiptOrder,
   type ReceiptItem,
 } from "../_shared/escpos.ts";
@@ -48,10 +49,16 @@ const sunmi = new SunmiClient(
   Deno.env.get("SUNMI_APP_KEY") ?? "",
 );
 
+const cors = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-print-secret",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: { ...cors, "Content-Type": "application/json" },
   });
 
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
@@ -246,7 +253,6 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
   );
   // Build the full order once (items now each carry a station).
   const order = await loadReceiptOrder(rec);
-  if (force) (order as any).reprint = true; // reprint => slip shows a DUPLICATE banner
   const allItems = order.items as Array<ReceiptItem & { station?: string }>;
 
   // Which stations actually have printers here? If a printer's station has no
@@ -283,26 +289,34 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
       continue;
     }
 
-    const stationOrder: ReceiptOrder = { ...order, items: lines };
-    const contentHex = await receiptHexFor(stationOrder);
+    // How many copies this printer should print (default 1).
+    const copies = Math.max(1, parseInt(String((printer as any).copies ?? 1), 10) || 1);
 
-    // trade_no <=32 chars, unique per printer (station suffix) and per reprint.
+    // trade_no <=32 chars, unique per printer (station suffix), per reprint, and per copy.
     const base = orderId.replace(/-/g, "").slice(0, 24);
-    const tag = (force ? Date.now().toString(36) : "") + sn.slice(-5);
-    const tradeNo = (base + tag).slice(0, 32);
+    for (let copy = 0; copy < copies; copy++) {
+      // First copy is the original; any extra copy (copy > 0) OR a forced reprint
+      // is marked DUPLICATE so it can't be mistaken for a new order.
+      const isDuplicate = force || copy > 0;
+      const stationOrder: ReceiptOrder = { ...order, items: lines, reprint: isDuplicate };
+      const contentHex = await receiptHexFor(stationOrder);
 
-    const res = await sunmi.pushContent(sn, tradeNo, contentHex);
-    const success = ok(res);
-    await logJob({
-      order_id: orderId,
-      printer_sn: sn,
-      status: success ? "sent" : "failed",
-      response: res,
-      error: success ? null : res.msg ?? "unknown Sunmi error",
-    });
-    results.push({ printer: sn, station, printed: success, sunmi: res });
-    if (!success) {
-      console.error(`pushContent failed for ${sn} (${station}):`, JSON.stringify(res));
+      const tag = (force ? Date.now().toString(36) : "") + sn.slice(-5) + (copy > 0 ? "c" + copy : "");
+      const tradeNo = (base + tag).slice(0, 32);
+
+      const res = await sunmi.pushContent(sn, tradeNo, contentHex);
+      const success = ok(res);
+      await logJob({
+        order_id: orderId,
+        printer_sn: sn,
+        status: success ? "sent" : "failed",
+        response: res,
+        error: success ? null : res.msg ?? "unknown Sunmi error",
+      });
+      results.push({ printer: sn, station, copy: copy + 1, printed: success, sunmi: res });
+      if (!success) {
+        console.error(`pushContent failed for ${sn} (${station}) copy ${copy + 1}:`, JSON.stringify(res));
+      }
     }
   }
 
@@ -316,16 +330,27 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
 // ---------------------------------------------------------------------------
 
 Deno.serve(async (req) => {
-  const secret = Deno.env.get("PRINT_WEBHOOK_SECRET");
-  if (!secret || req.headers.get("x-print-secret") !== secret) {
-    return json({ error: "unauthorized" }, 401);
-  }
+  // CORS preflight — browsers send OPTIONS first for cross-origin calls (e.g. the
+  // tablet's reprint button). Must return the CORS headers or the browser blocks it.
+  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
   let body: Record<string, unknown>;
   try {
     body = await req.json();
   } catch {
     return json({ error: "invalid JSON" }, 400);
+  }
+
+  // The automatic webhook (menu_orders INSERT) must carry the print secret.
+  // The manual reprint action (print-order) comes from the tablet with the anon
+  // key (validated by the platform) and is a low-risk staff action, so it does
+  // not require the master secret — we never ship that secret to the tablet.
+  const secret = Deno.env.get("PRINT_WEBHOOK_SECRET");
+  const isReprint = body.action === "print-order";
+  if (!isReprint) {
+    if (!secret || req.headers.get("x-print-secret") !== secret) {
+      return json({ error: "unauthorized" }, 401);
+    }
   }
 
   try {
@@ -393,6 +418,44 @@ Deno.serve(async (req) => {
         if (error || !data) return json({ error: "order not found" }, 404);
         const result = await printOrder(data, body.force === true);
         return json(result);
+      }
+
+      case "print-summary": {
+        // End-of-day Z-report. Prints to every kitchen printer at the location's
+        // store (or all printers if we can't resolve one).
+        const s = body.summary || {};
+        const storeName = String(body.store_name || "");
+        const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+        const money = (n: number) => "GBP " + (Number(n) || 0).toFixed(2);
+        const W = 48;
+        const r = new Receipt();
+        r.align(1).size(1, 1).bold(true).line("END OF DAY").bold(false).size(0, 0);
+        if (storeName) r.line(storeName);
+        r.line("Z-REPORT").feed(1);
+        r.align(0).line(when).divider("-").feed(1);
+        r.size(0, 1).leftRight("TOTAL TAKEN", money(s.total), W).size(0, 0);
+        r.divider("-");
+        r.leftRight("Cash", money(s.cash), W);
+        r.leftRight("Card", money(s.card), W);
+        r.leftRight("Paid orders", String(s.paid_count ?? 0), W);
+        if ((s.discount_total ?? 0) > 0) r.leftRight("Discounts given", money(s.discount_total), W);
+        r.divider("-");
+        if ((s.unpaid_count ?? 0) > 0) {
+          r.bold(true).leftRight("UNPAID (" + s.unpaid_count + ")", money(s.unpaid_total), W).bold(false);
+          r.divider("-");
+        }
+        r.leftRight("Orders archived", String(s.order_count ?? s.paid_count ?? 0), W);
+        r.feed(1).align(1).line("Day closed").feed(2).cut();
+        const hex = r.toHex();
+        // Print to all kitchen printers (day-close is a store-level report).
+        const { data: printers } = await supabase.from("printers").select("sn, station");
+        const targets = (printers || []).filter((p: any) => (p.station || "kitchen") === "kitchen");
+        const results = [];
+        for (const pr of (targets.length ? targets : (printers || []))) {
+          const res = await sunmi.pushContent(String(pr.sn), "zrep" + Date.now() + String(pr.sn).slice(-4), hex);
+          results.push({ sn: pr.sn, ok: ok(res) });
+        }
+        return json({ ok: true, printed: results });
       }
       default:
         return json({ error: "unknown action" }, 400);

@@ -488,7 +488,22 @@ Deno.serve(async (req) => {
             .update({ closed_at: now }).in("id", ids);
           if (uErr) throw uErr;
         }
-        return json({ ok: true, closure_id: closure?.id, closed_orders: ids.length,
+        // Print the Z-report (best-effort — don't fail the close if printing fails).
+        let printed = null;
+        try {
+          const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).single();
+          const pr = await callSunmi({
+            action: "print-summary",
+            store_name: loc?.name || "",
+            summary: {
+              total: round(cash + card), cash: round(cash), card: round(card),
+              paid_count: paidCount, unpaid_total: round(unpaidTotal), unpaid_count: unpaidCount,
+              discount_total: round(discountTotal), order_count: ids.length,
+            },
+          });
+          printed = pr.ok;
+        } catch { printed = false; }
+        return json({ ok: true, closure_id: closure?.id, closed_orders: ids.length, printed,
           summary: { total: round(cash + card), cash: round(cash), card: round(card), paid_count: paidCount, unpaid_total: round(unpaidTotal), unpaid_count: unpaidCount } });
       }
 

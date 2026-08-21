@@ -447,7 +447,7 @@ function Drawer({ orders = [], onClose, locationId }) {
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error("close");
       setConfirmClose(false);
-      setCloseMsg("Day closed — " + (j.closed_orders || 0) + " orders archived, " + money(j.summary?.total || 0) + " taken.");
+      setCloseMsg("Day closed — " + (j.closed_orders || 0) + " orders archived, " + money(j.summary?.total || 0) + " taken." + (j.printed ? " Summary printed." : " (Print may have failed — check printer.)"));
       await loadAllOrders(); // list now empty, summary resets
     } catch {
       setCloseMsg("Couldn't close the day — try again.");
