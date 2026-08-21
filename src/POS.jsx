@@ -151,40 +151,41 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     } catch (e) { setMsg(e.message); } finally { setPayBusy(false); }
   }
 
-  // palette
-  const P = { canvas: "#eceef1", ink: "#12151c", panel: "#fff", line: "#e8e9ec", line2: "#f1f2f4", muted: "#868d99", muted2: "#9aa1ac", chip: "#f2f3f5", pinkA: "#f472a3", pinkB: "#e5397a", pinkBg: "#fdeef4" };
-  const grad = "linear-gradient(140deg," + P.pinkA + "," + P.pinkB + ")";
+  // palette — emerald/teal POS scheme
+  const P = { canvas: "#eceef1", ink: "#12151c", panel: "#fff", line: "#e8e9ec", line2: "#f1f2f4", muted: "#868d99", muted2: "#9aa1ac", chip: "#f0fdfa", chipBorder: "#ccfbf1", tealA: "#14b8a6", tealB: "#0d9488", tealDeep: "#0f766e", masterBg: "#0f2e29", masterMuted: "#5eead4", tealBg: "#f0fdfa" };
+  const grad = "linear-gradient(140deg," + P.tealA + "," + P.tealB + ")";
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
-        {/* LEFT COLUMN — subcategories (scroll, top) + masters (pinned, bottom) */}
-        <div style={{ width: 150, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
-          {/* subcategories of the active master */}
-          <div style={{ flex: 1, overflowY: "auto", padding: "12px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+        {/* LEFT COLUMN — masters (top, dark zone) + subcategories (below, light, scroll) */}
+        <div style={{ width: 154, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
+          {/* master categories — pinned at the top, dark zone */}
+          <div style={{ background: P.masterBg, padding: "9px 9px", display: "flex", flexDirection: "column", gap: 5 }}>
+            {catList.map((m, i) => {
+              const on = activeCat === i;
+              return (
+                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} style={{ borderRadius: 11, padding: "11px 6px", textAlign: "center", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 7, fontSize: 12.5, fontWeight: 500, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 10px rgba(13,148,136,.35)" : "none" }}>
+                  <span style={{ display: "flex", height: 20 }}>{menuIcon(m.name, on)}</span>
+                  <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name}</span>
+                </div>
+              );
+            })}
+          </div>
+          {/* subcategories of the active master — light zone, scrollable */}
+          {master && <div style={{ padding: "8px 9px 3px", fontSize: 10, color: "#b3b8c0", textAlign: "center", letterSpacing: ".5px", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name}</div>}
+          <div style={{ flex: 1, overflowY: "auto", padding: "3px 9px 9px", display: "flex", flexDirection: "column", gap: 6 }}>
             {subs.map((s, i) => {
               const on = activeSub === i && !search;
               return (
-                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 12, padding: "12px 8px", textAlign: "center", cursor: "pointer", fontSize: 12.5, fontWeight: 500, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : "#5f6774", boxShadow: on ? "0 4px 10px rgba(229,57,122,.28)" : "none" }}>
+                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 10, padding: "11px 8px", textAlign: "center", cursor: "pointer", fontSize: 12, fontWeight: 500, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder), boxShadow: on ? "0 4px 10px rgba(13,148,136,.28)" : "none" }}>
                   {s.name}
-                  <div style={{ fontSize: 10, marginTop: 3, fontWeight: 400, color: on ? "rgba(255,255,255,.75)" : "#b3b8c0" }}>{s.items.length}</div>
+                  <div style={{ fontSize: 10, marginTop: 2, fontWeight: 400, color: on ? "rgba(255,255,255,.72)" : "#5eb0a6" }}>{s.items.length}</div>
                 </div>
               );
             })}
             {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 12, textAlign: "center", marginTop: 20 }}>No categories</div>}
-          </div>
-          {/* master categories — pinned at the bottom */}
-          <div style={{ borderTop: "1px solid " + P.line, background: "#fafbfc", padding: "8px 9px", display: "flex", flexDirection: "column", gap: 5 }}>
-            {catList.map((m, i) => {
-              const on = activeCat === i;
-              return (
-                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} style={{ borderRadius: 13, padding: "10px 6px", textAlign: "center", cursor: "pointer", background: on ? grad : "transparent", color: on ? "#fff" : "#616976", boxShadow: on ? "0 4px 10px rgba(229,57,122,.3)" : "none" }}>
-                  <div style={{ display: "flex", justifyContent: "center", height: 22 }}>{menuIcon(m.name, on)}</div>
-                  <div style={{ fontSize: 12, marginTop: 4, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name}</div>
-                </div>
-              );
-            })}
           </div>
         </div>
 
@@ -218,7 +219,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                       <div style={{ fontWeight: 500, fontSize: 13, lineHeight: 1.3, minHeight: 34 }}>{it.name}</div>
                       <div style={{ color: P.ink, fontWeight: 500, fontSize: 16, marginTop: 2 }}>{gbp(it.price)}</div>
                     </div>
-                    <span style={{ width: 31, height: 31, flexShrink: 0, borderRadius: 11, background: P.pinkBg, color: P.pinkB, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 21, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 1px 4px rgba(229,57,122,.18)" }}>+</span>
+                    <span style={{ width: 31, height: 31, flexShrink: 0, borderRadius: 11, background: P.tealBg, color: P.tealDeep, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 21, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 1px 4px rgba(13,148,136,.18)" }}>+</span>
                   </div>
                 </div>
               );
