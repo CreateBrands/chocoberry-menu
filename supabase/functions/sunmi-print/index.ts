@@ -29,6 +29,9 @@ import { buildOrderRasterHex } from "../_shared/raster.ts";
 const RECEIPT_MODE = Deno.env.get("RECEIPT_MODE") ?? "text";
 
 async function receiptHexFor(order: ReceiptOrder): Promise<string> {
+  // NOTE: with RECEIPT_MODE="raster" (default) the LIVE receipt layout lives in
+  // raster.ts (receiptTree). escpos.ts buildOrderReceipt is only the text
+  // fallback used if raster throws. Edit raster.ts to change the printed slip.
   if (RECEIPT_MODE === "raster") {
     try {
       return await buildOrderRasterHex(order);

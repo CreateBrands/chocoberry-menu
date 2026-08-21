@@ -1,3 +1,13 @@
+// ===========================================================================
+// ⚠ FALLBACK ONLY — THIS IS **NOT** WHAT NORMALLY PRINTS.
+//    buildOrderReceipt() below is a plain-text ESC/POS receipt used ONLY if the
+//    raster renderer (raster.ts) throws. With RECEIPT_MODE="raster" (the
+//    default), the printer uses raster.ts, NOT this file.
+//
+//    ➜ To change what the kitchen slip looks like, edit raster.ts (receiptTree).
+//    ➜ Editing THIS file alone will NOT change the normal printed receipt.
+//    Keep this fallback in sync with raster.ts so both render the same info.
+// ===========================================================================
 // ---------------------------------------------------------------------------
 // ESC/POS builder for Sunmi NT311 (80mm, Font A = 48 chars per line)
 // Sunmi cloud printers accept UTF-8 text inside standard ESC/POS commands.

@@ -1,3 +1,14 @@
+// ===========================================================================
+// ⭐ THIS IS THE RECEIPT THE PRINTER ACTUALLY USES (when RECEIPT_MODE="raster",
+//    which is the default). Edit the printed slip layout HERE, in receiptTree().
+//
+//    There is a SECOND receipt builder in escpos.ts (buildOrderReceipt). That
+//    one is only a TEXT FALLBACK used if raster rendering throws. Editing
+//    escpos.ts will NOT change what normally prints. If a receipt change
+//    "isn't showing up" after deploy, you are almost certainly editing the
+//    wrong file — change it HERE.  (See receiptHexFor() in sunmi-print/index.ts
+//    for the selector.)  Keep BOTH files in sync so the fallback matches.
+// ===========================================================================
 // ---------------------------------------------------------------------------
 // Raster receipt renderer (Uber Eats-style, real typography)
 // satori (layout+font) -> resvg-wasm (rasterise) -> 1-bit -> ESC/POS GS v 0
