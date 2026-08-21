@@ -447,6 +447,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   // PIN gate
   const [unlocked, setUnlocked] = useState(false);
   const [pin, setPin] = useState("");
+  const sessionPinRef = useRef(""); // verified PIN kept for authorized drawer actions (not in the input)
   const [pinErr, setPinErr] = useState("");
   const [checking, setChecking] = useState(false);
   // View: "orders" | "items"
@@ -473,7 +474,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin, action: "sweep_unprinted", data: { since_minutes: 180 } }),
+        body: JSON.stringify({ pin: sessionPinRef.current, action: "sweep_unprinted", data: { since_minutes: 180 } }),
       });
       const j = await r.json();
       const n = j?.result?.repushed ?? 0;
@@ -486,7 +487,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin, action: "printer_list", data: {} }),
+        body: JSON.stringify({ pin: sessionPinRef.current, action: "printer_list", data: {} }),
       });
       const j = await r.json();
       if (j && j.printers) setPrinters(j.printers);
@@ -510,7 +511,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin, action: "set_setting", data: { key: "accepting_orders:" + locationId, value: next ? "on" : "off" } }),
+        body: JSON.stringify({ pin: sessionPinRef.current, action: "set_setting", data: { key: "accepting_orders:" + locationId, value: next ? "on" : "off" } }),
       });
       if (!r.ok) throw new Error("save");
       setAccepting(next);
@@ -523,7 +524,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin, action: "close_day", data: { location_id: locationId } }),
+        body: JSON.stringify({ pin: sessionPinRef.current, action: "close_day", data: { location_id: locationId } }),
       });
       const j = await r.json();
       if (!r.ok || !j.ok) throw new Error("close");
@@ -563,7 +564,8 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
       });
       if (!r.ok) throw new Error("bad");
       setUnlocked(true);
-      setPin("");
+      sessionPinRef.current = pin; // keep the verified PIN for authorized actions this session
+      setPin("");                   // clear the input (so the browser can't offer to save it)
       loadAllOrders();
       loadAccepting();
       loadPrinters();
@@ -592,7 +594,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin, action: "day_summary", data: { location_id: locationId } }),
+        body: JSON.stringify({ pin: sessionPinRef.current, action: "day_summary", data: { location_id: locationId } }),
       });
       const j = await r.json();
       if (j && j.summary) setSummary(j.summary);
@@ -602,7 +604,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   async function markPaid(o, method) {
     setSavingPaid(true);
     try {
-      const body = { pin, action: "mark_paid", data: { order_id: o.id, method } };
+      const body = { pin: sessionPinRef.current, action: "mark_paid", data: { order_id: o.id, method } };
       if (discType && discVal !== "" && !isNaN(Number(discVal))) {
         body.data.discount_type = discType;
         body.data.discount_value = Number(discVal);
@@ -621,7 +623,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     try {
       await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin, action: "mark_unpaid", data: { order_id: o.id } }),
+        body: JSON.stringify({ pin: sessionPinRef.current, action: "mark_unpaid", data: { order_id: o.id } }),
       });
       await loadAllOrders();
     } catch { /* ignore */ } finally { setSavingPaid(false); }
@@ -662,7 +664,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin, action: "set_override", data: { item_id: it.id, location_id: locationId, price: null, available: next } }),
+        body: JSON.stringify({ pin: sessionPinRef.current, action: "set_override", data: { item_id: it.id, location_id: locationId, price: null, available: next } }),
       });
       if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error === "unauthorized" ? "PIN not accepted" : "save failed"); }
     } catch (err) {
