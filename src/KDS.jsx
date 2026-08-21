@@ -358,7 +358,14 @@ export default function KDS() {
                   <span style={{ fontWeight: 700, fontSize: F(15) }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
                   <span style={{ fontSize: F(12), color: "#9ca3af" }}>{o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
                 </div>
-                <div style={{ padding: F(6) + "px " + F(12) + "px", fontSize: F(13), color: "#cbd5e1" }}>{(o.menu_order_items || []).map((it) => (it.qty > 1 ? it.qty + TIMES + " " : "") + it.name_snapshot).join(", ")}</div>
+                <div style={{ padding: F(8) + "px " + F(12) + "px", fontSize: F(13), color: "#cbd5e1", display: "flex", flexDirection: "column", gap: F(3) }}>
+                  {(o.menu_order_items || []).map((it) => (
+                    <div key={it.id} style={{ display: "flex", gap: F(6), lineHeight: 1.3 }}>
+                      <span style={{ fontWeight: 700, color: "#f472b6", flexShrink: 0, minWidth: F(20) }}>{it.qty}{TIMES}</span>
+                      <span>{it.name_snapshot}</span>
+                    </div>
+                  ))}
+                </div>
                 <div onClick={() => recall(o)} className="kbtn" style={{ textAlign: "center", padding: F(8) + "px 0", background: "#1e40af", fontWeight: 700, fontSize: F(13), cursor: "pointer" }}>{ARROW + " Recall"}</div>
               </div>
             ))}
