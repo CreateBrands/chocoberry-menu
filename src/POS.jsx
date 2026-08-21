@@ -47,8 +47,9 @@ function menuIcon(name, active) {
 // Reuses store_menu_full (menu), place-order (print + KDS), admin-api mark_paid.
 // ===========================================================================
 export default function POS({ loc, storeToken, tablesList = [] }) {
-  const [cats, setCats] = useState(null);   // [{id,name,items:[{id,name,price,image_url,modifiers}]}]
-  const [activeCat, setActiveCat] = useState(0);
+  const [cats, setCats] = useState(null);   // masters: [{id,name,subs:[{id,name,items:[...]}]}]
+  const [activeCat, setActiveCat] = useState(0);   // master index
+  const [activeSub, setActiveSub] = useState(0);   // subcategory index within active master
   const [search, setSearch] = useState("");
   const [ticket, setTicket] = useState([]);
   const [table, setTable] = useState(null);
@@ -62,8 +63,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [payBusy, setPayBusy] = useState(false);
 
   // ---- Load menu (same source as the customer app) ----
-  // Keep the top-level MENU grouping (Desserts, Drinks, Breakfast…) — the left
-  // rail shows these, matching the customer tablet's bottom nav.
+  // Three levels: master MENU (Breakfast, Desserts…) → subcategory → items.
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -75,21 +75,28 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         for (const row of rows) {
           if (row.available === false) continue;
           let mn = menuMap.get(row.menu_id);
-          if (!mn) { mn = { id: row.menu_id, name: row.menu_name, sort: row.menu_sort ?? 0, items: [] }; menuMap.set(row.menu_id, mn); }
-          mn.items.push({ id: row.item_id, name: row.item_name, price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [] });
+          if (!mn) { mn = { id: row.menu_id, name: row.menu_name, sort: row.menu_sort ?? 0, subMap: new Map() }; menuMap.set(row.menu_id, mn); }
+          let sc = mn.subMap.get(row.category_id);
+          if (!sc) { sc = { id: row.category_id, name: row.category_name, sort: row.category_sort ?? 0, items: [] }; mn.subMap.set(row.category_id, sc); }
+          sc.items.push({ id: row.item_id, name: row.item_name, price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [] });
         }
-        if (alive) setCats([...menuMap.values()].sort((a, b) => a.sort - b.sort));
+        const masters = [...menuMap.values()].sort((a, b) => a.sort - b.sort)
+          .map((m) => ({ id: m.id, name: m.name, subs: [...m.subMap.values()].sort((a, b) => a.sort - b.sort) }));
+        if (alive) setCats(masters);
       } catch { if (alive) setCats([]); }
     })();
     return () => { alive = false; };
   }, [loc]);
 
   const catList = cats || [];
+  const master = catList[activeCat] || null;
+  const subs = master ? master.subs : [];
+  const sub = subs[activeSub] || null;
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (q) return catList.flatMap((c) => c.items).filter((it) => it.name.toLowerCase().includes(q));
-    return catList[activeCat] ? catList[activeCat].items : [];
-  }, [catList, activeCat, search]);
+    if (q) return catList.flatMap((m) => m.subs.flatMap((s) => s.items)).filter((it) => it.name.toLowerCase().includes(q));
+    return sub ? sub.items : [];
+  }, [catList, sub, search]);
 
   const itemCount = ticket.reduce((s, l) => s + l.qty, 0);
   const subtotal = ticket.reduce((s, l) => s + l.unit * l.qty, 0);
@@ -152,18 +159,33 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
-        {/* CATEGORY RAIL */}
-        <div style={{ width: 114, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column", padding: "15px 12px", gap: 5, overflowY: "auto" }}>
-          {catList.map((c, i) => {
-            const on = activeCat === i && !search;
-            return (
-              <div key={c.id} onClick={() => { setActiveCat(i); setSearch(""); }} style={{ borderRadius: 16, padding: "14px 6px", textAlign: "center", cursor: "pointer", background: on ? grad : "transparent", color: on ? "#fff" : "#616976", boxShadow: on ? "0 5px 14px rgba(229,57,122,.32)" : "none" }}>
-                <div style={{ display: "flex", justifyContent: "center", height: 24 }}>{menuIcon(c.name, on)}</div>
-                <div style={{ fontSize: 11, marginTop: 6, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{c.name}</div>
-                <div style={{ fontSize: 10, marginTop: 2, color: on ? "rgba(255,255,255,.75)" : "#b3b8c0" }}>{c.items.length}</div>
-              </div>
-            );
-          })}
+        {/* LEFT COLUMN — subcategories (scroll, top) + masters (pinned, bottom) */}
+        <div style={{ width: 150, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
+          {/* subcategories of the active master */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "12px 10px", display: "flex", flexDirection: "column", gap: 6 }}>
+            {subs.map((s, i) => {
+              const on = activeSub === i && !search;
+              return (
+                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 12, padding: "12px 8px", textAlign: "center", cursor: "pointer", fontSize: 12.5, fontWeight: 500, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : "#5f6774", boxShadow: on ? "0 4px 10px rgba(229,57,122,.28)" : "none" }}>
+                  {s.name}
+                  <div style={{ fontSize: 10, marginTop: 3, fontWeight: 400, color: on ? "rgba(255,255,255,.75)" : "#b3b8c0" }}>{s.items.length}</div>
+                </div>
+              );
+            })}
+            {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 12, textAlign: "center", marginTop: 20 }}>No categories</div>}
+          </div>
+          {/* master categories — pinned at the bottom */}
+          <div style={{ borderTop: "1px solid " + P.line, background: "#fafbfc", padding: "8px 9px", display: "flex", flexDirection: "column", gap: 5 }}>
+            {catList.map((m, i) => {
+              const on = activeCat === i;
+              return (
+                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} style={{ borderRadius: 13, padding: "10px 6px", textAlign: "center", cursor: "pointer", background: on ? grad : "transparent", color: on ? "#fff" : "#616976", boxShadow: on ? "0 4px 10px rgba(229,57,122,.3)" : "none" }}>
+                  <div style={{ display: "flex", justifyContent: "center", height: 22 }}>{menuIcon(m.name, on)}</div>
+                  <div style={{ fontSize: 12, marginTop: 4, fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name}</div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* ITEM GRID */}
@@ -176,7 +198,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 20px 10px" }}>
-            <span style={{ fontSize: 17, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (catList[activeCat] ? catList[activeCat].name : "")}</span>
+            <span style={{ fontSize: 17, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
             <span style={{ fontSize: 12, color: P.muted2 }}>{shown.length} items</span>
           </div>
           <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gridAutoRows: "min-content", gap: 14, overflowY: "auto" }}>
