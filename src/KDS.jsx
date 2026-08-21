@@ -87,7 +87,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,total,paid_method,paid_amount,paid_at,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status,station)"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status,station)"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.asc&limit=200";
       if (loc) url += "&location_id=eq." + loc;
@@ -171,7 +171,7 @@ export default function KDS() {
   const isPaid = (o) => !!o.paid_method;
   const payOrders = orders.slice();
   const unpaidOrders = payOrders.filter((o) => !isPaid(o)).sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-  const paidOrders = payOrders.filter((o) => isPaid(o)).sort((a, b) => new Date(b.paid_at || b.created_at) - new Date(a.paid_at || a.created_at));
+  const paidOrders = payOrders.filter((o) => isPaid(o)).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
   const shownOrders = orderFilter === "unpaid" ? unpaidOrders : orderFilter === "paid" ? paidOrders : [...unpaidOrders, ...paidOrders];
   const totalUnpaid = unpaidOrders.reduce((s, o) => s + Number(o.total || 0), 0);
   const totalTaken = paidOrders.reduce((s, o) => s + Number(o.paid_amount != null ? o.paid_amount : o.total || 0), 0);
