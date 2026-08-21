@@ -180,10 +180,10 @@ export default function KDS() {
   const BOLT = "\u26A1", CHECK = "\u2713", ARROW = "\u21A9", WARN = "\u26A0", DOT = "\u00B7", TIMES = "\u00D7", BELL = "\uD83D\uDD14", BELLOFF = "\uD83D\uDD15", EXPAND = "\u26F6", X = "\u2715";
 
   return (
-    <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "#0d0f13", color: "#fff", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
-      <style>{"@keyframes kpop{0%{transform:scale(.94);opacity:0}100%{transform:scale(1);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.6)}50%{box-shadow:0 0 0 6px rgba(239,68,68,0)}}.kcard{animation:kpop .18s ease-out}.krush{animation:kpulse 1.4s infinite}.kbtn:active{transform:translateY(1px)}::-webkit-scrollbar{width:8px}::-webkit-scrollbar-thumb{background:#2a2f3a;border-radius:4px}"}</style>
+    <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "radial-gradient(1200px 600px at 50% -10%, #12151d, #0b0d11)", color: "#f8fafc", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
+      <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#ffffff08}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#2a2f3a;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#353c49}"}</style>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "10px 18px", background: "linear-gradient(180deg,#191d26,#141821)", borderBottom: "1px solid #262b36", position: "sticky", top: 0, zIndex: 20 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "linear-gradient(180deg,#161a23,#0f131a)", borderBottom: "1px solid #20252f", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 4px 16px -8px rgba(0,0,0,.6)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
           <div style={{ display: "flex", gap: 6 }}>
@@ -227,48 +227,54 @@ export default function KDS() {
           {active.map((o, i) => {
             const age = minsSince(o.created_at, now);
             const isRush = rushIds.has(o.id);
-            const border = isRush ? "#ef4444" : age >= LATE_MIN ? "#ef4444" : age >= WARN_MIN ? "#f59e0b" : "#22c55e";
-            const headerBg = isRush ? "#991b1b" : age >= LATE_MIN ? "#7f1d1d" : age >= WARN_MIN ? "#78350f" : "#14532d";
+            const isLate = age >= LATE_MIN;
+            const pal = isRush
+              ? { accent: "#fb7185", tint: "#1c1215", head: "#7f1d2e" }
+              : isLate
+              ? { accent: "#f87171", tint: "#1a1315", head: "#7f1d1d" }
+              : age >= WARN_MIN
+              ? { accent: "#fbbf24", tint: "#1a1712", head: "#733f12" }
+              : { accent: "#34d399", tint: "#121a16", head: "#14532d" };
             const items = o.menu_order_items || [];
             const doneCount = items.filter((it) => it.item_status === DONE_ITEM).length;
             const allDone = items.length > 0 && doneCount === items.length;
             const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : "Takeaway");
             const note = (o.customer_note || "").trim();
             return (
-              <div key={o.id} className={"kcard" + (isRush ? " krush" : "")} style={{ background: "#161a22", borderRadius: F(13), overflow: "hidden", border: "2px solid " + border, display: "flex", flexDirection: "column" }}>
-                <div style={{ background: headerBg, padding: F(8) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div key={o.id} className={"kcard" + (isRush ? " krush" : "") + (isLate ? " klate" : "")} style={{ background: pal.tint, borderRadius: F(14), overflow: "hidden", boxShadow: "0 1px 0 #ffffff08 inset, 0 6px 20px -8px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", borderLeft: "4px solid " + pal.accent }}>
+                <div style={{ background: pal.head, padding: F(9) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
-                    <div style={{ fontWeight: 800, fontSize: F(18), display: "flex", alignItems: "center", gap: 6 }}>
-                      {isRush && <span>{BOLT}</span>}{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}
-                      <span style={{ fontSize: F(11), fontWeight: 700, opacity: .65, background: "#00000040", padding: "1px 6px", borderRadius: 4 }}>{i + 1}</span>
+                    <div style={{ fontWeight: 800, fontSize: F(19), letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 6 }}>
+                      {isRush && <span style={{ fontSize: F(15) }}>{BOLT}</span>}{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}
+                      <span style={{ fontSize: F(11), fontWeight: 700, opacity: .55, background: "#00000033", padding: "1px 7px", borderRadius: 20 }}>{i + 1}</span>
                     </div>
-                    <div style={{ fontSize: F(12), opacity: .9 }}>{typeLabel}{o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}</div>
+                    <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>{typeLabel}{o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ fontWeight: 800, fontSize: F(19), fontVariantNumeric: "tabular-nums" }}>{fmtClock(o.created_at, now)}</div>
-                    <div style={{ fontSize: F(10), opacity: .8 }}>{items.length ? doneCount + "/" + items.length : ""}{o.status === "preparing" ? " " + DOT + " prep" : ""}</div>
+                    <div className="ktime" style={{ fontWeight: 900, fontSize: F(20), fontVariantNumeric: "tabular-nums", color: pal.accent, letterSpacing: "-.02em" }}>{fmtClock(o.created_at, now)}</div>
+                    <div style={{ fontSize: F(10), opacity: .7, fontWeight: 600, marginTop: 1 }}>{items.length ? doneCount + "/" + items.length : ""}{o.status === "preparing" ? " " + DOT + " prep" : ""}</div>
                   </div>
                 </div>
-                <div style={{ padding: F(7) + "px " + F(10) + "px", flex: 1 }}>
+                <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
                   {items.map((it) => {
                     const done = it.item_status === DONE_ITEM;
                     const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
                     return (
-                      <div key={it.id} onClick={() => toggleItem(o, it)} style={{ padding: F(6) + "px " + F(4) + "px", borderBottom: "1px solid #23283340", cursor: "pointer", opacity: done ? .38 : 1, transition: "opacity .1s" }}>
-                        <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
-                          <span style={{ fontWeight: 800, fontSize: F(15), color: "#fbbf24", minWidth: F(24) }}>{(it.qty || 1) + TIMES}</span>
-                          <span style={{ fontWeight: 700, fontSize: F(15), textDecoration: done ? "line-through" : "none" }}>{it.name_snapshot}</span>
+                      <div key={it.id} className="kitem" onClick={() => toggleItem(o, it)} style={{ padding: F(6) + "px " + F(6) + "px", cursor: "pointer", opacity: done ? .34 : 1 }}>
+                        <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
+                          <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
+                          <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25, textDecoration: done ? "line-through" : "none" }}>{it.name_snapshot}</span>
                         </div>
-                        {mods.length > 0 && <div style={{ fontSize: F(13), color: "#93c5fd", paddingLeft: F(32), fontWeight: 600 }}>{mods.join(" " + DOT + " ")}</div>}
+                        {mods.length > 0 && <div style={{ fontSize: F(13), color: "#7dd3fc", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
                       </div>
                     );
                   })}
-                  {note && <div style={{ marginTop: F(6), fontSize: F(13), color: "#fca5a5", background: "#450a0a", padding: F(4) + "px " + F(8) + "px", borderRadius: 6, fontWeight: 600 }}>{WARN + " " + note}</div>}
+                  {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#fecaca", background: "#7f1d1d33", border: "1px solid #7f1d1d", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
                 </div>
-                <div style={{ display: "flex", gap: 1 }}>
-                  <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(10) + "px 0", background: isRush ? "#ef4444" : "#2a3040", fontWeight: 800, fontSize: F(15), cursor: "pointer" }} title="Rush">{BOLT}</div>
-                  {o.status === "placed" && <div onClick={() => start(o)} className="kbtn" style={{ flex: 1, textAlign: "center", padding: F(10) + "px 0", background: "#334155", fontWeight: 700, fontSize: F(14), cursor: "pointer" }}>Start</div>}
-                  <div onClick={() => bump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(10) + "px 0", background: allDone ? "#16a34a" : "#22c55e", fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#04120a" }}>{CHECK + " Bump"}</div>
+                <div style={{ display: "flex", gap: 2, padding: 2 }}>
+                  <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#fb7185" : "#ffffff0d", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#1a0a0d" : "#fff" }} title="Rush">{BOLT}</div>
+                  {o.status === "placed" && <div onClick={() => start(o)} className="kbtn" style={{ flex: 1, textAlign: "center", padding: F(11) + "px 0", background: "#ffffff14", borderRadius: 9, fontWeight: 700, fontSize: F(14), cursor: "pointer" }}>Start</div>}
+                  <div onClick={() => bump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: allDone ? "#34d399" : "#22c55e", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#052e16", boxShadow: "0 2px 8px -2px " + (allDone ? "#34d39966" : "#22c55e55") }}>{CHECK + " Bump"}</div>
                 </div>
               </div>
             );
@@ -308,9 +314,9 @@ export default function KDS() {
       )}
 
       {undo && (
-        <div style={{ position: "fixed", bottom: 20, left: "50%", transform: "translateX(-50%)", background: "#1f2937", border: "1px solid #374151", borderRadius: 12, padding: "12px 16px", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 12px 40px rgba(0,0,0,.5)", zIndex: 50 }}>
-          <span style={{ fontSize: 14 }}>Bumped {(undo.order.tablet_no ? "T" + undo.order.tablet_no + "-" : "#") + (undo.order.order_no ?? "")}</span>
-          <div onClick={doUndo} className="kbtn" style={{ background: "#ec4899", padding: "7px 16px", borderRadius: 8, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Undo</div>
+        <div style={{ position: "fixed", bottom: 24, left: "50%", animation: "ktoast .2s cubic-bezier(.2,.8,.2,1)", background: "linear-gradient(180deg,#232b39,#1a212c)", border: "1px solid #374151", borderRadius: 14, padding: "12px 14px 12px 18px", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 16px 48px -12px rgba(0,0,0,.7)", zIndex: 50 }}>
+          <span style={{ fontSize: 14, fontWeight: 500 }}>Bumped <b style={{ fontWeight: 800 }}>{(undo.order.tablet_no ? "T" + undo.order.tablet_no + "-" : "#") + (undo.order.order_no ?? "")}</b></span>
+          <div onClick={doUndo} className="kbtn" style={{ background: "#ec4899", padding: "8px 18px", borderRadius: 10, fontWeight: 800, fontSize: 14, cursor: "pointer", color: "#fff", boxShadow: "0 2px 10px -2px #ec489988" }}>Undo</div>
         </div>
       )}
     </div>
