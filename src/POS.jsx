@@ -159,14 +159,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
-        {/* LEFT COLUMN — masters (top, dark zone) + subcategories (below, light, scroll) */}
-        <div style={{ width: 168, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
-          {/* master categories — pinned at the top, dark zone */}
-          <div style={{ background: P.masterBg, padding: "9px 9px", display: "flex", flexDirection: "column", gap: 5 }}>
+        {/* LEFT COLUMN — masters (top, dark) + subcategories (below, light, scroll) */}
+        <div style={{ width: 210, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
+          {/* master categories — top, dark zone */}
+          <div style={{ background: P.masterBg, padding: "12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
             {catList.map((m, i) => {
               const on = activeCat === i;
               return (
-                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} style={{ borderRadius: 12, padding: "14px 6px", textAlign: "center", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, fontSize: 15, fontWeight: 500, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 10px rgba(13,148,136,.35)" : "none" }}>
+                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} style={{ borderRadius: 14, padding: "16px 14px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, fontSize: 16, fontWeight: 500, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
                   <span style={{ display: "flex", height: 24 }}>{menuIcon(m.name, on)}</span>
                   <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name}</span>
                 </div>
@@ -174,14 +174,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             })}
           </div>
           {/* subcategories of the active master — light zone, scrollable */}
-          {master && <div style={{ padding: "9px 9px 4px", fontSize: 12, color: "#94a3b8", textAlign: "center", letterSpacing: ".5px", textTransform: "uppercase", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name}</div>}
-          <div style={{ flex: 1, overflowY: "auto", padding: "3px 9px 9px", display: "flex", flexDirection: "column", gap: 6 }}>
+          {master && <div style={{ padding: "12px 14px 6px", fontSize: 12, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name} categories</div>}
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 9 }}>
             {subs.map((s, i) => {
               const on = activeSub === i && !search;
               return (
-                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 11, padding: "14px 8px", textAlign: "center", cursor: "pointer", fontSize: 15, fontWeight: 500, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder), boxShadow: on ? "0 4px 10px rgba(13,148,136,.28)" : "none" }}>
-                  {s.name}
-                  <div style={{ fontSize: 12, marginTop: 3, fontWeight: 400, color: on ? "rgba(255,255,255,.72)" : "#5eb0a6" }}>{s.items.length}</div>
+                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 13, padding: "17px 14px", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, fontSize: 16, fontWeight: 500, lineHeight: 1.2, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder), boxShadow: on ? "0 4px 12px rgba(13,148,136,.3)" : "none" }}>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</span>
+                  <span style={{ flexShrink: 0, background: on ? "rgba(255,255,255,.25)" : "#ccfbf1", color: on ? "#fff" : "#0d9488", borderRadius: 10, padding: "2px 9px", fontSize: 13, fontWeight: 500 }}>{s.items.length}</span>
                 </div>
               );
             })}
