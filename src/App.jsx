@@ -53,6 +53,33 @@ function getTabletNumber() {
   } catch { return null; }
 }
 
+// A stable per-device id, so a QR can lock to the first device that claims it.
+function getDeviceId() {
+  try {
+    let id = localStorage.getItem("still_device_id");
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID() : "dev-" + Date.now() + "-" + Math.random().toString(36).slice(2));
+      localStorage.setItem("still_device_id", id);
+    }
+    return id;
+  } catch { return "dev-anon"; }
+}
+
+// Claim this tablet-link token for this device. Returns the claim status:
+// 'claimed' | 'owner' (both OK), 'locked' (another device owns it), 'not_found', or null on error.
+async function claimToken(token) {
+  if (!token) return null;
+  try {
+    const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/claim_tablet_token", {
+      method: "POST", headers: H,
+      body: JSON.stringify({ p_token: token, p_device: getDeviceId() }),
+    });
+    if (!r.ok) return null;
+    const rows = await r.json();
+    return rows && rows.length ? rows[0].status : null;
+  } catch { return null; }
+}
+
 // Format an order number for display: T{tablet}-{padded sequence}, e.g. "T3-014".
 // Falls back to just the padded sequence if no tablet number is set on the device.
 function formatOrderNo(seq) {
@@ -1463,6 +1490,7 @@ export default function App() {
   const [store, setStore] = useState(null);
   const storeRef = useRef(null);
   useEffect(() => { storeRef.current = store; }, [store]);
+  const [locked, setLocked] = useState(false); // QR claimed by another device
   const [acceptingOrders, setAcceptingOrders] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settings, setSettings] = useState({});
@@ -1574,6 +1602,13 @@ export default function App() {
     let alive = true;
     const token = getStoreToken();
     fetchSettings().then(setSettings);
+    // Claim this tablet-link QR for this device. If it's already locked to a
+    // DIFFERENT device, show the lock screen instead of the menu. Dining-table
+    // QRs return 'not_found' here (they aren't tablet links) and are unaffected.
+    (async () => {
+      const st = await claimToken(token);
+      if (alive && st === "locked") setLocked(true);
+    })();
     // Determine dining-table mode from the token.
     (async () => {
       if (!token) { setTableMode("none"); return; }
@@ -1654,6 +1689,18 @@ export default function App() {
   const themeBg = settings.theme === "chocoberry"
     ? "linear-gradient(160deg,#F3EADA,#F4E9DD)"
     : "linear-gradient(160deg,#EEF2E4,#E1E8D2)";
+  if (locked) {
+    return (
+      <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", position: "fixed", top: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
+        <div style={{ maxWidth: 420, textAlign: "center" }}>
+          <div style={{ fontSize: 52, marginBottom: 12 }}>🔒</div>
+          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22, color: "var(--ink)", marginBottom: 10 }}>This QR is already linked</div>
+          <div style={{ fontSize: 15, color: "var(--muted)", lineHeight: 1.5 }}>This tablet link is in use on another device. To use it here, ask a manager to release it from the admin, then reload this page.</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0 }}>
       {!online && (

@@ -1108,10 +1108,14 @@ export default function Admin() {
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 4 }}>{tk.label || "Tablet"}</div>
                             <input readOnly value={url} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 6, padding: "6px 8px", fontSize: 11, background: T.card, color: T.ink }} />
-                            <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+                            <div style={{ display: "flex", gap: 12, marginTop: 6, alignItems: "center" }}>
                               <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Copy link</span>
                               <a href={qr.replace("220x220", "600x600")} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.accent, fontWeight: 600, textDecoration: "none" }}>Open QR</a>
+                              {tk.claimed_by
+                                ? <span onClick={() => { if (window.confirm("Release this tablet link? The current device will be logged out and the QR can be linked to a new tablet.")) act("release_token", { id: tk.id }); }} style={{ fontSize: 12, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Release</span>
+                                : null}
                               <span onClick={() => act("delete_token", { id: tk.id })} style={{ fontSize: 12, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Delete</span>
+                              <span style={{ fontSize: 11, fontWeight: 600, color: tk.claimed_by ? "#3c5a2e" : T.faint, marginLeft: "auto" }}>{tk.claimed_by ? "● Linked" : "○ Not linked"}</span>
                             </div>
                           </div>
                         </div>

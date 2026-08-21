@@ -675,6 +675,15 @@ Deno.serve(async (req) => {
       }
 
       // ---- TABLES / QR tokens ----
+      case "release_token": {
+        const { id } = data || {};
+        if (!id) return json({ error: "id required" }, 400);
+        const { error } = await admin.from("menu_tables")
+          .update({ claimed_by: null, claimed_at: null }).eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
       case "create_token": {
         const { location_id, label } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
