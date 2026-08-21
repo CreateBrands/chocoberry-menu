@@ -437,6 +437,18 @@ function Drawer({ orders = [], onClose, locationId }) {
   const [closeMsg, setCloseMsg] = useState("");
   const [accepting, setAccepting] = useState(null); // null=unknown, true/false
   const [savingAccepting, setSavingAccepting] = useState(false);
+  const [printers, setPrinters] = useState(null);
+
+  async function loadPrinters() {
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin, action: "printer_list", data: {} }),
+      });
+      const j = await r.json();
+      if (j && j.printers) setPrinters(j.printers);
+    } catch { /* ignore */ }
+  }
 
   async function loadAccepting() {
     if (!locationId) return;
@@ -509,6 +521,7 @@ function Drawer({ orders = [], onClose, locationId }) {
       setUnlocked(true);
       loadAllOrders();
       loadAccepting();
+      loadPrinters();
     } catch {
       setPinErr("Wrong PIN.");
     } finally { setChecking(false); }
@@ -675,6 +688,17 @@ function Drawer({ orders = [], onClose, locationId }) {
                 <div onClick={toggleAccepting} style={{ width: 58, height: 30, borderRadius: 16, background: accepting ? "#3c5a2e" : "var(--line)", position: "relative", cursor: "pointer", opacity: savingAccepting ? .5 : 1, transition: "background .15s", flexShrink: 0 }}>
                   <div style={{ position: "absolute", top: 3, left: accepting ? 31 : 3, width: 24, height: 24, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
                 </div>
+              </div>
+            )}
+
+            {printers && printers.length > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14, flexShrink: 0 }}>
+                {printers.map((p) => (
+                  <div key={p.sn} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600, background: p.online === false ? "#f6e4e0" : "var(--bg3)", color: p.online === false ? "#b4462f" : "var(--muted)" }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: p.online === false ? "#b4462f" : p.online === true ? "#3c5a2e" : "#c9a94a", display: "inline-block" }} />
+                    {(p.name || p.sn) + ": " + (p.online === false ? "OFFLINE" : p.online === true ? "online" : "unknown")}
+                  </div>
+                ))}
               </div>
             )}
 

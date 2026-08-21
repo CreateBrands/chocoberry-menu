@@ -304,27 +304,50 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
       const tag = (force ? Date.now().toString(36) : "") + sn.slice(-5) + (copy > 0 ? "c" + copy : "");
       const tradeNo = (base + tag).slice(0, 32);
 
-      // Try up to 3 times with a short backoff — most print failures are a
-      // momentary network blip, so an auto-retry clears them before staff
-      // ever notice. Only a persistent failure gets flagged.
+      // Push the ticket. Retry the PUSH a couple of times on transient API
+      // errors (Sunmi's own cloud queue then durably holds it for the printer).
       let res = await sunmi.pushContent(sn, tradeNo, contentHex);
       let attempts = 1;
+      let usedTrade = tradeNo;
       while (!ok(res) && attempts < 3) {
         await new Promise((r) => setTimeout(r, 800 * attempts));
-        res = await sunmi.pushContent(sn, tradeNo + "r" + attempts, contentHex);
+        usedTrade = tradeNo + "r" + attempts;
+        res = await sunmi.pushContent(sn, usedTrade, contentHex);
         attempts++;
       }
-      const success = ok(res);
+      const pushed = ok(res);
+
+      // CONFIRM ACTUAL PRINTING. Sunmi tracks whether the printer really printed
+      // a ticket (is_print: 0 no, 1 yes, 2 deleted) — so we poll printStatus
+      // briefly. This catches physical failures (out of paper, jam, cover open)
+      // that a successful push alone can't see. A healthy printer confirms within
+      // 1-3s; if it doesn't confirm in our window we treat it as not-yet-printed
+      // (flagged), since Sunmi's queue may still deliver later but staff should check.
+      let confirmed = false;
+      if (pushed) {
+        for (let poll = 0; poll < 3 && !confirmed; poll++) {
+          await new Promise((r) => setTimeout(r, 1200));
+          try {
+            const st = await sunmi.printStatus(usedTrade);
+            const isPrint = st?.data?.is_print;
+            if (isPrint === 1) { confirmed = true; break; }
+            if (isPrint === 2) break; // deleted/cancelled — stop polling
+          } catch { /* keep polling */ }
+        }
+      }
+      const success = pushed && confirmed;
       await logJob({
         order_id: orderId,
         printer_sn: sn,
-        status: success ? "sent" : "failed",
+        status: success ? "sent" : (pushed ? "unconfirmed" : "failed"),
         response: res,
-        error: success ? null : (res.msg ?? "unknown Sunmi error") + " (after " + attempts + " attempts)",
+        error: success ? null
+          : !pushed ? (res.msg ?? "unknown Sunmi error") + " (push failed after " + attempts + " attempts)"
+          : "pushed but printer did not confirm printing (check paper/jam/power)",
       });
-      results.push({ printer: sn, station, copy: copy + 1, printed: success, attempts, sunmi: res });
+      results.push({ printer: sn, station, copy: copy + 1, printed: success, pushed, confirmed, attempts, sunmi: res });
       if (!success) {
-        console.error(`pushContent failed for ${sn} (${station}) copy ${copy + 1} after ${attempts} attempts:`, JSON.stringify(res));
+        console.error(`print not confirmed for ${sn} (${station}) copy ${copy + 1}: pushed=${pushed} confirmed=${confirmed}`);
       }
     }
   }
