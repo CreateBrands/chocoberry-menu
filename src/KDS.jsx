@@ -134,6 +134,28 @@ export default function KDS() {
       load();
     } catch (e) { setPayErr(e.message || "Payment failed."); } finally { setPayBusy(false); }
   }
+  // Void an order (unpaid only) with a reason — PIN-gated, like taking payment.
+  const [voidFor, setVoidFor] = useState(null);      // order being voided
+  const [voidReason, setVoidReason] = useState("");  // chosen/typed reason
+  const [voidPin, setVoidPin] = useState("");
+  const [voidBusy, setVoidBusy] = useState(false);
+  const [voidErr, setVoidErr] = useState("");
+  const VOID_REASONS = ["Wrong order", "Customer left", "Duplicate", "Kitchen error", "Out of stock", "Test order"];
+  function closeVoid() { setVoidFor(null); setVoidReason(""); setVoidPin(""); setVoidErr(""); }
+  async function voidOrder() {
+    if (!voidFor || !voidReason.trim() || !voidPin) { setVoidErr("Pick a reason and enter the PIN."); return; }
+    setVoidBusy(true); setVoidErr("");
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin: voidPin, action: "void_order", data: { order_id: voidFor.id, reason: voidReason.trim() } }),
+      });
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error === "unauthorized" ? "Wrong PIN." : e.message || "Void failed."); }
+      closeVoid();
+      load();
+    } catch (e) { setVoidErr(e.message || "Void failed."); } finally { setVoidBusy(false); }
+  }
+
   function closePay() { setPayFor(null); setPayMethod(null); setPayPin(""); setPayDiscType(null); setPayDiscVal(""); setPayErr(""); }
 
   // Print (reprint) a slip for an order from the KDS Orders view — same action the
@@ -438,9 +460,39 @@ export default function KDS() {
                   <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ marginTop: 8, textAlign: "center", padding: "8px 0", borderRadius: 8, background: "#20242f", border: "1px solid #2f3542", fontSize: 13, fontWeight: 700, color: "#cbd5e1", cursor: "pointer", opacity: printingId === o.id ? .6 : 1 }}>
                     {printingId === o.id ? "Printing…" : (printMsg && printMsg.id === o.id ? printMsg.text : "🖨 Print slip")}
                   </div>
+                  {!paid && (
+                    <div onClick={(e) => { e.stopPropagation(); setVoidFor(o); setVoidReason(""); setVoidPin(""); setVoidErr(""); }} className="kbtn" style={{ marginTop: 6, textAlign: "center", padding: "8px 0", borderRadius: 8, background: "transparent", border: "1px solid #7f1d1d", fontSize: 13, fontWeight: 700, color: "#f87171", cursor: "pointer" }}>
+                      ✕ Void order
+                    </div>
+                  )}
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Void panel */}
+      {voidFor && (
+        <div onClick={closeVoid} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 60, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "linear-gradient(180deg,#1a212c,#12161d)", border: "1px solid #3a2020", borderRadius: 18, padding: 22, width: 400, maxWidth: "100%", boxShadow: "0 30px 80px -20px rgba(0,0,0,.8)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 4 }}>
+              <span style={{ fontWeight: 800, fontSize: 19, color: "#f87171" }}>Void {(voidFor.tablet_no ? "T" + voidFor.tablet_no + "-" : "#") + (voidFor.order_no ?? "")}</span>
+              <span onClick={closeVoid} className="kbtn" style={{ cursor: "pointer", color: "#9aa3b2", fontSize: 20 }}>{X}</span>
+            </div>
+            <div style={{ fontSize: 13, color: "#9aa3b2", marginBottom: 14 }}>This cancels the order and removes it from the board. Pick a reason:</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+              {VOID_REASONS.map((rsn) => (
+                <div key={rsn} onClick={() => setVoidReason(rsn)} className="kbtn" style={{ padding: "8px 12px", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 700, background: voidReason === rsn ? "#b4462f" : "#20242f", color: voidReason === rsn ? "#fff" : "#cbd5e1", border: "1px solid " + (voidReason === rsn ? "#b4462f" : "#2a3340") }}>{rsn}</div>
+              ))}
+            </div>
+            <input type="text" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="Or type a reason…"
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: "10px 12px", borderRadius: 10, border: "1px solid #374151", background: "#0f131a", color: "#fff", marginBottom: 12 }} />
+            <input type="text" inputMode="numeric" value={voidPin} onChange={(e) => setVoidPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && voidOrder()} placeholder="Staff PIN to confirm"
+              autoComplete="off" name="kds-void-nosave" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
+              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #374151", background: "#0f131a", color: "#fff", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
+            {voidErr && <div style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 8 }}>{voidErr}</div>}
+            <div onClick={voidOrder} className="kbtn" style={{ textAlign: "center", padding: "13px 0", borderRadius: 30, background: (voidReason.trim() && voidPin) ? "#b4462f" : "#334155", color: "#fff", fontWeight: 800, fontSize: 16, cursor: (voidReason.trim() && voidPin) ? "pointer" : "default", opacity: voidBusy ? .6 : 1 }}>{voidBusy ? "Voiding…" : "Confirm void"}</div>
           </div>
         </div>
       )}

@@ -403,6 +403,22 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      case "void_order": {
+        const { order_id, reason } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        if (!reason) return json({ error: "reason required" }, 400);
+        // Only UNPAID orders can be voided. Check first.
+        const { data: ord, error: gErr } = await admin.from("menu_orders")
+          .select("id, paid_method, status").eq("id", order_id).single();
+        if (gErr || !ord) return json({ error: "order not found" }, 404);
+        if (ord.paid_method) return json({ error: "already_paid", message: "Paid orders can't be voided. Mark unpaid first if needed." }, 409);
+        const { error } = await admin.from("menu_orders").update({
+          status: "cancelled", void_reason: String(reason).slice(0, 300), voided_at: new Date().toISOString(),
+        }).eq("id", order_id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
       // ---- TILL: today's sales summary for a location ----
       case "day_summary": {
         const { location_id } = data || {};
