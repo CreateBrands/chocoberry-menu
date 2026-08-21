@@ -15,6 +15,12 @@ const WARN_MIN = 8;
 const LATE_MIN = 15;
 const POLL_MS = 4000;
 
+// Order lifecycle uses the real menu_order_status enum.
+// Bump moves an order OFF the active board. 'served' = fully done at the pass;
+// (kitchens that want a separate expo step could bump to 'ready' instead.)
+const BUMP_TO = "served";
+const DONE_ITEM = "ready"; // item_status when an item is ticked complete
+
 // A store token/location can be passed via ?store= or ?loc= ; else all locations.
 function getParam(k) {
   try { return new URLSearchParams(window.location.search).get(k); } catch { return null; }
@@ -69,7 +75,9 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,kds_status,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_done)"
+      // Uses the real menu_order_status enum: placed -> preparing -> ready -> served -> closed.
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status,station)"
+        + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null"
         + "&order=created_at.asc&limit=200";
       if (loc) url += "&location_id=eq." + loc;
@@ -78,7 +86,7 @@ export default function KDS() {
       const data = await r.json();
       setConnected(true);
       // New-order sound: any active order id we haven't seen before.
-      const activeIds = new Set(data.filter((o) => o.kds_status !== "bumped").map((o) => o.id));
+      const activeIds = new Set(data.filter((o) => o.status !== BUMP_TO).map((o) => o.id));
       let isNew = false;
       for (const id of activeIds) if (!prevIds.current.has(id)) { isNew = true; break; }
       if (isNew && prevIds.current.size > 0) beep();
@@ -110,10 +118,10 @@ export default function KDS() {
     } catch {}
   }
 
-  const start = (o) => patchOrder(o.id, { kds_status: "preparing", kds_started_at: new Date().toISOString() });
-  const bump = (o) => patchOrder(o.id, { kds_status: "bumped", kds_bumped_at: new Date().toISOString() });
-  const recall = (o) => patchOrder(o.id, { kds_status: "preparing", kds_bumped_at: null });
-  const toggleItem = (o, it) => patchItem(it.id, { item_done: !it.item_done });
+  const start = (o) => patchOrder(o.id, { status: "preparing", kds_started_at: new Date().toISOString() });
+  const bump = (o) => patchOrder(o.id, { status: BUMP_TO, kds_bumped_at: new Date().toISOString() });
+  const recall = (o) => patchOrder(o.id, { status: "preparing", kds_bumped_at: null });
+  const toggleItem = (o, it) => patchItem(it.id, { item_status: it.item_status === DONE_ITEM ? "preparing" : DONE_ITEM });
 
   // Station routing: filter items by station when a station is selected.
   const stationOf = (it) => it.station || "kitchen";
@@ -123,14 +131,14 @@ export default function KDS() {
     return items.length ? { ...o, menu_order_items: items } : null;
   };
 
-  const active = orders.filter((o) => o.kds_status !== "bumped").map(filterStation).filter(Boolean);
-  const completed = orders.filter((o) => o.kds_status === "bumped").map(filterStation).filter(Boolean)
+  const active = orders.filter((o) => o.status !== BUMP_TO).map(filterStation).filter(Boolean);
+  const completed = orders.filter((o) => o.status === BUMP_TO).map(filterStation).filter(Boolean)
     .sort((a, b) => new Date(b.kds_bumped_at || b.created_at) - new Date(a.kds_bumped_at || a.created_at));
 
   // All-day counts across active orders.
   const allday = {};
   for (const o of active) for (const it of (o.menu_order_items || [])) {
-    if (it.item_done) continue;
+    if ((it.item_status === DONE_ITEM)) continue;
     allday[it.name_snapshot] = (allday[it.name_snapshot] || 0) + (it.qty || 1);
   }
   const alldayRows = Object.entries(allday).sort((a, b) => b[1] - a[1]);
@@ -186,7 +194,7 @@ export default function KDS() {
             const border = age >= LATE_MIN ? "#ef4444" : age >= WARN_MIN ? "#f59e0b" : "#22c55e";
             const headerBg = age >= LATE_MIN ? "#7f1d1d" : age >= WARN_MIN ? "#78350f" : "#14532d";
             const items = o.menu_order_items || [];
-            const allDone = items.length > 0 && items.every((it) => it.item_done);
+            const allDone = items.length > 0 && items.every((it) => (it.item_status === DONE_ITEM));
             const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : "Takeaway");
             return (
               <div key={o.id} style={{ background: "#1a1e26", borderRadius: 12, overflow: "hidden", border: "2px solid " + border, display: "flex", flexDirection: "column" }}>
@@ -197,17 +205,17 @@ export default function KDS() {
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontWeight: 800, fontSize: 18, fontVariantNumeric: "tabular-nums" }}>{fmtClock(o.created_at, now)}</div>
-                    {o.kds_status === "preparing" && <div style={{ fontSize: 10, opacity: .8 }}>preparing</div>}
+                    {o.status === "preparing" && <div style={{ fontSize: 10, opacity: .8 }}>preparing</div>}
                   </div>
                 </div>
                 <div style={{ padding: "8px 10px", flex: 1 }}>
                   {items.map((it) => {
                     const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
                     return (
-                      <div key={it.id} onClick={() => toggleItem(o, it)} style={{ padding: "6px 4px", borderBottom: "1px solid #262b36", cursor: "pointer", opacity: it.item_done ? .4 : 1 }}>
+                      <div key={it.id} onClick={() => toggleItem(o, it)} style={{ padding: "6px 4px", borderBottom: "1px solid #262b36", cursor: "pointer", opacity: (it.item_status === DONE_ITEM) ? .4 : 1 }}>
                         <div style={{ display: "flex", gap: 8, alignItems: "baseline" }}>
                           <span style={{ fontWeight: 800, fontSize: 15, color: "#fbbf24", minWidth: 22 }}>{it.qty || 1}×</span>
-                          <span style={{ fontWeight: 700, fontSize: 15, textDecoration: it.item_done ? "line-through" : "none" }}>{it.name_snapshot}</span>
+                          <span style={{ fontWeight: 700, fontSize: 15, textDecoration: (it.item_status === DONE_ITEM) ? "line-through" : "none" }}>{it.name_snapshot}</span>
                         </div>
                         {mods.length > 0 && <div style={{ fontSize: 13, color: "#93c5fd", paddingLeft: 30, fontWeight: 600 }}>{mods.join(" · ")}</div>}
                       </div>
@@ -216,7 +224,7 @@ export default function KDS() {
                   {o.customer_note && <div style={{ marginTop: 6, fontSize: 13, color: "#fca5a5", background: "#450a0a", padding: "4px 8px", borderRadius: 6 }}>⚠ {o.customer_note}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 1 }}>
-                  {o.kds_status === "new" && <div onClick={() => start(o)} style={{ flex: 1, textAlign: "center", padding: "10px 0", background: "#334155", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Start</div>}
+                  {o.status === "placed" && <div onClick={() => start(o)} style={{ flex: 1, textAlign: "center", padding: "10px 0", background: "#334155", fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Start</div>}
                   <div onClick={() => bump(o)} style={{ flex: 2, textAlign: "center", padding: "10px 0", background: allDone ? "#16a34a" : "#22c55e", fontWeight: 800, fontSize: 15, cursor: "pointer", color: "#04120a" }}>✓ Bump</div>
                 </div>
               </div>
