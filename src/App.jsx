@@ -710,10 +710,10 @@ function Drawer({ orders = [], onClose, locationId }) {
         {!unlocked ? (
           <div style={{ marginTop: 40, textAlign: "center" }}>
             <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 18 }}>Enter staff PIN to view orders and manage items.</div>
-            <input type="password" value={pin} onChange={(e) => setPin(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submitPin()} placeholder="PIN" autoFocus
+            <input type="text" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submitPin()} placeholder="PIN" autoFocus
               inputMode="numeric" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
               name="staff-code-nosave" data-1p-ignore data-lpignore="true" data-form-type="other" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
-              style={{ width: 200, textAlign: "center", padding: "14px 0", fontSize: 22, letterSpacing: 6, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)" }} />
+              style={{ width: 200, textAlign: "center", padding: "14px 0", fontSize: 22, letterSpacing: 6, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", WebkitTextSecurity: "disc", textSecurity: "disc" }} />
             {pinErr && <div style={{ color: "#b4462f", fontSize: 14, marginTop: 10 }}>{pinErr}</div>}
             <div onClick={submitPin} style={{ marginTop: 18, display: "inline-block", padding: "12px 34px", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: checking ? .6 : 1 }}>{checking ? "Checking…" : "Unlock"}</div>
           </div>
@@ -1822,10 +1822,10 @@ export default function App() {
                   <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
                   <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 19, color: "var(--ink)", marginBottom: 6 }}>Staff only</div>
                   <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 18 }}>Enter the staff PIN to set or change the table number.</div>
-                  <input type="password" inputMode="numeric" value={tablePinValue} onChange={(e) => setTablePinValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && verifyTablePin()} placeholder="PIN" autoFocus
+                  <input type="text" inputMode="numeric" value={tablePinValue} onChange={(e) => setTablePinValue(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && verifyTablePin()} placeholder="PIN" autoFocus
                     autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                     name="table-code-nosave" data-1p-ignore data-lpignore="true" data-form-type="other" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
-                    style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 22, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg3)", color: "var(--ink)", marginBottom: 6 }} />
+                    style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 22, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg3)", color: "var(--ink)", marginBottom: 6, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
                   {tablePinErr && <div style={{ color: "#b4462f", fontSize: 13, marginBottom: 6 }}>{tablePinErr}</div>}
                   <div onClick={verifyTablePin} style={{ marginTop: 12, padding: "12px 0", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: tablePinChecking ? .6 : 1 }}>{tablePinChecking ? "Checking…" : "Unlock"}</div>
                   <div onClick={() => setTablePinPrompt(false)} style={{ marginTop: 10, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}>Cancel</div>
