@@ -1124,6 +1124,28 @@ export default function Admin() {
                     <button onClick={() => act("create_token", { location_id: loc.id, label: "Tablet " + (tokens.length + 1) })} style={{ fontSize: 13, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginTop: 2 }}>+ New tablet link</button>
                   </div>
                   <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10, marginTop: 10 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>KITCHEN DISPLAY (KDS)</div>
+                    <div style={{ fontSize: 11, color: T.faint, marginBottom: 8 }}>Scan this on the kitchen screen to open the live order board for this store. It stays linked.</div>
+                    {(() => {
+                      const kdsUrl = window.location.origin + "/kds?loc=" + loc.id;
+                      const kdsQr = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=" + encodeURIComponent(kdsUrl);
+                      return (
+                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 8, border: "1px solid " + T.line, borderRadius: 10, background: T.bg }}>
+                          <img src={kdsQr} alt="KDS QR" width={72} height={72} style={{ borderRadius: 6, background: "#fff", flexShrink: 0 }} />
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 4 }}>Kitchen display screen</div>
+                            <input readOnly value={kdsUrl} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 6, padding: "6px 8px", fontSize: 11, background: T.card, color: T.ink }} />
+                            <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
+                              <span onClick={() => { navigator.clipboard?.writeText(kdsUrl); }} style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Copy link</span>
+                              <a href={kdsQr.replace("220x220", "600x600")} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.accent, fontWeight: 600, textDecoration: "none" }}>Open QR</a>
+                              <a href={kdsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.accent, fontWeight: 600, textDecoration: "none" }}>Open KDS</a>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                  <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10, marginTop: 10 }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>DINING TABLES</div>
                     <div style={{ fontSize: 11, color: T.faint, marginBottom: 8 }}>Tables customers can order to. Each has its own QR code for the table sticker. Click a name to rename.</div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>

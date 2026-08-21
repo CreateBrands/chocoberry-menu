@@ -31,7 +31,9 @@ function fmtClock(iso, now) {
 export default function KDS() {
   const [orders, setOrders] = useState([]);
   const [now, setNow] = useState(Date.now());
-  const [loc, setLoc] = useState(getParam("loc"));
+  // Remember the linked location: URL (?loc= or resolved from ?store=) sets it,
+  // then the screen remembers it — so you scan the KDS QR once and it stays linked.
+  const [loc, setLoc] = useState(getParam("loc") || (() => { try { return localStorage.getItem("kds_loc"); } catch { return null; } })());
   const [tab, setTab] = useState("active");
   const [station, setStation] = useState("all");
   const [soundOn, setSoundOn] = useState(true);
@@ -46,10 +48,12 @@ export default function KDS() {
 
   useEffect(() => { localStorage.setItem("kds_size", size); }, [size]);
   useEffect(() => { try { localStorage.setItem("kds_rush", JSON.stringify([...rushIds])); } catch {} }, [rushIds]);
+  // Remember the linked location so a reload keeps this screen pointed at its store.
+  useEffect(() => { if (loc) { try { localStorage.setItem("kds_loc", loc); } catch {} } }, [loc]);
 
   useEffect(() => {
     const token = getParam("store");
-    if (token && !loc) {
+    if (token) {
       fetch(SUPABASE_URL + "/rest/v1/rpc/resolve_store", { method: "POST", headers: H, body: JSON.stringify({ token }) })
         .then((r) => r.ok ? r.json() : []).then((rows) => { if (rows && rows.length) setLoc(rows[0].location_id); }).catch(() => {});
     }
