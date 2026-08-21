@@ -407,13 +407,12 @@ Deno.serve(async (req) => {
       case "day_summary": {
         const { location_id } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
-        // Start of today (server local). Orders paid today count toward the summary.
-        const start = new Date(); start.setHours(0, 0, 0, 0);
+        // Summary covers OPEN orders (not yet closed off). Closing the day zeroes this.
         const { data: rows, error } = await admin
           .from("menu_orders")
-          .select("total, paid_method, paid_amount, discount_type, discount_value, paid_at")
+          .select("total, paid_method, paid_amount")
           .eq("location_id", location_id)
-          .gte("created_at", start.toISOString());
+          .is("closed_at", null);
         if (error) throw error;
         let cash = 0, card = 0, paidCount = 0, unpaidTotal = 0, unpaidCount = 0, discountTotal = 0;
         for (const r of rows || []) {
@@ -439,6 +438,58 @@ Deno.serve(async (req) => {
             discount_total: round(discountTotal),
           },
         });
+      }
+
+      // ---- TILL: close the day — snapshot totals, then archive open orders ----
+      case "close_day": {
+        const { location_id } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        // Compute totals over the currently-open orders (same basis as day_summary).
+        const { data: rows, error: rErr } = await admin
+          .from("menu_orders")
+          .select("id, total, paid_method, paid_amount")
+          .eq("location_id", location_id)
+          .is("closed_at", null);
+        if (rErr) throw rErr;
+        let cash = 0, card = 0, paidCount = 0, unpaidTotal = 0, unpaidCount = 0, discountTotal = 0;
+        const ids = [];
+        for (const r of rows || []) {
+          ids.push(r.id);
+          if (r.paid_method === "cash" || r.paid_method === "card") {
+            const amt = Number(r.paid_amount ?? r.total) || 0;
+            if (r.paid_method === "cash") cash += amt; else card += amt;
+            paidCount++;
+            const orig = Number(r.total) || 0;
+            if (amt < orig) discountTotal += (orig - amt);
+          } else {
+            unpaidTotal += Number(r.total) || 0;
+            unpaidCount++;
+          }
+        }
+        const round = (n) => Math.round(n * 100) / 100;
+        const now = new Date().toISOString();
+        // Save a permanent closure record for the dashboard/history.
+        const { data: closure, error: cErr } = await admin.from("till_closures").insert({
+          location_id,
+          closed_at: now,
+          total_taken: round(cash + card),
+          cash_total: round(cash),
+          card_total: round(card),
+          paid_count: paidCount,
+          unpaid_total: round(unpaidTotal),
+          unpaid_count: unpaidCount,
+          discount_total: round(discountTotal),
+          order_count: ids.length,
+        }).select("id").single();
+        if (cErr) throw cErr;
+        // Archive the orders: stamp closed_at so they leave the active list but stay in the DB.
+        if (ids.length) {
+          const { error: uErr } = await admin.from("menu_orders")
+            .update({ closed_at: now }).in("id", ids);
+          if (uErr) throw uErr;
+        }
+        return json({ ok: true, closure_id: closure?.id, closed_orders: ids.length,
+          summary: { total: round(cash + card), cash: round(cash), card: round(card), paid_count: paidCount, unpaid_total: round(unpaidTotal), unpaid_count: unpaidCount } });
       }
 
       // ---- MENUS ----

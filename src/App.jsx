@@ -432,6 +432,27 @@ function Drawer({ orders = [], onClose, locationId }) {
   const [discType, setDiscType] = useState(""); // "" | "percent" | "amount"
   const [discVal, setDiscVal] = useState("");
   const [savingPaid, setSavingPaid] = useState(false);
+  const [closingDay, setClosingDay] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [closeMsg, setCloseMsg] = useState("");
+
+  async function closeDay() {
+    if (!locationId) return;
+    setClosingDay(true); setCloseMsg("");
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin, action: "close_day", data: { location_id: locationId } }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) throw new Error("close");
+      setConfirmClose(false);
+      setCloseMsg("Day closed — " + (j.closed_orders || 0) + " orders archived, " + money(j.summary?.total || 0) + " taken.");
+      await loadAllOrders(); // list now empty, summary resets
+    } catch {
+      setCloseMsg("Couldn't close the day — try again.");
+    } finally { setClosingDay(false); }
+  }
   // Item availability
   const [items, setItems] = useState(null);
   const [savingItem, setSavingItem] = useState(null);
@@ -470,6 +491,7 @@ function Drawer({ orders = [], onClose, locationId }) {
     try {
       const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,paid_method,paid_amount,discount_type,discount_value,created_at,menu_tables(label),menu_order_items(name_snapshot,qty,modifiers_snapshot,line_total)"
         + (locationId ? "&location_id=eq." + locationId : "")
+        + "&closed_at=is.null"
         + "&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
       if (!r.ok) throw new Error("orders " + r.status);
@@ -626,8 +648,20 @@ function Drawer({ orders = [], onClose, locationId }) {
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}><span style={{ color: "var(--muted)" }}>Paid orders</span><span>{summary.paid_count}</span></div>
                     {summary.unpaid_count > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#b4462f" }}><span>Unpaid ({summary.unpaid_count})</span><span>{money(summary.unpaid_total)}</span></div>}
                     {summary.discount_total > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--faint)", marginTop: 2 }}><span>Discounts given</span><span>{money(summary.discount_total)}</span></div>}
+                    {!confirmClose ? (
+                      <div onClick={() => setConfirmClose(true)} style={{ marginTop: 12, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--ink)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Close day</div>
+                    ) : (
+                      <div style={{ marginTop: 12 }}>
+                        <div style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", marginBottom: 8 }}>Close the day? This archives all current orders and resets the list. Data is kept for reporting.</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <div onClick={() => setConfirmClose(false)} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--bg2)", boxShadow: "inset 0 0 0 1px var(--line)", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</div>
+                          <div onClick={closeDay} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--ink)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: closingDay ? .6 : 1 }}>{closingDay ? "Closing…" : "Yes, close day"}</div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
+                {closeMsg && <div style={{ fontSize: 13, color: "var(--accent)", textAlign: "center", padding: "4px 0 8px" }}>{closeMsg}</div>}
                 {allOrders === null && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>Loading orders…</div>}
                 {allOrders && allOrders.length === 0 && <div style={{ color: "var(--faint)", fontSize: 15, textAlign: "center", marginTop: 40 }}>No orders yet.</div>}
                 {groupKeys.map((gk) => (
