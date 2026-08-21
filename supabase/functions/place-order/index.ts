@@ -21,7 +21,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { qr_token, table_id: bodyTableId = null, location_id: bodyLocationId = null, order_type: bodyOrderType = null, pickup_name = null, customer_note = null, tablet_no = null, items = [] } = body;
+    const { qr_token, table_id: bodyTableId = null, location_id: bodyLocationId = null, order_type: bodyOrderType = null, pickup_name = null, customer_note = null, tablet_no = null, items = [], append_to_order_id = null } = body;
 
     if (!Array.isArray(items) || items.length === 0) {
       return new Response(JSON.stringify({ error: "no items" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
@@ -180,6 +180,39 @@ Deno.serve(async (req) => {
         qty,
         modifiers_snapshot: snapshot,
         line_total,
+      });
+    }
+
+    // ---- APPEND MODE: add items to an existing order (customer/staff tapped
+    // "Add more to this order"). Same order number, one bill. New items get a
+    // higher added_batch so the kitchen slip can separate original vs added.
+    if (append_to_order_id) {
+      const { data: existing, error: exErr } = await admin
+        .from("menu_orders").select("id, order_no, subtotal, total").eq("id", append_to_order_id).single();
+      if (exErr || !existing) {
+        return new Response(JSON.stringify({ error: "order not found" }), { status: 404, headers: { ...cors, "Content-Type": "application/json" } });
+      }
+      // Next batch number = current max added_batch + 1.
+      const { data: batchRows } = await admin
+        .from("menu_order_items").select("added_batch").eq("order_id", append_to_order_id);
+      const maxBatch = (batchRows || []).reduce((m, r) => Math.max(m, r.added_batch || 0), 0);
+      const nextBatch = maxBatch + 1;
+      const addLines = orderItems.map((oi) => ({ ...oi, order_id: append_to_order_id, added_batch: nextBatch }));
+      const { error: addErr } = await admin.from("menu_order_items").insert(addLines);
+      if (addErr) throw addErr;
+      const newTotal = Number(existing.total || existing.subtotal || 0) + subtotal;
+      await admin.from("menu_orders")
+        .update({ subtotal: newTotal, total: newTotal, print_failed: false }).eq("id", append_to_order_id);
+      // Re-trigger the kitchen print for the full (now larger) order.
+      try {
+        await fetch(Deno.env.get("SUPABASE_URL")! + "/functions/v1/sunmi-print", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-print-secret": Deno.env.get("PRINT_WEBHOOK_SECRET") ?? "" },
+          body: JSON.stringify({ action: "print-order", order_id: append_to_order_id, force: true }),
+        });
+      } catch { /* print is best-effort; sweep will catch failures */ }
+      return new Response(JSON.stringify({ ok: true, order_id: append_to_order_id, order_no: existing.order_no, tablet_no, total: newTotal, appended: true }), {
+        headers: { ...cors, "Content-Type": "application/json" },
       });
     }
 

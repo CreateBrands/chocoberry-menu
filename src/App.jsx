@@ -1250,7 +1250,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
 
 // ============ BAG (data-driven) ============
 
-function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable }) {
+function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable, appending = false }) {
   const subtotal = lines.reduce((s, l) => s + l.unit * l.qty, 0);
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const setQty = (i, d) => setLines((p) => p.map((l, x) => x === i ? { ...l, qty: Math.max(1, l.qty + d) } : l));
@@ -1267,6 +1267,12 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none", padding: "0 28px" }}>
+        {appending && (
+          <div style={{ padding: "12px 16px", background: "rgba(94,122,77,.1)", borderRadius: 14, marginBottom: 14, boxShadow: "inset 0 0 0 1px rgba(94,122,77,.3)", textAlign: "center" }}>
+            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15, color: "var(--accent)" }}>Adding to your existing order</div>
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>These items will be added to the order you just placed — one bill.</div>
+          </div>
+        )}
         {(tableMode === "pick" || tableMode === "fixed") && (
           <div onClick={() => { if (tableMode === "pick" && onPickTable) onPickTable(); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", background: table ? "var(--bg3)" : "rgba(180,70,47,.08)", borderRadius: 18, boxShadow: table ? "inset 0 0 0 1px var(--line)" : "inset 0 0 0 1px rgba(180,70,47,.35)", marginBottom: 14, cursor: tableMode === "pick" ? "pointer" : "default" }}>
             <div>
@@ -1325,7 +1331,7 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
 }
 
 
-function Confirm({ orderNo, pickupName, table }) {
+function Confirm({ orderNo, pickupName, table, onAddMore }) {
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '460px', left: '40px', top: '70px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.17),transparent 68%)', filter: 'blur(8px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
@@ -1340,7 +1346,8 @@ function Confirm({ orderNo, pickupName, table }) {
           {table ? (<><div style={{width: '1px', background: 'var(--line)'}}></div>
           <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>TABLE</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{table.label}</div></div></>) : null}
         </div>
-        <div style={{marginTop: '46px', fontSize: '15px', fontWeight: '600', letterSpacing: '.06em', color: 'var(--muted)'}}>Tap anywhere to start a new order</div>
+        <div onClick={(e) => { e.stopPropagation(); if (onAddMore) onAddMore(); }} style={{marginTop: '40px', padding: '16px 36px', borderRadius: '30px', background: 'var(--accent)', color: '#F7F4EC', fontFamily: "'Poppins',sans-serif", fontWeight: '600', fontSize: '18px', cursor: 'pointer', boxShadow: '0 12px 30px -8px rgba(94,122,77,.5)'}}>+ Add more to this order</div>
+        <div style={{marginTop: '20px', fontSize: '15px', fontWeight: '600', letterSpacing: '.06em', color: 'var(--muted)'}}>Or tap anywhere to start a new order</div>
       </div>
     </div>
   );
@@ -1506,6 +1513,22 @@ export default function App() {
   useEffect(() => { linesRef.current = lines; }, [lines]);
   const [pickupName, setPickupName] = useState("");
   const [orderNo, setOrderNo] = useState(null);
+  const [appendOrderId, setAppendOrderId] = useState(null); // set when adding to an existing order
+  const appendOrderIdRef = useRef(null);
+  useEffect(() => { appendOrderIdRef.current = appendOrderId; }, [appendOrderId]);
+  const [lastOrderId, setLastOrderId] = useState(null); // id of the most recently placed order
+
+  // "Add more to this order": reopen the just-placed order and go back to the menu.
+  // The new items get appended to the SAME order (one bill) and the kitchen gets a
+  // reprint showing original + added, with a "discard previous slip" notice.
+  function addMoreToOrder() {
+    if (!lastOrderId) return;
+    setAppendOrderId(lastOrderId);
+    setLines([]);           // fresh bag for the additions only
+    setPickupName("");
+    setOrderNo(null);
+    setScreen("browse");
+  }
   // Dining-table state. tableMode: "none" (takeaway) | "pick" (tablet, must choose) | "fixed" (phone scanned a table QR)
   const [tableMode, setTableMode] = useState("none");
   const [tables, setTables] = useState([]);
@@ -1630,6 +1653,7 @@ export default function App() {
       pickup_name: pickupName || null,
       tablet_no: getTabletNumber() || null,
       items: lines.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: (l.mods || []).map((m) => m.option_id) })),
+      append_to_order_id: appendOrderId || null,
     };
     try {
       const res = await fetch(SUPABASE_URL + "/functions/v1/place-order", {
@@ -1640,6 +1664,8 @@ export default function App() {
       const resp = await res.json();
       if (!res.ok) throw new Error(resp.error || ("HTTP " + res.status));
       setOrderNo(formatOrderNo(resp.order_no));
+      setLastOrderId(resp.order_id);
+      setAppendOrderId(null); // adding (if any) is now done
       setSessionOrders((prev) => [{
         no: formatOrderNo(resp.order_no),
         orderId: resp.order_id,
@@ -1796,13 +1822,13 @@ export default function App() {
               // ask for it again at checkout.
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
-            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} onBack={() => setScreen("browse")} onPlace={() => {
+            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => {
               if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
               if (orderingOn && tableMode === "pick" && !table) { openTablePicker(); return; }
               setConfirmingOrder(true);
             }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
             {orderingOn && tableMode === "pick" && screen === "welcome" && (

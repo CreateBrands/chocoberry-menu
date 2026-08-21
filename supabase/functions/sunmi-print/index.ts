@@ -113,8 +113,9 @@ async function loadReceiptOrder(
   // Items
   const { data: itemRows, error: itemsErr } = await supabase
     .from("menu_order_items")
-    .select("item_id, name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total")
-    .eq("order_id", orderId);
+    .select("item_id, name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total, added_batch")
+    .eq("order_id", orderId)
+    .order("added_batch", { ascending: true });
   if (itemsErr) throw new Error("menu_order_items lookup failed: " + itemsErr.message);
 
   // Resolve each line's station: item.station ?? its category.station ?? "kitchen".
@@ -129,11 +130,13 @@ async function loadReceiptOrder(
         ? it.line_total
         : parseFloat(String(it.line_total ?? "")) || undefined,
       station: stationByLine[i],
+      added: (it.added_batch ?? 0) > 0,
       modifiers: mods
         ? Object.entries(mods).map(([k, v]) => `${cap(k)}: ${v}`)
         : [],
     };
   });
+  const hasAdditions = items.some((it) => (it as any).added);
 
   // Dine-in table name (best-effort: tolerate unknown column naming)
   let tableLabel: string | undefined;
@@ -194,6 +197,7 @@ async function loadReceiptOrder(
     notes: rec.customer_note ? String(rec.customer_note) : undefined,
     tabletNo: rec.tablet_no ? String(rec.tablet_no) : undefined,
     storeName,
+    hasAdditions,
   };
 }
 

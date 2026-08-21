@@ -116,12 +116,14 @@ export interface ReceiptItem {
   name: string;
   price?: number; // line total in GBP (e.g. 7.5)
   modifiers?: string[]; // e.g. ["No cream", "Extra strawberries"]
+  added?: boolean; // true if this line was added after the original order
 }
 
 export interface ReceiptOrder {
   orderNumber: string;
   tabletNo?: string; // tablet the order came from, prefixes the order number (T3-014)
   reprint?: boolean; // true when this is a re-print of an already-printed order
+  hasAdditions?: boolean; // true when items were added to an existing order
   placedAt: string; // pre-formatted local time string
   orderType?: string; // "Collection", "Delivery", "Table 4" ...
   customerName?: string;
@@ -158,7 +160,7 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
 
   // Pay-at-counter banner — tells staff the order is UNPAID and how much to charge.
   if (typeof o.total === "number") {
-    r.feed(1).size(1, 1).bold(true).line("PAY AT TILL").line(gbp(o.total)).bold(false).size(0, 0);
+    r.feed(1).divider("*").size(3, 3).bold(true).line("PAY AT TILL").size(2, 2).line(gbp(o.total)).bold(false).size(0, 0).divider("*");
   }
   r.feed(1);
 
@@ -170,9 +172,10 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
     if (o.phone) r.line(`Phone:    ${o.phone}`);
   }
 
-  // Items
-  r.divider("=");
-  for (const it of o.items) {
+  // Items — when items were added to an existing order, split into ORIGINAL and
+  // ADDED sections so the kitchen sees clearly what's new (and doesn't remake the
+  // original). Otherwise print a single flat list.
+  const printItem = (it: ReceiptItem) => {
     const qtyName = `${it.qty} x ${it.name}`;
     if (typeof it.price === "number") {
       r.size(0, 1).bold(true);
@@ -184,8 +187,25 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
     for (const m of it.modifiers ?? []) {
       for (const l of wrap("+ " + m, LINE_WIDTH - 2)) r.line("  " + l);
     }
+  };
+
+  if (o.hasAdditions) {
+    const original = o.items.filter((it) => !it.added);
+    const added = o.items.filter((it) => it.added);
+    r.divider("=");
+    r.align(1).bold(true).line("ORIGINAL ORDER").bold(false).align(0);
+    r.divider("-");
+    for (const it of original) printItem(it);
+    r.feed(1).divider("*");
+    r.align(1).size(1, 1).bold(true).line("*** ADDED ***").bold(false).size(0, 0).align(0);
+    r.divider("*");
+    for (const it of added) printItem(it);
+    r.divider("=");
+  } else {
+    r.divider("=");
+    for (const it of o.items) printItem(it);
+    r.divider("=");
   }
-  r.divider("=");
 
   // Totals
   if (typeof o.subtotal === "number") r.leftRight("Subtotal", gbp(o.subtotal));
@@ -200,6 +220,14 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
   if (o.notes) {
     r.feed(1).bold(true).line("NOTES:").bold(false);
     for (const l of wrap(o.notes, LINE_WIDTH)) r.line(l);
+  }
+
+  // When this order had items added, the earlier slip is now out of date — tell
+  // the kitchen to bin it so the original items aren't made twice.
+  if (o.hasAdditions) {
+    r.feed(1).divider("*");
+    r.align(1).size(1, 1).bold(true).line("DISCARD PREVIOUS").line("SLIP FOR THIS ORDER").bold(false).size(0, 0).align(0);
+    r.divider("*");
   }
 
   r.feed(1).align(1).line("Thank you!").feed(3).cut();
