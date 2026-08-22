@@ -1078,6 +1078,27 @@ function AllergenGate({ item, store, contains, may, onAccept }) {
   );
 }
 
+// Line-art icon for an add-on, chosen by keyword from its name. Monochrome,
+// no colour fill — used in the slim rectangular add-on pills.
+function addonArt(name = "") {
+  const n = name.toLowerCase();
+  const p = { width: 38, height: 38, viewBox: "0 0 48 48", fill: "none", stroke: "#5a4632", strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+  if (n.includes("egg") && !n.includes("scram")) return <svg {...p}><ellipse cx="24" cy="26" rx="16" ry="11" /><circle cx="24" cy="24" r="6" /><circle cx="24" cy="24" r="2.2" fill="#5a4632" /></svg>;
+  if (n.includes("scram")) return <svg {...p}><path d="M10 30c2-6 6-9 14-9s12 3 14 9c-3 4-8 6-14 6s-11-2-14-6z" /><path d="M18 24c1-2 3-2 4 0M26 25c1-2 3-2 4 0" /></svg>;
+  if (n.includes("sausage")) return <svg {...p}><rect x="12" y="14" width="9" height="26" rx="4.5" /><rect x="27" y="10" width="9" height="26" rx="4.5" /></svg>;
+  if (n.includes("toast") || n.includes("crossiant") || n.includes("croissant") && n.includes("toast")) return <svg {...p}><path d="M12 20c0-5 3-8 12-8s12 3 12 8v16a3 3 0 0 1-3 3H15a3 3 0 0 1-3-3z" /><path d="M12 20h24" /></svg>;
+  if (n.includes("hash")) return <svg {...p}><rect x="10" y="18" width="28" height="16" rx="4" /><path d="M15 18v16M20 18v16M25 18v16M30 18v16M35 18v16" /></svg>;
+  if (n.includes("pratha") || n.includes("paratha")) return <svg {...p}><circle cx="24" cy="24" r="14" /><path d="M24 10c-4 4-4 10 0 14s4 10 0 14" /></svg>;
+  if (n.includes("avocado")) return <svg {...p}><path d="M24 12c7 0 12 6 12 14 0 6-5 10-12 10s-12-4-12-10c0-8 5-14 12-14z" /><circle cx="24" cy="27" r="4.5" /></svg>;
+  if (n.includes("hummus")) return <svg {...p}><path d="M14 22h20l-2 14a2 2 0 0 1-2 2H18a2 2 0 0 1-2-2z" /><path d="M12 22c0-3 5-4 12-4s12 1 12 4" /></svg>;
+  if (n.includes("crossiant") || n.includes("croissant")) return <svg {...p}><path d="M10 30c4-2 8-3 14-3s10 1 14 3c-2 5-7 8-14 8s-12-3-14-8z" /><path d="M14 27c2-8 6-13 10-13s8 5 10 13" /></svg>;
+  if (n.includes("bean")) return <svg {...p}><ellipse cx="24" cy="20" rx="13" ry="8" /><path d="M11 20v6c0 4 6 7 13 7s13-3 13-7v-6" /></svg>;
+  if (n.includes("potato") || n.includes("puff")) return <svg {...p}><path d="M24 12l4 8 8 1-6 6 2 9-8-5-8 5 2-9-6-6 8-1z" /></svg>;
+  if (n.includes("chicken")) return <svg {...p}><path d="M16 20a8 8 0 0 1 16 0c0 6-4 8-4 12v4h-8v-4c0-4-4-6-4-12z" /><path d="M22 40h4" /></svg>;
+  if (n.includes("pratha") || n.includes("bread")) return <svg {...p}><ellipse cx="24" cy="24" rx="15" ry="11" /></svg>;
+  return <svg {...p}><circle cx="24" cy="24" r="13" /><path d="M24 11v26M11 24h26" /></svg>;
+}
+
 function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergensAccepted }) {
   const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: [], allergensContains: ["MILK"], allergensMay: [], modifiers: [] };
   const [qty, setQty] = useState(1);
@@ -1227,16 +1248,15 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
                   ? <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", background: "var(--accentSoft, #EFEAD9)", padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
                   : <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>{g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional"}</span>}
               </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))", gap: 10 }}>
                 {(g.options || []).map((o) => {
                   const on = chosen.includes(o.id);
                   return (
-                    <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 0", borderBottom: "1px solid var(--line)", cursor: "pointer" }}>
-                      <span style={{ fontSize: 16, color: "var(--ink)" }}>{o.name}{Number(o.price_delta) ? <span style={{ color: "var(--accent)", fontSize: 14, fontWeight: 600 }}> +£{Number(o.price_delta).toFixed(2)}</span> : null}</span>
-                      <div style={{ width: 26, height: 26, borderRadius: single ? "50%" : 7, border: on ? "2px solid var(--accent)" : "2px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "center", background: on && !single ? "var(--accent)" : "transparent" }}>
-                        {on && single && <div style={{ width: 13, height: 13, borderRadius: "50%", background: "var(--accent)" }} />}
-                        {on && !single && <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>}
-                      </div>
+                    <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ position: "relative", borderRadius: 14, border: on ? "2px solid var(--accent)" : "1px solid var(--line)", background: on ? "var(--accentSoft, #FFFDF9)" : "var(--card, #fff)", padding: on ? "17px 6px 14px" : "18px 6px 15px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", cursor: "pointer", boxShadow: on ? "0 5px 14px rgba(180,120,50,.15)" : "none" }}>
+                      {on && <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg></div>}
+                      <div style={{ marginBottom: 14, opacity: .92 }}>{o.image_url ? <img src={o.image_url} alt="" style={{ width: 38, height: 38, borderRadius: 8, objectFit: "cover" }} /> : addonArt(o.name)}</div>
+                      <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "var(--ink)", marginBottom: 6 }}>{o.name.trim()}</div>
+                      {Number(o.price_delta) ? <div style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>+£{Number(o.price_delta).toFixed(2)}</div> : <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>Free</div>}
                     </div>
                   );
                 })}
