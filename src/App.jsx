@@ -1104,27 +1104,47 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
   const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: [], allergensContains: ["MILK"], allergensMay: [], modifiers: [] };
   const [qty, setQty] = useState(1);
   const groups = it.modifiers || [];
+  // Section ordering: cooking-level groups first, add-on groups last (removals sit between).
+  const isCookingGroup = (g) => /cooking level|doneness|how would you like/i.test(g.name || "");
+  const cookingGroups = groups.filter(isCookingGroup);
+  const addonGroups = groups.filter((g) => !isCookingGroup(g));
+  const renderGroup = (g) => {
+    const chosen = sel[g.id] || [];
+    return (
+      <div key={g.id} style={{ marginTop: 20, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 18, padding: "18px 20px 20px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>{g.name || ""}</div>
+          {g.required
+            ? <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", background: "var(--accentSoft, #EFEAD9)", padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
+            : <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>{g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional"}</span>}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 16, marginTop: 4 }}>
+          {(g.options || []).map((o) => {
+            const on = chosen.includes(o.id);
+            return (
+              <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ position: "relative", borderRadius: 14, border: on ? "2px solid var(--accent)" : "1px solid var(--line)", background: on ? "var(--accentSoft, #FFFDF9)" : "var(--card, #fff)", padding: on ? "17px 6px 14px" : "18px 6px 15px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", cursor: "pointer", boxShadow: on ? "0 5px 14px rgba(180,120,50,.15)" : "none" }}>
+                {on && <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg></div>}
+                <div style={{ marginBottom: 14, opacity: .92 }}>{o.image_url ? <img src={o.image_url} alt="" style={{ width: 38, height: 38, borderRadius: 8, objectFit: "cover" }} /> : addonArt(o.name)}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "var(--ink)", marginBottom: 6 }}>{o.name.trim()}</div>
+                {Number(o.price_delta) ? <div style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>+£{Number(o.price_delta).toFixed(2)}</div> : null}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
   // selection state: { [groupId]: Set of optionIds }
   const [sel, setSel] = useState(() => {
     const init = {};
-    groups.forEach((g) => {
-      // pre-select first option if the group is required single-select
-      if (g.required && (g.max_select || 1) === 1 && g.options && g.options.length) {
-        init[g.id] = [g.options[0].id];
-      } else {
-        init[g.id] = [];
-      }
-    });
+    groups.forEach((g) => { init[g.id] = []; }); // nothing pre-selected
     return init;
   });
 
   // Reset selections whenever the item changes (guards against shared modifier state bleeding across items)
   useEffect(() => {
     const init = {};
-    (it.modifiers || []).forEach((g) => {
-      if (g.required && (g.max_select || 1) === 1 && g.options && g.options.length) init[g.id] = [g.options[0].id];
-      else init[g.id] = [];
-    });
+    (it.modifiers || []).forEach((g) => { init[g.id] = []; }); // nothing pre-selected
     setSel(init);
     setQty(1);
   }, [it.id]);
@@ -1253,6 +1273,10 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
           </div>
         )}
 
+        {/* 1) cooking level */}
+        {cookingGroups.map(renderGroup)}
+
+        {/* 2) removals */}
         {removableItems.length > 0 && (
           <div style={{ marginTop: 20, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 18, padding: "18px 20px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
@@ -1274,33 +1298,8 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
           </div>
         )}
 
-        {groups.map((g) => {
-          const single = (g.max_select || 1) === 1;
-          const chosen = sel[g.id] || [];
-          return (
-            <div key={g.id} style={{ marginTop: 20, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 18, padding: "18px 20px 20px" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>{g.name || ""}</div>
-                {g.required
-                  ? <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", background: "var(--accentSoft, #EFEAD9)", padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
-                  : <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>{g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional"}</span>}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 16, marginTop: 4 }}>
-                {(g.options || []).map((o) => {
-                  const on = chosen.includes(o.id);
-                  return (
-                    <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ position: "relative", borderRadius: 14, border: on ? "2px solid var(--accent)" : "1px solid var(--line)", background: on ? "var(--accentSoft, #FFFDF9)" : "var(--card, #fff)", padding: on ? "17px 6px 14px" : "18px 6px 15px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", cursor: "pointer", boxShadow: on ? "0 5px 14px rgba(180,120,50,.15)" : "none" }}>
-                      {on && <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg></div>}
-                      <div style={{ marginBottom: 14, opacity: .92 }}>{o.image_url ? <img src={o.image_url} alt="" style={{ width: 38, height: 38, borderRadius: 8, objectFit: "cover" }} /> : addonArt(o.name)}</div>
-                      <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "var(--ink)", marginBottom: 6 }}>{o.name.trim()}</div>
-                      {Number(o.price_delta) ? <div style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>+£{Number(o.price_delta).toFixed(2)}</div> : <div style={{ fontSize: 12, color: "var(--muted)", fontWeight: 600 }}>Free</div>}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
+        {/* 3) add-ons */}
+        {addonGroups.map(renderGroup)}
 
         <div style={{ height: 120 }} />
       </div>
