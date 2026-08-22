@@ -59,7 +59,7 @@ function receiptTree(o: ReceiptOrder): Node {
   return el("div",
     { flexDirection: "column", width: "100%", fontFamily: "Inter", fontSize: 24, color: "#000", background: "#fff", padding: "8px 10px" },
     el("div", { justifyContent: "space-between", alignItems: "center", background: "#000", color: "#fff", padding: "10px 14px", fontSize: 38, fontWeight: 700 },
-      el("div", {}, o.orderNumber.slice(0, 6)),
+      el("div", {}, (o.tabletNo ? "T" + o.tabletNo + "-" : "") + o.orderNumber.slice(0, 6)),
       el("div", {}, (o.customerName ?? "").slice(0, 14))),
     el("div", { marginTop: 10 }, `Placed at ${o.placedAt}`),
     rule(),
