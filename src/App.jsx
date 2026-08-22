@@ -1241,14 +1241,14 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
           const single = (g.max_select || 1) === 1;
           const chosen = sel[g.id] || [];
           return (
-            <div key={g.id} style={{ marginTop: 18, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 16, padding: "16px 18px" }}>
+            <div key={g.id} style={{ marginTop: 20, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 18, padding: "18px 20px 20px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
                 <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>{g.name || ""}</div>
                 {g.required
                   ? <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", background: "var(--accentSoft, #EFEAD9)", padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
                   : <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>{g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional"}</span>}
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(88px, 1fr))", gap: 10 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 16, marginTop: 4 }}>
                 {(g.options || []).map((o) => {
                   const on = chosen.includes(o.id);
                   return (
