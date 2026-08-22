@@ -1160,13 +1160,10 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
   // --- Removable ingredients (breakfast) ---
   // Subcategories that allow ingredient removal: Big Breakfast, Exquisite Eggs, Tempting Toasts.
   const REMOVE_CATS = ["f40b3e82-b5be-4dd8-96ae-b61d369f6ae5", "a1a2d150-9ca4-4a8c-aa58-d9311b14c99b", "0998491f-620a-4cb2-8091-4897f371871f"];
-  // Only these common components are offered for removal (keyword match).
-  const REMOVABLE_KEYWORDS = ["egg", "mushroom", "tomato", "bean", "salad", "green", "cheese", "halloumi", "feta", "olive", "avocado", "onion"];
   const removableItems = (() => {
     if (!REMOVE_CATS.includes(it.category_id)) return [];
-    const parts = String(it.desc || "").split("|").map((s) => s.trim()).filter(Boolean);
-    // keep only components whose text contains a removable keyword
-    return parts.filter((p) => REMOVABLE_KEYWORDS.some((k) => p.toLowerCase().includes(k)));
+    // every component listed in the description (split on | or comma) is removable
+    return String(it.desc || "").split(/[|,]/).map((s) => s.trim()).filter(Boolean);
   })();
   const [removed, setRemoved] = useState([]);
   const toggleRemove = (name) => setRemoved((prev) => prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]);
@@ -1261,14 +1258,14 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
               <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>Not a fan of something?</div>
               <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>Optional</span>
             </div>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>Tap to leave it off your plate</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 15 }}>Tap to leave it off your plate</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
               {removableItems.map((name) => {
                 const off = removed.includes(name);
                 return (
-                  <div key={name} onClick={() => toggleRemove(name)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 15px", borderRadius: 30, cursor: "pointer", fontSize: 14, fontWeight: 600, background: off ? "#f7ecec" : "var(--card, #fff)", color: off ? "#b4462f" : "var(--ink)", border: "1px solid " + (off ? "#e8c9c0" : "var(--line)"), textDecoration: off ? "line-through" : "none", textDecorationColor: "#b4462f" }}>
-                    {off ? <span style={{ fontSize: 15 }}>✕</span> : null}
-                    {name}
+                  <div key={name} onClick={() => toggleRemove(name)} style={{ display: "inline-flex", alignItems: "center", gap: 9, padding: off ? "11px 16px 11px 13px" : "11px 17px", borderRadius: 30, cursor: "pointer", fontSize: 14.5, fontWeight: 600, transition: "all .15s ease", background: off ? "#fbeeea" : "var(--card, #fff)", color: off ? "#b4462f" : "var(--ink)", border: "1.5px solid " + (off ? "#e6b8a8" : "var(--line)"), boxShadow: off ? "none" : "0 1px 3px rgba(90,70,50,.06)" }}>
+                    <span style={{ width: 20, height: 20, borderRadius: "50%", flexShrink: 0, display: "inline-flex", alignItems: "center", justifyContent: "center", background: off ? "#b4462f" : "var(--bg3, #f0ece4)", color: off ? "#fff" : "var(--muted)", fontSize: off ? 12 : 15, fontWeight: 700, lineHeight: 0, paddingBottom: off ? 0 : 1 }}>{off ? "✕" : "−"}</span>
+                    <span style={{ textDecoration: off ? "line-through" : "none", textDecorationColor: "#c88" }}>{name}</span>
                   </div>
                 );
               })}
