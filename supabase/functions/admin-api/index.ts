@@ -227,6 +227,80 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      // ═══ BULK / MULTI-STORE PRICE APPLY ════════════════════════════════
+      // One call applies a price operation to many items at once, at either
+      // the location tier (writes menu_item_overrides for one or MANY stores)
+      // or the band tier (writes menu_band_prices). This powers the bulk bar
+      // and the multi-store push. Operations:
+      //   set   → price = value
+      //   inc   → price = current effective + value   (value may be negative)
+      //   pct   → price = current effective × (1 + value/100)
+      //   clear → remove the override / band price (fall back to next tier)
+      // round: null | "95" | "99" | "05" (nearest .95 / .99 / 5p)
+      // Body: { scope: "location"|"band", target_ids: [uuid...], item_ids:[uuid...],
+      //         op, value, round, current: { "<target>|<item>": effectiveNow } }
+      case "bulk_set_prices": {
+        const d = data || {};
+        const scope = d.scope;
+        const targetIds: string[] = Array.isArray(d.target_ids) ? d.target_ids : [];
+        const itemIds: string[] = Array.isArray(d.item_ids) ? d.item_ids : [];
+        const op = d.op; const value = Number(d.value);
+        const round = d.round ?? null;
+        const current = d.current || {};
+        if (!["location", "band"].includes(scope)) return json({ error: "scope must be location or band" }, 400);
+        if (!targetIds.length || !itemIds.length) return json({ error: "target_ids and item_ids required" }, 400);
+        if (!["set", "inc", "pct", "clear"].includes(op)) return json({ error: "bad op" }, 400);
+
+        const applyRound = (n: number): number => {
+          if (n < 0) n = 0;
+          if (round === "95") { const base = Math.round(n); return (base - (base > n + 0.05 ? 1 : 0)) + 0.95; }
+          if (round === "99") { const base = Math.round(n); return (base - (base > n + 0.01 ? 1 : 0)) + 0.99; }
+          if (round === "05") return Math.round(n * 20) / 20;
+          return Math.round(n * 100) / 100;
+        };
+        const roundClean = applyRound;
+
+        const rows: any[] = [];
+        const clears: Array<{ t: string; i: string }> = [];
+        for (const t of targetIds) {
+          for (const i of itemIds) {
+            if (op === "clear") { clears.push({ t, i }); continue; }
+            let price: number;
+            if (op === "set") price = value;
+            else {
+              const cur = Number(current[`${t}|${i}`]);
+              if (!isFinite(cur)) continue; // no basis to inc/pct from
+              price = op === "inc" ? cur + value : cur * (1 + value / 100);
+            }
+            price = roundClean(price);
+            rows.push(scope === "location"
+              ? { item_id: i, location_id: t, price, available: null, updated_at: new Date().toISOString() }
+              : { band_id: t, item_id: i, price });
+          }
+        }
+
+        let changed = 0;
+        if (rows.length) {
+          if (scope === "location") {
+            const { error } = await admin.from("menu_item_overrides").upsert(rows, { onConflict: "item_id,location_id" });
+            if (error) throw error;
+          } else {
+            const { error } = await admin.from("menu_band_prices").upsert(rows, { onConflict: "band_id,item_id" });
+            if (error) throw error;
+          }
+          changed += rows.length;
+        }
+        for (const c of clears) {
+          if (scope === "location") {
+            await admin.from("menu_item_overrides").delete().eq("item_id", c.i).eq("location_id", c.t);
+          } else {
+            await admin.from("menu_band_prices").delete().eq("band_id", c.t).eq("item_id", c.i);
+          }
+          changed++;
+        }
+        return json({ ok: true, changed });
+      }
+
       case "set_band_option_price": {
         const { band_id, option_id, price_delta } = data || {};
         if (!band_id || !option_id) return json({ error: "band_id and option_id required" }, 400);
