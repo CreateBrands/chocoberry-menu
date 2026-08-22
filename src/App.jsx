@@ -162,6 +162,7 @@ async function fetchLive(token) {
     if (!c) { c = { id: row.category_id, name: row.category_name, sort: row.category_sort, img: row.gradient_bg, items: [] }; m.cats.set(row.category_id, c); }
     c.items.push({
       id: row.item_id, name: row.item_name, desc: row.description, price: Number(row.price),
+      category_id: row.category_id,
       tags: row.tags || [], allergens: row.allergens || [],
       allergensContains: row.allergens_contains || [], allergensMay: row.allergens_may || [],
       bg: row.gradient_bg, prod: row.gradient_prod, image_url: row.image_url,
@@ -1156,6 +1157,23 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
     (g.options || []).filter((o) => (sel[g.id] || []).includes(o.id)).map((o) => ({ group: g.name, name: o.name, price_delta: Number(o.price_delta || 0), option_id: o.id }))
   );
 
+  // --- Removable ingredients (breakfast) ---
+  // Subcategories that allow ingredient removal: Big Breakfast, Exquisite Eggs, Tempting Toasts.
+  const REMOVE_CATS = ["f40b3e82-b5be-4dd8-96ae-b61d369f6ae5", "a1a2d150-9ca4-4a8c-aa58-d9311b14c99b", "0998491f-620a-4cb2-8091-4897f371871f"];
+  // Only these common components are offered for removal (keyword match).
+  const REMOVABLE_KEYWORDS = ["egg", "mushroom", "tomato", "bean", "salad", "green", "cheese", "halloumi", "feta", "olive", "avocado", "onion"];
+  const removableItems = (() => {
+    if (!REMOVE_CATS.includes(it.category_id)) return [];
+    const parts = String(it.desc || "").split("|").map((s) => s.trim()).filter(Boolean);
+    // keep only components whose text contains a removable keyword
+    return parts.filter((p) => REMOVABLE_KEYWORDS.some((k) => p.toLowerCase().includes(k)));
+  })();
+  const [removed, setRemoved] = useState([]);
+  const toggleRemove = (name) => setRemoved((prev) => prev.includes(name) ? prev.filter((x) => x !== name) : [...prev, name]);
+  // removals ride along as £0 "NO ..." mods so they reach the kitchen slip
+  const removalMods = removed.map((name) => ({ group: "Remove", name: "NO " + name, price_delta: 0, option_id: "remove:" + name }));
+  const allMods = [...chosenMods, ...removalMods];
+
   // required groups must have a selection to enable Add
   const missingRequired = groups.some((g) => g.required && (sel[g.id] || []).length < (g.min_select || 1));
 
@@ -1237,6 +1255,27 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
           </div>
         )}
 
+        {removableItems.length > 0 && (
+          <div style={{ marginTop: 20, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 18, padding: "18px 20px 20px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>Not a fan of something?</div>
+              <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>Optional</span>
+            </div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 14 }}>Tap to leave it off your plate</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              {removableItems.map((name) => {
+                const off = removed.includes(name);
+                return (
+                  <div key={name} onClick={() => toggleRemove(name)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 15px", borderRadius: 30, cursor: "pointer", fontSize: 14, fontWeight: 600, background: off ? "#f7ecec" : "var(--card, #fff)", color: off ? "#b4462f" : "var(--ink)", border: "1px solid " + (off ? "#e8c9c0" : "var(--line)"), textDecoration: off ? "line-through" : "none", textDecorationColor: "#b4462f" }}>
+                    {off ? <span style={{ fontSize: 15 }}>✕</span> : null}
+                    {name}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {groups.map((g) => {
           const single = (g.max_select || 1) === 1;
           const chosen = sel[g.id] || [];
@@ -1275,7 +1314,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
           <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, minWidth: 16, textAlign: "center" }}>{qty}</span>
           <span onClick={() => setQty((q) => q + 1)} style={{ fontSize: 22, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
         </div>
-        <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: chosenMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: missingRequired ? "not-allowed" : "pointer", opacity: missingRequired ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
+        <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: allMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: missingRequired ? "not-allowed" : "pointer", opacity: missingRequired ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
       </div>
     </div>
   );
