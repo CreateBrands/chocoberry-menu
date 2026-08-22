@@ -70,6 +70,37 @@ Deno.serve(async (req) => {
     if (itemErr) throw itemErr;
     const byId = new Map((dbItems ?? []).map((i) => [i.id, i]));
 
+    // ── Resolve the price TIER for this location, exactly like the customer
+    // menu (store_menu_full): per-store override → the store's band price →
+    // the item's base price. Without this, orders charge base and ignore the
+    // band discount the customer was shown. ──
+    let locBandId = null;
+    if (location_id) {
+      const { data: loc } = await admin
+        .from("menu_locations").select("price_band_id").eq("id", location_id).single();
+      locBandId = loc?.price_band_id ?? null;
+    }
+    // per-store overrides for these items
+    const ovById = new Map();
+    if (location_id) {
+      const { data: ovs } = await admin
+        .from("menu_item_overrides").select("item_id, price").eq("location_id", location_id).in("item_id", ids);
+      for (const o of ovs ?? []) if (o.price != null) ovById.set(o.item_id, Number(o.price));
+    }
+    // band prices for these items
+    const bandById = new Map();
+    if (locBandId) {
+      const { data: bps } = await admin
+        .from("menu_band_prices").select("item_id, price").eq("band_id", locBandId).in("item_id", ids);
+      for (const b of bps ?? []) if (b.price != null) bandById.set(b.item_id, Number(b.price));
+    }
+    // effective base = override → band → item.price
+    const effectiveBase = (item) => {
+      if (ovById.has(item.id)) return ovById.get(item.id);
+      if (bandById.has(item.id)) return bandById.get(item.id);
+      return Number(item.price);
+    };
+
     // Resolve EVERY modifier option id sent across all lines in one query.
     const allOptIds = [...new Set(items.flatMap((l) => Array.isArray(l.modifiers) ? l.modifiers : []))]
       .filter((x) => typeof x === "string" && !x.startsWith("remove:"));
@@ -116,7 +147,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const unit = Number(dbi.price) + modDelta;
+      const unit = effectiveBase(dbi) + modDelta;
       const line_total = unit * qty;
       subtotal += line_total;
       orderItems.push({
