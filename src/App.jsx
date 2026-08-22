@@ -836,8 +836,8 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                                         <span>{it.qty > 1 ? it.qty + "× " : ""}{it.name_snapshot}</span>
                                         <span>{money(it.line_total)}</span>
                                       </div>
-                                      {it.modifiers_snapshot && Object.keys(it.modifiers_snapshot).length > 0 && (
-                                        <div style={{ fontSize: 12, color: "var(--muted)", paddingLeft: 4 }}>{Object.values(it.modifiers_snapshot).join(", ")}</div>
+                                      {it.modifiers_snapshot && (Array.isArray(it.modifiers_snapshot) ? it.modifiers_snapshot.length > 0 : Object.keys(it.modifiers_snapshot).length > 0) && (
+                                        <div style={{ fontSize: 12, color: "var(--muted)", paddingLeft: 4 }}>{(Array.isArray(it.modifiers_snapshot) ? it.modifiers_snapshot : Object.values(it.modifiers_snapshot)).join(", ")}</div>
                                       )}
                                     </div>
                                   ))}

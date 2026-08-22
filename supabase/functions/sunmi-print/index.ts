@@ -125,7 +125,7 @@ async function loadReceiptOrder(
   const stationByLine = await resolveLineStations(itemRows ?? []);
 
   const items: ReceiptItem[] = (itemRows ?? []).map((it, i) => {
-    const mods = it.modifiers_snapshot as Record<string, unknown> | null;
+    const mods = it.modifiers_snapshot as Record<string, unknown> | unknown[] | null;
     return {
       qty: it.qty ?? 1,
       name: it.name_snapshot ?? "Item",
@@ -134,9 +134,11 @@ async function loadReceiptOrder(
         : parseFloat(String(it.line_total ?? "")) || undefined,
       station: stationByLine[i],
       added: (it.added_batch ?? 0) > 0,
-      modifiers: mods
-        ? Object.entries(mods).map(([k, v]) => `${cap(k)}: ${v}`)
-        : [],
+      modifiers: Array.isArray(mods)
+        ? (mods as unknown[]).map((m) => String(m))
+        : mods
+          ? Object.entries(mods).map(([k, v]) => `${cap(k)}: ${v}`)
+          : [],
     };
   });
   const hasAdditions = items.some((it) => (it as any).added);
