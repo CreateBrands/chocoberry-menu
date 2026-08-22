@@ -162,7 +162,7 @@ async function fetchLive(token) {
     if (!c) { c = { id: row.category_id, name: row.category_name, sort: row.category_sort, img: row.gradient_bg, items: [] }; m.cats.set(row.category_id, c); }
     c.items.push({
       id: row.item_id, name: row.item_name, desc: row.description, price: Number(row.price),
-      category_id: row.category_id,
+      category_id: row.category_id, removables: row.removables || null,
       tags: row.tags || [], allergens: row.allergens || [],
       allergensContains: row.allergens_contains || [], allergensMay: row.allergens_may || [],
       bg: row.gradient_bg, prod: row.gradient_prod, image_url: row.image_url,
@@ -1162,7 +1162,8 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
   const REMOVE_CATS = ["f40b3e82-b5be-4dd8-96ae-b61d369f6ae5", "a1a2d150-9ca4-4a8c-aa58-d9311b14c99b", "0998491f-620a-4cb2-8091-4897f371871f"];
   const removableItems = (() => {
     if (!REMOVE_CATS.includes(it.category_id)) return [];
-    // every component listed in the description (split on | or comma) is removable
+    // use the admin-curated removables list if set; else fall back to all description components
+    if (Array.isArray(it.removables) && it.removables.length) return it.removables;
     return String(it.desc || "").split(/[|,]/).map((s) => s.trim()).filter(Boolean);
   })();
   const [removed, setRemoved] = useState([]);

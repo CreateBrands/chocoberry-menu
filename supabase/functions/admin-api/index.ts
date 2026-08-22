@@ -94,7 +94,7 @@ Deno.serve(async (req) => {
       case "update_item": {
         const { id, fields } = data;
         if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "description", "price", "allergens", "tags", "available", "published", "sort_order", "category_id", "image_url", "station"];
+        const allowed = ["name", "description", "price", "allergens", "allergens_contains", "allergens_may", "tags", "available", "published", "sort_order", "category_id", "image_url", "station", "removables"];
         const patch: any = {};
         for (const k of allowed) if (k in fields) patch[k] = fields[k];
         const { error } = await admin.from("menu_items").update(patch).eq("id", id);

@@ -378,6 +378,15 @@ function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSave
     allergensContains: item.allergens_contains || [], allergensMay: item.allergens_may || [],
     image_url: item.image_url || "", published: item.published !== false,
   });
+  // Which description components are removable (ticked). Defaults to all on first edit.
+  const parseComponents = (desc) => String(desc || "").split(/[|,]/).map((s) => s.trim()).filter(Boolean);
+  const [removables, setRemovables] = useState(() => {
+    const comps = parseComponents(item.description);
+    // if the item already has a saved removables list, use it; else default to all components
+    return Array.isArray(item.removables) && item.removables.length ? item.removables : comps;
+  });
+  const descComponents = parseComponents(f.description);
+  const toggleRemovable = (c) => setRemovables((prev) => prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
@@ -388,6 +397,7 @@ function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSave
         name: f.name, description: f.description, price: Number(f.price),
         allergens_contains: f.allergensContains, allergens_may: f.allergensMay,
         image_url: f.image_url || null, published: f.published,
+        removables: removables,
       }});
       await callAdmin(pin, "set_item_mod_groups", { item_id: item.id, group_ids: modIds });
       onSaved();
@@ -406,6 +416,23 @@ function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSave
         <input style={inp} value={f.name} onChange={(e) => set("name", e.target.value)} />
         <div style={lab}>Description</div>
         <textarea style={{ ...inp, minHeight: 90, resize: "vertical" }} value={f.description} onChange={(e) => set("description", e.target.value)} />
+        {descComponents.length > 0 && (
+          <div style={{ marginTop: 12, background: "#fff", border: "1px solid " + T.line, borderRadius: 12, padding: "12px 14px" }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: T.ink, marginBottom: 3 }}>Removable ingredients</div>
+            <div style={{ fontSize: 12, color: T.muted, marginBottom: 10 }}>Tick the components a customer can leave off. Untick non-ingredients (e.g. "Hearty breakfast").</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {descComponents.map((c) => {
+                const on = removables.includes(c);
+                return (
+                  <div key={c} onClick={() => toggleRemovable(c)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 4px", cursor: "pointer" }}>
+                    <span style={{ width: 20, height: 20, borderRadius: 6, flexShrink: 0, border: "2px solid " + (on ? T.accent : T.line), background: on ? T.accent : "transparent", display: "flex", alignItems: "center", justifyContent: "center" }}>{on ? <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg> : null}</span>
+                    <span style={{ fontSize: 14, color: on ? T.ink : T.muted }}>{c}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <div style={lab}>Price (£)</div>
         <input style={inp} type="number" step="0.01" value={f.price} onChange={(e) => set("price", e.target.value)} />
         <div style={lab}>Allergens</div>
