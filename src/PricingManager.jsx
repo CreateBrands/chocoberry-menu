@@ -49,6 +49,12 @@ export default function PricingManager({ state, T, act, onClose }) {
   const [round, setRound] = useState("95");
   const [multiStores, setMultiStores] = useState({});
   const [collapsed, setCollapsed] = useState({});
+  const [page, setPage] = useState("prices");   // "prices" | "bands"
+  // band-management drafts
+  const [newBandName, setNewBandName] = useState("");
+  const [copyFrom, setCopyFrom] = useState("Master");
+  const [renaming, setRenaming] = useState(null);
+  const [draftName, setDraftName] = useState("");
 
   const targets = view === "location" ? stores : bands;
   React.useEffect(() => {
@@ -118,6 +124,30 @@ export default function PricingManager({ state, T, act, onClose }) {
   }, [target, view, state.overrides, state.bandPrices, items]); // eslint-disable-line
 
   const run = async (fn) => { setBusy(true); setErr(""); setMsg(""); try { await fn(); } catch (e) { setErr(e.message || "That didn't save."); } setBusy(false); };
+
+  // ── band management ──
+  const storesOn = (bandId) => stores.filter((s) => s.price_band_id === bandId);
+  const bandItemCount = (bandId) => (state.bandPrices || []).filter((p) => p.band_id === bandId && p.price != null).length;
+  const isMaster = (b) => b.name === "Master";
+  const createBand = () => {
+    const name = newBandName.trim();
+    if (!name) { setErr("Give the band a name."); return; }
+    if (bands.some((b) => b.name.toLowerCase() === name.toLowerCase())) { setErr("There's already a band called that."); return; }
+    run(async () => { await act("create_band", { name, copy_from: copyFrom }); setNewBandName(""); setMsg("Band created."); });
+  };
+  const renameBand = (b) => {
+    const name = draftName.trim();
+    if (!name || name === b.name) { setRenaming(null); return; }
+    run(async () => { await act("update_band", { id: b.id, fields: { name } }); setRenaming(null); setMsg("Renamed."); });
+  };
+  const removeBand = (b) => {
+    const on = storesOn(b.id);
+    const warn = on.length ? `\n\n${on.length} store${on.length === 1 ? "" : "s"} (${on.map((s) => s.name).join(", ")}) will fall back to master prices.` : "";
+    if (!window.confirm(`Delete the "${b.name}" band?${warn}`)) return;
+    run(async () => { await act("delete_band", { id: b.id }); setMsg("Band deleted."); });
+  };
+  const assignStore = (storeId, bandId) => run(async () => { await act("set_store_band", { location_id: storeId, band_id: bandId || null }); setMsg("Store reassigned."); });
+
 
   const setOne = (it, raw) => {
     if (isProtected) { setErr("This location is price-protected. Unlock it to make changes."); return; }
@@ -196,16 +226,26 @@ export default function PricingManager({ state, T, act, onClose }) {
         <div style={{ flex: 1, minWidth: 220 }}>
           <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, letterSpacing: "-.4px" }}>Pricing</div>
           <div style={{ fontSize: 14, color: T.muted, marginTop: 3 }}>
-            Every tier, and exactly what each store charges — edit one item or hundreds at once.
+            {page === "prices" ? "Every tier, and exactly what each store charges — edit one item or hundreds at once." : "Bands are shared price lists. Put stores on a band and they move together."}
           </div>
         </div>
+        {page === "prices" && (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           <StatChip label="On base" n={stats.base} color={PALETTE.base} bg={PALETTE.baseBg} />
           <StatChip label="On band" n={stats.band} color={PALETTE.band} bg={PALETTE.bandBg} />
           <StatChip label="Store price" n={stats.store} color={PALETTE.store} bg={PALETTE.storeBg} />
           {stats.below > 0 && <StatChip label="Below cost" n={stats.below} color={PALETTE.danger} bg={PALETTE.dangerBg} />}
         </div>
+        )}
       </div>
+
+      {/* top-level sub-nav: Prices | Bands */}
+      <div style={{ display: "inline-flex", background: T.card, borderRadius: 12, padding: 4, border: "1px solid " + T.line, marginBottom: 16 }}>
+        <span style={{ ...seg(page === "prices"), padding: "9px 22px", fontSize: 14.5 }} onClick={() => setPage("prices")}>Prices</span>
+        <span style={{ ...seg(page === "bands"), padding: "9px 22px", fontSize: 14.5 }} onClick={() => setPage("bands")}>Bands &amp; stores</span>
+      </div>
+
+      {page === "prices" && (<>
 
       <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14, padding: "12px 14px", background: T.card, borderRadius: 14, border: "1px solid " + T.line }}>
         <div style={{ display: "inline-flex", background: T.bg, borderRadius: 11, padding: 4 }}>
@@ -332,6 +372,77 @@ export default function PricingManager({ state, T, act, onClose }) {
         <span><b style={{ color: PALETTE.store }}>store</b> = this store only</span>
         <span style={{ color: T.faint }}>· the effective badge shows which tier won</span>
       </div>
+      </>)}
+
+      {/* ── BANDS & STORES PAGE ─────────────────────────────────────── */}
+      {page === "bands" && (
+        <div style={{ maxWidth: 860 }}>
+          {/* the bands */}
+          <div style={{ background: T.card, borderRadius: 14, border: "1px solid " + T.line, overflow: "hidden", marginBottom: 16 }}>
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid " + T.line, fontSize: 15, fontWeight: 700, fontFamily: "'Poppins',sans-serif" }}>Price bands</div>
+            {bands.map((b) => {
+              const on = storesOn(b.id);
+              return (
+                <div key={b.id} style={{ padding: "14px 20px", borderBottom: "1px solid " + T.line, display: "flex", alignItems: "center", gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {renaming === b.id ? (
+                      <input autoFocus value={draftName} onChange={(e) => setDraftName(e.target.value)} onBlur={() => renameBand(b)}
+                        onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); if (e.key === "Escape") setRenaming(null); }}
+                        style={{ ...input, width: 220 }} />
+                    ) : (
+                      <div style={{ fontSize: 15.5, fontWeight: 600, display: "flex", alignItems: "center", gap: 8 }}>
+                        {b.name}
+                        {isMaster(b) && <span style={{ fontSize: 10, fontWeight: 700, color: T.accent, background: PALETTE.baseBg, borderRadius: 6, padding: "2px 7px", textTransform: "uppercase", letterSpacing: ".3px" }}>default</span>}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 13, color: T.muted, marginTop: 3 }}>
+                      <span style={{ color: PALETTE.band, fontWeight: 600 }}>{bandItemCount(b.id)} custom prices</span>
+                      {" · "}
+                      {on.length ? on.map((s) => s.name).join(", ") : <span style={{ opacity: .7 }}>no stores on this band</span>}
+                    </div>
+                  </div>
+                  <span onClick={() => { setPage("prices"); setView("band"); setTarget(b.id); }} style={{ cursor: "pointer", fontSize: 13, fontWeight: 600, color: T.accent, padding: "6px 10px" }}>Edit prices →</span>
+                  <span onClick={() => { setRenaming(b.id); setDraftName(b.name); }} style={{ cursor: "pointer", fontSize: 13, fontWeight: 600, color: T.muted, padding: "6px 10px" }}>Rename</span>
+                  {!isMaster(b) && <span onClick={() => removeBand(b)} style={{ cursor: "pointer", fontSize: 13, fontWeight: 600, color: PALETTE.danger, padding: "6px 10px" }}>Delete</span>}
+                </div>
+              );
+            })}
+            {/* create new band */}
+            <div style={{ padding: "14px 20px", background: T.bg, display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <input value={newBandName} onChange={(e) => setNewBandName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") createBand(); }}
+                placeholder="New band name (e.g. Dubai, Retail Park)" style={{ ...input, flex: 1, minWidth: 200 }} />
+              <span style={{ fontSize: 13, color: T.muted }}>copying prices from</span>
+              <select value={copyFrom} onChange={(e) => setCopyFrom(e.target.value)} style={input}>
+                {bands.map((b) => <option key={b.id} value={b.name}>{b.name}</option>)}
+              </select>
+              <button onClick={createBand} disabled={busy} style={btn}>{busy ? "Working…" : "Create band"}</button>
+            </div>
+          </div>
+
+          {/* store assignment */}
+          <div style={{ background: T.card, borderRadius: 14, border: "1px solid " + T.line, overflow: "hidden" }}>
+            <div style={{ padding: "14px 20px", borderBottom: "1px solid " + T.line, fontSize: 15, fontWeight: 700, fontFamily: "'Poppins',sans-serif" }}>
+              Store assignment
+              <span style={{ fontSize: 13, fontWeight: 400, color: T.muted, marginLeft: 8 }}>which band each store follows</span>
+            </div>
+            {stores.map((s) => (
+              <div key={s.id} style={{ padding: "12px 20px", borderBottom: "1px solid " + T.line, display: "flex", alignItems: "center", gap: 12 }}>
+                <span style={{ flex: 1, fontSize: 14.5 }}>{s.name}</span>
+                {s.price_band_id
+                  ? <span style={{ fontSize: 12, color: PALETTE.band, background: PALETTE.bandBg, padding: "4px 10px", borderRadius: 16, fontWeight: 600 }}>{bandName(s.price_band_id)}</span>
+                  : <span style={{ fontSize: 12, color: T.muted, background: T.bg, padding: "4px 10px", borderRadius: 16, fontWeight: 600 }}>master prices</span>}
+                <select value={s.price_band_id || ""} disabled={busy} onChange={(e) => assignStore(s.id, e.target.value)} style={{ ...input, minWidth: 160 }}>
+                  <option value="">— master prices —</option>
+                  {bands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+            ))}
+            <div style={{ padding: "12px 20px", fontSize: 12.5, color: T.muted }}>
+              A store can still have its own per-item exceptions on top of its band — set those on the <b onClick={() => setPage("prices")} style={{ color: T.accent, cursor: "pointer" }}>Prices</b> tab.
+            </div>
+          </div>
+        </div>
+      )}
 
       {(err || msg) && <div style={{ marginTop: 14, padding: "12px 16px", fontSize: 14, color: err ? PALETTE.danger : T.accent, background: err ? PALETTE.dangerBg : PALETTE.baseBg, borderRadius: 12, fontWeight: 600 }}>{err || msg}</div>}
 

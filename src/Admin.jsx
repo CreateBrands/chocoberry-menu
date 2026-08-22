@@ -791,7 +791,6 @@ export default function Admin() {
           ["menus", "Menus", "🍽"],
           ["overview", "Overview", "📋"],
           ["pricing", "Pricing", "💷"],
-          ["bands", "Price bands", "🏷"],
           ["modifiers", "Modifiers", "⚙"],
           ["appearance", "Appearance", "🎨"],
           ["welcome", "Welcome", "🏠"],
