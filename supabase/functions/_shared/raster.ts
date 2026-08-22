@@ -62,6 +62,9 @@ function receiptTree(o: ReceiptOrder): Node {
       el("div", {}, (o.tabletNo ? "T" + o.tabletNo + "-" : "") + o.orderNumber.slice(0, 6)),
       el("div", {}, (o.customerName ?? "").slice(0, 14))),
     el("div", { marginTop: 10 }, `Placed at ${o.placedAt}`),
+    ...(o.reprint
+      ? [el("div", { justifyContent: "center", alignItems: "center", background: "#000", color: "#fff", padding: "8px 14px", fontSize: 40, fontWeight: 700, letterSpacing: 3, marginTop: 10 }, "* * *  REPRINT  * * *")]
+      : []),
     rule(),
     el("div", { flexDirection: "column", alignItems: "center", width: "100%" },
       el("div", { fontSize: 52, fontWeight: 700, letterSpacing: 2 }, typeMain.toUpperCase()),

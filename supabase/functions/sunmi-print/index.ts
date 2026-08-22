@@ -293,7 +293,10 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
       continue;
     }
 
-    if (!force && (await alreadyPrinted(orderId, sn))) {
+    // Was this order already printed on this printer before? Used both to
+    // skip accidental auto-reprints AND to stamp REPRINT on deliberate ones.
+    const printedBefore = await alreadyPrinted(orderId, sn);
+    if (!force && printedBefore) {
       results.push({ printer: sn, station, skipped: true, reason: "already printed" });
       continue;
     }
@@ -304,9 +307,12 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
     // trade_no <=32 chars, unique per printer (station suffix), per reprint, and per copy.
     const base = orderId.replace(/-/g, "").slice(0, 24);
     for (let copy = 0; copy < copies; copy++) {
-      // First copy is the original; any extra copy (copy > 0) OR a forced reprint
-      // is marked DUPLICATE so it can't be mistaken for a new order.
-      const isDuplicate = force || copy > 0;
+      // A slip is a REPRINT if: this order was already printed on this printer
+      // before (any deliberate reprint), OR it's an extra copy in this run.
+      // Exception: an append reprint (order has ADDED items) is NOT stamped
+      // REPRINT — the ORIGINAL/ADDED/DISCARD PREVIOUS layout already makes it
+      // clear, and both banners at once would be confusing.
+      const isDuplicate = (printedBefore || copy > 0) && !order.hasAdditions;
       const stationOrder: ReceiptOrder = { ...order, items: lines, reprint: isDuplicate };
       const contentHex = await receiptHexFor(stationOrder);
 
