@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import OrderManager from "./OrderManager.jsx";
 
 // ============================================================
 // still. / Chocoberry — Digital Menu (React port of approved design)
@@ -452,7 +453,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   const [pinErr, setPinErr] = useState("");
   const [checking, setChecking] = useState(false);
   // View: "orders" | "items"
-  const [view, setView] = useState("orders");
+  const [view, setView] = useState("till");
   // All-tablets orders from DB
   const [allOrders, setAllOrders] = useState(null);
   const [collapsed, setCollapsed] = useState({}); // tablet_no -> bool
@@ -577,7 +578,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
 
   async function loadAllOrders() {
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,paid_method,paid_amount,discount_type,discount_value,print_failed,created_at,menu_tables(label),menu_order_items(name_snapshot,qty,modifiers_snapshot,line_total)"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,paid_method,paid_amount,discount_type,discount_value,print_failed,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total)"
         + (locationId ? "&location_id=eq." + locationId : "")
         + "&closed_at=is.null"
         + "&order=created_at.desc&limit=200";
@@ -625,6 +626,28 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
       await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
         body: JSON.stringify({ pin: sessionPinRef.current, action: "mark_unpaid", data: { order_id: o.id } }),
+      });
+      await loadAllOrders();
+    } catch { /* ignore */ } finally { setSavingPaid(false); }
+  }
+
+  // ---- Till (OrderManager) edit handlers ----
+  async function tillRemoveItem(o, orderItemId) {
+    setSavingPaid(true);
+    try {
+      await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin: sessionPinRef.current, action: "remove_order_item", data: { order_id: o.id, order_item_id: orderItemId } }),
+      });
+      await loadAllOrders();
+    } catch { /* ignore */ } finally { setSavingPaid(false); }
+  }
+  async function tillSetQty(o, orderItemId, qty) {
+    setSavingPaid(true);
+    try {
+      await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin: sessionPinRef.current, action: "set_order_item_qty", data: { order_id: o.id, order_item_id: orderItemId, qty } }),
       });
       await loadAllOrders();
     } catch { /* ignore */ } finally { setSavingPaid(false); }
@@ -728,8 +751,9 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
           <div>
             {/* Tabs */}
             <div style={{ display: "flex", gap: 10, marginBottom: 16, flexShrink: 0 }}>
-              <div onClick={() => setView("orders")} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "orders" ? "var(--accent)" : "var(--bg3)", color: view === "orders" ? "#F7F4EC" : "var(--ink)" }}>Orders</div>
-              <div onClick={() => { setView("items"); if (!items) loadItems(); }} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "items" ? "var(--accent)" : "var(--bg3)", color: view === "items" ? "#F7F4EC" : "var(--ink)" }}>Items online/offline</div>
+              <div onClick={() => setView("till")} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "till" ? "var(--accent)" : "var(--bg3)", color: view === "till" ? "#F7F4EC" : "var(--ink)" }}>Till</div>
+              <div onClick={() => setView("orders")} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "orders" ? "var(--accent)" : "var(--bg3)", color: view === "orders" ? "#F7F4EC" : "var(--ink)" }}>List</div>
+              <div onClick={() => { setView("items"); if (!items) loadItems(); }} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "items" ? "var(--accent)" : "var(--bg3)", color: view === "items" ? "#F7F4EC" : "var(--ink)" }}>Items</div>
             </div>
 
             {accepting !== null && (
@@ -760,6 +784,27 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                   {sweeping ? "Checking…" : "↻ Reprint any missed orders"}
                 </div>
                 {sweepMsg && <div style={{ fontSize: 12, color: "var(--accent)", textAlign: "center", marginTop: 6 }}>{sweepMsg}</div>}
+              </div>
+            )}
+
+            {view === "till" && (
+              <div style={{ position: "fixed", left: 0, top: 0, right: 0, bottom: 0, zIndex: 60, background: "#F4F1E8" }}>
+                <div style={{ position: "absolute", top: 12, right: 16, zIndex: 61 }}>
+                  <div onClick={() => setView("orders")} style={{ width: 44, height: 44, borderRadius: "50%", background: "#fff", boxShadow: "0 2px 10px rgba(60,70,45,.18)", display: "flex", alignItems: "center", justifyContent: "center", color: "#7E8470", cursor: "pointer", fontSize: 20 }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
+                  </div>
+                </div>
+                <OrderManager
+                  orders={allOrders || []}
+                  now={now}
+                  busy={savingPaid}
+                  onPay={(o, method) => markPaid(o, method)}
+                  onUnpaid={(o) => markUnpaid(o)}
+                  onAddItems={(id) => { if (onAddItems) onAddItems(id); }}
+                  onRemoveItem={(o, iid) => tillRemoveItem(o, iid)}
+                  onSetQty={(o, iid, q) => tillSetQty(o, iid, q)}
+                  onReprint={(o) => reprint(o, "till:" + o.id)}
+                />
               </div>
             )}
 

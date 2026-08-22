@@ -477,6 +477,53 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      // ---- TILL: remove a single line item from an UNPAID order ----
+      case "remove_order_item": {
+        const { order_item_id, order_id } = data || {};
+        if (!order_item_id || !order_id) return json({ error: "order_item_id and order_id required" }, 400);
+        // Guard: only edit unpaid orders.
+        const { data: ord, error: oErr } = await admin
+          .from("menu_orders").select("id, paid_method").eq("id", order_id).single();
+        if (oErr || !ord) return json({ error: "order not found" }, 404);
+        if (ord.paid_method) return json({ error: "already_paid", message: "Paid orders can't be edited. Mark unpaid first." }, 409);
+        // Delete the line, then recompute the order total from the remaining lines.
+        const { error: dErr } = await admin.from("menu_order_items").delete().eq("id", order_item_id).eq("order_id", order_id);
+        if (dErr) throw dErr;
+        const { data: rest } = await admin.from("menu_order_items").select("line_total").eq("order_id", order_id);
+        const newTotal = Math.round((rest ?? []).reduce((s, r) => s + Number(r.line_total || 0), 0) * 100) / 100;
+        const { error: uErr } = await admin.from("menu_orders").update({ subtotal: newTotal, total: newTotal }).eq("id", order_id);
+        if (uErr) throw uErr;
+        return json({ ok: true, total: newTotal });
+      }
+
+      // ---- TILL: set the quantity on a single line of an UNPAID order ----
+      case "set_order_item_qty": {
+        const { order_item_id, order_id, qty } = data || {};
+        const q = parseInt(qty);
+        if (!order_item_id || !order_id || isNaN(q)) return json({ error: "order_item_id, order_id and qty required" }, 400);
+        const { data: ord, error: oErr } = await admin
+          .from("menu_orders").select("id, paid_method").eq("id", order_id).single();
+        if (oErr || !ord) return json({ error: "order not found" }, 404);
+        if (ord.paid_method) return json({ error: "already_paid", message: "Paid orders can't be edited. Mark unpaid first." }, 409);
+        // Fetch the line to get its unit price (price_snapshot).
+        const { data: li, error: lErr } = await admin
+          .from("menu_order_items").select("id, price_snapshot").eq("id", order_item_id).eq("order_id", order_id).single();
+        if (lErr || !li) return json({ error: "line not found" }, 404);
+        if (q <= 0) {
+          // qty 0 = remove the line
+          await admin.from("menu_order_items").delete().eq("id", order_item_id).eq("order_id", order_id);
+        } else {
+          const newLineTotal = Math.round(Number(li.price_snapshot) * q * 100) / 100;
+          const { error: upErr } = await admin.from("menu_order_items")
+            .update({ qty: q, line_total: newLineTotal }).eq("id", order_item_id).eq("order_id", order_id);
+          if (upErr) throw upErr;
+        }
+        const { data: rest } = await admin.from("menu_order_items").select("line_total").eq("order_id", order_id);
+        const newTotal = Math.round((rest ?? []).reduce((s, r) => s + Number(r.line_total || 0), 0) * 100) / 100;
+        await admin.from("menu_orders").update({ subtotal: newTotal, total: newTotal }).eq("id", order_id);
+        return json({ ok: true, total: newTotal });
+      }
+
       case "void_order": {
         const { order_id, reason } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
