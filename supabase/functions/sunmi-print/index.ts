@@ -296,7 +296,10 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
     // Was this order already printed on this printer before? Used both to
     // skip accidental auto-reprints AND to stamp REPRINT on deliberate ones.
     const printedBefore = await alreadyPrinted(orderId, sn);
-    if (!force && printedBefore) {
+    // Skip only a plain auto-reprint of an unchanged order. An append (order
+    // has ADDED items) must always print so the kitchen sees the new items,
+    // and a forced/manual reprint always prints too.
+    if (!force && printedBefore && !order.hasAdditions) {
       results.push({ printer: sn, station, skipped: true, reason: "already printed" });
       continue;
     }

@@ -149,6 +149,25 @@ Deno.serve(async (req) => {
         total: Number(existing.total || 0) + subtotal,
       }).eq("id", orderId);
 
+      // The auto-print webhook only fires on menu_orders INSERT. An append adds
+      // menu_order_items to an existing order (no new order row), so we must
+      // trigger the reprint explicitly. force:true bypasses the already-printed
+      // guard; sunmi-print renders the ORIGINAL / ADDED / DISCARD PREVIOUS slip.
+      try {
+        await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sunmi-print`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+            Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
+            "x-print-secret": Deno.env.get("PRINT_WEBHOOK_SECRET") ?? "",
+          },
+          body: JSON.stringify({ action: "print-order", order_id: orderId, force: true }),
+        });
+      } catch (e) {
+        console.error("append print trigger failed:", e);
+      }
+
       return new Response(JSON.stringify({ ok: true, order_id: orderId, order_no: existing.order_no, total: subtotal, added_batch: nextBatch }), {
         headers: { ...cors, "Content-Type": "application/json" },
       });
