@@ -843,6 +843,10 @@ export default function Admin() {
 
       {/* MAIN CONTENT */}
       <div style={{ flex: 1, minWidth: 0, padding: "26px 28px 60px", overflowY: "auto", maxHeight: "100vh", boxSizing: "border-box" }}>
+        {nav === "pricing" ? (
+          <PricingManager state={state} T={T} act={act} onClose={() => { setNav("menus"); setLevel("menus"); }} />
+        ) : (
+        <>
         <div style={{ fontSize: 13, color: T.faint, marginBottom: 18 }}>
           <span style={{ cursor: "pointer", color: level === "menus" ? T.accent : T.faint }} onClick={() => { setLevel("menus"); setMenuId(null); setCatId(null); }}>Menus</span>
           {menu && <> {" › "} <span style={{ cursor: "pointer", color: level === "sections" ? T.accent : T.faint }} onClick={() => { setLevel("sections"); setCatId(null); }}>{menu.name}</span></>}
@@ -928,9 +932,12 @@ export default function Admin() {
             </div>
           </div>
         )}
+        </>
+        )}
       </div>
 
       {/* LIVE PREVIEW */}
+      {nav !== "pricing" && (
       <div style={{ width: 430, flexShrink: 0, borderLeft: "1px solid " + T.line, background: T.card, padding: "22px 20px", boxSizing: "border-box", height: "100vh", position: "sticky", top: 0, display: "flex", flexDirection: "column", alignItems: "center" }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: T.muted, marginBottom: 14, alignSelf: "flex-start" }}>Live preview</div>
         <div style={{ flex: 1, minHeight: 0, display: "flex", alignItems: "center", justifyContent: "center", width: "100%" }}>
@@ -940,12 +947,12 @@ export default function Admin() {
         </div>
         <div style={{ fontSize: 12, color: T.faint, marginTop: 10, textAlign: "center" }}>Live customer view. Refresh after edits.</div>
       </div>
+      )}
 
       {editItem && <ItemEditor pin={pin} item={editItem} groups={state.modifierGroups || []} itemGroupIds={(state.itemModifiers || []).filter((im) => im.item_id === editItem.id).map((im) => im.group_id)} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); reload(); }} />}
       {showPrinters && <PrintersModal pin={pin} locations={state.locations} onClose={() => setShowPrinters(false)} />}
       {showOverview && <MenuOverview state={state} T={T} act={act} onEditItem={setEditItem} onClose={() => setShowOverview(false)} />}
       {showBands && <PriceBands state={state} T={T} act={act} onClose={() => setShowBands(false)} />}
-      {showPricing && <PricingManager state={state} T={T} act={act} onClose={() => setShowPricing(false)} />}
       {showAppearance && (
         <div onClick={() => setShowAppearance(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "88vh", overflowY: "auto" }}>
