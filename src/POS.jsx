@@ -451,57 +451,76 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             />
           ) : (
           <>
-          <div style={{ padding: "17px 19px 14px", borderBottom: "1px solid " + P.line2 }}>
+          <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid " + P.line2 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 13 }}>
-              <span style={{ fontWeight: 500, fontSize: 19, letterSpacing: "-.2px" }}>Current order</span>
-              <span style={{ fontSize: 12, color: P.muted, background: "#f3f4f6", padding: "5px 12px", borderRadius: 20, fontWeight: 500, fontSize: 14 }}>{itemCount} item{itemCount === 1 ? "" : "s"}</span>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-.3px" }}>Current order</span>
+              {itemCount > 0 && <span style={{ fontSize: 12.5, color: "#3a5730", background: "#eef4e8", padding: "4px 11px", borderRadius: 20, fontWeight: 700 }}>{itemCount} item{itemCount === 1 ? "" : "s"}</span>}
             </div>
             <div style={{ display: "flex", gap: 7 }}>
               <select value={table ? table.id : ""} onChange={(e) => { const t = tablesList.find((x) => x.id === e.target.value); setTable(t ? { id: t.id, label: t.label } : null); }}
-                style={{ flex: 1, textAlign: "center", padding: "13px 6px", borderRadius: 12, border: "none", fontSize: 15, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", background: table ? grad : P.chip, color: table ? "#fff" : "#7a828e", boxShadow: table ? "0 4px 10px rgba(229,57,122,.28)" : "none" }}>
+                style={{ flex: 1, textAlign: "center", padding: "12px 6px", borderRadius: 12, border: "1.5px solid " + (table ? "transparent" : "#d4e3c6"), fontSize: 14.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: table ? "#5E7A4D" : "#eef4e8", color: table ? "#fff" : "#3a5730", appearance: "none", WebkitAppearance: "none" }}>
                 <option value="">Table…</option>
                 {tablesList.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
               </select>
-              <div onClick={() => setTable(null)} style={{ flex: 1, textAlign: "center", padding: "13px 0", borderRadius: 12, background: !table ? grad : P.chip, color: !table ? "#fff" : "#7a828e", fontSize: 15, fontWeight: 500, cursor: "pointer", boxShadow: !table ? "0 4px 10px rgba(229,57,122,.28)" : "none" }}>Takeaway</div>
+              <div onClick={() => setTable(null)} style={{ flex: 1, textAlign: "center", padding: "12px 0", borderRadius: 12, background: !table ? "#5E7A4D" : "#eef4e8", color: !table ? "#fff" : "#3a5730", border: "1.5px solid " + (!table ? "transparent" : "#d4e3c6"), fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}>Takeaway</div>
             </div>
           </div>
 
-          <div style={{ flex: 1, padding: "4px 17px", overflowY: "auto" }}>
-            {ticket.length === 0 && <div style={{ color: P.muted2, textAlign: "center", marginTop: 48, fontSize: 16 }}>Tap items to build the order</div>}
+          <div style={{ flex: 1, padding: "6px 18px", overflowY: "auto" }}>
+            {ticket.length === 0 && (
+              <div style={{ color: P.muted2, textAlign: "center", marginTop: 60, fontSize: 15 }}>
+                <div style={{ fontSize: 40, marginBottom: 10, opacity: .5 }}>🧾</div>
+                Tap items to build the order
+              </div>
+            )}
             {ticket.map((l) => (
-              <div key={l.key} style={{ padding: "14px 0", borderBottom: "1px solid #f4f5f7" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <span style={{ fontWeight: 500, fontSize: 16 }}>{l.item.name}</span>
-                  <span style={{ fontWeight: 500, fontSize: 16 }}>{gbp(l.unit * l.qty)}</span>
+              <div key={l.key} style={{ padding: "13px 0", borderBottom: "1px solid #f4f5f7" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                  <div style={{ minWidth: 0, display: "flex", gap: 8 }}>
+                    {l.qty > 1 && <span style={{ flexShrink: 0, background: "#eef4e8", color: "#3a5730", fontWeight: 700, fontSize: 13, borderRadius: 7, padding: "1px 7px", height: "fit-content", marginTop: 1 }}>{l.qty}×</span>}
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 15.5, lineHeight: 1.25 }}>{l.item.name}</div>
+                      {l.mods.length > 0 && <div style={{ fontSize: 12.5, color: "#8a5a2c", marginTop: 3, lineHeight: 1.35 }}>{l.mods.map((m) => m.name).join(" · ")}</div>}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right", flexShrink: 0 }}>
+                    <div style={{ fontWeight: 700, fontSize: 15.5 }}>{gbp(l.unit * l.qty)}</div>
+                    {l.qty > 1 && <div style={{ fontSize: 11, color: "#9aa1ac", marginTop: 1 }}>{gbp(l.unit)} ea</div>}
+                  </div>
                 </div>
-                {l.mods.length > 0 && <div style={{ fontSize: 13, color: "#8a5a2c", marginTop: 4 }}>+ {l.mods.map((m) => m.name).join(", ")}</div>}
-                <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 11 }}>
-                  <span onClick={() => setQty(l.key, -1)} style={{ width: 38, height: 38, borderRadius: 11, background: P.chip, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#616976", cursor: "pointer", fontSize: 22, fontWeight: 500 }}>−</span>
-                  <span style={{ fontWeight: 500, minWidth: 24, textAlign: "center", fontSize: 18 }}>{l.qty}</span>
-                  <span onClick={() => setQty(l.key, 1)} style={{ width: 38, height: 38, borderRadius: 11, background: P.chip, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#616976", cursor: "pointer", fontSize: 22, fontWeight: 500 }}>+</span>
-                  <span onClick={() => removeLine(l.key)} style={{ marginLeft: "auto", width: 38, height: 38, borderRadius: 11, display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#c94a4a", cursor: "pointer", fontSize: 16 }}>✕</span>
+                <div style={{ display: "flex", alignItems: "center", marginTop: 10 }}>
+                  <div style={{ display: "inline-flex", alignItems: "center", background: "#f5f6f8", borderRadius: 11, padding: 3 }}>
+                    <span onClick={() => setQty(l.key, -1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>−</span>
+                    <span style={{ fontWeight: 700, minWidth: 36, textAlign: "center", fontSize: 16 }}>{l.qty}</span>
+                    <span onClick={() => setQty(l.key, 1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>+</span>
+                  </div>
+                  <span onClick={() => removeLine(l.key)} style={{ marginLeft: "auto", color: "#c94a4a", cursor: "pointer", fontSize: 13, fontWeight: 600, padding: "8px 4px" }}>Remove</span>
                 </div>
               </div>
             ))}
           </div>
 
-          <div style={{ borderTop: "1px solid " + P.line, padding: "16px 19px", background: "#fbfbfc" }}>
+          <div style={{ borderTop: "1px solid " + P.line, padding: "15px 18px", background: "#faf9f5" }}>
             {msg && <div style={{ fontSize: 13, textAlign: "center", marginBottom: 10, color: (msg.includes("fail") || msg.includes("Wrong")) ? "#c94a4a" : "#16a34a" }}>{msg}</div>}
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15, color: "#7a828e", marginBottom: 12 }}>
-              <span>Subtotal</span><span>{gbp(subtotal)}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 15, paddingTop: 12, borderTop: "1px dashed #e2e4e8" }}>
-              <span style={{ fontSize: 18, fontWeight: 500 }}>Total</span>
-              <span style={{ fontSize: 32, fontWeight: 500, letterSpacing: "-.6px" }}>{gbp(subtotal)}</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 16, fontWeight: 700 }}>Total</span>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 30, fontWeight: 700, letterSpacing: "-.6px" }}>{gbp(subtotal)}</span>
             </div>
 
-            <div style={{ display: "flex", gap: 9 }}>
-              <div onClick={clearAll} style={{ width: 52, textAlign: "center", padding: "17px 0", borderRadius: 14, background: P.chip, color: "#616976", cursor: "pointer", fontSize: 18, flexShrink: 0 }}>✕</div>
-              <div onClick={() => { if (ticket.length && !sending) sendOrder(false); }} style={{ padding: "17px 18px", textAlign: "center", borderRadius: 14, background: ticket.length ? "#fff" : "#f1f2f4", border: "1.5px solid " + (ticket.length ? "#cdd3da" : "transparent"), color: ticket.length ? "#2A2E20" : "#aeb4bd", fontWeight: 700, fontSize: 15, cursor: ticket.length ? "pointer" : "default", whiteSpace: "nowrap", flexShrink: 0 }}>{sending ? "…" : (appendTo ? "Add to order" : "Send to kitchen")}</div>
-              {!appendTo && (
-                <div onClick={() => { if (ticket.length && !sending) sendOrder(true); }} style={{ flex: 1, textAlign: "center", padding: "17px 0", borderRadius: 14, background: ticket.length ? "linear-gradient(140deg,#5E7A4D,#4a6b3a)" : "#d7dade", color: "#fff", fontWeight: 700, fontSize: 17, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 6px 16px rgba(94,122,77,.34)" : "none", opacity: sending ? .6 : 1 }}>{sending ? "Sending…" : "Pay now"}</div>
-              )}
-            </div>
+            {!appendTo ? (
+              <>
+                <div onClick={() => { if (ticket.length && !sending) sendOrder(true); }} style={{ textAlign: "center", padding: "17px 0", borderRadius: 14, background: ticket.length ? "linear-gradient(140deg,#5E7A4D,#4a6b3a)" : "#d7dade", color: "#fff", fontWeight: 700, fontSize: 17, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 6px 16px rgba(94,122,77,.34)" : "none", opacity: sending ? .6 : 1, marginBottom: 8 }}>{sending ? "Sending…" : "Pay now" + (ticket.length ? " · " + gbp(subtotal) : "")}</div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div onClick={() => { if (ticket.length && !sending) sendOrder(false); }} style={{ flex: 1, textAlign: "center", padding: "13px 0", borderRadius: 12, background: "#fff", border: "1.5px solid " + (ticket.length ? "#d4d8dd" : "#eceef0"), color: ticket.length ? "#2A2E20" : "#aeb4bd", fontWeight: 700, fontSize: 14.5, cursor: ticket.length ? "pointer" : "default" }}>{sending ? "…" : "Send to kitchen"}</div>
+                  <div onClick={clearAll} style={{ width: 50, textAlign: "center", padding: "13px 0", borderRadius: 12, background: "#fff", border: "1.5px solid #eee", color: "#c94a4a", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>🗑</div>
+                </div>
+              </>
+            ) : (
+              <div style={{ display: "flex", gap: 8 }}>
+                <div onClick={clearAll} style={{ width: 50, textAlign: "center", padding: "16px 0", borderRadius: 13, background: "#fff", border: "1.5px solid #eee", color: "#616976", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</div>
+                <div onClick={() => { if (ticket.length && !sending) sendOrder(false); }} style={{ flex: 1, textAlign: "center", padding: "16px 0", borderRadius: 13, background: ticket.length ? "linear-gradient(140deg,#5E7A4D,#4a6b3a)" : "#d7dade", color: "#fff", fontWeight: 700, fontSize: 16, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 6px 16px rgba(94,122,77,.34)" : "none", opacity: sending ? .6 : 1 }}>{sending ? "Adding…" : "Add to order"}</div>
+              </div>
+            )}
           </div>
           </>
           )}
