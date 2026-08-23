@@ -28,6 +28,7 @@ Deno.serve(async (req) => {
     const {
       qr_token = null,
       table_id: table_id_in = null,
+      location_id: location_id_in = null,
       order_type = "takeaway",
       requires_table = false,
       pickup_name = null,
@@ -48,11 +49,18 @@ Deno.serve(async (req) => {
 
     // Resolve table (dine-in) from qr_token, or from an explicit table_id.
     let table_id = table_id_in;
-    let location_id = null;
-    if (qr_token) {
+    // An explicit location_id (e.g. from the POS) takes priority so orders
+    // route to the correct store's printer even for takeaway (no table/token).
+    let location_id = location_id_in;
+    if (!location_id && qr_token) {
       const { data: tbl } = await admin
         .from("menu_tables").select("id, location_id").eq("qr_token", qr_token).eq("active", true).single();
       if (tbl) { table_id = table_id ?? tbl.id; location_id = tbl.location_id; }
+    } else if (qr_token) {
+      // location already known, but still resolve the table from the token
+      const { data: tbl } = await admin
+        .from("menu_tables").select("id").eq("qr_token", qr_token).eq("active", true).single();
+      if (tbl) table_id = table_id ?? tbl.id;
     }
     if (!location_id && table_id) {
       const { data: tbl } = await admin.from("menu_tables").select("location_id").eq("id", table_id).single();
@@ -227,6 +235,25 @@ Deno.serve(async (req) => {
     const lines = orderItems.map((oi) => ({ ...oi, order_id: orderId, added_batch: 0 }));
     const { error: liErr } = await admin.from("menu_order_items").insert(lines);
     if (liErr) throw liErr;
+
+    // Trigger the kitchen print + KDS now that the order AND its line items
+    // both exist. A DB webhook may also fire on INSERT, but triggering here
+    // explicitly guarantees every order (POS, tablet, takeaway) prints — and
+    // sunmi-print's already-printed guard means a double-fire won't duplicate.
+    try {
+      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sunmi-print`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
+          "x-print-secret": Deno.env.get("PRINT_WEBHOOK_SECRET") ?? "",
+        },
+        body: JSON.stringify({ action: "print-order", order_id: orderId }),
+      });
+    } catch (e) {
+      console.error("new order print trigger failed:", e);
+    }
 
     return new Response(JSON.stringify({ ok: true, order_id: orderId, order_no: orderNo, total: subtotal }), {
       headers: { ...cors, "Content-Type": "application/json" },
