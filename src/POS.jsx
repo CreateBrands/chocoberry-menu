@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import OrderManager from "./OrderManager.jsx";
+import OrdersStrip from "./OrdersStrip.jsx";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -94,13 +94,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       setOrders(r.ok ? await r.json() : []);
     } catch { setOrders([]); } finally { setOrdersBusy(false); }
   }
-  // Load orders when entering Orders mode; refresh every 20s while there.
+  // Orders strip is always visible — load on mount and refresh every 20s.
   useEffect(() => {
-    if (mode !== "orders") return;
     loadOrders();
     const id = setInterval(loadOrders, 20000);
     return () => clearInterval(id);
-  }, [mode, loc]); // eslint-disable-line
+  }, [loc]); // eslint-disable-line
 
   // Order action handlers (reuse admin-api actions).
   async function ordAction(action, dataObj) {
@@ -135,11 +134,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     setAppendTo(orderId);
     if (o && o.table_id) setTable({ id: o.table_id, label: (o.menu_tables && o.menu_tables.label) || "Table" });
     setTicket([]); // fresh lines to append
-    setMode("new");
     setMsg("Adding items to order #" + (o ? o.order_no : "") + " — pick items, then Send.");
   }
 
   const unpaidCount = (orders || []).filter((o) => o.status !== "cancelled" && !o.paid_method).length;
+  const owedTotal = (orders || []).filter((o) => o.status !== "cancelled" && !o.paid_method).reduce((s, o) => s + Number(o.total || 0), 0);
 
   // ---- Load menu (same source as the customer app) ----
   // Three levels: master MENU (Breakfast, Desserts…) → subcategory → items.
@@ -238,9 +237,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       const resp = await r.json();
       if (!r.ok) throw new Error(resp.message || resp.error || "Send failed");
       if (appendTo) {
-        // Added to an existing order — go back to Orders and refresh.
-        setAppendTo(null); setTicket([]); setTable(null); setMsg("");
-        setMode("orders"); loadOrders();
+        // Added to an existing order — clear the ticket and refresh the strip.
+        setAppendTo(null); setTicket([]); setTable(null); setMsg("Items added to the order.");
+        loadOrders();
       } else {
         setPlaced({ id: resp.order_id, order_no: resp.order_no, total: subtotal });
         setMsg("Sent — order #" + resp.order_no);
@@ -264,39 +263,33 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
-      {/* ── Persistent top action bar: New order | Orders (Toast/Square pattern) ── */}
-      <div style={{ flexShrink: 0, background: P.panel, borderBottom: "1px solid " + P.line, padding: "11px 18px", display: "flex", alignItems: "center", gap: 14 }}>
+      {/* ── Slim header (single-screen: no mode switching) ── */}
+      <div style={{ flexShrink: 0, background: P.panel, borderBottom: "1px solid " + P.line, padding: "10px 18px", display: "flex", alignItems: "center", gap: 14 }}>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 16, letterSpacing: "-.3px" }}>Chocoberry POS</div>
-        <div style={{ display: "inline-flex", gap: 3, background: "#f1f3f5", borderRadius: 12, padding: 4 }}>
-          <div onClick={() => setMode("new")} style={{ padding: "9px 18px", borderRadius: 9, background: mode === "new" ? "#fff" : "transparent", color: mode === "new" ? P.tealB : "#7a828e", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: mode === "new" ? "0 1px 3px rgba(18,21,28,.1)" : "none", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            <span style={{ fontSize: 16, lineHeight: 0 }}>＋</span> New order
-          </div>
-          <div onClick={() => setMode("orders")} style={{ padding: "9px 18px", borderRadius: 9, background: mode === "orders" ? "#fff" : "transparent", color: mode === "orders" ? P.tealB : "#7a828e", fontSize: 13.5, fontWeight: 600, cursor: "pointer", boxShadow: mode === "orders" ? "0 1px 3px rgba(18,21,28,.1)" : "none", display: "inline-flex", alignItems: "center", gap: 7 }}>
-            Orders {unpaidCount > 0 && <span style={{ background: "#e5397a", color: "#fff", borderRadius: 11, padding: "0 7px", fontSize: 11, fontWeight: 700 }}>{unpaidCount}</span>}
-          </div>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10 }}>
-          <div onClick={() => setDefault(defaultView === "orders" ? "new" : "orders")} title="Which screen this tablet opens on" style={{ fontSize: 11.5, color: P.tealB, background: P.chip, border: "1px solid " + P.chipBorder, borderRadius: 20, padding: "6px 12px", fontWeight: 600, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
-            ⚙ Opens on: {defaultView === "orders" ? "Orders" : "New order"}
-          </div>
-        </div>
+        {unpaidCount > 0 && (
+          <span style={{ fontSize: 12, color: "#fff", background: "#B23B3B", borderRadius: 20, padding: "5px 12px", fontWeight: 700 }}>
+            {unpaidCount} unpaid · £{owedTotal.toFixed(2)}
+          </span>
+        )}
+        <span style={{ marginLeft: "auto", fontSize: 12, color: P.muted2 }}>London Road</span>
       </div>
 
-      {mode === "orders" ? (
-        <div style={{ flex: 1, minHeight: 0, position: "relative" }}>
+      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+
+        {/* ORDERS STRIP — always visible, first column */}
+        <div style={{ position: "relative", display: "flex", flexShrink: 0 }}>
           {!posPin && (
-            <div style={{ position: "absolute", inset: 0, zIndex: 20, background: "rgba(244,241,232,.97)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ background: "#fff", borderRadius: 18, padding: "28px 30px", boxShadow: "0 12px 40px rgba(60,70,45,.18)", textAlign: "center", width: 300 }}>
-                <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, marginBottom: 6 }}>Staff PIN</div>
-                <div style={{ fontSize: 13, color: "#7a828e", marginBottom: 16 }}>Enter your PIN to manage orders and take payments.</div>
-                <input type="text" inputMode="numeric" value={posPin} onChange={(e) => setPosPin(e.target.value.replace(/\D/g, ""))} placeholder="PIN" autoFocus
+            <div style={{ position: "absolute", inset: 0, zIndex: 30, background: "rgba(244,241,232,.97)", display: "flex", alignItems: "center", justifyContent: "center", width: 234 }}>
+              <div style={{ background: "#fff", borderRadius: 16, padding: "22px 20px", boxShadow: "0 12px 40px rgba(60,70,45,.18)", textAlign: "center", width: 210 }}>
+                <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 16, marginBottom: 5 }}>Staff PIN</div>
+                <div style={{ fontSize: 12, color: "#7a828e", marginBottom: 14 }}>Enter PIN to view orders and take payments.</div>
+                <input type="text" inputMode="numeric" value={posPin} onChange={(e) => setPosPin(e.target.value.replace(/\D/g, ""))} placeholder="PIN"
                   autoComplete="off" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
-                  style={{ width: 180, textAlign: "center", fontSize: 22, letterSpacing: 6, padding: "13px 0", borderRadius: 12, border: "1px solid #e8e9ec", background: "#F4F1E8", color: "#262A1E", WebkitTextSecurity: "disc", textSecurity: "disc", fontFamily: "inherit" }} />
-                <div onClick={() => setMode("new")} style={{ marginTop: 14, fontSize: 13, color: "#7a828e", cursor: "pointer", textDecoration: "underline" }}>Back to New order</div>
+                  style={{ width: 150, textAlign: "center", fontSize: 20, letterSpacing: 5, padding: "12px 0", borderRadius: 12, border: "1px solid #e8e9ec", background: "#F4F1E8", color: "#262A1E", WebkitTextSecurity: "disc", textSecurity: "disc", fontFamily: "inherit" }} />
               </div>
             </div>
           )}
-          <OrderManager
+          <OrdersStrip
             orders={orders || []}
             now={now}
             busy={ordersBusy}
@@ -308,8 +301,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             onReprint={ordReprint}
           />
         </div>
-      ) : (
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+
 
         {/* LEFT COLUMN — masters (top, dark) + subcategories (below, light, scroll) */}
         <div style={{ width: 210, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
@@ -449,7 +441,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
         </div>
       </div>
-      )}
 
       {/* MODIFIER POPUP */}
       {modItem && (
