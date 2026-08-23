@@ -72,6 +72,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [orders, setOrders] = useState(null);
   const [ordersBusy, setOrdersBusy] = useState(false);
   const [selOrderId, setSelOrderId] = useState(null); // order tapped → shows in right panel
+  const [selPayNow, setSelPayNow] = useState(false);  // opened via "Pay now" → jump to payment
   const [now, setNow] = useState(Date.now());
   const [posPin, setPosPin] = useState(""); // PIN captured once for order actions
 
@@ -268,7 +269,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         setTicket([]); setTable(null); setPlaced(null); setPayMethod(null); setPayPin("");
         await loadOrders();
         if (thenPay && resp.order_id) {
-          // Open the just-fired order in the right panel → its payment flow.
+          // Open the just-fired order in the right panel → jump to payment.
+          setSelPayNow(true);
           setSelOrderId(resp.order_id);
         }
       }
@@ -331,7 +333,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
           {/* orders list — fills the rest */}
           <div style={{ borderTop: "1px solid " + P.line, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-            <OrdersList orders={orders || []} now={now} selId={selOrderId} onSelect={(id) => setSelOrderId(id)} />
+            <OrdersList orders={orders || []} now={now} selId={selOrderId} onSelect={(id) => { setSelPayNow(false); setSelOrderId(id); }} />
           </div>
         </div>
 
@@ -398,11 +400,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               order={(orders || []).find((o) => o.id === selOrderId)}
               now={now}
               busy={ordersBusy}
-              onClose={() => setSelOrderId(null)}
+              initialMode={selPayNow ? "method" : "detail"}
+              key={selOrderId + (selPayNow ? "-pay" : "")}
+              onClose={() => { setSelOrderId(null); setSelPayNow(false); }}
               onTakePayment={ordTakePayment}
-              onPay={async (o, m) => { const res = await ordPay(o, m); if (res && res.ok && res.fully_paid) setSelOrderId(null); return res; }}
+              onPay={async (o, m) => { const res = await ordPay(o, m); if (res && res.ok && res.fully_paid) { setSelOrderId(null); setSelPayNow(false); } return res; }}
               onUnpaid={ordUnpaid}
-              onAddItems={(id) => { ordAddItems(id); setSelOrderId(null); }}
+              onAddItems={(id) => { ordAddItems(id); setSelOrderId(null); setSelPayNow(false); }}
               onRemoveItem={ordRemoveItem}
               onSetQty={ordSetQty}
               onVoidFired={ordVoidFired}
