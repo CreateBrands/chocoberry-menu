@@ -18,6 +18,7 @@ const C = {
 
 const Ico = {
   bag: (s = 16, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0" /></svg>),
+  utensils: (s = 16, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h0a2 2 0 0 0 2-2V2M5 2v20M17 2v20M21 8c0-3-1-6-4-6v6c0 1 1 2 2 2h2Z" /></svg>),
   card: (s = 14, c = "#33402f") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg>),
   cash: (s = 14, c = "#33402f") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>),
   printer: (s = 17, c = "#2f6b4f") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z" /></svg>),
@@ -28,15 +29,41 @@ const Ico = {
 };
 
 function tableNum(o) { if (o.menu_tables && o.menu_tables.label) return String(o.menu_tables.label).replace(/^table\s*/i, ""); return null; }
+// Category icon + gradient fallback for line thumbnails (matches the POS cart).
+const CB_CAT_ICONS = [
+  { k: ["dessert", "kanafeh", "cake", "sweet", "waffle", "croissant", "toast"], icon: "🍰", grad: "linear-gradient(140deg,#fce1d0,#eba97b)" },
+  { k: ["matcha", "tea"], icon: "🍵", grad: "linear-gradient(140deg,#e4eac7,#acc771)" },
+  { k: ["coffee", "latte", "espresso", "flat white", "cappuccino"], icon: "☕", grad: "linear-gradient(140deg,#edd7c3,#cc9e71)" },
+  { k: ["shake", "smoothie"], icon: "🥤", grad: "linear-gradient(140deg,#f9ebd1,#e1b56f)" },
+  { k: ["mocktail", "drink", "juice", "lemon", "soda"], icon: "🍹", grad: "linear-gradient(140deg,#fde0ea,#f4a0c0)" },
+  { k: ["hot", "cocoa", "chocolate"], icon: "🍫", grad: "linear-gradient(140deg,#eac6a3,#b97b4e)" },
+  { k: ["breakfast", "egg", "brunch", "omelette"], icon: "🍳", grad: "linear-gradient(140deg,#fdeec2,#e8b96a)" },
+  { k: ["burger", "chicken", "wings", "fries", "chips", "wrap"], icon: "🍔", grad: "linear-gradient(140deg,#f6ddc0,#d99b63)" },
+];
+function cbFallback(name = "") {
+  const hay = name.toLowerCase();
+  for (const c of CB_CAT_ICONS) if (c.k.some((w) => hay.includes(w))) return c;
+  return { icon: "🍽", grad: "linear-gradient(140deg,#f6eedc,#dec89d)" };
+}
+
 function isDineIn(o) { return (o.order_type || "").toLowerCase().includes("dine"); }
 // Detect where an order came from, for the source badge.
 function orderSource(o) {
   const t = String(o.tablet_no || "").toLowerCase();
   const ch = String(o.channel || o.source || "").toLowerCase();
-  if (t.includes("phone") || ch.includes("phone") || ch.includes("retell")) return { icon: "📱", label: "Phone", bg: "#eaf2fb" };
-  if (t.includes("web") || ch.includes("web") || ch.includes("foodhub") || ch.includes("online")) return { icon: "🌐", label: "Web", bg: "#f3ecfb" };
-  if (t === "pos" || ch.includes("pos") || ch.includes("counter")) return { icon: "🧾", label: "Counter", bg: "#f3f4f6" };
-  return { icon: "🖥️", label: "Tablet", bg: "#eef4e8" }; // default: in-store tablet
+  if (t.includes("phone") || ch.includes("phone") || ch.includes("retell")) return { kind: "phone", label: "Phone" };
+  if (t.includes("web") || ch.includes("web") || ch.includes("foodhub") || ch.includes("online")) return { kind: "web", label: "Web" };
+  if (t === "pos" || ch.includes("pos") || ch.includes("counter")) return { kind: "counter", label: "Counter" };
+  return { kind: "tablet", label: "Tablet" }; // default: in-store tablet
+}
+// Clean inline SVG source icons (consistent set, no emoji).
+function srcIcon(kind, size = 15, color = "#5E7A4D") {
+  const p = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", style: { flexShrink: 0 } };
+  if (kind === "phone") return (<svg {...p}><rect x="7" y="2" width="10" height="20" rx="2" /><line x1="11" y1="18" x2="13" y2="18" /></svg>);
+  if (kind === "web") return (<svg {...p}><circle cx="12" cy="12" r="9" /><line x1="3" y1="12" x2="21" y2="12" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" /></svg>);
+  if (kind === "counter") return (<svg {...p}><path d="M4 7h16l-1 5H5L4 7Z" /><path d="M5 12v7h14v-7" /><line x1="4" y1="7" x2="20" y2="7" /></svg>);
+  // tablet
+  return (<svg {...p}><rect x="4" y="2" width="16" height="20" rx="2" /><line x1="10" y1="18" x2="14" y2="18" /></svg>);
 }
 function orderName(o) { return o.pickup_name || (o.menu_tables && o.menu_tables.label) || "Order"; }
 function modLine(it) {
@@ -79,13 +106,10 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
     const src = orderSource(o);
     return (
       <div onClick={() => onSelect(o.id)} style={{ background: C.card, border: "1.5px solid " + (selected ? (paid ? C.paidGreen : C.danger) : C.line), borderRadius: 12, padding: "9px 10px", marginBottom: 7, display: "flex", alignItems: "center", gap: 9, cursor: "pointer", boxShadow: selected ? "0 3px 10px -3px rgba(60,70,45,.2)" : "none" }}>
-        <div style={{ position: "relative", flexShrink: 0 }}>
-          <Tile o={o} paid={paid} size={36} />
-          <span title={src.label} style={{ position: "absolute", bottom: -3, right: -4, width: 18, height: 18, borderRadius: "50%", background: src.bg, border: "1.5px solid #fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>{src.icon}</span>
-        </div>
+        <Tile o={o} paid={paid} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{orderName(o)}</div>
-          <div style={{ fontSize: 10.5, color: paid ? C.sub : ageColor(m), fontWeight: 600, marginTop: 2 }}>#{o.order_no} · {src.label}{paid ? " · " + (o.paid_method === "cash" ? "Cash" : "Card") : " · " + agoLabel(m)}</div>
+          <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5 }}>{srcIcon(src.kind, 13)} {orderName(o)}</div>
+          <div style={{ fontSize: 10.5, color: paid ? C.sub : ageColor(m), fontWeight: 600, marginTop: 2 }}>#{o.order_no}{paid ? " · " + (o.paid_method === "cash" ? "Cash" : "Card") : " · " + agoLabel(m)}</div>
         </div>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14, color: paid ? C.paidText : C.danger }}>{money(o.total)}</div>
       </div>
@@ -165,7 +189,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       <Tile o={o} size={44} paid={isPaid} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title || orderName(o)}</div>
-        <div style={{ fontSize: 10.5, color: C.sub, marginTop: 2, fontWeight: 600 }}>#{o.order_no} · {orderSource(o).icon} {orderSource(o).label} · {isDineIn(o) ? "Dine-in" : "Takeaway"}{paidSoFar > 0 && !isPaid ? " · £" + paidSoFar.toFixed(2) + " paid" : ""}</div>
+        <div style={{ fontSize: 10.5, color: C.sub, marginTop: 2, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>#{o.order_no} · <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{srcIcon(orderSource(o).kind, 12)} {orderSource(o).label}</span> · <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{isDineIn(o) ? Ico.utensils(12) : Ico.bag(12)} {isDineIn(o) ? "Dine-in" : "Takeaway"}</span>{paidSoFar > 0 && !isPaid ? " · £" + paidSoFar.toFixed(2) + " paid" : ""}</div>
       </div>
       {isPaid
         ? <span style={{ fontSize: 9, color: "#fff", background: C.paidGreen, padding: "5px 10px", borderRadius: 14, fontWeight: 700, letterSpacing: .4 }}>{o.is_split ? "SPLIT PAID" : "PAID"}</span>
@@ -389,16 +413,20 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       {note && <div style={{ fontSize: 11.5, color: "#2f6b4f", fontWeight: 600, padding: "4px 0 8px" }}>{note}</div>}
       {its.map((it, j) => {
         const isAllergy = /allerg|nut|dairy|gluten/i.test(it.note || "");
+        const fb = cbFallback(it.name_snapshot || "");
         return (
-        <div key={it.id || j} style={{ display: "flex", gap: 11, alignItems: "flex-start", padding: "11px 0", borderBottom: j < its.length - 1 ? "1px solid rgba(60,70,45,.06)" : "none" }}>
-          <div style={{ width: 46, height: 46, borderRadius: 10, flexShrink: 0, background: "#eef4e8", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#5E7A4D", fontSize: 15 }}>{(it.qty || 1) + "×"}</div>
+        <div key={it.id || j} style={{ display: "flex", gap: 11, alignItems: "flex-start", padding: "12px 0", borderBottom: j < its.length - 1 ? "1px solid rgba(60,70,45,.06)" : "none" }}>
+          <div style={{ width: 50, height: 50, borderRadius: 11, flexShrink: 0, backgroundImage: it.image_url ? "url(" + it.image_url + ")" : fb.grad, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center" }}>{!it.image_url && <span style={{ fontSize: 24 }}>{fb.icon}</span>}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-              <div style={{ fontSize: 14.5, fontWeight: 600 }}>{it.name_snapshot}</div>
-              <span style={{ fontSize: 14.5, fontWeight: 700, flexShrink: 0 }}>{money(it.line_total)}</span>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
+              <div style={{ display: "flex", gap: 7, minWidth: 0 }}>
+                {(it.qty || 1) > 1 && <span style={{ flexShrink: 0, background: "#eef4e8", color: "#3a5730", fontWeight: 700, fontSize: 13, borderRadius: 7, padding: "1px 7px", height: "fit-content" }}>{it.qty}×</span>}
+                <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.2 }}>{it.name_snapshot}</div>
+              </div>
+              <span style={{ fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{money(it.line_total)}</span>
             </div>
-            {modLine(it) && <div style={{ fontSize: 12.5, color: "#8a5a2c", marginTop: 2, lineHeight: 1.3 }}>{modLine(it)}</div>}
-            {it.note && <div style={{ fontSize: 12, marginTop: 2, fontStyle: "italic", color: isAllergy ? "#c0392b" : "#c2703a", fontWeight: isAllergy ? 700 : 400 }}>{isAllergy ? "⚠ " : "📝 "}{it.note}</div>}
+            {modLine(it) && <div style={{ fontSize: 13, color: "#8a5a2c", marginTop: 3, lineHeight: 1.3 }}>{modLine(it)}</div>}
+            {it.note && <div style={{ fontSize: 12.5, marginTop: 3, fontStyle: "italic", color: isAllergy ? "#c0392b" : "#c2703a", fontWeight: isAllergy ? 700 : 400 }}>{isAllergy ? "⚠ " : "📝 "}{it.note}</div>}
           </div>
         </div>
         );
