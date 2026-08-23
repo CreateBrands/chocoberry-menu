@@ -367,11 +367,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       <div style={{ flexShrink: 0, background: P.panel, borderBottom: "1px solid " + P.line, padding: "10px 18px", display: "flex", alignItems: "center", gap: 14 }}>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 16, letterSpacing: "-.3px" }}>Chocoberry POS</div>
         {unpaidCount > 0 && (
-          <span style={{ fontSize: 12, color: "#fff", background: "#B23B3B", borderRadius: 20, padding: "5px 12px", fontWeight: 700 }}>
+          <span style={{ fontSize: 14, color: "#fff", background: "#B23B3B", borderRadius: 20, padding: "5px 12px", fontWeight: 700 }}>
             {unpaidCount} unpaid · £{owedTotal.toFixed(2)}
           </span>
         )}
-        <span style={{ marginLeft: "auto", fontSize: 12, color: P.muted2 }}>London Road</span>
+        <span style={{ marginLeft: "auto", fontSize: 14, color: P.muted2 }}>London Road</span>
       </div>
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
@@ -398,7 +398,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
         {/* COLUMN 2 — subcategories only, full height */}
         <div style={{ width: "clamp(195px, 15vw, 255px)", flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
-          {master && <div style={{ padding: "14px 15px 9px", fontSize: 13, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name}</div>}
+          {master && <div style={{ padding: "14px 15px 9px", fontSize: 15, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name}</div>}
           <div style={{ flex: 1, overflowY: "auto", padding: "0 13px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
             {subs.map((s, i) => {
               const on = activeSub === i && !search;
@@ -408,7 +408,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 </div>
               );
             })}
-            {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 14, textAlign: "center", marginTop: 20 }}>No categories</div>}
+            {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 15.5, textAlign: "center", marginTop: 20 }}>No categories</div>}
           </div>
         </div>
 
@@ -423,7 +423,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 20px 10px" }}>
             <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
-            <span style={{ fontSize: 14, color: P.muted2 }}>{shown.length} items</span>
+            <span style={{ fontSize: 15.5, color: P.muted2 }}>{shown.length} items</span>
           </div>
           <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gridAutoRows: "min-content", gap: 14, overflowY: "auto" }}>
             {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
@@ -433,14 +433,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               const hasMods = it.modifiers && it.modifiers.length;
               return (
                 <div key={it.id} onClick={() => addItem(it)} style={{ background: P.panel, borderRadius: 16, overflow: "hidden", boxShadow: "0 3px 10px rgba(18,21,28,.08)", border: "1px solid #f0f1f3", cursor: "pointer", position: "relative", display: "flex", flexDirection: "column" }}>
-                  {hasMods ? <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(255,255,255,.94)", borderRadius: 20, padding: "3px 10px", fontSize: 11, fontWeight: 600, color: "#8a5a2c", boxShadow: "0 1px 3px rgba(0,0,0,.12)", zIndex: 2 }}>Choices</div> : null}
+                  {hasMods ? <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(255,255,255,.94)", borderRadius: 20, padding: "3px 10px", fontSize: 13, fontWeight: 600, color: "#8a5a2c", boxShadow: "0 1px 3px rgba(0,0,0,.12)", zIndex: 2 }}>Choices</div> : null}
                   {/* square photo on top */}
                   <div style={{ width: "100%", aspectRatio: "1 / 1", background: it.image_url ? "#f0f1f3" : fb.grad, display: "flex", alignItems: "center", justifyContent: "center", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : fb.grad, backgroundSize: "cover", backgroundPosition: "center" }}>
                     {!it.image_url && <span style={{ fontSize: 38 }}>{fb.icon}</span>}
                   </div>
                   {/* name + price below */}
                   <div style={{ padding: "10px 11px 12px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, lineHeight: 1.25, minHeight: 34 }}>{it.name}</div>
+                    <div style={{ fontWeight: 600, fontSize: 15.5, lineHeight: 1.25, minHeight: 34 }}>{it.name}</div>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: "auto" }}>
                       <span style={{ color: P.ink, fontWeight: 700, fontSize: 17 }}>{gbp(it.price)}</span>
                       <span style={{ width: 32, height: 32, flexShrink: 0, borderRadius: 10, background: P.tealBg, color: P.tealDeep, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 1px 4px rgba(13,148,136,.18)" }}>+</span>
@@ -474,27 +474,47 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           <>
           {appendTo && (
             <div style={{ background: "#fff7ed", borderBottom: "1px solid #fed7aa", padding: "10px 18px", display: "flex", alignItems: "center", gap: 9 }}>
-              <span style={{ width: 26, height: 26, borderRadius: "50%", background: "#f59e0b", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>+</span>
+              <span style={{ width: 26, height: 26, borderRadius: "50%", background: "#f59e0b", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15.5, fontWeight: 700, flexShrink: 0 }}>+</span>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: "#9a3412" }}>Adding to an existing order</div>
-                <div style={{ fontSize: 11, color: "#c2703a" }}>New items append to the same bill</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: "#9a3412" }}>Adding to an existing order</div>
+                <div style={{ fontSize: 13, color: "#c2703a" }}>New items append to the same bill</div>
               </div>
-              <span onClick={clearAll} style={{ fontSize: 12, fontWeight: 700, color: "#9a3412", cursor: "pointer", padding: "4px 8px", background: "#fef0e0", borderRadius: 8 }}>Cancel</span>
+              <span onClick={clearAll} style={{ fontSize: 14, fontWeight: 700, color: "#9a3412", cursor: "pointer", padding: "4px 8px", background: "#fef0e0", borderRadius: 8 }}>Cancel</span>
             </div>
           )}
           <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid " + P.line2 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 13 }}>
               <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-.3px" }}>{appendTo ? "Extra items" : "Current order"}</span>
-              {itemCount > 0 && <span style={{ fontSize: 12.5, color: "#3a5730", background: "#eef4e8", padding: "4px 11px", borderRadius: 20, fontWeight: 700 }}>{itemCount} item{itemCount === 1 ? "" : "s"}</span>}
+              {itemCount > 0 && <span style={{ fontSize: 14, color: "#3a5730", background: "#eef4e8", padding: "4px 11px", borderRadius: 20, fontWeight: 700 }}>{itemCount} item{itemCount === 1 ? "" : "s"}</span>}
             </div>
             {!appendTo && (
-              <div style={{ display: "flex", gap: 7 }}>
-                <select value={table ? table.id : ""} onChange={(e) => { const t = tablesList.find((x) => x.id === e.target.value); setTable(t ? { id: t.id, label: t.label } : null); }}
-                  style={{ flex: 1, textAlign: "center", padding: "12px 6px", borderRadius: 12, border: "1.5px solid " + (table ? "transparent" : "#d4e3c6"), fontSize: 14.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: table ? "#5E7A4D" : "#eef4e8", color: table ? "#fff" : "#3a5730", appearance: "none", WebkitAppearance: "none" }}>
-                  <option value="">Table…</option>
-                  {tablesList.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-                </select>
-                <div onClick={() => setTable(null)} style={{ flex: 1, textAlign: "center", padding: "12px 0", borderRadius: 12, background: !table ? "#5E7A4D" : "#eef4e8", color: !table ? "#fff" : "#3a5730", border: "1.5px solid " + (!table ? "transparent" : "#d4e3c6"), fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}>Takeaway</div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {!table ? (
+                  // Takeaway is active → expanded with label; Table collapsed to an icon.
+                  <>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#5E7A4D", color: "#fff", padding: "12px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16 }}>🥡 <span>Takeaway</span></div>
+                    <div style={{ position: "relative" }}>
+                      <select value="" onChange={(e) => { const t = tablesList.find((x) => x.id === e.target.value); if (t) setTable({ id: t.id, label: t.label }); }}
+                        style={{ width: 50, height: 50, borderRadius: 12, border: "1.5px solid #d4e3c6", background: "#eef4e8", color: "transparent", cursor: "pointer", appearance: "none", WebkitAppearance: "none", fontFamily: "inherit" }}>
+                        <option value="">Table…</option>
+                        {tablesList.map((t) => <option key={t.id} value={t.id} style={{ color: "#000" }}>{t.label}</option>)}
+                      </select>
+                      <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, pointerEvents: "none" }}>🍽</span>
+                    </div>
+                  </>
+                ) : (
+                  // Table is active → expanded with the table label; Takeaway collapsed to an icon.
+                  <>
+                    <div style={{ position: "relative", flex: 1 }}>
+                      <select value={table.id} onChange={(e) => { const t = tablesList.find((x) => x.id === e.target.value); setTable(t ? { id: t.id, label: t.label } : null); }}
+                        style={{ width: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, background: "#5E7A4D", color: "#fff", padding: "12px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16, border: "none", cursor: "pointer", appearance: "none", WebkitAppearance: "none", fontFamily: "inherit" }}>
+                        {tablesList.map((t) => <option key={t.id} value={t.id} style={{ color: "#000" }}>{t.label}</option>)}
+                      </select>
+                      <span style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", fontSize: 16 }}>🍽</span>
+                    </div>
+                    <div onClick={() => setTable(null)} style={{ width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#eef4e8", border: "1.5px solid #d4e3c6", borderRadius: 12, fontSize: 22, cursor: "pointer" }}>🥡</div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -504,37 +524,40 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               <div style={{ color: P.muted2, textAlign: "center", marginTop: 64, padding: "0 20px" }}>
                 <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#f5f6f8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, margin: "0 auto 14px" }}>🧾</div>
                 <div style={{ fontSize: 15, fontWeight: 600, color: "#6b7280" }}>No items yet</div>
-                <div style={{ fontSize: 13, color: "#9aa1ac", marginTop: 3 }}>Tap menu items to build the order</div>
+                <div style={{ fontSize: 15, color: "#9aa1ac", marginTop: 3 }}>Tap menu items to build the order</div>
               </div>
             )}
             {ticket.map((l) => {
               const isAllergy = /allerg|nut|dairy|gluten/i.test(l.note || "");
+              const fb = fallbackFor(l.item.name, l.item.category || "");
+              const hasMods = l.item.modifiers && l.item.modifiers.length;
               return (
-              <div key={l.key} style={{ padding: "13px 0", borderBottom: "1px solid #f4f5f7" }}>
-                <div onClick={() => (l.item.modifiers && l.item.modifiers.length) && editLine(l)} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, cursor: (l.item.modifiers && l.item.modifiers.length) ? "pointer" : "default" }}>
-                  <div style={{ minWidth: 0, display: "flex", gap: 8 }}>
-                    {l.qty > 1 && <span style={{ flexShrink: 0, background: "#eef4e8", color: "#3a5730", fontWeight: 700, fontSize: 13, borderRadius: 7, padding: "1px 7px", height: "fit-content", marginTop: 1 }}>{l.qty}×</span>}
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 15.5, lineHeight: 1.25 }}>{l.item.name}</div>
-                      {l.mods.length > 0 && <div style={{ fontSize: 12.5, color: "#8a5a2c", marginTop: 3, lineHeight: 1.35 }}>{l.mods.map((m) => m.name).join(" · ")}</div>}
-                      {l.note && <div style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.3, fontStyle: "italic", color: isAllergy ? "#c0392b" : "#c2703a", fontWeight: isAllergy ? 700 : 400 }}>{isAllergy ? "⚠ " : "📝 "}{l.note}</div>}
+              <div key={l.key} style={{ display: "flex", gap: 12, padding: "13px 0", borderBottom: "1px solid #f4f5f7", alignItems: "flex-start" }}>
+                <div onClick={() => hasMods && editLine(l)} style={{ width: 56, height: 56, borderRadius: 12, flexShrink: 0, backgroundImage: l.item.image_url ? "url(" + l.item.image_url + ")" : fb.grad, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", cursor: hasMods ? "pointer" : "default" }}>
+                  {!l.item.image_url && <span style={{ fontSize: 26 }}>{fb.icon}</span>}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div onClick={() => hasMods && editLine(l)} style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start", cursor: hasMods ? "pointer" : "default" }}>
+                    <div style={{ minWidth: 0, display: "flex", gap: 7 }}>
+                      {l.qty > 1 && <span style={{ flexShrink: 0, background: "#eef4e8", color: "#3a5730", fontWeight: 700, fontSize: 15, borderRadius: 7, padding: "1px 7px", height: "fit-content", marginTop: 1 }}>{l.qty}×</span>}
+                      <div style={{ fontWeight: 600, fontSize: 16, lineHeight: 1.2 }}>{l.item.name}</div>
+                    </div>
+                    <div style={{ textAlign: "right", flexShrink: 0 }}>
+                      <div style={{ fontWeight: 700, fontSize: 16 }}>{gbp(l.unit * l.qty)}</div>
+                      {l.qty > 1 && <div style={{ fontSize: 13, color: "#9aa1ac", marginTop: 1 }}>{gbp(l.unit)} ea</div>}
                     </div>
                   </div>
-                  <div style={{ textAlign: "right", flexShrink: 0 }}>
-                    <div style={{ fontWeight: 700, fontSize: 15.5 }}>{gbp(l.unit * l.qty)}</div>
-                    {l.qty > 1 && <div style={{ fontSize: 11, color: "#9aa1ac", marginTop: 1 }}>{gbp(l.unit)} ea</div>}
+                  {l.mods.length > 0 && <div style={{ fontSize: 14, color: "#8a5a2c", marginTop: 3, lineHeight: 1.3 }}>{l.mods.map((m) => m.name).join(" · ")}</div>}
+                  {l.note && <div style={{ fontSize: 13.5, marginTop: 3, lineHeight: 1.3, fontStyle: "italic", color: isAllergy ? "#c0392b" : "#c2703a", fontWeight: isAllergy ? 700 : 400 }}>{isAllergy ? "⚠ " : "📝 "}{l.note}</div>}
+                  <div style={{ display: "flex", alignItems: "center", marginTop: 9, gap: 8 }}>
+                    <div style={{ display: "inline-flex", alignItems: "center", background: "#f5f6f8", borderRadius: 11, padding: 3 }}>
+                      <span onClick={() => setQty(l.key, -1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>−</span>
+                      <span style={{ fontWeight: 700, minWidth: 34, textAlign: "center", fontSize: 16 }}>{l.qty}</span>
+                      <span onClick={() => setQty(l.key, 1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>+</span>
+                    </div>
+                    {hasMods ? <span onClick={() => editLine(l)} style={{ fontSize: 14, color: "#3a5730", fontWeight: 700, cursor: "pointer", background: "#eef4e8", padding: "7px 12px", borderRadius: 9 }}>✎ Edit</span> : null}
+                    <span onClick={() => removeLine(l.key)} style={{ marginLeft: "auto", color: "#c94a4a", cursor: "pointer", fontSize: 15, fontWeight: 600, padding: "8px 4px" }}>Remove</span>
                   </div>
-                </div>
-                <div style={{ display: "flex", alignItems: "center", marginTop: 10, gap: 8 }}>
-                  <div style={{ display: "inline-flex", alignItems: "center", background: "#f5f6f8", borderRadius: 11, padding: 3 }}>
-                    <span onClick={() => setQty(l.key, -1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>−</span>
-                    <span style={{ fontWeight: 700, minWidth: 36, textAlign: "center", fontSize: 16 }}>{l.qty}</span>
-                    <span onClick={() => setQty(l.key, 1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>+</span>
-                  </div>
-                  {(l.item.modifiers && l.item.modifiers.length) ? (
-                    <span onClick={() => editLine(l)} style={{ fontSize: 12, color: "#3a5730", fontWeight: 700, cursor: "pointer", background: "#eef4e8", padding: "7px 12px", borderRadius: 9 }}>{l.note || l.mods.length ? "✎ Edit" : "✎ Customise"}</span>
-                  ) : null}
-                  <span onClick={() => removeLine(l.key)} style={{ marginLeft: "auto", color: "#c94a4a", cursor: "pointer", fontSize: 13, fontWeight: 600, padding: "8px 4px" }}>Remove</span>
                 </div>
               </div>
               );
@@ -542,11 +565,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
 
           <div style={{ borderTop: "1px solid " + P.line, padding: "15px 18px", background: "#faf9f5" }}>
-            {msg && <div style={{ fontSize: 13, textAlign: "center", marginBottom: 10, color: (msg.includes("fail") || msg.includes("Wrong")) ? "#c94a4a" : "#16a34a" }}>{msg}</div>}
+            {msg && <div style={{ fontSize: 15, textAlign: "center", marginBottom: 10, color: (msg.includes("fail") || msg.includes("Wrong")) ? "#c94a4a" : "#16a34a" }}>{msg}</div>}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 14 }}>
               <div>
                 <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: 15, fontWeight: 700 }}>Total</div>
-                {itemCount > 0 && <div style={{ fontSize: 11.5, color: "#9aa1ac", marginTop: 1 }}>{itemCount} item{itemCount === 1 ? "" : "s"}{table ? " · " + table.label : (appendTo ? "" : " · Takeaway")}</div>}
+                {itemCount > 0 && <div style={{ fontSize: 13.5, color: "#9aa1ac", marginTop: 1 }}>{itemCount} item{itemCount === 1 ? "" : "s"}{table ? " · " + table.label : (appendTo ? "" : " · Takeaway")}</div>}
               </div>
               <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 30, fontWeight: 700, letterSpacing: "-.6px", lineHeight: 1 }}>{gbp(subtotal)}</span>
             </div>
@@ -555,7 +578,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               <>
                 <div onClick={() => { if (ticket.length && !sending) sendOrder(true); }} style={{ textAlign: "center", padding: "17px 0", borderRadius: 14, background: ticket.length ? "linear-gradient(140deg,#5E7A4D,#4a6b3a)" : "#d7dade", color: "#fff", fontWeight: 700, fontSize: 17, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 6px 16px rgba(94,122,77,.34)" : "none", opacity: sending ? .6 : 1, marginBottom: 8 }}>{sending ? "Sending…" : "Pay now" + (ticket.length ? " · " + gbp(subtotal) : "")}</div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <div onClick={() => { if (ticket.length && !sending) sendOrder(false); }} style={{ flex: 1, textAlign: "center", padding: "13px 0", borderRadius: 12, background: "#fff", border: "1.5px solid " + (ticket.length ? "#d4d8dd" : "#eceef0"), color: ticket.length ? "#2A2E20" : "#aeb4bd", fontWeight: 700, fontSize: 14.5, cursor: ticket.length ? "pointer" : "default" }}>{sending ? "…" : "Send to kitchen"}</div>
+                  <div onClick={() => { if (ticket.length && !sending) sendOrder(false); }} style={{ flex: 1, textAlign: "center", padding: "13px 0", borderRadius: 12, background: "#fff", border: "1.5px solid " + (ticket.length ? "#d4d8dd" : "#eceef0"), color: ticket.length ? "#2A2E20" : "#aeb4bd", fontWeight: 700, fontSize: 16, cursor: ticket.length ? "pointer" : "default" }}>{sending ? "…" : "Send to kitchen"}</div>
                   <div onClick={clearAll} style={{ width: 50, textAlign: "center", padding: "13px 0", borderRadius: 12, background: "#fff", border: "1.5px solid #eee", color: "#c94a4a", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>🗑</div>
                 </div>
               </>
@@ -576,7 +599,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.4)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, padding: 22, width: 420, maxWidth: "100%", maxHeight: "82vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(18,21,28,.3)" }}>
             <div style={{ fontWeight: 500, fontSize: 22 }}>{modItem.name}</div>
-            <div style={{ color: P.muted, fontSize: 14, marginBottom: 18 }}>{gbp(modItem.price)} · {editKey ? "editing" : "customise"}</div>
+            <div style={{ color: P.muted, fontSize: 15.5, marginBottom: 18 }}>{gbp(modItem.price)} · {editKey ? "editing" : "customise"}</div>
             {(modItem.modifiers || []).map((g) => {
               const chosen = modSel[g.id] || [];
               const single = (g.max_select || 1) === 1;
@@ -585,20 +608,20 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
                     <span style={{ fontSize: 16, fontWeight: 500 }}>{g.name || ""}</span>
                     {g.required
-                      ? <span style={{ fontSize: 11, fontWeight: 500, color: "#fff", background: P.tealB, padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
-                      : <span style={{ fontSize: 11, fontWeight: 500, color: P.muted }}>{(g.max_select || 1) > 1 ? "Pick up to " + g.max_select : "Optional"}</span>}
+                      ? <span style={{ fontSize: 13, fontWeight: 500, color: "#fff", background: P.tealB, padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
+                      : <span style={{ fontSize: 13, fontWeight: 500, color: P.muted }}>{(g.max_select || 1) > 1 ? "Pick up to " + g.max_select : "Optional"}</span>}
                   </div>
-                  {g.description && <div style={{ fontSize: 13, color: P.muted2, marginBottom: 10, lineHeight: 1.35 }}>{g.description}</div>}
+                  {g.description && <div style={{ fontSize: 15, color: P.muted2, marginBottom: 10, lineHeight: 1.35 }}>{g.description}</div>}
                   <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: g.description ? 0 : 8 }}>
                     {(g.options || []).map((o) => {
                       const on = chosen.includes(o.id);
                       return (
                         <div key={o.id} onClick={() => toggleOpt(g, o.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 15px", borderRadius: 11, cursor: "pointer", fontSize: 16, fontWeight: 500, background: on ? grad : "#fff", color: on ? "#fff" : P.ink, border: "1px solid " + (on ? "transparent" : P.line) }}>
                           <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ width: 20, height: 20, borderRadius: single ? "50%" : 6, border: "2px solid " + (on ? "#fff" : "#cbd5cf"), display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on ? <span style={{ color: "#fff", fontSize: 13 }}>✓</span> : null}</span>
+                            <span style={{ width: 20, height: 20, borderRadius: single ? "50%" : 6, border: "2px solid " + (on ? "#fff" : "#cbd5cf"), display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on ? <span style={{ color: "#fff", fontSize: 15 }}>✓</span> : null}</span>
                             {o.name}
                           </span>
-                          {Number(o.price_delta) ? <span style={{ fontSize: 14, fontWeight: 500, color: on ? "rgba(255,255,255,.9)" : P.tealDeep }}>+{gbp(o.price_delta)}</span> : null}
+                          {Number(o.price_delta) ? <span style={{ fontSize: 15.5, fontWeight: 500, color: on ? "rgba(255,255,255,.9)" : P.tealDeep }}>+{gbp(o.price_delta)}</span> : null}
                         </div>
                       );
                     })}
@@ -607,7 +630,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               );
             })}
             <div style={{ background: "#fffbf4", border: "1px solid #f0e2cc", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>📝 Kitchen note <span style={{ fontSize: 12, color: "#b0a48a", fontWeight: 400 }}>(optional)</span></div>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>📝 Kitchen note <span style={{ fontSize: 14, color: "#b0a48a", fontWeight: 400 }}>(optional)</span></div>
               <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
                 {(() => {
                   const name = (modItem.name || "").toLowerCase();
@@ -623,13 +646,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                         const parts = (modNote || "").split(",").map((s) => s.trim()).filter(Boolean);
                         if (parts.includes(val)) setModNote(parts.filter((p) => p !== val).join(", "));
                         else setModNote([...parts, val].join(", "));
-                      }} style={{ fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 20, border: "1px solid " + (isAl ? "#e6b8b0" : "#ead9bd"), background: active ? (isAl ? "#f7e0dc" : "#f6ead2") : "#fff", color: isAl ? "#c0392b" : "#9a6a2c" }}>{c}{active ? " ✓" : ""}</span>
+                      }} style={{ fontSize: 14, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 20, border: "1px solid " + (isAl ? "#e6b8b0" : "#ead9bd"), background: active ? (isAl ? "#f7e0dc" : "#f6ead2") : "#fff", color: isAl ? "#c0392b" : "#9a6a2c" }}>{c}{active ? " ✓" : ""}</span>
                     );
                   });
                 })()}
               </div>
               <input type="text" value={modNote} onChange={(e) => setModNote(e.target.value)} placeholder="Add a note for the kitchen…"
-                style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1px solid #ead9bd", borderRadius: 10, padding: "11px 13px", fontSize: 14, color: "#5b5540", fontFamily: "inherit", outline: "none" }} />
+                style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1px solid #ead9bd", borderRadius: 10, padding: "11px 13px", fontSize: 15.5, color: "#5b5540", fontFamily: "inherit", outline: "none" }} />
             </div>
             <div style={{ display: "flex", gap: 9, marginTop: 10 }}>
               <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ padding: "15px 20px", borderRadius: 13, background: P.chip, color: "#0f766e", fontWeight: 500, cursor: "pointer", fontSize: 16 }}>Cancel</div>
