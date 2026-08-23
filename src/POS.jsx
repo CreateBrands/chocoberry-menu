@@ -392,7 +392,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         </div>
 
         {/* RIGHT PANEL — order detail when an order is tapped, else the cart */}
-        <div style={{ width: 447, flexShrink: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
+        <div style={{ width: 492, flexShrink: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
           {selOrderId && (orders || []).some((o) => o.id === selOrderId) ? (
             <OrderDetailPanel
               order={(orders || []).find((o) => o.id === selOrderId)}
