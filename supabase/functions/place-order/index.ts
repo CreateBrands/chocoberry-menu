@@ -236,23 +236,11 @@ Deno.serve(async (req) => {
     const { error: liErr } = await admin.from("menu_order_items").insert(lines);
     if (liErr) throw liErr;
 
-    // Trigger the kitchen print + KDS now that the order AND its line items
-    // both exist. Fire-and-forget so the app gets its confirmation instantly and
-    // printing happens in the background. We hand the promise to waitUntil (when
-    // available) so the runtime keeps the function alive until the print push
-    // finishes, without blocking the response. A DB webhook may also fire on
-    // INSERT; sunmi-print's already-printed guard means a double-fire won't dup.
-    const printPromise = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sunmi-print`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
-        "x-print-secret": Deno.env.get("PRINT_WEBHOOK_SECRET") ?? "",
-      },
-      body: JSON.stringify({ action: "print-order", order_id: orderId }),
-    }).catch((e) => console.error("new order print trigger failed:", e));
-    try { (globalThis as any).EdgeRuntime?.waitUntil?.(printPromise); } catch { /* ignore */ }
+    // NOTE: printing for NEW orders is handled by the `sunmi-print-orders`
+    // database trigger (AFTER INSERT ON menu_orders). We deliberately do NOT
+    // trigger a print here as well — doing so caused duplicate receipts. Only
+    // the APPEND path above triggers print explicitly, because an append adds
+    // items to an existing order and fires no INSERT trigger.
 
     return new Response(JSON.stringify({ ok: true, order_id: orderId, order_no: orderNo, total: subtotal }), {
       headers: { ...cors, "Content-Type": "application/json" },
