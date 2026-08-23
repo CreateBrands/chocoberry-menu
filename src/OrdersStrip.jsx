@@ -112,12 +112,11 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
   function Row({ o, paid }) {
     const selected = selId === o.id;
     const m = mins(new Date(o.created_at).getTime(), now);
-    const src = orderSource(o);
     return (
       <div onClick={() => onSelect(o.id)} style={{ background: C.card, border: "1.5px solid " + (selected ? (paid ? C.paidGreen : C.danger) : C.line), borderRadius: 12, padding: "9px 10px", marginBottom: 7, display: "flex", alignItems: "center", gap: 9, cursor: "pointer", boxShadow: selected ? "0 3px 10px -3px rgba(60,70,45,.2)" : "none" }}>
         <Tile o={o} paid={paid} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", display: "flex", alignItems: "center", gap: 5 }}>{srcIcon(src.kind, 13)} {orderName(o)}</div>
+          <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{orderName(o)}</div>
           <div style={{ fontSize: 10.5, color: paid ? C.sub : ageColor(m), fontWeight: 600, marginTop: 2 }}>#{o.order_no}{paid ? " · " + (o.paid_method === "cash" ? "Cash" : "Card") : " · " + agoLabel(m)}</div>
         </div>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14, color: paid ? C.paidText : C.danger }}>{money(o.total)}</div>
@@ -152,7 +151,7 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onVoidFired, onReprint }) {
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint }) {
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
@@ -198,7 +197,19 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       <Tile o={o} size={44} paid={isPaid} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title || orderName(o)}</div>
-        <div style={{ fontSize: 10.5, color: C.sub, marginTop: 2, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>#{o.order_no} · <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{srcIcon(orderSource(o).kind, 12)} {orderSource(o).label}</span> · <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{isDineIn(o) ? Ico.utensils(12) : Ico.bag(12)} {isDineIn(o) ? "Dine-in" : "Takeaway"}</span>{paidSoFar > 0 && !isPaid ? " · £" + paidSoFar.toFixed(2) + " paid" : ""}</div>
+        <div style={{ fontSize: 10.5, color: C.sub, marginTop: 3, fontWeight: 600, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+          <span>#{o.order_no}</span>
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#f3f4f6", padding: "3px 8px", borderRadius: 8 }} title={orderSource(o).label + " order"}>{srcIcon(orderSource(o).kind, 13)} {orderSource(o).label}</span>
+          {!isPaid && onSetType ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 3, background: "#eef1f4", borderRadius: 9, padding: 2 }}>
+              <span onClick={() => !isDineIn(o) && onSetType(o, "dine-in")} title="Dine-in" style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: isDineIn(o) ? "5px 10px" : "5px 7px", borderRadius: 7, cursor: "pointer", background: isDineIn(o) ? "#5E7A4D" : "transparent", color: isDineIn(o) ? "#fff" : C.sub }}>{Ico.utensils(13, isDineIn(o) ? "#fff" : C.sub)}{isDineIn(o) && <span>Dine-in</span>}</span>
+              <span onClick={() => isDineIn(o) && onSetType(o, "takeaway")} title="Takeaway" style={{ display: "inline-flex", alignItems: "center", gap: 4, padding: !isDineIn(o) ? "5px 10px" : "5px 7px", borderRadius: 7, cursor: "pointer", background: !isDineIn(o) ? "#5E7A4D" : "transparent", color: !isDineIn(o) ? "#fff" : C.sub }}>{Ico.bag(13, !isDineIn(o) ? "#fff" : C.sub)}{!isDineIn(o) && <span>Takeaway</span>}</span>
+            </span>
+          ) : (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{isDineIn(o) ? Ico.utensils(13) : Ico.bag(13)} {isDineIn(o) ? "Dine-in" : "Takeaway"}</span>
+          )}
+          {paidSoFar > 0 && !isPaid ? <span>· £{paidSoFar.toFixed(2)} paid</span> : null}
+        </div>
       </div>
       {isPaid
         ? <span style={{ fontSize: 9, color: "#fff", background: C.paidGreen, padding: "5px 10px", borderRadius: 14, fontWeight: 700, letterSpacing: .4 }}>{o.is_split ? "SPLIT PAID" : "PAID"}</span>
@@ -422,7 +433,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       {note && <div style={{ fontSize: 11.5, color: "#2f6b4f", fontWeight: 600, padding: "4px 0 8px" }}>{note}</div>}
       {its.map((it, j) => (
         <CartLine key={it.id || j} last={j === its.length - 1}
-          line={{ name: it.name_snapshot, qty: it.qty || 1, lineTotal: Number(it.line_total || 0), image_url: it.image_url, mods: modArray(it), note: it.note }}
+          line={{ name: it.name_snapshot, qty: it.qty || 1, lineTotal: Number(it.line_total || 0), image_url: (it.menu_items && it.menu_items.image_url) || it.image_url, mods: modArray(it), note: it.note }}
         />
       ))}
       {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items.</div>}

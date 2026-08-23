@@ -129,7 +129,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   async function loadOrders() {
     setOrdersBusy(true);
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,total,paid_method,paid_amount,created_at,status,menu_tables(label),menu_order_items(id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note)"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,total,paid_method,paid_amount,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
         + (loc ? "&location_id=eq." + loc : "")
         + "&closed_at=is.null&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
@@ -177,6 +177,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const ordUnpaid = (o) => ordAction("mark_unpaid", { order_id: o.id });
   const ordRemoveItem = (o, iid) => ordAction("remove_order_item", { order_id: o.id, order_item_id: iid });
   const ordSetQty = (o, iid, qty) => ordAction("set_order_item_qty", { order_id: o.id, order_item_id: iid, qty });
+  const ordSetType = (o, order_type) => ordAction("set_order_type", { order_id: o.id, order_type });
   // Void a single already-fired item, with a reason (prints a VOID chit).
   const ordVoidFired = (o, iid, reason) => ordAction("void_fired_item", { order_id: o.id, order_item_id: iid, reason, location_id: loc || null });
   async function ordReprint(o) {
@@ -469,6 +470,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               onAddItems={(id) => { ordAddItems(id); setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); }}
               onRemoveItem={ordRemoveItem}
               onSetQty={ordSetQty}
+              onSetType={ordSetType}
               onVoidFired={ordVoidFired}
               onReprint={ordReprint}
             />

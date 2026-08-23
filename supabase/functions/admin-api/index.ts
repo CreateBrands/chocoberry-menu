@@ -31,6 +31,7 @@ Deno.serve(async (req) => {
   const POS_ACTIONS = new Set([
     "mark_paid", "take_payment", "mark_unpaid", "order_payments_list",
     "remove_order_item", "set_order_item_qty", "void_fired_item",
+    "set_order_type",
     "day_summary",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
@@ -616,6 +617,17 @@ Deno.serve(async (req) => {
       }
 
       // ---- TILL: set the quantity on a single line of an UNPAID order ----
+      case "set_order_type": {
+        const { order_id, order_type } = data || {};
+        if (!order_id || !order_type) return json({ error: "order_id and order_type required" }, 400);
+        const ot = String(order_type).toLowerCase();
+        const norm = ot.includes("dine") ? "dine-in" : "takeaway";
+        const { error: upErr } = await admin.from("menu_orders")
+          .update({ order_type: norm }).eq("id", order_id);
+        if (upErr) throw upErr;
+        return json({ ok: true, order_type: norm });
+      }
+
       case "set_order_item_qty": {
         const { order_item_id, order_id, qty } = data || {};
         const q = parseInt(qty);
