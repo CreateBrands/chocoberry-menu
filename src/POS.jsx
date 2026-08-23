@@ -73,6 +73,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [ordersBusy, setOrdersBusy] = useState(false);
   const [selOrderId, setSelOrderId] = useState(null); // order tapped → shows in right panel
   const [selPayNow, setSelPayNow] = useState(false);  // opened via "Pay now" → jump to payment
+  const [payNowOrder, setPayNowOrder] = useState(null); // locally-built order for instant panel
   const [now, setNow] = useState(Date.now());
   const [posPin, setPosPin] = useState(""); // PIN captured once for order actions
 
@@ -265,14 +266,30 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         loadOrders();
       } else {
         setMsg("Sent — order #" + resp.order_no);
+        // Build a local order object so the payment panel can open instantly and
+        // reliably (no waiting for the list reload to propagate into state).
+        const localOrder = {
+          id: resp.order_id, order_no: resp.order_no,
+          table_id: table ? table.id : null,
+          order_type: table ? "dine_in" : "takeaway",
+          pickup_name: null, tablet_no: "POS",
+          total: subtotal, amount_paid: 0, paid_method: null, status: "placed",
+          created_at: new Date().toISOString(),
+          menu_tables: table ? { label: table.label } : null,
+          menu_order_items: ticket.map((l) => ({
+            id: l.key, name_snapshot: l.item.name, qty: l.qty,
+            price_snapshot: l.unit, line_total: Math.round(l.unit * l.qty * 100) / 100,
+            modifiers_snapshot: (l.mods || []).map((m) => m.name),
+          })),
+        };
         // Clear the cart; the order now lives in the strip.
         setTicket([]); setTable(null); setPlaced(null); setPayMethod(null); setPayPin("");
-        await loadOrders();
         if (thenPay && resp.order_id) {
-          // Open the just-fired order in the right panel → jump to payment.
+          setPayNowOrder(localOrder);   // drives the panel immediately
           setSelPayNow(true);
           setSelOrderId(resp.order_id);
         }
+        loadOrders(); // refresh the strip in the background
       }
     } catch (e) { setMsg(e.message || "Send failed"); } finally { setSending(false); }
   }
@@ -333,7 +350,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
           {/* orders list — fills the rest */}
           <div style={{ borderTop: "1px solid " + P.line, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-            <OrdersList orders={orders || []} now={now} selId={selOrderId} onSelect={(id) => { setSelPayNow(false); setSelOrderId(id); }} />
+            <OrdersList orders={orders || []} now={now} selId={selOrderId} onSelect={(id) => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(id); }} />
           </div>
         </div>
 
@@ -395,18 +412,18 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
         {/* RIGHT PANEL — order detail when an order is tapped, else the cart */}
         <div style={{ width: 492, flexShrink: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
-          {selOrderId && (orders || []).some((o) => o.id === selOrderId) ? (
+          {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
             <OrderDetailPanel
-              order={(orders || []).find((o) => o.id === selOrderId)}
+              order={(payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : (orders || []).find((o) => o.id === selOrderId)}
               now={now}
               busy={ordersBusy}
               initialMode={selPayNow ? "method" : "detail"}
               key={selOrderId + (selPayNow ? "-pay" : "")}
-              onClose={() => { setSelOrderId(null); setSelPayNow(false); }}
+              onClose={() => { setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); }}
               onTakePayment={ordTakePayment}
-              onPay={async (o, m) => { const res = await ordPay(o, m); if (res && res.ok && res.fully_paid) { setSelOrderId(null); setSelPayNow(false); } return res; }}
+              onPay={async (o, m) => { const res = await ordPay(o, m); if (res && res.ok && res.fully_paid) { setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); } return res; }}
               onUnpaid={ordUnpaid}
-              onAddItems={(id) => { ordAddItems(id); setSelOrderId(null); setSelPayNow(false); }}
+              onAddItems={(id) => { ordAddItems(id); setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); }}
               onRemoveItem={ordRemoveItem}
               onSetQty={ordSetQty}
               onVoidFired={ordVoidFired}

@@ -73,29 +73,33 @@ Deno.serve(async (req) => {
 
     // Look up REAL prices for every item id.
     const ids = [...new Set(items.map((l) => l.item_id))];
-    const { data: dbItems, error: itemErr } = await admin
-      .from("menu_items").select("id, name, price, available").in("id", ids);
-    if (itemErr) throw itemErr;
+    // ── Resolve the price TIER for this location + all item/modifier data.
+    // These lookups are independent of each other, so run them in PARALLEL
+    // instead of sequentially — cuts the order-send latency noticeably. ──
+    const allOptIds = [...new Set(items.flatMap((l) => Array.isArray(l.modifiers) ? l.modifiers : []))]
+      .filter((x) => typeof x === "string" && !x.startsWith("remove:"));
+
+    const [itemsRes, locRes, ovsRes, optsRes] = await Promise.all([
+      admin.from("menu_items").select("id, name, price, available").in("id", ids),
+      location_id
+        ? admin.from("menu_locations").select("price_band_id").eq("id", location_id).single()
+        : Promise.resolve({ data: null }),
+      location_id
+        ? admin.from("menu_item_overrides").select("item_id, price").eq("location_id", location_id).in("item_id", ids)
+        : Promise.resolve({ data: [] }),
+      allOptIds.length
+        ? admin.from("menu_modifiers").select("id, name, price_delta, group_id, menu_modifier_groups(name)").in("id", allOptIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+    if (itemsRes.error) throw itemsRes.error;
+    const dbItems = itemsRes.data;
     const byId = new Map((dbItems ?? []).map((i) => [i.id, i]));
 
-    // ── Resolve the price TIER for this location, exactly like the customer
-    // menu (store_menu_full): per-store override → the store's band price →
-    // the item's base price. Without this, orders charge base and ignore the
-    // band discount the customer was shown. ──
-    let locBandId = null;
-    if (location_id) {
-      const { data: loc } = await admin
-        .from("menu_locations").select("price_band_id").eq("id", location_id).single();
-      locBandId = loc?.price_band_id ?? null;
-    }
-    // per-store overrides for these items
+    const locBandId = locRes.data?.price_band_id ?? null;
     const ovById = new Map();
-    if (location_id) {
-      const { data: ovs } = await admin
-        .from("menu_item_overrides").select("item_id, price").eq("location_id", location_id).in("item_id", ids);
-      for (const o of ovs ?? []) if (o.price != null) ovById.set(o.item_id, Number(o.price));
-    }
-    // band prices for these items
+    for (const o of ovsRes.data ?? []) if (o.price != null) ovById.set(o.item_id, Number(o.price));
+
+    // band prices depend on the resolved band id (one more short query).
     const bandById = new Map();
     if (locBandId) {
       const { data: bps } = await admin
@@ -109,15 +113,11 @@ Deno.serve(async (req) => {
       return Number(item.price);
     };
 
-    // Resolve EVERY modifier option id sent across all lines in one query.
-    const allOptIds = [...new Set(items.flatMap((l) => Array.isArray(l.modifiers) ? l.modifiers : []))]
-      .filter((x) => typeof x === "string" && !x.startsWith("remove:"));
+    // Modifier option prices/names, resolved from the parallel query above.
     let optById = new Map();
-    if (allOptIds.length) {
-      const { data: opts, error: optErr } = await admin
-        .from("menu_modifiers")
-        .select("id, name, price_delta, group_id, menu_modifier_groups(name)")
-        .in("id", allOptIds);
+    {
+      const opts = optsRes.data;
+      const optErr = optsRes.error;
       if (optErr) throw optErr;
       optById = new Map((opts ?? []).map((o) => [o.id, {
         name: o.name,
@@ -237,23 +237,22 @@ Deno.serve(async (req) => {
     if (liErr) throw liErr;
 
     // Trigger the kitchen print + KDS now that the order AND its line items
-    // both exist. A DB webhook may also fire on INSERT, but triggering here
-    // explicitly guarantees every order (POS, tablet, takeaway) prints — and
-    // sunmi-print's already-printed guard means a double-fire won't duplicate.
-    try {
-      await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sunmi-print`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
-          Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
-          "x-print-secret": Deno.env.get("PRINT_WEBHOOK_SECRET") ?? "",
-        },
-        body: JSON.stringify({ action: "print-order", order_id: orderId }),
-      });
-    } catch (e) {
-      console.error("new order print trigger failed:", e);
-    }
+    // both exist. Fire-and-forget so the app gets its confirmation instantly and
+    // printing happens in the background. We hand the promise to waitUntil (when
+    // available) so the runtime keeps the function alive until the print push
+    // finishes, without blocking the response. A DB webhook may also fire on
+    // INSERT; sunmi-print's already-printed guard means a double-fire won't dup.
+    const printPromise = fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/sunmi-print`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
+        Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
+        "x-print-secret": Deno.env.get("PRINT_WEBHOOK_SECRET") ?? "",
+      },
+      body: JSON.stringify({ action: "print-order", order_id: orderId }),
+    }).catch((e) => console.error("new order print trigger failed:", e));
+    try { (globalThis as any).EdgeRuntime?.waitUntil?.(printPromise); } catch { /* ignore */ }
 
     return new Response(JSON.stringify({ ok: true, order_id: orderId, order_no: orderNo, total: subtotal }), {
       headers: { ...cors, "Content-Type": "application/json" },
