@@ -145,23 +145,21 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin: posPin, action, data: dataObj }),
+        body: JSON.stringify({ pos: true, action, data: dataObj }),
       });
-      if (r.status === 401) { setPosPin(""); return false; } // wrong PIN — re-prompt
       await loadOrders();
       return r.ok;
     } catch { return false; } finally { setOrdersBusy(false); }
   }
   // Like ordAction but returns the parsed JSON (for payment flows that need
-  // the running balance back). Does NOT reload on 401 (re-prompts PIN).
+  // the running balance back).
   async function ordActionJson(action, dataObj) {
     setOrdersBusy(true);
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin: posPin, action, data: dataObj }),
+        body: JSON.stringify({ pos: true, action, data: dataObj }),
       });
-      if (r.status === 401) { setPosPin(""); return { ok: false, unauthorized: true }; }
       const j = await r.json().catch(() => ({}));
       await loadOrders();
       return { ok: r.ok, ...j };
@@ -359,17 +357,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
         {/* COLUMN 1 — master categories (top) + orders list (below) */}
         <div style={{ width: "clamp(230px, 18vw, 300px)", flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column", position: "relative" }}>
-          {!posPin && (
-            <div style={{ position: "absolute", inset: 0, zIndex: 30, background: "rgba(244,241,232,.97)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-              <div style={{ background: "#fff", borderRadius: 16, padding: "22px 20px", boxShadow: "0 12px 40px rgba(60,70,45,.18)", textAlign: "center", width: 200 }}>
-                <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 16, marginBottom: 5 }}>Staff PIN</div>
-                <div style={{ fontSize: 12, color: "#7a828e", marginBottom: 14 }}>Enter PIN to view orders and take payments.</div>
-                <input type="text" inputMode="numeric" value={posPin} onChange={(e) => setPosPin(e.target.value.replace(/\D/g, ""))} placeholder="PIN"
-                  autoComplete="off" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
-                  style={{ width: 150, textAlign: "center", fontSize: 20, letterSpacing: 5, padding: "12px 0", borderRadius: 12, border: "1px solid #e8e9ec", background: "#F4F1E8", color: "#262A1E", WebkitTextSecurity: "disc", textSecurity: "disc", fontFamily: "inherit" }} />
-              </div>
-            </div>
-          )}
           {/* master categories — top, dark zone */}
           <div style={{ background: P.masterBg, padding: "11px 11px", display: "flex", flexDirection: "column", gap: 7, flexShrink: 0 }}>
             {catList.map((m, i) => {

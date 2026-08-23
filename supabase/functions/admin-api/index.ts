@@ -24,8 +24,17 @@ Deno.serve(async (req) => {
   let payload: any;
   try { payload = await req.json(); } catch { return json({ error: "bad json" }, 400); }
 
-  const { pin, action, data } = payload || {};
-  if (!pin || pin !== ADMIN_PIN) return json({ error: "unauthorized" }, 401);
+  const { pin, action, data, pos } = payload || {};
+  // Till/POS operations don't require the admin PIN — the POS is an operational
+  // surface used by front-line staff, and gating every payment behind a PIN was
+  // too much friction. Admin-panel actions still require the PIN below.
+  const POS_ACTIONS = new Set([
+    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list",
+    "remove_order_item", "set_order_item_qty", "void_fired_item",
+    "day_summary",
+  ]);
+  const isPosCall = pos === true && POS_ACTIONS.has(action);
+  if (!isPosCall && (!pin || pin !== ADMIN_PIN)) return json({ error: "unauthorized" }, 401);
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
