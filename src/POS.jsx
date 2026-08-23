@@ -418,7 +418,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               now={now}
               busy={ordersBusy}
               initialMode={selPayNow ? "method" : "detail"}
-              key={selOrderId + (selPayNow ? "-pay" : "")}
               onClose={() => { setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); }}
               onTakePayment={ordTakePayment}
               onPay={async (o, m) => { const res = await ordPay(o, m); if (res && res.ok && res.fully_paid) { setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); } return res; }}

@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 
 // ── Single-screen POS orders ─────────────────────────────────────────
 // OrdersList       → compact list (under master categories in col 1)
@@ -106,9 +106,9 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onVoidFired, onReprint }) {
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onVoidFired, onReprint }) {
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
-  const [mode, setMode] = useState("detail");
+  const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
   const [splitAmt, setSplitAmt] = useState("");        // typed amount for split-by-amount
   const [evenN, setEvenN] = useState(2);               // number of ways for split-evenly
@@ -117,6 +117,16 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, onClos
   const [voidItem, setVoidItem] = useState(null);      // item pending a void reason
   const [note, setNote] = useState("");                // transient status line
   const o = order;
+  // When the panel is (re)opened for a NEW order via "Pay now", jump straight
+  // to the payment method picker. Keyed on the order id so it fires once per
+  // order even if initialMode was captured before the order object arrived.
+  const oid = o ? o.id : null;
+  useEffect(() => {
+    if (initialMode === "method") setMode("method");
+    else setMode("detail");
+    // reset transient inputs for the newly-shown order
+    setCashGiven(null); setSplitAmt(""); setEvenGiven(null); setPickIds({}); setVoidItem(null); setNote("");
+  }, [oid, initialMode]); // eslint-disable-line
   if (!o) return null;
   const its = o.menu_order_items || [];
   const total = Math.round(Number(o.total || 0) * 100) / 100;
