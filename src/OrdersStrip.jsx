@@ -18,8 +18,8 @@ const C = {
 };
 
 const Ico = {
-  bag: (s = 16, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 2 3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4zM3 6h18M16 10a4 4 0 0 1-8 0" /></svg>),
-  utensils: (s = 16, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 2v7c0 1.1.9 2 2 2h0a2 2 0 0 0 2-2V2M5 2v20M17 2v20M21 8c0-3-1-6-4-6v6c0 1 1 2 2 2h2Z" /></svg>),
+  bag: (s = 16, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8h12l-1 12a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1L6 8Z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /><path d="M9 12h6" /></svg>),
+  utensils: (s = 16, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M5 3v7a2 2 0 0 0 4 0V3M7 10v11" /><path d="M17 3c-1.5 0-2.5 2-2.5 4.5S15.5 12 17 12v9" /></svg>),
   card: (s = 14, c = "#33402f") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2" /><path d="M2 10h20" /></svg>),
   cash: (s = 14, c = "#33402f") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="6" width="20" height="12" rx="2" /><circle cx="12" cy="12" r="2.5" /></svg>),
   printer: (s = 17, c = "#2f6b4f") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V2h12v7M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2M6 14h12v8H6z" /></svg>),
@@ -59,12 +59,12 @@ function orderSource(o) {
 }
 // Clean inline SVG source icons (consistent set, no emoji).
 function srcIcon(kind, size = 15, color = "#5E7A4D") {
-  const p = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", style: { flexShrink: 0 } };
-  if (kind === "phone") return (<svg {...p}><rect x="7" y="2" width="10" height="20" rx="2" /><line x1="11" y1="18" x2="13" y2="18" /></svg>);
+  const p = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round", style: { flexShrink: 0 } };
+  if (kind === "phone") return (<svg {...p}><path d="M6 3h3l2 5-2 1a12 12 0 0 0 5 5l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2Z" /></svg>);
   if (kind === "web") return (<svg {...p}><circle cx="12" cy="12" r="9" /><line x1="3" y1="12" x2="21" y2="12" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" /></svg>);
   if (kind === "counter") return (<svg {...p}><path d="M4 7h16l-1 5H5L4 7Z" /><path d="M5 12v7h14v-7" /><line x1="4" y1="7" x2="20" y2="7" /></svg>);
   // tablet
-  return (<svg {...p}><rect x="4" y="2" width="16" height="20" rx="2" /><line x1="10" y1="18" x2="14" y2="18" /></svg>);
+  return (<svg {...p}><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="10" y1="18" x2="14" y2="18" /></svg>);
 }
 function orderName(o) { return o.pickup_name || (o.menu_tables && o.menu_tables.label) || "Order"; }
 function modLine(it) {
@@ -402,20 +402,12 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       {note && <div style={{ margin: "4px 15px", fontSize: 11.5, color: "#2f6b4f", fontWeight: 600 }}>{note}</div>}
       <div style={{ flex: 1, overflowY: "auto", padding: "0 15px" }}>
         {its.map((it, j) => (
-          <div key={it.id || j} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(60,70,45,.07)" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#f0ede3", borderRadius: 18, padding: "4px 5px", flexShrink: 0 }}>
-                <span onClick={() => onSetQty(o, it.id, (it.qty || 1) - 1)} style={{ width: 23, height: 23, borderRadius: "50%", background: "#fff", border: "1px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: C.danger, fontWeight: 700, cursor: "pointer" }}>−</span>
-                <span style={{ fontWeight: 700, fontSize: 13, minWidth: 12, textAlign: "center" }}>{it.qty || 1}</span>
-                <span onClick={() => onSetQty(o, it.id, (it.qty || 1) + 1)} style={{ width: 23, height: 23, borderRadius: "50%", background: "#fff", border: "1px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#3a5730", fontWeight: 700, cursor: "pointer" }}>+</span>
-              </div>
-              <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name_snapshot}</div>{modLine(it) && <div style={{ fontSize: 10.5, color: C.sub, marginTop: 1 }}>{modLine(it)}</div>}</div>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
-              <span style={{ fontSize: 13, fontWeight: 700 }}>{money(it.line_total)}</span>
-              <span onClick={() => { setVoidItem(it); setMode("voidReason"); }} title="Void (already sent to kitchen)" style={{ cursor: "pointer" }}>{Ico.trash(15)}</span>
-            </div>
-          </div>
+          <CartLine key={it.id || j} last={j === its.length - 1}
+            line={{ name: it.name_snapshot, qty: it.qty || 1, lineTotal: Number(it.line_total || 0), image_url: (it.menu_items && it.menu_items.image_url) || it.image_url, mods: modArray(it), note: it.note }}
+            onDec={() => onSetQty(o, it.id, (it.qty || 1) - 1)}
+            onInc={() => onSetQty(o, it.id, (it.qty || 1) + 1)}
+            onRemove={() => { setVoidItem(it); setMode("voidReason"); }}
+          />
         ))}
         {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items left.</div>}
       </div>

@@ -40,6 +40,7 @@ export default function CartLine({ line, onDec, onInc, onEdit, onRemove, last = 
   const showStepper = typeof onDec === "function" && typeof onInc === "function";
   const showRemove = typeof onRemove === "function";
   const hasActions = showStepper || canEdit || showRemove;
+  const showQtyBadge = qty > 1 || !showStepper; // read-only lines always show qty
 
   return (
     <div style={{ display: "flex", gap: 12, padding: "13px 0", borderBottom: last ? "none" : "1px solid #f4f5f7", alignItems: "flex-start" }}>
@@ -49,7 +50,7 @@ export default function CartLine({ line, onDec, onInc, onEdit, onRemove, last = 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div onClick={canEdit ? onEdit : undefined} style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start", cursor: canEdit ? "pointer" : "default" }}>
           <div style={{ minWidth: 0, display: "flex", gap: 7 }}>
-            {qty > 1 && <span style={{ flexShrink: 0, background: "#eef4e8", color: "#3a5730", fontWeight: 700, fontSize: 15, borderRadius: 7, padding: "1px 7px", height: "fit-content", marginTop: 1 }}>{qty}×</span>}
+            {showQtyBadge && <span style={{ flexShrink: 0, background: "#eef4e8", color: "#3a5730", fontWeight: 700, fontSize: 15, borderRadius: 7, padding: "1px 7px", height: "fit-content", marginTop: 1 }}>{qty}×</span>}
             <div style={{ fontWeight: 600, fontSize: 16, lineHeight: 1.2 }}>{l.name}</div>
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>

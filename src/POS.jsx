@@ -43,6 +43,15 @@ function menuIcon(name, active) {
   return <svg {...p}><path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 0-3 2-3 5s1 4 3 4M17 3v18" /></svg>;
 }
 
+// Realistic order-type / source icons for the cart header + pickers.
+const posIco = {
+  takeaway: (s = 20, c = "#fff") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M6 8h12l-1 12a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1L6 8Z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /><path d="M9 12h6" /></svg>),
+  dinein: (s = 20, c = "#fff") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M5 3v7a2 2 0 0 0 4 0V3M7 10v11" /><path d="M17 3c-1.5 0-2.5 2-2.5 4.5S15.5 12 17 12v9" /></svg>),
+  table: (s = 20, c = "#fff") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 10h18M4 10l1 4M20 10l-1 4M5 6h14a1 1 0 0 1 1 1v3H4V7a1 1 0 0 1 1-1ZM7 14v4M17 14v4" /></svg>),
+  tablet: (s = 20, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="10" y1="18" x2="14" y2="18" /></svg>),
+  phone: (s = 20, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h3l2 5-2 1a12 12 0 0 0 5 5l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2Z" /></svg>),
+};
+
 // ===========================================================================
 // Full POS screen (large tablet, landscape). Light theme.
 // Three zones: category rail · item grid · order ticket.
@@ -498,13 +507,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {!table ? (
                   <>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#5E7A4D", color: "#fff", padding: "13px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16 }}>🥡 <span>Takeaway</span></div>
-                    <div onClick={() => setShowTablePicker(true)} style={{ width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#eef4e8", border: "1.5px solid #d4e3c6", borderRadius: 12, fontSize: 22, cursor: "pointer" }}>🍽</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#5E7A4D", color: "#fff", padding: "13px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16 }}>{posIco.takeaway(20, "#fff")} <span>Takeaway</span></div>
+                    <div onClick={() => setShowTablePicker(true)} style={{ width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#eef4e8", border: "1.5px solid #d4e3c6", borderRadius: 12, cursor: "pointer" }}>{posIco.table(22, "#5E7A4D")}</div>
                   </>
                 ) : (
                   <>
-                    <div onClick={() => setShowTablePicker(true)} style={{ flex: 1, display: "flex", alignItems: "center", gap: 9, background: "#5E7A4D", color: "#fff", padding: "13px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16, cursor: "pointer" }}>🍽 <span>{table.label}</span><span style={{ marginLeft: "auto", opacity: .7, fontSize: 13 }}>change ›</span></div>
-                    <div onClick={() => setTable(null)} style={{ width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#eef4e8", border: "1.5px solid #d4e3c6", borderRadius: 12, fontSize: 22, cursor: "pointer" }}>🥡</div>
+                    <div onClick={() => setShowTablePicker(true)} style={{ flex: 1, display: "flex", alignItems: "center", gap: 9, background: "#5E7A4D", color: "#fff", padding: "13px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16, cursor: "pointer" }}>{posIco.table(20, "#fff")} <span>{table.label}</span><span style={{ marginLeft: "auto", opacity: .7, fontSize: 13 }}>change ›</span></div>
+                    <div onClick={() => setTable(null)} style={{ width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#eef4e8", border: "1.5px solid #d4e3c6", borderRadius: 12, cursor: "pointer" }}>{posIco.takeaway(22, "#5E7A4D")}</div>
                   </>
                 )}
               </div>
@@ -565,7 +574,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         <div onClick={() => setShowTablePicker(false)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.4)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: 460, maxWidth: "100%", maxHeight: "82vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(18,21,28,.3)" }}>
             <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid " + P.line2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 19, fontWeight: 700 }}>🍽 Choose a table</span>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 19, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>{posIco.table(22, "#5E7A4D")} Choose a table</span>
               <span onClick={() => setShowTablePicker(false)} style={{ width: 34, height: 34, borderRadius: "50%", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, color: "#6b7280", cursor: "pointer" }}>✕</span>
             </div>
             <div style={{ padding: "16px 20px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
@@ -581,7 +590,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               {tablesList.length === 0 && <div style={{ gridColumn: "1 / -1", textAlign: "center", color: P.muted, padding: 24, fontSize: 15 }}>No tables configured</div>}
             </div>
             <div style={{ padding: "6px 20px 20px" }}>
-              <div onClick={() => { setTable(null); setShowTablePicker(false); }} style={{ textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#fff", border: "1.5px solid #d4d8dd", fontWeight: 700, fontSize: 15, color: "#6b7280", cursor: "pointer" }}>🥡 Switch to Takeaway</div>
+              <div onClick={() => { setTable(null); setShowTablePicker(false); }} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "14px 0", borderRadius: 12, background: "#fff", border: "1.5px solid #d4d8dd", fontWeight: 700, fontSize: 15, color: "#6b7280", cursor: "pointer" }}>{posIco.takeaway(18, "#6b7280")} Switch to Takeaway</div>
             </div>
           </div>
         </div>
