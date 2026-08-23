@@ -42,6 +42,7 @@ export default function KDS() {
   const [size, setSize] = useState(() => localStorage.getItem("kds_size") || "M");
   const [fullscreen, setFullscreen] = useState(false);
   const [undo, setUndo] = useState(null);
+  const [armedBump, setArmedBump] = useState(null); // {id, timer} — first tap arms, second confirms
   const [rushIds, setRushIds] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("kds_rush") || "[]")); } catch { return new Set(); } });
   // Orders/payment view state
   const [view, setView] = useState("kitchen");      // "kitchen" | "orders"
@@ -192,6 +193,20 @@ export default function KDS() {
     if (undo && undo.timer) clearTimeout(undo.timer);
     const timer = setTimeout(() => setUndo(null), 6000);
     setUndo({ order: o, prevStatus, timer });
+  };
+  // First tap arms the button ("Tap again"); a second tap within 2.5s actually
+  // bumps. Prevents accidental single touches (brushes, cleaning) on the large
+  // touch targets from completing an order without a deliberate action.
+  const requestBump = (o) => {
+    if (armedBump && armedBump.id === o.id) {
+      if (armedBump.timer) clearTimeout(armedBump.timer);
+      setArmedBump(null);
+      bump(o);
+      return;
+    }
+    if (armedBump && armedBump.timer) clearTimeout(armedBump.timer);
+    const timer = setTimeout(() => setArmedBump(null), 2500);
+    setArmedBump({ id: o.id, timer });
   };
   const doUndo = () => {
     if (!undo) return;
@@ -376,7 +391,7 @@ export default function KDS() {
                 <div style={{ display: "flex", gap: 2, padding: 2 }}>
                   <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#fb7185" : "#ffffff0d", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#1a0a0d" : "#fff" }} title="Rush">{BOLT}</div>
                   {o.status === "placed" && <div onClick={() => start(o)} className="kbtn" style={{ flex: 1, textAlign: "center", padding: F(11) + "px 0", background: "#ffffff14", borderRadius: 9, fontWeight: 700, fontSize: F(14), cursor: "pointer" }}>Start</div>}
-                  <div onClick={() => bump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: allDone ? "#34d399" : "#22c55e", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#052e16", boxShadow: "0 2px 8px -2px " + (allDone ? "#34d39966" : "#22c55e55") }}>{CHECK + " Bump"}</div>
+                  <div onClick={() => requestBump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: (armedBump && armedBump.id === o.id) ? "#f59e0b" : (allDone ? "#34d399" : "#22c55e"), borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: (armedBump && armedBump.id === o.id) ? "#3a2400" : "#052e16", boxShadow: "0 2px 8px -2px " + (allDone ? "#34d39966" : "#22c55e55") }}>{(armedBump && armedBump.id === o.id) ? "Tap again ✓" : (CHECK + " Bump")}</div>
                 </div>
               </div>
             );
