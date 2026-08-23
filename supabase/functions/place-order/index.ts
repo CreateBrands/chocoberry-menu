@@ -36,6 +36,7 @@ Deno.serve(async (req) => {
       tablet_no = null,
       items = [],
       append_to_order_id = null,
+      hold = false, // pay-first flow: create on hold (no print/KDS) until paid
     } = body;
 
     if (!Array.isArray(items) || items.length === 0) {
@@ -242,7 +243,7 @@ Deno.serve(async (req) => {
         pickup_name, customer_note,
         tablet_no,
         subtotal, total: subtotal,
-        status: "placed",
+        status: hold ? "hold" : "placed",
         order_no: orderNo,
       })
       .select("id, created_at")

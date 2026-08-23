@@ -116,7 +116,7 @@ async function loadReceiptOrder(
   // Items
   const { data: itemRows, error: itemsErr } = await supabase
     .from("menu_order_items")
-    .select("item_id, name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total, added_batch")
+    .select("item_id, name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total, added_batch, note")
     .eq("order_id", orderId)
     .order("added_batch", { ascending: true });
   if (itemsErr) throw new Error("menu_order_items lookup failed: " + itemsErr.message);
@@ -134,6 +134,7 @@ async function loadReceiptOrder(
         : parseFloat(String(it.line_total ?? "")) || undefined,
       station: stationByLine[i],
       added: (it.added_batch ?? 0) > 0,
+      note: it.note ? String(it.note) : undefined,
       modifiers: Array.isArray(mods)
         ? (mods as unknown[]).map((m) => String(m))
         : mods
@@ -418,6 +419,12 @@ Deno.serve(async (req) => {
   try {
     // Database webhook: fires on menu_orders INSERT
     if (body.type === "INSERT" && body.record) {
+      // HOLD orders (created for pay-first flow) must NOT print or hit the
+      // kitchen until payment completes and they're released to "placed".
+      // The release path re-triggers printing explicitly.
+      if ((body.record as Record<string, unknown>).status === "hold") {
+        return json({ ok: true, skipped: "order on hold — not printing until paid" });
+      }
       const result = await printOrder(body.record as Record<string, unknown>);
       return json(result);
     }

@@ -324,6 +324,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         qr_token: storeToken || null, location_id: loc || null,
         table_id: table ? table.id : null, order_type: kindType,
         pickup_name: null, tablet_no: kindSource, customer_note: orderNote.trim() || null,
+        // PAY-FIRST: when the staff pressed "Pay", create the order on HOLD so it
+        // does NOT print or hit the KDS until payment completes. The payment
+        // (admin-api) releases it to the kitchen on success. "Send to kitchen"
+        // (thenPay=false) fires immediately as before.
+        hold: thenPay ? true : false,
         items: ticket.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: l.mods.map((m) => m.option_id), note: l.note || null })),
       };
       if (appendTo) payload.append_to_order_id = appendTo;
@@ -335,7 +340,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         setAppendTo(null); setTicket([]); setTable(null); setMsg("Items added to the order.");
         loadOrders();
       } else {
-        setMsg("Sent — order #" + resp.order_no);
+        setMsg(thenPay ? "Take payment to send to kitchen" : "Sent — order #" + resp.order_no);
         // Build a local order object so the payment panel can open instantly and
         // reliably (no waiting for the list reload to propagate into state).
         const localOrder = {
@@ -343,7 +348,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           table_id: table ? table.id : null,
           order_type: kindType,
           pickup_name: null, tablet_no: kindSource,
-          total: subtotal, amount_paid: 0, paid_method: null, status: "placed",
+          total: subtotal, amount_paid: 0, paid_method: null, status: thenPay ? "hold" : "placed",
           created_at: new Date().toISOString(),
           menu_tables: table ? { label: table.label } : null,
           menu_order_items: ticket.map((l) => ({

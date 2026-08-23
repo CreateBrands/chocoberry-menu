@@ -453,7 +453,7 @@ Deno.serve(async (req) => {
         }
         // Fetch the order total so we compute the paid amount server-side.
         const { data: ord, error: oErr } = await admin
-          .from("menu_orders").select("id, total").eq("id", order_id).single();
+          .from("menu_orders").select("id, total, status").eq("id", order_id).single();
         if (oErr || !ord) return json({ error: "order not found" }, 404);
         const total = Number(ord.total) || 0;
         let paid = total;
@@ -465,15 +465,26 @@ Deno.serve(async (req) => {
           paid = Math.max(0, total - dv);
         }
         paid = Math.round(paid * 100) / 100; // 2dp
-        const { error } = await admin.from("menu_orders").update({
+        const patch: Record<string, unknown> = {
           paid_method: method,
           paid_amount: paid,
           discount_type: (discount_type === "percent" || discount_type === "amount") ? discount_type : null,
           discount_value: dv,
           paid_at: new Date().toISOString(),
-        }).eq("id", order_id);
+        };
+        // PAY-FIRST: if this order was on hold, release it to the kitchen now
+        // that it's paid — flip to "placed" so it shows on the KDS, then print.
+        const wasHold = ord.status === "hold";
+        if (wasHold) patch.status = "placed";
+        const { error } = await admin.from("menu_orders").update(patch).eq("id", order_id);
         if (error) throw error;
-        return json({ ok: true, paid_amount: paid });
+        if (wasHold) {
+          // Re-fetch the full row and fire the print (the INSERT webhook skipped
+          // it while on hold). KDS picks it up automatically via the poll.
+          const { data: full } = await admin.from("menu_orders").select("*").eq("id", order_id).single();
+          if (full) { try { await callSunmi({ type: "INSERT", record: full }); } catch (e) { console.error("release print failed", e); } }
+        }
+        return json({ ok: true, paid_amount: paid, released: wasHold });
       }
 
       // ---- TILL: mark an order UNPAID again (undo) ----
@@ -537,9 +548,15 @@ Deno.serve(async (req) => {
           patch.paid_method = isSplit ? "split" : primary;
           patch.paid_amount = paidNow;
           patch.paid_at = new Date().toISOString();
+          // PAY-FIRST: release a held order to the kitchen now it's fully paid.
+          if (ord.status === "hold") patch.status = "placed";
         }
         const { error: uErr } = await admin.from("menu_orders").update(patch).eq("id", order_id);
         if (uErr) throw uErr;
+        if (fullyPaid && ord.status === "hold") {
+          const { data: full } = await admin.from("menu_orders").select("*").eq("id", order_id).single();
+          if (full) { try { await callSunmi({ type: "INSERT", record: full }); } catch (e) { console.error("release print failed", e); } }
+        }
         return json({ ok: true, paid: paidNow, remaining: Math.max(0, remaining), fully_paid: fullyPaid, is_split: isSplit, methods: [...distinctMethods] });
       }
 
