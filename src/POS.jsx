@@ -110,6 +110,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [ordersBusy, setOrdersBusy] = useState(false);
   const [selOrderId, setSelOrderId] = useState(null); // order tapped → shows in right panel
   const [selPayNow, setSelPayNow] = useState(false);  // opened via "Pay now" → jump to payment
+  const [showTablePicker, setShowTablePicker] = useState(false); // table picker sheet
   const [payNowOrder, setPayNowOrder] = useState(null); // locally-built order for instant panel
   const [now, setNow] = useState(Date.now());
   const [posPin, setPosPin] = useState(""); // PIN captured once for order actions
@@ -127,7 +128,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   async function loadOrders() {
     setOrdersBusy(true);
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,total,paid_method,paid_amount,created_at,status,menu_tables(label),menu_order_items(id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total)"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,total,paid_method,paid_amount,created_at,status,menu_tables(label),menu_order_items(id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note)"
         + (loc ? "&location_id=eq." + loc : "")
         + "&closed_at=is.null&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
@@ -485,33 +486,21 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid " + P.line2 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 13 }}>
               <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-.3px" }}>{appendTo ? "Extra items" : "Current order"}</span>
-              {itemCount > 0 && <span style={{ fontSize: 14, color: "#3a5730", background: "#eef4e8", padding: "4px 11px", borderRadius: 20, fontWeight: 700 }}>{itemCount} item{itemCount === 1 ? "" : "s"}</span>}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                {itemCount > 0 && <span style={{ fontSize: 14, color: "#3a5730", background: "#eef4e8", padding: "4px 11px", borderRadius: 20, fontWeight: 700 }}>{itemCount} item{itemCount === 1 ? "" : "s"}</span>}
+                {ticket.length > 0 && <span onClick={clearAll} title="Clear order" style={{ width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "1.5px solid #eee", borderRadius: 9, color: "#c94a4a", cursor: "pointer", fontSize: 15 }}>🗑</span>}
+              </div>
             </div>
             {!appendTo && (
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 {!table ? (
-                  // Takeaway is active → expanded with label; Table collapsed to an icon.
                   <>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#5E7A4D", color: "#fff", padding: "12px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16 }}>🥡 <span>Takeaway</span></div>
-                    <div style={{ position: "relative" }}>
-                      <select value="" onChange={(e) => { const t = tablesList.find((x) => x.id === e.target.value); if (t) setTable({ id: t.id, label: t.label }); }}
-                        style={{ width: 50, height: 50, borderRadius: 12, border: "1.5px solid #d4e3c6", background: "#eef4e8", color: "transparent", cursor: "pointer", appearance: "none", WebkitAppearance: "none", fontFamily: "inherit" }}>
-                        <option value="">Table…</option>
-                        {tablesList.map((t) => <option key={t.id} value={t.id} style={{ color: "#000" }}>{t.label}</option>)}
-                      </select>
-                      <span style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, pointerEvents: "none" }}>🍽</span>
-                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#5E7A4D", color: "#fff", padding: "13px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16 }}>🥡 <span>Takeaway</span></div>
+                    <div onClick={() => setShowTablePicker(true)} style={{ width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#eef4e8", border: "1.5px solid #d4e3c6", borderRadius: 12, fontSize: 22, cursor: "pointer" }}>🍽</div>
                   </>
                 ) : (
-                  // Table is active → expanded with the table label; Takeaway collapsed to an icon.
                   <>
-                    <div style={{ position: "relative", flex: 1 }}>
-                      <select value={table.id} onChange={(e) => { const t = tablesList.find((x) => x.id === e.target.value); setTable(t ? { id: t.id, label: t.label } : null); }}
-                        style={{ width: "100%", boxSizing: "border-box", display: "flex", alignItems: "center", gap: 8, background: "#5E7A4D", color: "#fff", padding: "12px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16, border: "none", cursor: "pointer", appearance: "none", WebkitAppearance: "none", fontFamily: "inherit" }}>
-                        {tablesList.map((t) => <option key={t.id} value={t.id} style={{ color: "#000" }}>{t.label}</option>)}
-                      </select>
-                      <span style={{ position: "absolute", left: 16, top: "50%", transform: "translateY(-50%)", pointerEvents: "none", fontSize: 16 }}>🍽</span>
-                    </div>
+                    <div onClick={() => setShowTablePicker(true)} style={{ flex: 1, display: "flex", alignItems: "center", gap: 9, background: "#5E7A4D", color: "#fff", padding: "13px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16, cursor: "pointer" }}>🍽 <span>{table.label}</span><span style={{ marginLeft: "auto", opacity: .7, fontSize: 13 }}>change ›</span></div>
                     <div onClick={() => setTable(null)} style={{ width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#eef4e8", border: "1.5px solid #d4e3c6", borderRadius: 12, fontSize: 22, cursor: "pointer" }}>🥡</div>
                   </>
                 )}
@@ -575,13 +564,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             </div>
 
             {!appendTo ? (
-              <>
-                <div onClick={() => { if (ticket.length && !sending) sendOrder(true); }} style={{ textAlign: "center", padding: "17px 0", borderRadius: 14, background: ticket.length ? "linear-gradient(140deg,#5E7A4D,#4a6b3a)" : "#d7dade", color: "#fff", fontWeight: 700, fontSize: 17, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 6px 16px rgba(94,122,77,.34)" : "none", opacity: sending ? .6 : 1, marginBottom: 8 }}>{sending ? "Sending…" : "Pay now" + (ticket.length ? " · " + gbp(subtotal) : "")}</div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <div onClick={() => { if (ticket.length && !sending) sendOrder(false); }} style={{ flex: 1, textAlign: "center", padding: "13px 0", borderRadius: 12, background: "#fff", border: "1.5px solid " + (ticket.length ? "#d4d8dd" : "#eceef0"), color: ticket.length ? "#2A2E20" : "#aeb4bd", fontWeight: 700, fontSize: 16, cursor: ticket.length ? "pointer" : "default" }}>{sending ? "…" : "Send to kitchen"}</div>
-                  <div onClick={clearAll} style={{ width: 50, textAlign: "center", padding: "13px 0", borderRadius: 12, background: "#fff", border: "1.5px solid #eee", color: "#c94a4a", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>🗑</div>
-                </div>
-              </>
+              <div style={{ display: "flex", gap: 9 }}>
+                <div onClick={() => { if (ticket.length && !sending) sendOrder(false); }} style={{ flex: 1, textAlign: "center", padding: "17px 0", borderRadius: 13, background: "#fff", border: "1.5px solid " + (ticket.length ? "#d4d8dd" : "#eceef0"), color: ticket.length ? "#2A2E20" : "#aeb4bd", fontWeight: 700, fontSize: 15, cursor: ticket.length ? "pointer" : "default", opacity: sending ? .6 : 1 }}>{sending ? "…" : "Send to kitchen"}</div>
+                <div onClick={() => { if (ticket.length && !sending) sendOrder(true); }} style={{ flex: 1, textAlign: "center", padding: "17px 0", borderRadius: 13, background: ticket.length ? "linear-gradient(140deg,#5E7A4D,#4a6b3a)" : "#d7dade", color: "#fff", fontWeight: 700, fontSize: 16, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 6px 16px rgba(94,122,77,.34)" : "none", opacity: sending ? .6 : 1 }}>{sending ? "Sending…" : "Pay" + (ticket.length ? " · " + gbp(subtotal) : "")}</div>
+              </div>
             ) : (
               <div style={{ display: "flex", gap: 8 }}>
                 <div onClick={clearAll} style={{ width: 50, textAlign: "center", padding: "16px 0", borderRadius: 13, background: "#fff", border: "1.5px solid #eee", color: "#616976", cursor: "pointer", fontSize: 16, flexShrink: 0 }}>✕</div>
@@ -593,6 +579,33 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           )}
         </div>
       </div>
+
+      {/* TABLE PICKER SHEET */}
+      {showTablePicker && (
+        <div onClick={() => setShowTablePicker(false)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.4)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: 460, maxWidth: "100%", maxHeight: "82vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(18,21,28,.3)" }}>
+            <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid " + P.line2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 19, fontWeight: 700 }}>🍽 Choose a table</span>
+              <span onClick={() => setShowTablePicker(false)} style={{ width: 34, height: 34, borderRadius: "50%", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, color: "#6b7280", cursor: "pointer" }}>✕</span>
+            </div>
+            <div style={{ padding: "16px 20px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
+              {tablesList.map((t) => {
+                const on = table && table.id === t.id;
+                return (
+                  <div key={t.id} onClick={() => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }} style={{ aspectRatio: "1", borderRadius: 13, background: on ? "#5E7A4D" : "#f4f5f7", color: on ? "#fff" : "#2A2E20", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontWeight: 700, cursor: "pointer", boxShadow: on ? "0 4px 12px -3px rgba(94,122,77,.5)" : "none" }}>
+                    <span style={{ fontSize: 22 }}>{t.label}</span>
+                    {on && <span style={{ fontSize: 10, opacity: .85, marginTop: 1 }}>selected</span>}
+                  </div>
+                );
+              })}
+              {tablesList.length === 0 && <div style={{ gridColumn: "1 / -1", textAlign: "center", color: P.muted, padding: 24, fontSize: 15 }}>No tables configured</div>}
+            </div>
+            <div style={{ padding: "6px 20px 20px" }}>
+              <div onClick={() => { setTable(null); setShowTablePicker(false); }} style={{ textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#fff", border: "1.5px solid #d4d8dd", fontWeight: 700, fontSize: 15, color: "#6b7280", cursor: "pointer" }}>🥡 Switch to Takeaway</div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* MODIFIER POPUP */}
       {modItem && (

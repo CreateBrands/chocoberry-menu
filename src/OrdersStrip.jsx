@@ -29,6 +29,15 @@ const Ico = {
 
 function tableNum(o) { if (o.menu_tables && o.menu_tables.label) return String(o.menu_tables.label).replace(/^table\s*/i, ""); return null; }
 function isDineIn(o) { return (o.order_type || "").toLowerCase().includes("dine"); }
+// Detect where an order came from, for the source badge.
+function orderSource(o) {
+  const t = String(o.tablet_no || "").toLowerCase();
+  const ch = String(o.channel || o.source || "").toLowerCase();
+  if (t.includes("phone") || ch.includes("phone") || ch.includes("retell")) return { icon: "📱", label: "Phone", bg: "#eaf2fb" };
+  if (t.includes("web") || ch.includes("web") || ch.includes("foodhub") || ch.includes("online")) return { icon: "🌐", label: "Web", bg: "#f3ecfb" };
+  if (t === "pos" || ch.includes("pos") || ch.includes("counter")) return { icon: "🧾", label: "Counter", bg: "#f3f4f6" };
+  return { icon: "🖥️", label: "Tablet", bg: "#eef4e8" }; // default: in-store tablet
+}
 function orderName(o) { return o.pickup_name || (o.menu_tables && o.menu_tables.label) || "Order"; }
 function modLine(it) {
   const m = it.modifiers_snapshot;
@@ -67,12 +76,16 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
   function Row({ o, paid }) {
     const selected = selId === o.id;
     const m = mins(new Date(o.created_at).getTime(), now);
+    const src = orderSource(o);
     return (
       <div onClick={() => onSelect(o.id)} style={{ background: C.card, border: "1.5px solid " + (selected ? (paid ? C.paidGreen : C.danger) : C.line), borderRadius: 12, padding: "9px 10px", marginBottom: 7, display: "flex", alignItems: "center", gap: 9, cursor: "pointer", boxShadow: selected ? "0 3px 10px -3px rgba(60,70,45,.2)" : "none" }}>
-        <Tile o={o} paid={paid} size={36} />
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <Tile o={o} paid={paid} size={36} />
+          <span title={src.label} style={{ position: "absolute", bottom: -3, right: -4, width: 18, height: 18, borderRadius: "50%", background: src.bg, border: "1.5px solid #fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>{src.icon}</span>
+        </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{orderName(o)}</div>
-          <div style={{ fontSize: 10.5, color: paid ? C.sub : ageColor(m), fontWeight: 600, marginTop: 2 }}>#{o.order_no}{paid ? " · " + (o.paid_method === "cash" ? "Cash" : "Card") : " · " + agoLabel(m)}</div>
+          <div style={{ fontSize: 10.5, color: paid ? C.sub : ageColor(m), fontWeight: 600, marginTop: 2 }}>#{o.order_no} · {src.label}{paid ? " · " + (o.paid_method === "cash" ? "Cash" : "Card") : " · " + agoLabel(m)}</div>
         </div>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14, color: paid ? C.paidText : C.danger }}>{money(o.total)}</div>
       </div>
@@ -152,7 +165,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       <Tile o={o} size={44} paid={isPaid} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title || orderName(o)}</div>
-        <div style={{ fontSize: 10.5, color: C.sub, marginTop: 2, fontWeight: 600 }}>#{o.order_no} · {isDineIn(o) ? "Dine-in" : "Takeaway"}{paidSoFar > 0 && !isPaid ? " · £" + paidSoFar.toFixed(2) + " paid" : ""}</div>
+        <div style={{ fontSize: 10.5, color: C.sub, marginTop: 2, fontWeight: 600 }}>#{o.order_no} · {orderSource(o).icon} {orderSource(o).label} · {isDineIn(o) ? "Dine-in" : "Takeaway"}{paidSoFar > 0 && !isPaid ? " · £" + paidSoFar.toFixed(2) + " paid" : ""}</div>
       </div>
       {isPaid
         ? <span style={{ fontSize: 9, color: "#fff", background: C.paidGreen, padding: "5px 10px", borderRadius: 14, fontWeight: 700, letterSpacing: .4 }}>{o.is_split ? "SPLIT PAID" : "PAID"}</span>
@@ -374,15 +387,22 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     {HeaderBar()}
     <div style={{ flex: 1, overflowY: "auto", padding: "8px 15px" }}>
       {note && <div style={{ fontSize: 11.5, color: "#2f6b4f", fontWeight: 600, padding: "4px 0 8px" }}>{note}</div>}
-      {its.map((it, j) => (
-        <div key={it.id || j} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "11px 0", borderBottom: j < its.length - 1 ? "1px solid rgba(60,70,45,.06)" : "none" }}>
-          <div style={{ display: "flex", gap: 10 }}>
-            <span style={{ color: "#8a9078", fontWeight: 700, fontSize: 13, minWidth: 18 }}>{it.qty || 1}×</span>
-            <div><div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.name_snapshot}</div>{modLine(it) && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{modLine(it)}</div>}</div>
+      {its.map((it, j) => {
+        const isAllergy = /allerg|nut|dairy|gluten/i.test(it.note || "");
+        return (
+        <div key={it.id || j} style={{ display: "flex", gap: 11, alignItems: "flex-start", padding: "11px 0", borderBottom: j < its.length - 1 ? "1px solid rgba(60,70,45,.06)" : "none" }}>
+          <div style={{ width: 46, height: 46, borderRadius: 10, flexShrink: 0, background: "#eef4e8", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, color: "#5E7A4D", fontSize: 15 }}>{(it.qty || 1) + "×"}</div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+              <div style={{ fontSize: 14.5, fontWeight: 600 }}>{it.name_snapshot}</div>
+              <span style={{ fontSize: 14.5, fontWeight: 700, flexShrink: 0 }}>{money(it.line_total)}</span>
+            </div>
+            {modLine(it) && <div style={{ fontSize: 12.5, color: "#8a5a2c", marginTop: 2, lineHeight: 1.3 }}>{modLine(it)}</div>}
+            {it.note && <div style={{ fontSize: 12, marginTop: 2, fontStyle: "italic", color: isAllergy ? "#c0392b" : "#c2703a", fontWeight: isAllergy ? 700 : 400 }}>{isAllergy ? "⚠ " : "📝 "}{it.note}</div>}
           </div>
-          <span style={{ fontSize: 13.5, fontWeight: 700 }}>{money(it.line_total)}</span>
         </div>
-      ))}
+        );
+      })}
       {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items.</div>}
     </div>
     <div style={{ padding: "13px 15px", borderTop: "1px solid #eef0f2", background: "#faf9f5", flexShrink: 0 }}>
