@@ -141,7 +141,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   async function loadOrders() {
     setOrdersBusy(true);
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,total,paid_method,paid_amount,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,print_failed,total,paid_method,paid_amount,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
         + (loc ? "&location_id=eq." + loc : "")
         + "&closed_at=is.null&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });

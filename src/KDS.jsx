@@ -96,7 +96,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status)"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status)"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.asc&limit=200";
       if (loc) url += "&location_id=eq." + loc;
@@ -366,6 +366,7 @@ export default function KDS() {
                       <span style={{ fontSize: F(11), fontWeight: 700, opacity: .55, background: "#00000033", padding: "1px 7px", borderRadius: 20 }}>{i + 1}</span>
                     </div>
                     <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>{typeLabel}{o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}</div>
+                    {o.print_failed && <div style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 5, background: "#dc2626", color: "#fff", fontSize: F(11), fontWeight: 800, padding: "2px 8px", borderRadius: 6, letterSpacing: ".02em" }}>⚠ NOT PRINTED</div>}
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div className="ktime" style={{ fontWeight: 900, fontSize: F(20), fontVariantNumeric: "tabular-nums", color: pal.accent, letterSpacing: "-.02em" }}>{fmtClock(o.created_at, now)}</div>
