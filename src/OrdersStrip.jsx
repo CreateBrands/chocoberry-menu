@@ -106,132 +106,296 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, onClose, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onReprint }) {
-  const [mode, setMode] = useState("detail"); // detail | payMethod | payCash | edit
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onVoidFired, onReprint }) {
+  // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
+  const [mode, setMode] = useState("detail");
   const [cashGiven, setCashGiven] = useState(null);
+  const [splitAmt, setSplitAmt] = useState("");        // typed amount for split-by-amount
+  const [evenN, setEvenN] = useState(2);               // number of ways for split-evenly
+  const [evenGiven, setEvenGiven] = useState(null);    // cash tendered for current even share
+  const [pickIds, setPickIds] = useState({});          // {itemId:true} chosen for split-by-item
+  const [voidItem, setVoidItem] = useState(null);      // item pending a void reason
+  const [note, setNote] = useState("");                // transient status line
   const o = order;
   if (!o) return null;
   const its = o.menu_order_items || [];
-  const isPaid = !!o.paid_method;
+  const total = Math.round(Number(o.total || 0) * 100) / 100;
+  const paidSoFar = Math.round(Number(o.amount_paid || 0) * 100) / 100;
+  const remaining = Math.round((total - paidSoFar) * 100) / 100;
+  const isPaid = !!o.paid_method || remaining <= 0.001;
 
-  const HeaderBar = (
+  async function pay(method, amount, extra) {
+    const fn = onTakePayment || onPay;
+    const res = await fn(o, method, amount, extra || {});
+    if (res && res.unauthorized) { setNote("Enter your PIN and try again."); return res; }
+    if (res && res.ok === false) { setNote("Payment failed — try again."); return res; }
+    if (res && res.fully_paid) { /* parent closes panel */ return res; }
+    // partial: reset transient inputs, stay on detail with updated remaining
+    setCashGiven(null); setSplitAmt(""); setEvenGiven(null);
+    setNote(res && res.remaining != null ? ("£" + Number(res.remaining).toFixed(2) + " left to pay") : "");
+    setMode("detail");
+    return res;
+  }
+
+  const HeaderBar = (title) => (
     <div style={{ padding: "12px 15px", borderBottom: "1px solid #f1f2f4", display: "flex", alignItems: "center", gap: 11, flexShrink: 0 }}>
       <Tile o={o} size={44} paid={isPaid} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{orderName(o)}</div>
-        <div style={{ fontSize: 10.5, color: C.sub, marginTop: 2, fontWeight: 600 }}>#{o.order_no} · {isDineIn(o) ? "Dine-in" : "Takeaway"}</div>
+        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 15, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{title || orderName(o)}</div>
+        <div style={{ fontSize: 10.5, color: C.sub, marginTop: 2, fontWeight: 600 }}>#{o.order_no} · {isDineIn(o) ? "Dine-in" : "Takeaway"}{paidSoFar > 0 && !isPaid ? " · £" + paidSoFar.toFixed(2) + " paid" : ""}</div>
       </div>
       {isPaid
-        ? <span style={{ fontSize: 9, color: "#fff", background: C.paidGreen, padding: "5px 10px", borderRadius: 14, fontWeight: 700, letterSpacing: .4 }}>PAID</span>
-        : <span style={{ fontSize: 9, color: "#fff", background: C.danger, padding: "5px 10px", borderRadius: 14, fontWeight: 700, letterSpacing: .4 }}>UNPAID</span>}
+        ? <span style={{ fontSize: 9, color: "#fff", background: C.paidGreen, padding: "5px 10px", borderRadius: 14, fontWeight: 700, letterSpacing: .4 }}>{o.is_split ? "SPLIT PAID" : "PAID"}</span>
+        : <span style={{ fontSize: 9, color: "#fff", background: paidSoFar > 0 ? "#C67A2C" : C.danger, padding: "5px 10px", borderRadius: 14, fontWeight: 700, letterSpacing: .4 }}>{paidSoFar > 0 ? "PART PAID" : "UNPAID"}</span>}
       <span onClick={onClose} style={{ cursor: "pointer", marginLeft: 2 }}>{Ico.x(18)}</span>
     </div>
   );
 
-  if (mode === "payMethod") {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", fontFamily: "'Hanken Grotesk',sans-serif", color: C.ink }}>
-        {HeaderBar}
-        <div style={{ padding: "16px 16px", flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}><span onClick={() => setMode("detail")} style={{ cursor: "pointer" }}>{Ico.back()}</span><span style={{ fontWeight: 700, fontSize: 15 }}>Take payment</span><span style={{ marginLeft: "auto", fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 20 }}>{money(o.total)}</span></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-            <div onClick={() => { setMode("payCash"); setCashGiven(null); }} style={{ padding: "26px 0", borderRadius: 14, background: "#5E7A4D", color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 16 }}>Cash</div>
-            <div onClick={() => onPay(o, "card")} style={{ padding: "26px 0", borderRadius: 14, background: C.paidGreen, color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 16, opacity: busy ? .6 : 1 }}>Card</div>
-          </div>
+  const Wrap = (children) => (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", fontFamily: "'Hanken Grotesk',sans-serif", color: C.ink }}>{children}</div>
+  );
+
+  // ── METHOD PICKER ──
+  if (mode === "method") {
+    return Wrap(<>
+      {HeaderBar("Take payment")}
+      <div style={{ padding: "16px", flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+          <span onClick={() => setMode("detail")} style={{ cursor: "pointer" }}>{Ico.back()}</span>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>Choose payment</span>
+          <span style={{ marginLeft: "auto", textAlign: "right" }}><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>BALANCE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 20 }}>{money(remaining)}</div></span>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+          <div onClick={() => { setMode("cash"); setCashGiven(null); }} style={{ padding: "28px 0", borderRadius: 14, background: "#5E7A4D", color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.cash(22, "#fff")} Cash</div>
+          <div onClick={() => pay("card", remaining)} style={{ padding: "28px 0", borderRadius: 14, background: C.paidGreen, color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, opacity: busy ? .6 : 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.card(22, "#fff")} Card</div>
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, margin: "14px 2px 8px" }}>Split the bill</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div onClick={() => { setSplitAmt(""); setMode("splitAmt"); }} style={{ padding: "14px 15px", borderRadius: 12, background: "#EDE7D9", color: "#4a4f3d", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>By amount / tender <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>£X card, rest cash</span></div>
+          <div onClick={() => { setEvenN(2); setEvenGiven(null); setMode("splitEven"); }} style={{ padding: "14px 15px", borderRadius: 12, background: "#EDE7D9", color: "#4a4f3d", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>Split evenly <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>2, 3, 4 ways…</span></div>
+          <div onClick={() => { setPickIds({}); setMode("splitItem"); }} style={{ padding: "14px 15px", borderRadius: 12, background: "#EDE7D9", color: "#4a4f3d", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>By item <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>pick items to pay</span></div>
         </div>
       </div>
-    );
-  }
-  if (mode === "payCash") {
-    const total = Number(o.total || 0);
-    const given = cashGiven == null ? 0 : cashGiven;
-    const change = Math.max(0, given - total);
-    const quick = [...new Set([Math.ceil(total), Math.ceil(total / 5) * 5, Math.ceil(total / 10) * 10])].filter((v) => v >= total).slice(0, 3);
-    return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", fontFamily: "'Hanken Grotesk',sans-serif", color: C.ink }}>
-        {HeaderBar}
-        <div style={{ padding: "14px 16px", flex: 1 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-            <span onClick={() => setMode("payMethod")} style={{ cursor: "pointer" }}>{Ico.back()}</span>
-            <div style={{ textAlign: "center" }}><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>DUE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{money(total)}</div></div>
-            <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: "#2f6b4f", fontWeight: 700 }}>CHANGE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, color: "#2f6b4f" }}>{money(change)}</div></div>
-          </div>
-          <div style={{ textAlign: "center", marginBottom: 12 }}><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>TENDERED</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 30 }}>{cashGiven == null ? "—" : money(given)}</div></div>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 10 }}>
-            {quick.map((v) => (<div key={v} onClick={() => setCashGiven(v)} style={{ padding: "13px 0", borderRadius: 11, background: given === v ? "#e6ecd9" : "#efeadf", border: given === v ? "1.5px solid #5E7A4D" : "1.5px solid transparent", textAlign: "center", fontWeight: 700, fontSize: 15, color: "#33402f", cursor: "pointer" }}>£{v}</div>))}
-          </div>
-          <div onClick={() => { if (cashGiven != null && !busy) onPay(o, "cash"); }} style={{ padding: "15px 0", borderRadius: 13, background: cashGiven == null ? "#c9ccc0" : "#5E7A4D", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: cashGiven == null ? "default" : "pointer" }}>Confirm cash</div>
-        </div>
-      </div>
-    );
-  }
-  if (mode === "edit" && !isPaid) {
-    return (
-      <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", fontFamily: "'Hanken Grotesk',sans-serif", color: C.ink }}>
-        {HeaderBar}
-        <div style={{ padding: "10px 15px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span onClick={() => setMode("detail")} style={{ cursor: "pointer" }}>{Ico.back()}</span><span style={{ fontWeight: 700, fontSize: 14 }}>Edit order</span></div>
-          <span onClick={() => onAddItems(o.id)} style={{ background: "#e9edd8", color: "#3a5730", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>{Ico.plus(14)} Add items</span>
-        </div>
-        <div style={{ flex: 1, overflowY: "auto", padding: "0 15px" }}>
-          {its.map((it, j) => (
-            <div key={it.id || j} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(60,70,45,.07)" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#f0ede3", borderRadius: 18, padding: "4px 5px", flexShrink: 0 }}>
-                  <span onClick={() => onSetQty(o, it.id, (it.qty || 1) - 1)} style={{ width: 23, height: 23, borderRadius: "50%", background: "#fff", border: "1px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: C.danger, fontWeight: 700, cursor: "pointer" }}>−</span>
-                  <span style={{ fontWeight: 700, fontSize: 13, minWidth: 12, textAlign: "center" }}>{it.qty || 1}</span>
-                  <span onClick={() => onSetQty(o, it.id, (it.qty || 1) + 1)} style={{ width: 23, height: 23, borderRadius: "50%", background: "#fff", border: "1px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#3a5730", fontWeight: 700, cursor: "pointer" }}>+</span>
-                </div>
-                <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name_snapshot}</div>{modLine(it) && <div style={{ fontSize: 10.5, color: C.sub, marginTop: 1 }}>{modLine(it)}</div>}</div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}><span style={{ fontSize: 13, fontWeight: 700 }}>{money(it.line_total)}</span><span onClick={() => onRemoveItem(o, it.id)} style={{ cursor: "pointer" }}>{Ico.trash(15)}</span></div>
-            </div>
-          ))}
-          {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items yet.</div>}
-        </div>
-        <div style={{ padding: "12px 15px", borderTop: "1px solid " + C.line, background: "#faf9f5", display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
-          <div style={{ flex: 1 }}><span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>Total</span><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 19 }}>{money(o.total)}</div></div>
-          <span onClick={() => setMode("payMethod")} style={{ background: "#5E7A4D", color: "#fff", padding: "13px 20px", borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Take payment</span>
-        </div>
-      </div>
-    );
+    </>);
   }
 
-  // DETAIL (default)
-  return (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", fontFamily: "'Hanken Grotesk',sans-serif", color: C.ink }}>
-      {HeaderBar}
-      <div style={{ flex: 1, overflowY: "auto", padding: "8px 15px" }}>
-        {its.map((it, j) => (
-          <div key={it.id || j} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "11px 0", borderBottom: j < its.length - 1 ? "1px solid rgba(60,70,45,.06)" : "none" }}>
-            <div style={{ display: "flex", gap: 10 }}>
-              <span style={{ color: "#8a9078", fontWeight: 700, fontSize: 13, minWidth: 18 }}>{it.qty || 1}×</span>
-              <div><div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.name_snapshot}</div>{modLine(it) && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{modLine(it)}</div>}</div>
+  // ── CASH (pays the full remaining) ──
+  if (mode === "cash") {
+    const due = remaining;
+    const given = cashGiven == null ? 0 : cashGiven;
+    const change = Math.max(0, given - due);
+    const quick = [...new Set([Math.ceil(due), Math.ceil(due / 5) * 5, Math.ceil(due / 10) * 10, due])].filter((v) => v >= due).slice(0, 3);
+    return Wrap(<>
+      {HeaderBar("Cash")}
+      <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <span onClick={() => setMode("method")} style={{ cursor: "pointer" }}>{Ico.back()}</span>
+          <div style={{ textAlign: "center" }}><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>DUE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{money(due)}</div></div>
+          <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: "#2f6b4f", fontWeight: 700 }}>CHANGE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, color: "#2f6b4f" }}>{money(change)}</div></div>
+        </div>
+        <div style={{ textAlign: "center", marginBottom: 12 }}><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>TENDERED</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 30 }}>{cashGiven == null ? "—" : money(given)}</div></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 10 }}>
+          {quick.map((v) => (<div key={v} onClick={() => setCashGiven(v)} style={{ padding: "13px 0", borderRadius: 11, background: given === v ? "#e6ecd9" : "#efeadf", border: given === v ? "1.5px solid #5E7A4D" : "1.5px solid transparent", textAlign: "center", fontWeight: 700, fontSize: 15, color: "#33402f", cursor: "pointer" }}>£{Number(v).toFixed(2).replace(/\.00$/, "")}</div>))}
+        </div>
+        <div onClick={() => { if (cashGiven != null && !busy) pay("cash", due, { tendered: given }); }} style={{ padding: "15px 0", borderRadius: 13, background: cashGiven == null ? "#c9ccc0" : "#5E7A4D", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: cashGiven == null ? "default" : "pointer" }}>Confirm cash</div>
+      </div>
+    </>);
+  }
+
+  // ── SPLIT BY AMOUNT / TENDER ──
+  if (mode === "splitAmt") {
+    const amt = Math.round((parseFloat(splitAmt) || 0) * 100) / 100;
+    const valid = amt > 0 && amt <= remaining + 0.001;
+    return Wrap(<>
+      {HeaderBar("Split by amount")}
+      <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <span onClick={() => setMode("method")} style={{ cursor: "pointer" }}>{Ico.back()}</span>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>Pay part of the bill</span>
+          <span style={{ marginLeft: "auto", textAlign: "right" }}><div style={{ fontSize: 10, color: C.danger, fontWeight: 700 }}>REMAINING</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, color: C.danger }}>{money(remaining)}</div></span>
+        </div>
+        <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, marginBottom: 5 }}>AMOUNT FOR THIS PAYMENT</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#F4F1E8", borderRadius: 12, padding: "6px 14px", marginBottom: 10 }}>
+          <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22 }}>£</span>
+          <input type="text" inputMode="decimal" value={splitAmt} onChange={(e) => setSplitAmt(e.target.value.replace(/[^0-9.]/g, ""))} placeholder={remaining.toFixed(2)} autoFocus
+            style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22, color: C.ink }} />
+        </div>
+        <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+          {[remaining / 2, remaining].map((v, i) => (<div key={i} onClick={() => setSplitAmt((Math.round(v * 100) / 100).toFixed(2))} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 10, background: "#efeadf", fontWeight: 700, fontSize: 13, color: "#4a4f3d", cursor: "pointer" }}>{i === 0 ? "Half" : "All"} · £{(Math.round(v * 100) / 100).toFixed(2)}</div>))}
+        </div>
+        <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, marginBottom: 7 }}>TAKE THIS PART AS</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+          <div onClick={() => { if (valid && !busy) pay("cash", amt, { tendered: amt }); }} style={{ padding: "18px 0", borderRadius: 12, background: valid ? "#5E7A4D" : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: valid ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.cash(18, "#fff")} Cash</div>
+          <div onClick={() => { if (valid && !busy) pay("card", amt); }} style={{ padding: "18px 0", borderRadius: 12, background: valid ? C.paidGreen : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: valid ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.card(18, "#fff")} Card</div>
+        </div>
+        <div style={{ fontSize: 11, color: C.sub, marginTop: 12, textAlign: "center" }}>Repeat until the balance reaches £0.</div>
+      </div>
+    </>);
+  }
+
+  // ── SPLIT EVENLY (N ways) ──
+  if (mode === "splitEven") {
+    const share = Math.round((remaining / Math.max(1, evenN)) * 100) / 100;
+    const given = evenGiven == null ? 0 : evenGiven;
+    const change = Math.max(0, given - share);
+    return Wrap(<>
+      {HeaderBar("Split evenly")}
+      <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+          <span onClick={() => setMode("method")} style={{ cursor: "pointer" }}>{Ico.back()}</span>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>Split evenly</span>
+          <span style={{ marginLeft: "auto", textAlign: "right" }}><div style={{ fontSize: 10, color: C.danger, fontWeight: 700 }}>REMAINING</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, color: C.danger }}>{money(remaining)}</div></span>
+        </div>
+        <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, marginBottom: 7 }}>SPLIT REMAINING BETWEEN</div>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginBottom: 12 }}>
+          <span onClick={() => setEvenN(Math.max(2, evenN - 1))} style={{ width: 44, height: 44, borderRadius: "50%", background: "#efeadf", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 700, color: C.danger, cursor: "pointer" }}>−</span>
+          <div style={{ textAlign: "center", minWidth: 60 }}><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 30 }}>{evenN}</div><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>WAYS</div></div>
+          <span onClick={() => setEvenN(Math.min(12, evenN + 1))} style={{ width: 44, height: 44, borderRadius: "50%", background: "#efeadf", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 700, color: "#3a5730", cursor: "pointer" }}>+</span>
+        </div>
+        <div style={{ background: "#F4F1E8", borderRadius: 12, padding: "12px 14px", textAlign: "center", marginBottom: 14 }}>
+          <div style={{ fontSize: 11, color: C.sub, fontWeight: 700 }}>EACH SHARE</div>
+          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26 }}>{money(share)}</div>
+        </div>
+        <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, marginBottom: 7 }}>TAKE ONE SHARE ({money(share)})</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 8 }}>
+          <div onClick={() => { if (!busy) pay("cash", share, { tendered: share, note: "even 1/" + evenN }); }} style={{ padding: "16px 0", borderRadius: 12, background: "#5E7A4D", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.cash(17, "#fff")} Cash share</div>
+          <div onClick={() => { if (!busy) pay("card", share, { note: "even 1/" + evenN }); }} style={{ padding: "16px 0", borderRadius: 12, background: C.paidGreen, color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.card(17, "#fff")} Card share</div>
+        </div>
+        <div style={{ fontSize: 11, color: C.sub, textAlign: "center" }}>Tap once per guest — the balance drops each time.</div>
+      </div>
+    </>);
+  }
+
+  // ── SPLIT BY ITEM (pay for selected items now) ──
+  if (mode === "splitItem") {
+    const chosen = its.filter((it) => pickIds[it.id]);
+    const sub = Math.round(chosen.reduce((s, it) => s + Number(it.line_total || 0), 0) * 100) / 100;
+    const capped = Math.min(sub, remaining);
+    const valid = capped > 0;
+    return Wrap(<>
+      {HeaderBar("Split by item")}
+      <div style={{ padding: "12px 15px 4px", display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+        <span onClick={() => setMode("method")} style={{ cursor: "pointer" }}>{Ico.back()}</span>
+        <span style={{ fontWeight: 700, fontSize: 14 }}>Pick items to pay</span>
+        <span style={{ marginLeft: "auto", textAlign: "right" }}><div style={{ fontSize: 10, color: C.danger, fontWeight: 700 }}>REMAINING</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 16, color: C.danger }}>{money(remaining)}</div></span>
+      </div>
+      <div style={{ flex: 1, overflowY: "auto", padding: "6px 15px" }}>
+        {its.map((it, j) => {
+          const on = !!pickIds[it.id];
+          return (
+            <div key={it.id || j} onClick={() => setPickIds((p) => ({ ...p, [it.id]: !p[it.id] }))} style={{ display: "flex", alignItems: "center", gap: 11, padding: "11px 0", borderBottom: "1px solid rgba(60,70,45,.07)", cursor: "pointer" }}>
+              <span style={{ width: 22, height: 22, borderRadius: 6, border: "2px solid " + (on ? "#5E7A4D" : "#c9ccc0"), background: on ? "#5E7A4D" : "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on && Ico.check(13, "#fff")}</span>
+              <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13.5, fontWeight: 600 }}>{(it.qty || 1) + "× " + it.name_snapshot}</div>{modLine(it) && <div style={{ fontSize: 11, color: C.sub }}>{modLine(it)}</div>}</div>
+              <span style={{ fontSize: 13.5, fontWeight: 700 }}>{money(it.line_total)}</span>
             </div>
-            <span style={{ fontSize: 13.5, fontWeight: 700 }}>{money(it.line_total)}</span>
+          );
+        })}
+      </div>
+      <div style={{ padding: "12px 15px", borderTop: "1px solid " + C.line, background: "#faf9f5", flexShrink: 0 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}><span style={{ fontWeight: 700, fontSize: 13 }}>Selected</span><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{money(capped)}</span></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
+          <div onClick={() => { if (valid && !busy) pay("cash", capped, { tendered: capped, note: "by item" }); }} style={{ padding: "15px 0", borderRadius: 12, background: valid ? "#5E7A4D" : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: valid ? "pointer" : "default" }}>Cash</div>
+          <div onClick={() => { if (valid && !busy) pay("card", capped, { note: "by item" }); }} style={{ padding: "15px 0", borderRadius: 12, background: valid ? C.paidGreen : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: valid ? "pointer" : "default" }}>Card</div>
+        </div>
+      </div>
+    </>);
+  }
+
+  // ── VOID REASON (item already fired) ──
+  if (mode === "voidReason" && voidItem) {
+    const reasons = ["Wrong order", "Customer changed mind", "86'd / out of stock", "Kitchen delay", "Duplicate"];
+    return Wrap(<>
+      {HeaderBar("Void item")}
+      <div style={{ padding: "16px", flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <span onClick={() => { setMode("edit"); setVoidItem(null); }} style={{ cursor: "pointer" }}>{Ico.back()}</span>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>Why void this item?</span>
+        </div>
+        <div style={{ background: "#F7E8E8", borderRadius: 11, padding: "11px 13px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: C.danger }}>{(voidItem.qty || 1) + "× " + voidItem.name_snapshot}</div>
+          <div style={{ fontSize: 11, color: "#8a5a5a", marginTop: 2 }}>A VOID chit prints so the kitchen stops making it.</div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {reasons.map((r) => (
+            <div key={r} onClick={async () => { if (busy) return; await onVoidFired(o, voidItem.id, r); setVoidItem(null); setMode("edit"); setNote("Voided: " + r); }} style={{ padding: "15px 15px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, fontWeight: 700, fontSize: 14, color: C.ink, cursor: "pointer" }}>{r}</div>
+          ))}
+        </div>
+      </div>
+    </>);
+  }
+
+  // ── EDIT (unpaid) ──
+  if (mode === "edit" && !isPaid) {
+    return Wrap(<>
+      {HeaderBar("Edit order")}
+      <div style={{ padding: "10px 15px 6px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}><span onClick={() => setMode("detail")} style={{ cursor: "pointer" }}>{Ico.back()}</span><span style={{ fontWeight: 700, fontSize: 14 }}>Edit — sent to kitchen</span></div>
+        <span onClick={() => onAddItems(o.id)} style={{ background: "#e9edd8", color: "#3a5730", borderRadius: 10, padding: "8px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 5 }}>{Ico.plus(14)} Add items</span>
+      </div>
+      {note && <div style={{ margin: "4px 15px", fontSize: 11.5, color: "#2f6b4f", fontWeight: 600 }}>{note}</div>}
+      <div style={{ flex: 1, overflowY: "auto", padding: "0 15px" }}>
+        {its.map((it, j) => (
+          <div key={it.id || j} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid rgba(60,70,45,.07)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, minWidth: 0 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#f0ede3", borderRadius: 18, padding: "4px 5px", flexShrink: 0 }}>
+                <span onClick={() => onSetQty(o, it.id, (it.qty || 1) - 1)} style={{ width: 23, height: 23, borderRadius: "50%", background: "#fff", border: "1px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: C.danger, fontWeight: 700, cursor: "pointer" }}>−</span>
+                <span style={{ fontWeight: 700, fontSize: 13, minWidth: 12, textAlign: "center" }}>{it.qty || 1}</span>
+                <span onClick={() => onSetQty(o, it.id, (it.qty || 1) + 1)} style={{ width: 23, height: 23, borderRadius: "50%", background: "#fff", border: "1px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, color: "#3a5730", fontWeight: 700, cursor: "pointer" }}>+</span>
+              </div>
+              <div style={{ minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{it.name_snapshot}</div>{modLine(it) && <div style={{ fontSize: 10.5, color: C.sub, marginTop: 1 }}>{modLine(it)}</div>}</div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
+              <span style={{ fontSize: 13, fontWeight: 700 }}>{money(it.line_total)}</span>
+              <span onClick={() => { setVoidItem(it); setMode("voidReason"); }} title="Void (already sent to kitchen)" style={{ cursor: "pointer" }}>{Ico.trash(15)}</span>
+            </div>
           </div>
         ))}
-        {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items.</div>}
+        {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items left.</div>}
       </div>
-      <div style={{ padding: "13px 15px", borderTop: "1px solid #eef0f2", background: "#faf9f5", flexShrink: 0 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, paddingTop: 4, borderTop: "1px dashed " + C.line }}>
-          <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 16 }}>Total</span>
-          <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22 }}>{money(o.total)}</span>
+      <div style={{ padding: "12px 15px", borderTop: "1px solid " + C.line, background: "#faf9f5", display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
+        <div style={{ flex: 1 }}><span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>Total</span><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 19 }}>{money(o.total)}</div></div>
+        <span onClick={() => setMode("method")} style={{ background: "#5E7A4D", color: "#fff", padding: "13px 20px", borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>Take payment</span>
+      </div>
+    </>);
+  }
+
+  // ── DETAIL (default) ──
+  return Wrap(<>
+    {HeaderBar()}
+    <div style={{ flex: 1, overflowY: "auto", padding: "8px 15px" }}>
+      {note && <div style={{ fontSize: 11.5, color: "#2f6b4f", fontWeight: 600, padding: "4px 0 8px" }}>{note}</div>}
+      {its.map((it, j) => (
+        <div key={it.id || j} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", padding: "11px 0", borderBottom: j < its.length - 1 ? "1px solid rgba(60,70,45,.06)" : "none" }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            <span style={{ color: "#8a9078", fontWeight: 700, fontSize: 13, minWidth: 18 }}>{it.qty || 1}×</span>
+            <div><div style={{ fontSize: 13.5, fontWeight: 600 }}>{it.name_snapshot}</div>{modLine(it) && <div style={{ fontSize: 11, color: C.sub, marginTop: 2 }}>{modLine(it)}</div>}</div>
+          </div>
+          <span style={{ fontSize: 13.5, fontWeight: 700 }}>{money(it.line_total)}</span>
         </div>
-        {isPaid ? (
-          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            <div style={{ flex: 1, padding: "12px 13px", borderRadius: 12, background: "#e6ecdd", color: C.paidText, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 7 }}>{o.paid_method === "cash" ? Ico.cash(15) : Ico.card(15)} Paid · {o.paid_method === "cash" ? "Cash" : "Card"}</div>
-            <span onClick={() => onUnpaid(o)} style={{ padding: "12px 15px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, color: C.ink, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Undo</span>
-            <span onClick={() => onReprint(o)} style={{ padding: "11px 13px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 12.5, color: "#2f6b4f" }}>{Ico.printer(16)} Print</span>
-          </div>
-        ) : (
-          <div style={{ display: "flex", gap: 8 }}>
-            <span onClick={() => setMode("payMethod")} style={{ flex: 1, textAlign: "center", background: "#5E7A4D", color: "#fff", padding: "14px 0", borderRadius: 13, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Take payment</span>
-            <span onClick={() => setMode("edit")} style={{ padding: "14px 17px", background: "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>Edit</span>
-            <span onClick={() => onReprint(o)} style={{ padding: "12px 14px", background: "#fff", border: "1.5px solid " + C.line, borderRadius: 13, cursor: "pointer", display: "flex", alignItems: "center" }}>{Ico.printer(17)}</span>
-          </div>
-        )}
-      </div>
+      ))}
+      {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items.</div>}
     </div>
-  );
+    <div style={{ padding: "13px 15px", borderTop: "1px solid #eef0f2", background: "#faf9f5", flexShrink: 0 }}>
+      {paidSoFar > 0 && !isPaid && (
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#C67A2C", fontWeight: 700, marginBottom: 6 }}><span>Part paid</span><span>{money(paidSoFar)} of {money(total)}</span></div>
+      )}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12, paddingTop: 4, borderTop: "1px dashed " + C.line }}>
+        <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 16 }}>{isPaid ? "Total" : "Balance"}</span>
+        <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22 }}>{money(isPaid ? total : remaining)}</span>
+      </div>
+      {isPaid ? (
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ flex: 1, padding: "12px 13px", borderRadius: 12, background: "#e6ecdd", color: C.paidText, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 7 }}>{o.paid_method === "cash" ? Ico.cash(15) : Ico.card(15)} Paid{o.is_split ? " · Split" : o.paid_method === "cash" ? " · Cash" : " · Card"}</div>
+          <span onClick={() => onUnpaid(o)} style={{ padding: "12px 15px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, color: C.ink, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Undo</span>
+          <span onClick={() => onReprint(o)} style={{ padding: "11px 13px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 12.5, color: "#2f6b4f" }}>{Ico.printer(16)} Print</span>
+        </div>
+      ) : (
+        <div style={{ display: "flex", gap: 8 }}>
+          <span onClick={() => setMode("method")} style={{ flex: 1, textAlign: "center", background: "#5E7A4D", color: "#fff", padding: "14px 0", borderRadius: 13, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Take payment</span>
+          <span onClick={() => setMode("edit")} style={{ padding: "14px 17px", background: "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>Edit</span>
+          <span onClick={() => onReprint(o)} style={{ padding: "12px 14px", background: "#fff", border: "1.5px solid " + C.line, borderRadius: 13, cursor: "pointer", display: "flex", alignItems: "center" }}>{Ico.printer(17)}</span>
+        </div>
+      )}
+    </div>
+  </>);
 }

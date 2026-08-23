@@ -555,6 +555,33 @@ Deno.serve(async (req) => {
         }
         return json({ ok: true, printed: results });
       }
+      // Generic message chit — used for VOID notices to the kitchen and any
+      // short staff message. body: { title, lines[], location_id? }
+      case "print-message": {
+        const title = String(body.title || "NOTICE").slice(0, 40);
+        const msgLines: string[] = Array.isArray(body.lines) ? body.lines.map((l: unknown) => String(l).slice(0, 46)) : [];
+        const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+        const r = new Receipt();
+        r.align(1).size(1, 1).bold(true).line(title).bold(false).size(0, 0).feed(1);
+        r.align(0);
+        for (const l of msgLines) r.line(l);
+        r.feed(1).align(1).line(when).feed(2).cut();
+        const hex = r.toHex();
+        // Target kitchen printers (optionally scoped to a location's printers).
+        let q = supabase.from("printers").select("sn, station, location_id");
+        const { data: printers } = await q;
+        let targets = (printers || []).filter((p: any) => (p.station || "kitchen") === "kitchen");
+        if (body.location_id) {
+          const scoped = targets.filter((p: any) => !p.location_id || p.location_id === body.location_id);
+          if (scoped.length) targets = scoped;
+        }
+        const results = [];
+        for (const pr of (targets.length ? targets : (printers || []))) {
+          const res = await sunmi.pushContent(String(pr.sn), "msg" + Date.now() + String(pr.sn).slice(-4), hex);
+          results.push({ sn: pr.sn, ok: ok(res) });
+        }
+        return json({ ok: true, printed: results });
+      }
       default:
         return json({ error: "unknown action" }, 400);
     }
