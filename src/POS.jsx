@@ -123,6 +123,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [selPayNow, setSelPayNow] = useState(false);  // opened via "Pay now" → jump to payment
   const [showTablePicker, setShowTablePicker] = useState(false); // table picker sheet
   const [orderKind, setOrderKind] = useState("takeaway"); // takeaway | dinein | phone | web
+  const [orderNote, setOrderNote] = useState(""); // order-level instructions
   const [payNowOrder, setPayNowOrder] = useState(null); // locally-built order for instant panel
   const [now, setNow] = useState(Date.now());
   const [posPin, setPosPin] = useState(""); // PIN captured once for order actions
@@ -140,7 +141,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   async function loadOrders() {
     setOrdersBusy(true);
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,total,paid_method,paid_amount,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,total,paid_method,paid_amount,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
         + (loc ? "&location_id=eq." + loc : "")
         + "&closed_at=is.null&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
@@ -311,7 +312,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const modUnit = modItem ? modItem.price + (modItem.modifiers || []).flatMap((g) => (g.options || []).filter((o) => (modSel[g.id] || []).includes(o.id))).reduce((s, o) => s + Number(o.price_delta || 0), 0) : 0;
   const setQty = (key, d) => setTicket((p) => p.flatMap((l) => l.key === key ? (l.qty + d <= 0 ? [] : [{ ...l, qty: l.qty + d }]) : [l]));
   const removeLine = (key) => setTicket((p) => p.filter((l) => l.key !== key));
-  const clearAll = () => { setTicket([]); setTable(null); setAppendTo(null); setOrderKind("takeaway"); setPlaced(null); setMsg(""); setPayMethod(null); setPayPin(""); };
+  const clearAll = () => { setTicket([]); setTable(null); setAppendTo(null); setOrderKind("takeaway"); setOrderNote(""); setPlaced(null); setMsg(""); setPayMethod(null); setPayPin(""); };
 
   async function sendOrder(thenPay = false) {
     if (!ticket.length) return;
@@ -322,7 +323,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       const payload = {
         qr_token: storeToken || null, location_id: loc || null,
         table_id: table ? table.id : null, order_type: kindType,
-        pickup_name: null, tablet_no: kindSource,
+        pickup_name: null, tablet_no: kindSource, customer_note: orderNote.trim() || null,
         items: ticket.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: l.mods.map((m) => m.option_id), note: l.note || null })),
       };
       if (appendTo) payload.append_to_order_id = appendTo;
@@ -561,6 +562,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
           <div style={{ borderTop: "1px solid " + P.line, padding: "15px 18px", background: "#faf9f5" }}>
             {msg && <div style={{ fontSize: 15, textAlign: "center", marginBottom: 10, color: (msg.includes("fail") || msg.includes("Wrong")) ? "#c94a4a" : "#16a34a" }}>{msg}</div>}
+            {ticket.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <input type="text" value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder="📝 Order note (e.g. allergy, ring on arrival)…"
+                  style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1.5px solid " + (orderNote ? "#c2703a" : "#e2e4e8"), borderRadius: 11, padding: "12px 14px", fontSize: 14, color: "#5b5540", fontFamily: "inherit", outline: "none" }} />
+              </div>
+            )}
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 14 }}>
               <div>
                 <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: 15, fontWeight: 700 }}>Total</div>

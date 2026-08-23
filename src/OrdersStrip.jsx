@@ -423,6 +423,12 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     {HeaderBar()}
     <div style={{ flex: 1, overflowY: "auto", padding: "8px 15px" }}>
       {note && <div style={{ fontSize: 11.5, color: "#2f6b4f", fontWeight: 600, padding: "4px 0 8px" }}>{note}</div>}
+      {o.customer_note && (
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-start", background: /allerg|nut|dairy|gluten/i.test(o.customer_note) ? "#fbecea" : "#fffbf4", border: "1px solid " + (/allerg|nut|dairy|gluten/i.test(o.customer_note) ? "#e6b8b0" : "#f0e2cc"), borderRadius: 11, padding: "10px 12px", marginBottom: 10 }}>
+          <span style={{ fontSize: 14 }}>{/allerg|nut|dairy|gluten/i.test(o.customer_note) ? "⚠" : "📝"}</span>
+          <div style={{ fontSize: 12.5, fontWeight: 600, color: /allerg|nut|dairy|gluten/i.test(o.customer_note) ? "#c0392b" : "#9a6a2c", lineHeight: 1.35 }}>{o.customer_note}</div>
+        </div>
+      )}
       {its.map((it, j) => (
         <CartLine key={it.id || j} last={j === its.length - 1}
           line={{ name: it.name_snapshot, qty: it.qty || 1, lineTotal: Number(it.line_total || 0), image_url: (it.menu_items && it.menu_items.image_url) || it.image_url, mods: modArray(it), note: it.note }}
