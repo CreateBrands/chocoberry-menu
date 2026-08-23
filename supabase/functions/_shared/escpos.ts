@@ -126,6 +126,7 @@ export interface ReceiptItem {
   name: string;
   price?: number; // line total in GBP (e.g. 7.5)
   modifiers?: string[]; // e.g. ["No cream", "Extra strawberries"]
+  note?: string; // per-item kitchen note (e.g. "Extra hot, no cream")
   added?: boolean; // true if this line was added after the original order
 }
 
@@ -196,6 +197,11 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
     }
     for (const m of it.modifiers ?? []) {
       for (const l of wrap("+ " + m, LINE_WIDTH - 2)) r.line("  " + l);
+    }
+    if (it.note) {
+      r.bold(true);
+      for (const l of wrap("** " + it.note + " **", LINE_WIDTH - 2)) r.line("  " + l);
+      r.bold(false);
     }
   };
 

@@ -88,6 +88,7 @@ function receiptTree(o: ReceiptOrder): Node {
               { fontWeight: 700, fontSize: 27, maxWidth: "430px" },
               { fontWeight: 700, fontSize: 27 }),
             ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
+          ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
             el("div", { height: 6 }),
           ]),
           el("div", { flexDirection: "column", alignItems: "center", width: "100%", background: "#000", color: "#fff", padding: "6px 0", marginTop: 6, marginBottom: 6 },
@@ -98,6 +99,7 @@ function receiptTree(o: ReceiptOrder): Node {
               { fontWeight: 700, fontSize: 30, maxWidth: "430px" },
               { fontWeight: 700, fontSize: 30 }),
             ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
+          ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
             el("div", { height: 6 }),
           ]),
         ]
@@ -107,6 +109,7 @@ function receiptTree(o: ReceiptOrder): Node {
             { fontWeight: 700, fontSize: 27, maxWidth: "430px" },
             { fontWeight: 700, fontSize: 27 }),
           ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
+          ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
           el("div", { height: 6 }),
         ])),
     rule(),

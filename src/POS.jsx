@@ -91,6 +91,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   }, [ticket, table]); // eslint-disable-line
   const [modItem, setModItem] = useState(null);
   const [modSel, setModSel] = useState({});
+  const [modNote, setModNote] = useState("");     // per-item kitchen note in the sheet
+  const [editKey, setEditKey] = useState(null);   // cart line being edited (null = adding new)
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState("");
   const [placed, setPlaced] = useState(null);
@@ -242,22 +244,41 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       for (const g of it.modifiers) {
         if (g.required && (g.max_select || 1) === 1 && g.options && g.options.length) init[g.id] = [g.options[0].id];
       }
-      setModItem(it); setModSel(init);
-    } else pushLine(it, it.price, []);
+      setEditKey(null); setModNote(""); setModItem(it); setModSel(init);
+    } else pushLine(it, it.price, [], "");
   }
-  function pushLine(it, unit, mods) {
+  // Open the customise sheet for an EXISTING cart line, pre-filled with its
+  // current choices + note, so staff can change a modifier without re-adding.
+  function editLine(l) {
+    const sel = {};
+    for (const g of (l.item.modifiers || [])) {
+      const ids = (l.mods || []).filter((m) => m.group === g.name).map((m) => m.option_id);
+      if (ids.length) sel[g.id] = ids;
+    }
+    setEditKey(l.key); setModNote(l.note || ""); setModItem(l.item); setModSel(sel);
+  }
+  function pushLine(it, unit, mods, note) {
     setTicket((prev) => {
-      const sig = it.id + "|" + mods.map((x) => x.option_id).sort().join(",");
+      const sig = it.id + "|" + mods.map((x) => x.option_id).sort().join(",") + "|" + (note || "");
       const i = prev.findIndex((l) => l.sig === sig);
       if (i >= 0) { const c = prev.slice(); c[i] = { ...c[i], qty: c[i].qty + 1 }; return c; }
-      return [...prev, { key: Math.random().toString(36).slice(2), sig, item: it, qty: 1, unit, mods }];
+      return [...prev, { key: Math.random().toString(36).slice(2), sig, item: it, qty: 1, unit, mods, note: note || "" }];
     });
   }
   function confirmMods() {
     const groups = modItem.modifiers || [];
     const chosen = groups.flatMap((g) => (g.options || []).filter((o) => (modSel[g.id] || []).includes(o.id)).map((o) => ({ group: g.name, name: o.name, price_delta: Number(o.price_delta || 0), option_id: o.id })));
-    pushLine(modItem, modItem.price + chosen.reduce((s, x) => s + x.price_delta, 0), chosen);
-    setModItem(null); setModSel({});
+    const unit = modItem.price + chosen.reduce((s, x) => s + x.price_delta, 0);
+    const note = modNote.trim();
+    if (editKey) {
+      // Update the existing line in place (keep its qty).
+      setTicket((prev) => prev.map((l) => l.key === editKey
+        ? { ...l, unit, mods: chosen, note, sig: modItem.id + "|" + chosen.map((x) => x.option_id).sort().join(",") + "|" + note }
+        : l));
+    } else {
+      pushLine(modItem, unit, chosen, note);
+    }
+    setModItem(null); setModSel({}); setModNote(""); setEditKey(null);
   }
   function toggleOpt(g, optId) {
     setModSel((prev) => {
@@ -286,7 +307,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         qr_token: storeToken || null, location_id: loc || null,
         table_id: table ? table.id : null, order_type: table ? "dine_in" : "takeaway",
         pickup_name: null, tablet_no: "POS",
-        items: ticket.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: l.mods.map((m) => m.option_id) })),
+        items: ticket.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: l.mods.map((m) => m.option_id), note: l.note || null })),
       };
       if (appendTo) payload.append_to_order_id = appendTo;
       const r = await fetch(SUPABASE_URL + "/functions/v1/place-order", { method: "POST", headers: H, body: JSON.stringify(payload) });
@@ -451,36 +472,52 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             />
           ) : (
           <>
+          {appendTo && (
+            <div style={{ background: "#fff7ed", borderBottom: "1px solid #fed7aa", padding: "10px 18px", display: "flex", alignItems: "center", gap: 9 }}>
+              <span style={{ width: 26, height: 26, borderRadius: "50%", background: "#f59e0b", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, flexShrink: 0 }}>+</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: "#9a3412" }}>Adding to an existing order</div>
+                <div style={{ fontSize: 11, color: "#c2703a" }}>New items append to the same bill</div>
+              </div>
+              <span onClick={clearAll} style={{ fontSize: 12, fontWeight: 700, color: "#9a3412", cursor: "pointer", padding: "4px 8px", background: "#fef0e0", borderRadius: 8 }}>Cancel</span>
+            </div>
+          )}
           <div style={{ padding: "16px 18px 14px", borderBottom: "1px solid " + P.line2 }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 13 }}>
-              <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-.3px" }}>Current order</span>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 17, letterSpacing: "-.3px" }}>{appendTo ? "Extra items" : "Current order"}</span>
               {itemCount > 0 && <span style={{ fontSize: 12.5, color: "#3a5730", background: "#eef4e8", padding: "4px 11px", borderRadius: 20, fontWeight: 700 }}>{itemCount} item{itemCount === 1 ? "" : "s"}</span>}
             </div>
-            <div style={{ display: "flex", gap: 7 }}>
-              <select value={table ? table.id : ""} onChange={(e) => { const t = tablesList.find((x) => x.id === e.target.value); setTable(t ? { id: t.id, label: t.label } : null); }}
-                style={{ flex: 1, textAlign: "center", padding: "12px 6px", borderRadius: 12, border: "1.5px solid " + (table ? "transparent" : "#d4e3c6"), fontSize: 14.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: table ? "#5E7A4D" : "#eef4e8", color: table ? "#fff" : "#3a5730", appearance: "none", WebkitAppearance: "none" }}>
-                <option value="">Table…</option>
-                {tablesList.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-              </select>
-              <div onClick={() => setTable(null)} style={{ flex: 1, textAlign: "center", padding: "12px 0", borderRadius: 12, background: !table ? "#5E7A4D" : "#eef4e8", color: !table ? "#fff" : "#3a5730", border: "1.5px solid " + (!table ? "transparent" : "#d4e3c6"), fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}>Takeaway</div>
-            </div>
+            {!appendTo && (
+              <div style={{ display: "flex", gap: 7 }}>
+                <select value={table ? table.id : ""} onChange={(e) => { const t = tablesList.find((x) => x.id === e.target.value); setTable(t ? { id: t.id, label: t.label } : null); }}
+                  style={{ flex: 1, textAlign: "center", padding: "12px 6px", borderRadius: 12, border: "1.5px solid " + (table ? "transparent" : "#d4e3c6"), fontSize: 14.5, fontWeight: 700, cursor: "pointer", fontFamily: "inherit", background: table ? "#5E7A4D" : "#eef4e8", color: table ? "#fff" : "#3a5730", appearance: "none", WebkitAppearance: "none" }}>
+                  <option value="">Table…</option>
+                  {tablesList.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                </select>
+                <div onClick={() => setTable(null)} style={{ flex: 1, textAlign: "center", padding: "12px 0", borderRadius: 12, background: !table ? "#5E7A4D" : "#eef4e8", color: !table ? "#fff" : "#3a5730", border: "1.5px solid " + (!table ? "transparent" : "#d4e3c6"), fontSize: 14.5, fontWeight: 700, cursor: "pointer" }}>Takeaway</div>
+              </div>
+            )}
           </div>
 
           <div style={{ flex: 1, padding: "6px 18px", overflowY: "auto" }}>
             {ticket.length === 0 && (
-              <div style={{ color: P.muted2, textAlign: "center", marginTop: 60, fontSize: 15 }}>
-                <div style={{ fontSize: 40, marginBottom: 10, opacity: .5 }}>🧾</div>
-                Tap items to build the order
+              <div style={{ color: P.muted2, textAlign: "center", marginTop: 64, padding: "0 20px" }}>
+                <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#f5f6f8", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, margin: "0 auto 14px" }}>🧾</div>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#6b7280" }}>No items yet</div>
+                <div style={{ fontSize: 13, color: "#9aa1ac", marginTop: 3 }}>Tap menu items to build the order</div>
               </div>
             )}
-            {ticket.map((l) => (
+            {ticket.map((l) => {
+              const isAllergy = /allerg|nut|dairy|gluten/i.test(l.note || "");
+              return (
               <div key={l.key} style={{ padding: "13px 0", borderBottom: "1px solid #f4f5f7" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                <div onClick={() => (l.item.modifiers && l.item.modifiers.length) && editLine(l)} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, cursor: (l.item.modifiers && l.item.modifiers.length) ? "pointer" : "default" }}>
                   <div style={{ minWidth: 0, display: "flex", gap: 8 }}>
                     {l.qty > 1 && <span style={{ flexShrink: 0, background: "#eef4e8", color: "#3a5730", fontWeight: 700, fontSize: 13, borderRadius: 7, padding: "1px 7px", height: "fit-content", marginTop: 1 }}>{l.qty}×</span>}
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: 15.5, lineHeight: 1.25 }}>{l.item.name}</div>
                       {l.mods.length > 0 && <div style={{ fontSize: 12.5, color: "#8a5a2c", marginTop: 3, lineHeight: 1.35 }}>{l.mods.map((m) => m.name).join(" · ")}</div>}
+                      {l.note && <div style={{ fontSize: 11.5, marginTop: 3, lineHeight: 1.3, fontStyle: "italic", color: isAllergy ? "#c0392b" : "#c2703a", fontWeight: isAllergy ? 700 : 400 }}>{isAllergy ? "⚠ " : "📝 "}{l.note}</div>}
                     </div>
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
@@ -488,23 +525,30 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     {l.qty > 1 && <div style={{ fontSize: 11, color: "#9aa1ac", marginTop: 1 }}>{gbp(l.unit)} ea</div>}
                   </div>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", marginTop: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", marginTop: 10, gap: 8 }}>
                   <div style={{ display: "inline-flex", alignItems: "center", background: "#f5f6f8", borderRadius: 11, padding: 3 }}>
                     <span onClick={() => setQty(l.key, -1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>−</span>
                     <span style={{ fontWeight: 700, minWidth: 36, textAlign: "center", fontSize: 16 }}>{l.qty}</span>
                     <span onClick={() => setQty(l.key, 1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>+</span>
                   </div>
+                  {(l.item.modifiers && l.item.modifiers.length) ? (
+                    <span onClick={() => editLine(l)} style={{ fontSize: 12, color: "#3a5730", fontWeight: 700, cursor: "pointer", background: "#eef4e8", padding: "7px 12px", borderRadius: 9 }}>{l.note || l.mods.length ? "✎ Edit" : "✎ Customise"}</span>
+                  ) : null}
                   <span onClick={() => removeLine(l.key)} style={{ marginLeft: "auto", color: "#c94a4a", cursor: "pointer", fontSize: 13, fontWeight: 600, padding: "8px 4px" }}>Remove</span>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div style={{ borderTop: "1px solid " + P.line, padding: "15px 18px", background: "#faf9f5" }}>
             {msg && <div style={{ fontSize: 13, textAlign: "center", marginBottom: 10, color: (msg.includes("fail") || msg.includes("Wrong")) ? "#c94a4a" : "#16a34a" }}>{msg}</div>}
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 14 }}>
-              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 16, fontWeight: 700 }}>Total</span>
-              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 30, fontWeight: 700, letterSpacing: "-.6px" }}>{gbp(subtotal)}</span>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginBottom: 14 }}>
+              <div>
+                <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: 15, fontWeight: 700 }}>Total</div>
+                {itemCount > 0 && <div style={{ fontSize: 11.5, color: "#9aa1ac", marginTop: 1 }}>{itemCount} item{itemCount === 1 ? "" : "s"}{table ? " · " + table.label : (appendTo ? "" : " · Takeaway")}</div>}
+              </div>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 30, fontWeight: 700, letterSpacing: "-.6px", lineHeight: 1 }}>{gbp(subtotal)}</span>
             </div>
 
             {!appendTo ? (
@@ -529,10 +573,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
       {/* MODIFIER POPUP */}
       {modItem && (
-        <div onClick={() => setModItem(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.4)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.4)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, padding: 22, width: 420, maxWidth: "100%", maxHeight: "82vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(18,21,28,.3)" }}>
             <div style={{ fontWeight: 500, fontSize: 22 }}>{modItem.name}</div>
-            <div style={{ color: P.muted, fontSize: 14, marginBottom: 18 }}>{gbp(modItem.price)} · customise</div>
+            <div style={{ color: P.muted, fontSize: 14, marginBottom: 18 }}>{gbp(modItem.price)} · {editKey ? "editing" : "customise"}</div>
             {(modItem.modifiers || []).map((g) => {
               const chosen = modSel[g.id] || [];
               const single = (g.max_select || 1) === 1;
@@ -562,9 +606,34 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 </div>
               );
             })}
+            <div style={{ background: "#fffbf4", border: "1px solid #f0e2cc", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
+              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>📝 Kitchen note <span style={{ fontSize: 12, color: "#b0a48a", fontWeight: 400 }}>(optional)</span></div>
+              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+                {(() => {
+                  const name = (modItem.name || "").toLowerCase();
+                  const isDrink = /shake|coffee|latte|tea|juice|smoothie|drink|frapp|mocha|chai|hot choc/.test(name);
+                  const chips = isDrink ? ["No ice", "Extra hot", "Less sweet", "Oat milk"] : ["No onion", "Well done", "On the side", "Extra sauce"];
+                  chips.push("⚠ Allergy");
+                  return chips.map((c) => {
+                    const active = (modNote || "").split(",").map((s) => s.trim()).includes(c.replace("⚠ ", ""));
+                    const isAl = c.includes("Allergy");
+                    return (
+                      <span key={c} onClick={() => {
+                        const val = c.replace("⚠ ", "");
+                        const parts = (modNote || "").split(",").map((s) => s.trim()).filter(Boolean);
+                        if (parts.includes(val)) setModNote(parts.filter((p) => p !== val).join(", "));
+                        else setModNote([...parts, val].join(", "));
+                      }} style={{ fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 20, border: "1px solid " + (isAl ? "#e6b8b0" : "#ead9bd"), background: active ? (isAl ? "#f7e0dc" : "#f6ead2") : "#fff", color: isAl ? "#c0392b" : "#9a6a2c" }}>{c}{active ? " ✓" : ""}</span>
+                    );
+                  });
+                })()}
+              </div>
+              <input type="text" value={modNote} onChange={(e) => setModNote(e.target.value)} placeholder="Add a note for the kitchen…"
+                style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1px solid #ead9bd", borderRadius: 10, padding: "11px 13px", fontSize: 14, color: "#5b5540", fontFamily: "inherit", outline: "none" }} />
+            </div>
             <div style={{ display: "flex", gap: 9, marginTop: 10 }}>
-              <div onClick={() => setModItem(null)} style={{ padding: "15px 20px", borderRadius: 13, background: P.chip, color: "#0f766e", fontWeight: 500, cursor: "pointer", fontSize: 16 }}>Cancel</div>
-              <div onClick={() => !modMissing && confirmMods()} style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 13, background: modMissing ? "#d7dade" : grad, color: "#fff", fontWeight: 500, fontSize: 17, cursor: modMissing ? "default" : "pointer", boxShadow: modMissing ? "none" : "0 6px 16px rgba(13,148,136,.3)" }}>{modMissing ? "Choose required options" : "Add · " + gbp(modUnit)}</div>
+              <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ padding: "15px 20px", borderRadius: 13, background: P.chip, color: "#0f766e", fontWeight: 500, cursor: "pointer", fontSize: 16 }}>Cancel</div>
+              <div onClick={() => !modMissing && confirmMods()} style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 13, background: modMissing ? "#d7dade" : grad, color: "#fff", fontWeight: 500, fontSize: 17, cursor: modMissing ? "default" : "pointer", boxShadow: modMissing ? "none" : "0 6px 16px rgba(13,148,136,.3)" }}>{modMissing ? "Choose required options" : (editKey ? "Update · " : "Add · ") + gbp(modUnit)}</div>
             </div>
           </div>
         </div>
