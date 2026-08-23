@@ -84,8 +84,8 @@ function modArray(it) {
 }
 
 function Tile({ o, size = 38, paid = false }) {
-  const tn = tableNum(o), dine = isDineIn(o);
-  if (!dine || !tn) {
+  const tn = tableNum(o);
+  if (!tn) {
     return (<div style={{ width: size, height: size, borderRadius: 10, background: paid ? "#e3ead9" : "#e9edd8", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{Ico.bag(size * 0.5, paid ? C.paidGreen : "#5E7A4D")}</div>);
   }
   return (
