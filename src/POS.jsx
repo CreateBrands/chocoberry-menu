@@ -50,6 +50,7 @@ const posIco = {
   table: (s = 20, c = "#fff") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 10h18M4 10l1 4M20 10l-1 4M5 6h14a1 1 0 0 1 1 1v3H4V7a1 1 0 0 1 1-1ZM7 14v4M17 14v4" /></svg>),
   tablet: (s = 20, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2" /><line x1="10" y1="18" x2="14" y2="18" /></svg>),
   phone: (s = 20, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3h3l2 5-2 1a12 12 0 0 0 5 5l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2Z" /></svg>),
+  web: (s = 20, c = "#5E7A4D") => (<svg width={s} height={s} viewBox="0 0 24 24" fill="none" stroke={c} strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="9" /><line x1="3" y1="12" x2="21" y2="12" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" /></svg>),
 };
 
 // ===========================================================================
@@ -121,6 +122,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [selOrderId, setSelOrderId] = useState(null); // order tapped → shows in right panel
   const [selPayNow, setSelPayNow] = useState(false);  // opened via "Pay now" → jump to payment
   const [showTablePicker, setShowTablePicker] = useState(false); // table picker sheet
+  const [orderKind, setOrderKind] = useState("takeaway"); // takeaway | dinein | phone | web
   const [payNowOrder, setPayNowOrder] = useState(null); // locally-built order for instant panel
   const [now, setNow] = useState(Date.now());
   const [posPin, setPosPin] = useState(""); // PIN captured once for order actions
@@ -309,16 +311,18 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const modUnit = modItem ? modItem.price + (modItem.modifiers || []).flatMap((g) => (g.options || []).filter((o) => (modSel[g.id] || []).includes(o.id))).reduce((s, o) => s + Number(o.price_delta || 0), 0) : 0;
   const setQty = (key, d) => setTicket((p) => p.flatMap((l) => l.key === key ? (l.qty + d <= 0 ? [] : [{ ...l, qty: l.qty + d }]) : [l]));
   const removeLine = (key) => setTicket((p) => p.filter((l) => l.key !== key));
-  const clearAll = () => { setTicket([]); setTable(null); setAppendTo(null); setPlaced(null); setMsg(""); setPayMethod(null); setPayPin(""); };
+  const clearAll = () => { setTicket([]); setTable(null); setAppendTo(null); setOrderKind("takeaway"); setPlaced(null); setMsg(""); setPayMethod(null); setPayPin(""); };
 
   async function sendOrder(thenPay = false) {
     if (!ticket.length) return;
     setSending(true); setMsg("");
     try {
+      const kindType = orderKind === "dinein" ? "dine_in" : "takeaway";
+      const kindSource = orderKind === "phone" ? "phone" : orderKind === "web" ? "web" : "POS";
       const payload = {
         qr_token: storeToken || null, location_id: loc || null,
-        table_id: table ? table.id : null, order_type: table ? "dine_in" : "takeaway",
-        pickup_name: null, tablet_no: "POS",
+        table_id: table ? table.id : null, order_type: kindType,
+        pickup_name: null, tablet_no: kindSource,
         items: ticket.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: l.mods.map((m) => m.option_id), note: l.note || null })),
       };
       if (appendTo) payload.append_to_order_id = appendTo;
@@ -336,8 +340,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const localOrder = {
           id: resp.order_id, order_no: resp.order_no,
           table_id: table ? table.id : null,
-          order_type: table ? "dine_in" : "takeaway",
-          pickup_name: null, tablet_no: "POS",
+          order_type: kindType,
+          pickup_name: null, tablet_no: kindSource,
           total: subtotal, amount_paid: 0, paid_method: null, status: "placed",
           created_at: new Date().toISOString(),
           menu_tables: table ? { label: table.label } : null,
@@ -504,18 +508,31 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               </div>
             </div>
             {!appendTo && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                {!table ? (
-                  <>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#5E7A4D", color: "#fff", padding: "13px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16 }}>{posIco.takeaway(20, "#fff")} <span>Takeaway</span></div>
-                    <div onClick={() => setShowTablePicker(true)} style={{ width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#eef4e8", border: "1.5px solid #d4e3c6", borderRadius: 12, cursor: "pointer" }}>{posIco.table(22, "#5E7A4D")}</div>
-                  </>
-                ) : (
-                  <>
-                    <div onClick={() => setShowTablePicker(true)} style={{ flex: 1, display: "flex", alignItems: "center", gap: 9, background: "#5E7A4D", color: "#fff", padding: "13px 18px", borderRadius: 12, fontWeight: 700, fontSize: 16, cursor: "pointer" }}>{posIco.table(20, "#fff")} <span>{table.label}</span><span style={{ marginLeft: "auto", opacity: .7, fontSize: 13 }}>change ›</span></div>
-                    <div onClick={() => setTable(null)} style={{ width: 50, height: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#eef4e8", border: "1.5px solid #d4e3c6", borderRadius: 12, cursor: "pointer" }}>{posIco.takeaway(22, "#5E7A4D")}</div>
-                  </>
-                )}
+              <div style={{ display: "flex", gap: 7, alignItems: "center" }}>
+                {(() => {
+                  const kinds = [
+                    { key: "dinein", label: table ? table.label : "Dine-in", icon: posIco.table },
+                    { key: "takeaway", label: "Takeaway", icon: posIco.takeaway },
+                    { key: "phone", label: "Phone", icon: posIco.phone },
+                    { key: "web", label: "Web", icon: posIco.web },
+                  ];
+                  const pick = (k) => {
+                    setOrderKind(k);
+                    if (k === "dinein") { setShowTablePicker(true); }
+                    else { setTable(null); }
+                  };
+                  return kinds.map((kd) => {
+                    const on = orderKind === kd.key;
+                    return (
+                      <div key={kd.key} onClick={() => pick(kd.key)} title={kd.label}
+                        style={{ display: "flex", alignItems: "center", gap: 7, flex: on ? 1 : "0 0 auto", justifyContent: "center", background: on ? "#5E7A4D" : "#eef4e8", color: on ? "#fff" : "#3a5730", border: "1.5px solid " + (on ? "transparent" : "#d4e3c6"), padding: on ? "12px 16px" : "12px", height: 48, boxSizing: "border-box", borderRadius: 12, fontWeight: 700, fontSize: 15, cursor: "pointer", whiteSpace: "nowrap" }}>
+                        {kd.icon(20, on ? "#fff" : "#5E7A4D")}
+                        {on && <span>{kd.label}</span>}
+                        {on && kd.key === "dinein" && <span style={{ marginLeft: "auto", opacity: .7, fontSize: 13 }}>change ›</span>}
+                      </div>
+                    );
+                  });
+                })()}
               </div>
             )}
           </div>
@@ -571,17 +588,17 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
       {/* TABLE PICKER SHEET */}
       {showTablePicker && (
-        <div onClick={() => setShowTablePicker(false)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.4)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+        <div onClick={() => { if (!table) setOrderKind("takeaway"); setShowTablePicker(false); }} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.4)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, width: 460, maxWidth: "100%", maxHeight: "82vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(18,21,28,.3)" }}>
             <div style={{ padding: "18px 20px 14px", borderBottom: "1px solid " + P.line2, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 19, fontWeight: 700, display: "flex", alignItems: "center", gap: 8 }}>{posIco.table(22, "#5E7A4D")} Choose a table</span>
-              <span onClick={() => setShowTablePicker(false)} style={{ width: 34, height: 34, borderRadius: "50%", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, color: "#6b7280", cursor: "pointer" }}>✕</span>
+              <span onClick={() => { if (!table) setOrderKind("takeaway"); setShowTablePicker(false); }} style={{ width: 34, height: 34, borderRadius: "50%", background: "#f3f4f6", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 17, color: "#6b7280", cursor: "pointer" }}>✕</span>
             </div>
             <div style={{ padding: "16px 20px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 10 }}>
               {tablesList.map((t) => {
                 const on = table && table.id === t.id;
                 return (
-                  <div key={t.id} onClick={() => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); }} style={{ aspectRatio: "1", borderRadius: 13, background: on ? "#5E7A4D" : "#f4f5f7", color: on ? "#fff" : "#2A2E20", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontWeight: 700, cursor: "pointer", boxShadow: on ? "0 4px 12px -3px rgba(94,122,77,.5)" : "none" }}>
+                  <div key={t.id} onClick={() => { setTable({ id: t.id, label: t.label }); setOrderKind("dinein"); setShowTablePicker(false); }} style={{ aspectRatio: "1", borderRadius: 13, background: on ? "#5E7A4D" : "#f4f5f7", color: on ? "#fff" : "#2A2E20", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", fontWeight: 700, cursor: "pointer", boxShadow: on ? "0 4px 12px -3px rgba(94,122,77,.5)" : "none" }}>
                     <span style={{ fontSize: 22 }}>{t.label}</span>
                     {on && <span style={{ fontSize: 10, opacity: .85, marginTop: 1 }}>selected</span>}
                   </div>
@@ -590,7 +607,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               {tablesList.length === 0 && <div style={{ gridColumn: "1 / -1", textAlign: "center", color: P.muted, padding: 24, fontSize: 15 }}>No tables configured</div>}
             </div>
             <div style={{ padding: "6px 20px 20px" }}>
-              <div onClick={() => { setTable(null); setShowTablePicker(false); }} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "14px 0", borderRadius: 12, background: "#fff", border: "1.5px solid #d4d8dd", fontWeight: 700, fontSize: 15, color: "#6b7280", cursor: "pointer" }}>{posIco.takeaway(18, "#6b7280")} Switch to Takeaway</div>
+              <div onClick={() => { setTable(null); setOrderKind("takeaway"); setShowTablePicker(false); }} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 7, padding: "14px 0", borderRadius: 12, background: "#fff", border: "1.5px solid #d4d8dd", fontWeight: 700, fontSize: 15, color: "#6b7280", cursor: "pointer" }}>{posIco.takeaway(18, "#6b7280")} Switch to Takeaway</div>
             </div>
           </div>
         </div>
