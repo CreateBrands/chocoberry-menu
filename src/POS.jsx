@@ -358,7 +358,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
         {/* COLUMN 1 — master categories (top) + orders list (below) */}
-        <div style={{ width: 276, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column", position: "relative" }}>
+        <div style={{ width: "clamp(230px, 18vw, 300px)", flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column", position: "relative" }}>
           {!posPin && (
             <div style={{ position: "absolute", inset: 0, zIndex: 30, background: "rgba(244,241,232,.97)", display: "flex", alignItems: "center", justifyContent: "center" }}>
               <div style={{ background: "#fff", borderRadius: 16, padding: "22px 20px", boxShadow: "0 12px 40px rgba(60,70,45,.18)", textAlign: "center", width: 200 }}>
@@ -389,7 +389,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         </div>
 
         {/* COLUMN 2 — subcategories only, full height */}
-        <div style={{ width: 237, flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
+        <div style={{ width: "clamp(195px, 15vw, 255px)", flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
           {master && <div style={{ padding: "14px 15px 9px", fontSize: 13, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name}</div>}
           <div style={{ flex: 1, overflowY: "auto", padding: "0 13px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
             {subs.map((s, i) => {
@@ -417,7 +417,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
             <span style={{ fontSize: 14, color: P.muted2 }}>{shown.length} items</span>
           </div>
-          <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gridAutoRows: "min-content", gap: 14, overflowY: "auto" }}>
+          <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gridAutoRows: "min-content", gap: 14, overflowY: "auto" }}>
             {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
             {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
             {shown.map((it) => {
@@ -445,7 +445,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         </div>
 
         {/* RIGHT PANEL — order detail when an order is tapped, else the cart */}
-        <div style={{ width: 492, flexShrink: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
+        <div style={{ width: "clamp(380px, 30vw, 560px)", flexShrink: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
           {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
             <OrderDetailPanel
               order={(payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : (orders || []).find((o) => o.id === selOrderId)}
