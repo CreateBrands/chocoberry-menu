@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
+import CartLine from "./CartLine.jsx";
 
 // ── Single-screen POS orders ─────────────────────────────────────────
 // OrdersList       → compact list (under master categories in col 1)
@@ -72,6 +73,14 @@ function modLine(it) {
   if (Array.isArray(m)) return m.join(" · ");
   if (typeof m === "object") return Object.values(m).join(" · ");
   return String(m);
+}
+// Normalize a snapshot's modifiers to a flat array of names (for CartLine).
+function modArray(it) {
+  const m = it.modifiers_snapshot;
+  if (!m) return [];
+  if (Array.isArray(m)) return m.map((x) => String(x));
+  if (typeof m === "object") return Object.values(m).map((x) => String(x));
+  return [String(m)];
 }
 
 function Tile({ o, size = 38, paid = false }) {
@@ -411,26 +420,11 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     {HeaderBar()}
     <div style={{ flex: 1, overflowY: "auto", padding: "8px 15px" }}>
       {note && <div style={{ fontSize: 11.5, color: "#2f6b4f", fontWeight: 600, padding: "4px 0 8px" }}>{note}</div>}
-      {its.map((it, j) => {
-        const isAllergy = /allerg|nut|dairy|gluten/i.test(it.note || "");
-        const fb = cbFallback(it.name_snapshot || "");
-        return (
-        <div key={it.id || j} style={{ display: "flex", gap: 11, alignItems: "flex-start", padding: "12px 0", borderBottom: j < its.length - 1 ? "1px solid rgba(60,70,45,.06)" : "none" }}>
-          <div style={{ width: 50, height: 50, borderRadius: 11, flexShrink: 0, backgroundImage: it.image_url ? "url(" + it.image_url + ")" : fb.grad, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center" }}>{!it.image_url && <span style={{ fontSize: 24 }}>{fb.icon}</span>}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start" }}>
-              <div style={{ display: "flex", gap: 7, minWidth: 0 }}>
-                {(it.qty || 1) > 1 && <span style={{ flexShrink: 0, background: "#eef4e8", color: "#3a5730", fontWeight: 700, fontSize: 13, borderRadius: 7, padding: "1px 7px", height: "fit-content" }}>{it.qty}×</span>}
-                <div style={{ fontSize: 15, fontWeight: 600, lineHeight: 1.2 }}>{it.name_snapshot}</div>
-              </div>
-              <span style={{ fontSize: 15, fontWeight: 700, flexShrink: 0 }}>{money(it.line_total)}</span>
-            </div>
-            {modLine(it) && <div style={{ fontSize: 13, color: "#8a5a2c", marginTop: 3, lineHeight: 1.3 }}>{modLine(it)}</div>}
-            {it.note && <div style={{ fontSize: 12.5, marginTop: 3, fontStyle: "italic", color: isAllergy ? "#c0392b" : "#c2703a", fontWeight: isAllergy ? 700 : 400 }}>{isAllergy ? "⚠ " : "📝 "}{it.note}</div>}
-          </div>
-        </div>
-        );
-      })}
+      {its.map((it, j) => (
+        <CartLine key={it.id || j} last={j === its.length - 1}
+          line={{ name: it.name_snapshot, qty: it.qty || 1, lineTotal: Number(it.line_total || 0), image_url: it.image_url, mods: modArray(it), note: it.note }}
+        />
+      ))}
       {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items.</div>}
     </div>
     <div style={{ padding: "13px 15px", borderTop: "1px solid #eef0f2", background: "#faf9f5", flexShrink: 0 }}>

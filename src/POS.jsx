@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from "react";
 import { OrdersList, OrderDetailPanel } from "./OrdersStrip.jsx";
+import CartLine from "./CartLine.jsx";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -298,7 +299,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const modUnit = modItem ? modItem.price + (modItem.modifiers || []).flatMap((g) => (g.options || []).filter((o) => (modSel[g.id] || []).includes(o.id))).reduce((s, o) => s + Number(o.price_delta || 0), 0) : 0;
   const setQty = (key, d) => setTicket((p) => p.flatMap((l) => l.key === key ? (l.qty + d <= 0 ? [] : [{ ...l, qty: l.qty + d }]) : [l]));
   const removeLine = (key) => setTicket((p) => p.filter((l) => l.key !== key));
-  const clearAll = () => { setTicket([]); setTable(null); setPlaced(null); setMsg(""); setPayMethod(null); setPayPin(""); };
+  const clearAll = () => { setTicket([]); setTable(null); setAppendTo(null); setPlaced(null); setMsg(""); setPayMethod(null); setPayPin(""); };
 
   async function sendOrder(thenPay = false) {
     if (!ticket.length) return;
@@ -517,38 +518,15 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               </div>
             )}
             {ticket.map((l) => {
-              const isAllergy = /allerg|nut|dairy|gluten/i.test(l.note || "");
-              const fb = fallbackFor(l.item.name, l.item.category || "");
               const hasMods = l.item.modifiers && l.item.modifiers.length;
               return (
-              <div key={l.key} style={{ display: "flex", gap: 12, padding: "13px 0", borderBottom: "1px solid #f4f5f7", alignItems: "flex-start" }}>
-                <div onClick={() => hasMods && editLine(l)} style={{ width: 56, height: 56, borderRadius: 12, flexShrink: 0, backgroundImage: l.item.image_url ? "url(" + l.item.image_url + ")" : fb.grad, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", cursor: hasMods ? "pointer" : "default" }}>
-                  {!l.item.image_url && <span style={{ fontSize: 26 }}>{fb.icon}</span>}
-                </div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div onClick={() => hasMods && editLine(l)} style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "flex-start", cursor: hasMods ? "pointer" : "default" }}>
-                    <div style={{ minWidth: 0, display: "flex", gap: 7 }}>
-                      {l.qty > 1 && <span style={{ flexShrink: 0, background: "#eef4e8", color: "#3a5730", fontWeight: 700, fontSize: 15, borderRadius: 7, padding: "1px 7px", height: "fit-content", marginTop: 1 }}>{l.qty}×</span>}
-                      <div style={{ fontWeight: 600, fontSize: 16, lineHeight: 1.2 }}>{l.item.name}</div>
-                    </div>
-                    <div style={{ textAlign: "right", flexShrink: 0 }}>
-                      <div style={{ fontWeight: 700, fontSize: 16 }}>{gbp(l.unit * l.qty)}</div>
-                      {l.qty > 1 && <div style={{ fontSize: 13, color: "#9aa1ac", marginTop: 1 }}>{gbp(l.unit)} ea</div>}
-                    </div>
-                  </div>
-                  {l.mods.length > 0 && <div style={{ fontSize: 14, color: "#8a5a2c", marginTop: 3, lineHeight: 1.3 }}>{l.mods.map((m) => m.name).join(" · ")}</div>}
-                  {l.note && <div style={{ fontSize: 13.5, marginTop: 3, lineHeight: 1.3, fontStyle: "italic", color: isAllergy ? "#c0392b" : "#c2703a", fontWeight: isAllergy ? 700 : 400 }}>{isAllergy ? "⚠ " : "📝 "}{l.note}</div>}
-                  <div style={{ display: "flex", alignItems: "center", marginTop: 9, gap: 8 }}>
-                    <div style={{ display: "inline-flex", alignItems: "center", background: "#f5f6f8", borderRadius: 11, padding: 3 }}>
-                      <span onClick={() => setQty(l.key, -1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>−</span>
-                      <span style={{ fontWeight: 700, minWidth: 34, textAlign: "center", fontSize: 16 }}>{l.qty}</span>
-                      <span onClick={() => setQty(l.key, 1)} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>+</span>
-                    </div>
-                    {hasMods ? <span onClick={() => editLine(l)} style={{ fontSize: 14, color: "#3a5730", fontWeight: 700, cursor: "pointer", background: "#eef4e8", padding: "7px 12px", borderRadius: 9 }}>✎ Edit</span> : null}
-                    <span onClick={() => removeLine(l.key)} style={{ marginLeft: "auto", color: "#c94a4a", cursor: "pointer", fontSize: 15, fontWeight: 600, padding: "8px 4px" }}>Remove</span>
-                  </div>
-                </div>
-              </div>
+                <CartLine key={l.key}
+                  line={{ name: l.item.name, qty: l.qty, unitPrice: l.unit, image_url: l.item.image_url, category: l.item.category, mods: l.mods.map((m) => m.name), note: l.note }}
+                  onDec={() => setQty(l.key, -1)}
+                  onInc={() => setQty(l.key, 1)}
+                  onEdit={hasMods ? () => editLine(l) : undefined}
+                  onRemove={() => removeLine(l.key)}
+                />
               );
             })}
           </div>
