@@ -578,7 +578,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
 
   async function loadAllOrders() {
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,total,paid_method,paid_amount,discount_type,discount_value,print_failed,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total)"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,total,paid_method,paid_amount,discount_type,discount_value,print_failed,created_at,status,menu_tables(label),menu_order_items(id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total)"
         + (locationId ? "&location_id=eq." + locationId : "")
         + "&closed_at=is.null"
         + "&order=created_at.desc&limit=200";
