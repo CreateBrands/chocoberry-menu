@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { OrdersList, OrderDetailPanel } from "./OrdersStrip.jsx";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -54,6 +54,41 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [search, setSearch] = useState("");
   const [ticket, setTicket] = useState([]);
   const [table, setTable] = useState(null);
+  const [appendTo, setAppendTo] = useState(null); // order id we're adding to
+
+  // ── Cart persistence (survives refresh / accidental reload / crash) ──
+  // The in-progress ticket is mirrored to localStorage so a refresh never
+  // loses a half-built order — the #1 reliability expectation for a POS.
+  // Keyed per device/location so two tablets never share a draft.
+  const CART_KEY = "pos_cart_" + (loc || storeToken || "default");
+  const cartHydrated = useRef(false);
+  // Restore any saved draft once, on first mount.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(CART_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        const fresh = saved && saved.at && (Date.now() - saved.at) < 12 * 60 * 60 * 1000;
+        if (fresh && Array.isArray(saved.ticket) && saved.ticket.length) {
+          setTicket(saved.ticket);
+          if (saved.table) setTable(saved.table);
+          if (saved.appendTo) setAppendTo(saved.appendTo);
+        }
+      }
+    } catch { /* ignore corrupt draft */ }
+    cartHydrated.current = true;
+  }, []); // eslint-disable-line
+  // Persist on every change (after the initial hydrate, so we don't clobber it).
+  useEffect(() => {
+    if (!cartHydrated.current) return;
+    try {
+      if (ticket.length) {
+        localStorage.setItem(CART_KEY, JSON.stringify({ ticket, table, appendTo, at: Date.now() }));
+      } else {
+        localStorage.removeItem(CART_KEY); // empty cart → clear the draft
+      }
+    } catch { /* storage full / disabled — non-fatal */ }
+  }, [ticket, table]); // eslint-disable-line
   const [modItem, setModItem] = useState(null);
   const [modSel, setModSel] = useState({});
   const [sending, setSending] = useState(false);
@@ -152,7 +187,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   }
   // "Add items" to an existing order: load that order into the current-order
   // ticket in append mode, switch to New order to pick items.
-  const [appendTo, setAppendTo] = useState(null); // order id we're adding to
   function ordAddItems(orderId) {
     const o = (orders || []).find((x) => x.id === orderId);
     setAppendTo(orderId);

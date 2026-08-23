@@ -1632,6 +1632,37 @@ export default function App() {
   useEffect(() => { appendOrderIdRef.current = appendOrderId; }, [appendOrderId]);
   const [lastOrderId, setLastOrderId] = useState(null); // id of the most recently placed order
 
+  // ── Cart persistence (survives refresh / accidental reload / crash) ──
+  // Mirror the in-progress bag to localStorage so a refresh never wipes a
+  // customer's or staff member's half-built order. Keyed per device.
+  const CB_CART_KEY = "still_cart_draft";
+  const cartHydrated = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(CB_CART_KEY);
+      if (raw) {
+        const s = JSON.parse(raw);
+        const fresh = s && s.at && (Date.now() - s.at) < 12 * 60 * 60 * 1000;
+        if (fresh && Array.isArray(s.lines) && s.lines.length) {
+          setLines(s.lines);
+          if (s.pickupName) setPickupName(s.pickupName);
+          if (s.appendOrderId) setAppendOrderId(s.appendOrderId);
+        }
+      }
+    } catch { /* ignore corrupt draft */ }
+    cartHydrated.current = true;
+  }, []); // eslint-disable-line
+  useEffect(() => {
+    if (!cartHydrated.current) return;
+    try {
+      if (lines.length) {
+        localStorage.setItem(CB_CART_KEY, JSON.stringify({ lines, pickupName, appendOrderId, at: Date.now() }));
+      } else {
+        localStorage.removeItem(CB_CART_KEY);
+      }
+    } catch { /* non-fatal */ }
+  }, [lines, pickupName, appendOrderId]); // eslint-disable-line
+
   // "Add more to this order": reopen the just-placed order and go back to the menu.
   // The new items get appended to the SAME order (one bill) and the kitchen gets a
   // reprint showing original + added, with a "discard previous slip" notice.
