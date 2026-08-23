@@ -22,6 +22,12 @@ const DONE_ITEM = "ready";
 const SIZES = { S: 0.85, M: 1, L: 1.18, XL: 1.4 };
 
 function getParam(k) { try { return new URLSearchParams(window.location.search).get(k); } catch { return null; } }
+// Each physical KDS screen is identified by ?screen=1, ?screen=2, etc. Bump
+// state is tracked PER SCREEN (in localStorage) so two screens showing the same
+// orders can each bump their own copy independently — bumping on screen 1 does
+// NOT clear the order from screen 2. Defaults to "main" when no param is given
+// (single-screen setups behave exactly as before).
+function getScreenId() { return getParam("screen") || "main"; }
 function minsSince(iso, now) { return (now - new Date(iso).getTime()) / 60000; }
 function fmtClock(iso, now) {
   const s = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
@@ -43,6 +49,18 @@ export default function KDS() {
   const [fullscreen, setFullscreen] = useState(false);
   const [undo, setUndo] = useState(null);
   const [armedBump, setArmedBump] = useState(null); // {id, timer} — first tap arms, second confirms
+  // Per-screen bump set: the order IDs THIS screen has bumped. Persisted in
+  // localStorage under a screen-specific key so each screen is independent.
+  const screenId = getScreenId();
+  const bumpedKey = "kds_bumped_" + screenId;
+  const [localBumped, setLocalBumped] = useState(() => {
+    try { return new Set(JSON.parse(localStorage.getItem("kds_bumped_" + getScreenId()) || "[]")); } catch { return new Set(); }
+  });
+  useEffect(() => { try { localStorage.setItem(bumpedKey, JSON.stringify([...localBumped])); } catch {} }, [localBumped, bumpedKey]);
+  // Ref mirror so the polling loop (load) always sees the current bumped set
+  // without needing to re-create the callback on every bump.
+  const localBumpedRef = useRef(localBumped);
+  useEffect(() => { localBumpedRef.current = localBumped; }, [localBumped]);
   const [rushIds, setRushIds] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("kds_rush") || "[]")); } catch { return new Set(); } });
   // Orders/payment view state
   const [view, setView] = useState("kitchen");      // "kitchen" | "orders"
@@ -104,12 +122,23 @@ export default function KDS() {
       if (!r.ok) throw new Error("http " + r.status);
       const data = await r.json();
       setConnected(true);
-      const activeIds = new Set(data.filter((o) => o.status !== BUMP_TO).map((o) => o.id));
+      // Beep only for genuinely new orders this screen hasn't bumped yet.
+      const activeIds = new Set(data.filter((o) => !localBumpedRef.current.has(o.id)).map((o) => o.id));
       let isNew = false;
       for (const id of activeIds) if (!prevIds.current.has(id)) { isNew = true; break; }
       if (isNew && prevIds.current.size > 0) beep();
       prevIds.current = activeIds;
       setOrders(data);
+      // Prune the local bumped set: once an order is archived (day close) it
+      // drops out of this query, so we can forget it here too — keeps
+      // localStorage from growing without bound.
+      const liveIds = new Set(data.map((o) => o.id));
+      if (localBumpedRef.current.size) {
+        let changed = false;
+        const pruned = new Set();
+        for (const id of localBumpedRef.current) { if (liveIds.has(id)) pruned.add(id); else changed = true; }
+        if (changed) setLocalBumped(pruned);
+      }
     } catch { setConnected(false); }
   }, [loc, beep]);
 
@@ -188,11 +217,20 @@ export default function KDS() {
 
   const start = (o) => patchOrder(o.id, { status: "preparing", kds_started_at: new Date().toISOString() });
   const bump = (o) => {
-    const prevStatus = o.status;
-    patchOrder(o.id, { status: BUMP_TO, kds_bumped_at: new Date().toISOString() });
+    // Per-screen bump: mark this order done ON THIS SCREEN only (local set).
+    // We do NOT set status='served' in the DB, because that shared field is
+    // what would remove the order from the OTHER screen. Each screen clears
+    // its own copy independently.
+    setLocalBumped((prev) => { const n = new Set(prev); n.add(o.id); return n; });
+    // Still record kds_bumped_at once (for completion-time reporting) — only if
+    // not already stamped, so the first screen to bump sets the timestamp and
+    // we never overwrite it. This does not affect either board's visibility.
+    if (!o.kds_bumped_at) {
+      patchOrder(o.id, { kds_bumped_at: new Date().toISOString() });
+    }
     if (undo && undo.timer) clearTimeout(undo.timer);
     const timer = setTimeout(() => setUndo(null), 6000);
-    setUndo({ order: o, prevStatus, timer });
+    setUndo({ order: o, timer });
   };
   // First tap arms the button ("Tap again"); a second tap within 2.5s actually
   // bumps. Prevents accidental single touches (brushes, cleaning) on the large
@@ -210,11 +248,12 @@ export default function KDS() {
   };
   const doUndo = () => {
     if (!undo) return;
-    patchOrder(undo.order.id, { status: undo.prevStatus, kds_bumped_at: null });
+    // Undo the bump on THIS screen only — remove from the local set.
+    setLocalBumped((prev) => { const n = new Set(prev); n.delete(undo.order.id); return n; });
     if (undo.timer) clearTimeout(undo.timer);
     setUndo(null);
   };
-  const recall = (o) => patchOrder(o.id, { status: "preparing", kds_bumped_at: null });
+  const recall = (o) => setLocalBumped((prev) => { const n = new Set(prev); n.delete(o.id); return n; });
   const toggleItem = (o, it) => patchItem(it.id, { item_status: it.item_status === DONE_ITEM ? "preparing" : DONE_ITEM });
   const toggleRush = (o) => setRushIds((prev) => { const n = new Set(prev); n.has(o.id) ? n.delete(o.id) : n.add(o.id); return n; });
 
@@ -225,9 +264,12 @@ export default function KDS() {
     return items.length ? { ...o, menu_order_items: items } : null;
   };
 
-  let active = orders.filter((o) => o.status !== BUMP_TO).map(filterStation).filter(Boolean);
+  // Active/completed are decided PER SCREEN by this screen's local bump set —
+  // not the shared DB status — so each screen is independent. An order is
+  // "active" here until THIS screen bumps it; "completed" once it has.
+  let active = orders.filter((o) => !localBumped.has(o.id)).map(filterStation).filter(Boolean);
   active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0));
-  const completed = orders.filter((o) => o.status === BUMP_TO).map(filterStation).filter(Boolean)
+  const completed = orders.filter((o) => localBumped.has(o.id)).map(filterStation).filter(Boolean)
     .sort((a, b) => new Date(b.kds_bumped_at || b.created_at) - new Date(a.kds_bumped_at || a.created_at));
 
   // Orders/payment view: all non-closed orders, split by paid state. Unpaid float
@@ -335,6 +377,7 @@ export default function KDS() {
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "#4ade80" : "#f87171" }} />
             {connected ? "Live" : "\u2026"}
           </div>
+          {getParam("screen") && <div style={{ fontSize: 12, fontWeight: 800, color: "#cbd5e1", background: "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }}>Screen {screenId}</div>}
         </div>
       </div>
 

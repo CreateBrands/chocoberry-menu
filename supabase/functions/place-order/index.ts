@@ -165,6 +165,7 @@ Deno.serve(async (req) => {
         qty,
         modifiers_snapshot: snapshot,
         line_total,
+        note: (l.note && String(l.note).trim()) ? String(l.note).trim().slice(0, 200) : null,
       });
     }
 
@@ -212,10 +213,27 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { data: seqRow } = await admin
-      .from("menu_orders").select("id")
-      .gte("created_at", new Date(new Date().setHours(0, 0, 0, 0)).toISOString());
-    const orderNo = 200 + ((seqRow?.length ?? 0) + 1);
+    // Order number = friendly DAILY number for this location (resets to 1 each
+    // day). The order's real identity is its UUID (id), so a small resettable
+    // display number is safe and never collides. next_order_no() increments a
+    // per-day/per-location counter atomically (row lock) — two simultaneous
+    // orders can never get the same number.
+    let orderNo: number;
+    {
+      const { data: seqNo, error: seqErr } = await admin.rpc("next_order_no", { p_location: location_id ?? null });
+      if (seqErr || seqNo == null) {
+        // Fallback: max(order_no today at this location)+1. Still far safer than
+        // a plain count, and self-heals once the RPC is available.
+        const startOfDay = new Date(new Date().setHours(0, 0, 0, 0)).toISOString();
+        let q = admin.from("menu_orders").select("order_no").gte("created_at", startOfDay)
+          .order("order_no", { ascending: false }).limit(1);
+        if (location_id) q = q.eq("location_id", location_id);
+        const { data: maxRow } = await q.maybeSingle();
+        orderNo = Number(maxRow?.order_no ?? 0) + 1;
+      } else {
+        orderNo = Number(seqNo);
+      }
+    }
 
     const { data: order, error: ordErr } = await admin
       .from("menu_orders")
