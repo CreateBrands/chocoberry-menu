@@ -470,12 +470,122 @@ Deno.serve(async (req) => {
       case "mark_unpaid": {
         const { order_id } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
+        // Clear payment state AND any recorded tenders (so a re-payment starts clean).
+        await admin.from("order_payments").delete().eq("order_id", order_id);
         const { error } = await admin.from("menu_orders").update({
-          paid_method: null, paid_amount: null, discount_type: null, discount_value: null, paid_at: null,
+          paid_method: null, paid_amount: null, amount_paid: 0, is_split: false,
+          discount_type: null, discount_value: null, paid_at: null,
         }).eq("id", order_id);
         if (error) throw error;
         return json({ ok: true });
       }
+
+      // ---- TILL: take a payment (supports partial / split tenders) ----
+      // data: { order_id, method: 'cash'|'card'|'other', amount, tendered?, note? }
+      // Records one row in order_payments. When cumulative paid >= total, the
+      // order is marked fully paid. Returns running paid + remaining balance.
+      case "take_payment": {
+        const { order_id, method, amount, tendered = null, note = null } = data || {};
+        if (!order_id || (method !== "cash" && method !== "card" && method !== "other")) {
+          return json({ error: "order_id and method (cash|card|other) required" }, 400);
+        }
+        const amt = Math.round(Number(amount) * 100) / 100;
+        if (!(amt > 0)) return json({ error: "amount must be > 0" }, 400);
+        const { data: ord, error: oErr } = await admin
+          .from("menu_orders").select("id, total, amount_paid, status").eq("id", order_id).single();
+        if (oErr || !ord) return json({ error: "order not found" }, 404);
+        if (ord.status === "cancelled") return json({ error: "cancelled", message: "This order was cancelled." }, 409);
+        const total = Math.round(Number(ord.total || 0) * 100) / 100;
+        const already = Math.round(Number(ord.amount_paid || 0) * 100) / 100;
+        const remainingBefore = Math.round((total - already) * 100) / 100;
+        if (remainingBefore <= 0) return json({ error: "already_paid", message: "This order is already fully paid." }, 409);
+        // Don't allow overpaying the balance on card/other; cash can exceed (change).
+        const applied = (method === "cash") ? Math.min(amt, remainingBefore) : Math.min(amt, remainingBefore);
+        // Record the tender.
+        const { error: pErr } = await admin.from("order_payments").insert({
+          order_id, method, amount: applied,
+          tendered: method === "cash" && tendered != null ? Math.round(Number(tendered) * 100) / 100 : null,
+          note: note ? String(note).slice(0, 120) : null,
+        });
+        if (pErr) throw pErr;
+        // Recompute running paid from the ledger (authoritative).
+        const { data: pays } = await admin.from("order_payments").select("amount, method").eq("order_id", order_id);
+        const paidNow = Math.round((pays ?? []).reduce((s, r) => s + Number(r.amount || 0), 0) * 100) / 100;
+        const remaining = Math.round((total - paidNow) * 100) / 100;
+        const fullyPaid = remaining <= 0.001;
+        const distinctMethods = new Set((pays ?? []).map((r) => r.method));
+        const isSplit = (pays ?? []).length > 1;
+        // Primary method = the tender that paid the most (for the single paid_method column).
+        let primary = method;
+        if (fullyPaid && (pays ?? []).length) {
+          const byMethod: Record<string, number> = {};
+          for (const r of pays!) byMethod[r.method] = (byMethod[r.method] || 0) + Number(r.amount || 0);
+          primary = Object.entries(byMethod).sort((a, b) => b[1] - a[1])[0][0];
+        }
+        const patch: Record<string, unknown> = { amount_paid: paidNow, is_split: isSplit };
+        if (fullyPaid) {
+          patch.paid_method = isSplit ? "split" : primary;
+          patch.paid_amount = paidNow;
+          patch.paid_at = new Date().toISOString();
+        }
+        const { error: uErr } = await admin.from("menu_orders").update(patch).eq("id", order_id);
+        if (uErr) throw uErr;
+        return json({ ok: true, paid: paidNow, remaining: Math.max(0, remaining), fully_paid: fullyPaid, is_split: isSplit, methods: [...distinctMethods] });
+      }
+
+      // ---- TILL: list the tenders recorded against an order ----
+      case "order_payments_list": {
+        const { order_id } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const { data: pays, error } = await admin.from("order_payments")
+          .select("id, method, amount, tendered, note, created_at").eq("order_id", order_id).order("created_at", { ascending: true });
+        if (error) throw error;
+        return json({ ok: true, payments: pays ?? [] });
+      }
+
+      // ---- TILL: void a SINGLE item that was already sent to the kitchen ----
+      // Logs the reason to order_item_voids, deletes the line, recomputes total,
+      // and prints a best-effort VOID chit so the kitchen stops making it.
+      case "void_fired_item": {
+        const { order_id, order_item_id, reason } = data || {};
+        if (!order_id || !order_item_id) return json({ error: "order_id and order_item_id required" }, 400);
+        if (!reason) return json({ error: "reason required" }, 400);
+        const { data: ord, error: oErr } = await admin
+          .from("menu_orders").select("id, paid_method, order_no, table_id, tablet_no").eq("id", order_id).single();
+        if (oErr || !ord) return json({ error: "order not found" }, 404);
+        if (ord.paid_method) return json({ error: "already_paid", message: "Paid orders can't be edited. Mark unpaid first." }, 409);
+        // Grab the line for the audit snapshot before deleting.
+        const { data: li } = await admin.from("menu_order_items")
+          .select("name_snapshot, qty, line_total").eq("id", order_item_id).eq("order_id", order_id).single();
+        // Audit the void.
+        await admin.from("order_item_voids").insert({
+          order_id, name_snapshot: li?.name_snapshot ?? null, qty: li?.qty ?? null,
+          line_total: li?.line_total ?? null, reason: String(reason).slice(0, 200),
+        });
+        // Delete the line + recompute.
+        await admin.from("menu_order_items").delete().eq("id", order_item_id).eq("order_id", order_id);
+        const { data: rest } = await admin.from("menu_order_items").select("line_total").eq("order_id", order_id);
+        const newTotal = Math.round((rest ?? []).reduce((s, r) => s + Number(r.line_total || 0), 0) * 100) / 100;
+        await admin.from("menu_orders").update({ subtotal: newTotal, total: newTotal }).eq("id", order_id);
+        // Best-effort VOID chit to the kitchen (never blocks the void).
+        let printed = false;
+        try {
+          const pr = await callSunmi({
+            action: "print-message",
+            location_id: (data && data.location_id) || null,
+            title: "*** VOID ***",
+            lines: [
+              "Order #" + (ord.order_no ?? ""),
+              (li?.qty ? li.qty + "x " : "") + (li?.name_snapshot ?? "item"),
+              "Reason: " + String(reason).slice(0, 60),
+              "DO NOT MAKE / STOP",
+            ],
+          });
+          printed = !!pr.ok;
+        } catch { /* printing is best-effort */ }
+        return json({ ok: true, total: newTotal, void_chit_printed: printed });
+      }
+
 
       // ---- TILL: remove a single line item from an UNPAID order ----
       case "remove_order_item": {
