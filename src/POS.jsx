@@ -115,10 +115,31 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       return r.ok;
     } catch { return false; } finally { setOrdersBusy(false); }
   }
-  const ordPay = (o, method) => ordAction("mark_paid", { order_id: o.id, method });
+  // Like ordAction but returns the parsed JSON (for payment flows that need
+  // the running balance back). Does NOT reload on 401 (re-prompts PIN).
+  async function ordActionJson(action, dataObj) {
+    setOrdersBusy(true);
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pin: posPin, action, data: dataObj }),
+      });
+      if (r.status === 401) { setPosPin(""); return { ok: false, unauthorized: true }; }
+      const j = await r.json().catch(() => ({}));
+      await loadOrders();
+      return { ok: r.ok, ...j };
+    } catch { return { ok: false }; } finally { setOrdersBusy(false); }
+  }
+  // Take a (possibly partial) payment. amount defaults to the full balance.
+  const ordTakePayment = (o, method, amount, extra = {}) =>
+    ordActionJson("take_payment", { order_id: o.id, method, amount, ...extra });
+  // Legacy single-shot pay (full balance) — kept for the simple Cash/Card path.
+  const ordPay = (o, method) => ordActionJson("take_payment", { order_id: o.id, method, amount: Number(o.total || 0) });
   const ordUnpaid = (o) => ordAction("mark_unpaid", { order_id: o.id });
   const ordRemoveItem = (o, iid) => ordAction("remove_order_item", { order_id: o.id, order_item_id: iid });
   const ordSetQty = (o, iid, qty) => ordAction("set_order_item_qty", { order_id: o.id, order_item_id: iid, qty });
+  // Void a single already-fired item, with a reason (prints a VOID chit).
+  const ordVoidFired = (o, iid, reason) => ordAction("void_fired_item", { order_id: o.id, order_item_id: iid, reason, location_id: loc || null });
   async function ordReprint(o) {
     try {
       await fetch(SUPABASE_URL + "/functions/v1/sunmi-print", {
@@ -223,7 +244,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const removeLine = (key) => setTicket((p) => p.filter((l) => l.key !== key));
   const clearAll = () => { setTicket([]); setTable(null); setPlaced(null); setMsg(""); setPayMethod(null); setPayPin(""); };
 
-  async function sendOrder() {
+  async function sendOrder(thenPay = false) {
     if (!ticket.length) return;
     setSending(true); setMsg("");
     try {
@@ -242,8 +263,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         setAppendTo(null); setTicket([]); setTable(null); setMsg("Items added to the order.");
         loadOrders();
       } else {
-        setPlaced({ id: resp.order_id, order_no: resp.order_no, total: subtotal });
         setMsg("Sent — order #" + resp.order_no);
+        // Clear the cart; the order now lives in the strip.
+        setTicket([]); setTable(null); setPlaced(null); setPayMethod(null); setPayPin("");
+        await loadOrders();
+        if (thenPay && resp.order_id) {
+          // Open the just-fired order in the right panel → its payment flow.
+          setSelOrderId(resp.order_id);
+        }
       }
     } catch (e) { setMsg(e.message || "Send failed"); } finally { setSending(false); }
   }
@@ -372,11 +399,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               now={now}
               busy={ordersBusy}
               onClose={() => setSelOrderId(null)}
-              onPay={async (o, m) => { const ok = await ordPay(o, m); if (ok !== false) setSelOrderId(null); }}
+              onTakePayment={ordTakePayment}
+              onPay={async (o, m) => { const res = await ordPay(o, m); if (res && res.ok && res.fully_paid) setSelOrderId(null); return res; }}
               onUnpaid={ordUnpaid}
               onAddItems={(id) => { ordAddItems(id); setSelOrderId(null); }}
               onRemoveItem={ordRemoveItem}
               onSetQty={ordSetQty}
+              onVoidFired={ordVoidFired}
               onReprint={ordReprint}
             />
           ) : (
@@ -425,27 +454,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               <span style={{ fontSize: 32, fontWeight: 500, letterSpacing: "-.6px" }}>{gbp(subtotal)}</span>
             </div>
 
-            {!placed ? (
-              <div style={{ display: "flex", gap: 9 }}>
-                <div onClick={clearAll} style={{ width: 58, textAlign: "center", padding: "19px 0", borderRadius: 15, background: P.chip, color: "#616976", cursor: "pointer", fontSize: 18 }}>✕</div>
-                <div onClick={sendOrder} style={{ flex: 1, textAlign: "center", padding: "19px 0", borderRadius: 15, background: ticket.length ? grad : "#d7dade", color: "#fff", fontWeight: 500, fontSize: 19, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 7px 18px rgba(229,57,122,.34)" : "none", opacity: sending ? .6 : 1 }}>{sending ? "Sending…" : "Send to kitchen"}</div>
-              </div>
-            ) : (
-              <div>
-                <div style={{ display: "flex", gap: 8, marginBottom: 9 }}>
-                  {[["cash", "Cash"], ["card", "Card"]].map(([m, label]) => (
-                    <div key={m} onClick={() => setPayMethod(m)} style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 12, cursor: "pointer", fontWeight: 500, fontSize: 17, background: payMethod === m ? grad : P.chip, color: payMethod === m ? "#fff" : "#5f6774" }}>{label}</div>
-                  ))}
-                </div>
-                <input type="text" inputMode="numeric" value={payPin} onChange={(e) => setPayPin(e.target.value.replace(/\D/g, ""))} placeholder="Staff PIN"
-                  autoComplete="off" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
-                  style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 18, letterSpacing: 5, padding: "12px 0", borderRadius: 12, border: "1px solid " + P.line, background: "#fff", color: P.ink, marginBottom: 9, WebkitTextSecurity: "disc", textSecurity: "disc", fontFamily: "inherit" }} />
-                <div style={{ display: "flex", gap: 9 }}>
-                  <div onClick={clearAll} style={{ padding: "17px 20px", textAlign: "center", borderRadius: 14, background: P.chip, color: "#616976", fontWeight: 500, cursor: "pointer", fontSize: 16 }}>New</div>
-                  <div onClick={takePayment} style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 14, background: (payMethod && payPin) ? "linear-gradient(140deg,#22c55e,#16a34a)" : "#d7dade", color: "#fff", fontWeight: 500, fontSize: 18, cursor: (payMethod && payPin) ? "pointer" : "default", opacity: payBusy ? .6 : 1 }}>{payBusy ? "…" : "Take payment"}</div>
-                </div>
-              </div>
-            )}
+            <div style={{ display: "flex", gap: 9 }}>
+              <div onClick={clearAll} style={{ width: 52, textAlign: "center", padding: "17px 0", borderRadius: 14, background: P.chip, color: "#616976", cursor: "pointer", fontSize: 18, flexShrink: 0 }}>✕</div>
+              <div onClick={() => { if (ticket.length && !sending) sendOrder(false); }} style={{ padding: "17px 18px", textAlign: "center", borderRadius: 14, background: ticket.length ? "#fff" : "#f1f2f4", border: "1.5px solid " + (ticket.length ? "#cdd3da" : "transparent"), color: ticket.length ? "#2A2E20" : "#aeb4bd", fontWeight: 700, fontSize: 15, cursor: ticket.length ? "pointer" : "default", whiteSpace: "nowrap", flexShrink: 0 }}>{sending ? "…" : (appendTo ? "Add to order" : "Send to kitchen")}</div>
+              {!appendTo && (
+                <div onClick={() => { if (ticket.length && !sending) sendOrder(true); }} style={{ flex: 1, textAlign: "center", padding: "17px 0", borderRadius: 14, background: ticket.length ? "linear-gradient(140deg,#5E7A4D,#4a6b3a)" : "#d7dade", color: "#fff", fontWeight: 700, fontSize: 17, cursor: ticket.length ? "pointer" : "default", boxShadow: ticket.length ? "0 6px 16px rgba(94,122,77,.34)" : "none", opacity: sending ? .6 : 1 }}>{sending ? "Sending…" : "Pay now"}</div>
+              )}
+            </div>
           </div>
           </>
           )}
