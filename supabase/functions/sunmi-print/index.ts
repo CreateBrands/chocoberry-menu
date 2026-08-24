@@ -437,8 +437,10 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
       // (flagged), since Sunmi's queue may still deliver later but staff should check.
       let confirmed = false;
       if (pushed) {
-        for (let poll = 0; poll < 3 && !confirmed; poll++) {
-          await new Promise((r) => setTimeout(r, 1200));
+        // Poll a little longer/gentler (5 x 1.5s ~= 7.5s) so a printer that's
+        // slow during a rush or waking from sleep still confirms in-window.
+        for (let poll = 0; poll < 5 && !confirmed; poll++) {
+          await new Promise((r) => setTimeout(r, 1500));
           try {
             const st = await sunmi.printStatus(usedTrade);
             const isPrint = st?.data?.is_print;
@@ -447,31 +449,42 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
           } catch { /* keep polling */ }
         }
       }
+      // Three-way outcome, not two:
+      //   - confirmed print  -> "sent"    (done)
+      //   - pushed, not yet confirmed -> "pending" (Sunmi's durable queue holds
+      //       it and will likely print; the 2-min sweep re-verifies). NOT a hard
+      //       failure, so it does NOT raise the print-failure alarm — this stops
+      //       false alarms for slow-but-fine printers during a rush.
+      //   - push failed -> "failed"  (genuinely didn't reach Sunmi)
       const success = pushed && confirmed;
+      const pending = pushed && !confirmed;
       await logJob({
         order_id: orderId,
         printer_sn: sn,
-        status: success ? "sent" : (pushed ? "unconfirmed" : "failed"),
+        status: success ? "sent" : (pending ? "pending" : "failed"),
         max_batch: success ? maxBatchThisRun : null,
         response: res,
         error: success ? null
-          : !pushed ? (res.msg ?? "unknown Sunmi error") + " (push failed after " + attempts + " attempts)"
-          : "pushed but printer did not confirm printing (check paper/jam/power)",
+          : pending ? "pushed to Sunmi queue; awaiting printer confirmation"
+          : (res.msg ?? "unknown Sunmi error") + " (push failed after " + attempts + " attempts)",
       });
-      results.push({ printer: sn, station, copy: copy + 1, printed: success, pushed, confirmed, attempts, sunmi: res });
-      if (!success) {
-        console.error(`print not confirmed for ${sn} (${station}) copy ${copy + 1}: pushed=${pushed} confirmed=${confirmed}`);
+      results.push({ printer: sn, station, copy: copy + 1, printed: success, pending, pushed, confirmed, attempts, sunmi: res });
+      if (!success && !pending) {
+        console.error(`print push FAILED for ${sn} (${station}) copy ${copy + 1}: pushed=${pushed}`);
       }
     }
   }
 
   const anyPrinted = results.some((r) => r.printed);
-  // Flag the order if any real (non-skipped) print attempt failed, so the staff
-  // drawer can surface it. Clear the flag when everything that tried, printed.
+  // Raise the print-failure alarm ONLY for a genuine push failure (didn't reach
+  // Sunmi). A "pending" (pushed, not yet confirmed) is NOT an alarm — Sunmi's
+  // durable queue holds it and the 2-min sweep re-verifies, so slow-but-fine
+  // printers no longer trip a false alert. Clear the flag once every attempt
+  // has actually confirmed printed.
   const attempted = results.filter((r) => !r.skipped);
-  const anyFailed = attempted.some((r) => r.printed === false);
+  const anyHardFailed = attempted.some((r) => r.printed === false && r.pending !== true);
   try {
-    if (anyFailed) {
+    if (anyHardFailed) {
       await supabase.from("menu_orders").update({ print_failed: true }).eq("id", orderId);
     } else if (attempted.length > 0 && attempted.every((r) => r.printed)) {
       await supabase.from("menu_orders").update({ print_failed: false }).eq("id", orderId);
@@ -481,7 +494,7 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
   if (!anyPrinted && results.every((r) => r.skipped)) {
     return { skipped: true, reason: "nothing to print", results };
   }
-  return { printed: anyPrinted, failed: anyFailed, results };
+  return { printed: anyPrinted, failed: anyHardFailed, results };
 }
 
 // ---------------------------------------------------------------------------
@@ -504,7 +517,7 @@ Deno.serve(async (req) => {
   // exist and were meant to print — so they don't require the master secret.
   // We never ship that secret to the tablet or the cron scheduler.
   const secret = Deno.env.get("PRINT_WEBHOOK_SECRET");
-  const noSecretActions = new Set(["print-order", "sweep-unprinted"]);
+  const noSecretActions = new Set(["print-order", "sweep-unprinted", "printer-health"]);
   const isOpen = noSecretActions.has(String(body.action));
   if (!isOpen) {
     if (!secret || req.headers.get("x-print-secret") !== secret) {
@@ -543,6 +556,32 @@ Deno.serve(async (req) => {
       case "status": {
         const res = await sunmi.onlineStatus(String(body.sn));
         return json(res, ok(res) ? 200 : 502);
+      }
+
+      // HEARTBEAT: ping every active printer's Sunmi online status and record it
+      // (online + last_online_at) so the POS/KDS can show a live green/red dot and
+      // staff spot a downed printer BEFORE an order fails. Meant to run every
+      // minute via cron; open action (no secret) like the sweep.
+      case "printer-health": {
+        const { data: printers } = await supabase
+          .from("printers").select("id, sn, active").eq("active", true);
+        const nowIso = new Date().toISOString();
+        const out = [];
+        for (const p of printers || []) {
+          let online: boolean | null = null;
+          try {
+            const r = await sunmi.onlineStatus(String((p as any).sn));
+            const d: any = (r as any)?.data ?? r;
+            const v = d?.is_online ?? d?.online ?? d?.status;
+            online = (v === 1 || v === true || v === "online") ? true
+                   : (v === 0 || v === false || v === "offline") ? false : null;
+          } catch { online = null; }
+          const patch: Record<string, unknown> = { online };
+          if (online === true) patch.last_online_at = nowIso;
+          try { await supabase.from("printers").update(patch).eq("id", (p as any).id); } catch { /* best effort */ }
+          out.push({ sn: (p as any).sn, online });
+        }
+        return json({ ok: true, checked: out.length, printers: out });
       }
       case "test-raster": {
         // Payload/compat probe: renders a full sample ticket in raster mode
