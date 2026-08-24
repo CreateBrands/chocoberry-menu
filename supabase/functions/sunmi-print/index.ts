@@ -105,6 +105,48 @@ async function resolveLineStations(
   });
 }
 
+// Resolve each line's MASTER category name (the top-level menu the item's
+// sub-category belongs to), for grouping items on the slip/KDS.
+// item -> menu_items.category_id -> menu_categories.menu_id -> menu_menus.name
+async function resolveLineCategories(
+  rows: Array<Record<string, unknown>>,
+): Promise<(string | undefined)[]> {
+  const itemIds = [...new Set(rows.map((r) => r.item_id).filter(Boolean).map(String))];
+  const itemCat = new Map<string, string | null>();
+  if (itemIds.length) {
+    const { data: mi } = await supabase
+      .from("menu_items")
+      .select("id, category_id")
+      .in("id", itemIds);
+    for (const r of mi ?? []) itemCat.set(String(r.id), (r.category_id as string) ?? null);
+  }
+  const catIds = [...new Set([...itemCat.values()].filter(Boolean).map(String))];
+  const catMenu = new Map<string, string | null>();
+  if (catIds.length) {
+    const { data: mc } = await supabase
+      .from("menu_categories")
+      .select("id, menu_id")
+      .in("id", catIds);
+    for (const r of mc ?? []) catMenu.set(String(r.id), (r.menu_id as string) ?? null);
+  }
+  const menuIds = [...new Set([...catMenu.values()].filter(Boolean).map(String))];
+  const menuName = new Map<string, string>();
+  if (menuIds.length) {
+    const { data: mm } = await supabase
+      .from("menu_menus")
+      .select("id, name")
+      .in("id", menuIds);
+    for (const r of mm ?? []) menuName.set(String(r.id), String(r.name ?? ""));
+  }
+  return rows.map((r) => {
+    const id = r.item_id ? String(r.item_id) : "";
+    const cat = itemCat.get(id);
+    const menu = cat ? catMenu.get(cat) : null;
+    const nm = menu ? menuName.get(menu) : undefined;
+    return nm || undefined;
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Build the receipt model from a menu_orders row + its menu_order_items
 // ---------------------------------------------------------------------------
@@ -123,6 +165,8 @@ async function loadReceiptOrder(
 
   // Resolve each line's station: item.station ?? its category.station ?? "kitchen".
   const stationByLine = await resolveLineStations(itemRows ?? []);
+  // Resolve each line's master category name (menu_menus.name) for grouping.
+  const categoryByLine = await resolveLineCategories(itemRows ?? []);
 
   const items: ReceiptItem[] = (itemRows ?? []).map((it, i) => {
     const mods = it.modifiers_snapshot as Record<string, unknown> | unknown[] | null;
@@ -133,6 +177,7 @@ async function loadReceiptOrder(
         ? it.line_total
         : parseFloat(String(it.line_total ?? "")) || undefined,
       station: stationByLine[i],
+      category: categoryByLine[i],
       added: (it.added_batch ?? 0) > 0,
       batch: it.added_batch ?? 0,
       note: it.note ? String(it.note) : undefined,

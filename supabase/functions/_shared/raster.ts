@@ -78,42 +78,51 @@ function receiptTree(o: ReceiptOrder): Node {
       : []),
     // Items. When items were added across multiple rounds, group by round
     // (batch) so each addition is clearly separated with its own label + time.
-    // Otherwise render a single flat list.
-    ...(o.hasAdditions
-      ? (() => {
-          const bt = o.batchTimes || [];
-          const batches = [...new Set(o.items.map((it) => it.batch ?? 0))].sort((a, b) => a - b);
-          const roundHeader = (label: string, time: string) =>
+    // Within a round (or the whole order), items are grouped under their master
+    // category heading. Otherwise render a single flat list.
+    ...(() => {
+      const bt = o.batchTimes || [];
+      // Render one item (name row + modifiers + note).
+      const renderItem = (it: typeof o.items[number], big: boolean) => [
+        row(`${it.qty} x ${it.name}`,
+          typeof it.price === "number" ? gbp(it.price) : "",
+          { fontWeight: 700, fontSize: big ? 30 : 27, maxWidth: "430px" },
+          { fontWeight: 700, fontSize: big ? 30 : 27 }),
+        ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
+        ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
+        el("div", { height: 6 }),
+      ];
+      // Group a list of items by master category, preserving first-seen order,
+      // and render each group under an underlined category heading (Style B).
+      const renderGrouped = (list: typeof o.items, big: boolean) => {
+        const order: string[] = [];
+        const groups = new Map<string, typeof o.items>();
+        for (const it of list) {
+          const cat = (it.category || "OTHER").toUpperCase();
+          if (!groups.has(cat)) { groups.set(cat, []); order.push(cat); }
+          groups.get(cat)!.push(it);
+        }
+        return order.flatMap((cat) => [
+          el("div", { fontSize: 24, fontWeight: 700, letterSpacing: 1, borderBottom: "1.5px solid #000", paddingBottom: 3, marginTop: 8, marginBottom: 5 }, cat),
+          ...groups.get(cat)!.flatMap((it) => renderItem(it, big)),
+        ]);
+      };
+
+      if (o.hasAdditions) {
+        const batches = [...new Set(o.items.map((it) => it.batch ?? 0))].sort((a, b) => a - b);
+        return batches.flatMap((b) => {
+          const label = b === 0 ? "ROUND 1" : "ROUND " + (b + 1) + " - ADDED";
+          const its = o.items.filter((it) => (it.batch ?? 0) === b);
+          return [
             el("div", { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", width: "100%", borderTop: "2px solid #000", paddingTop: 6, marginTop: 10, marginBottom: 6 },
               el("div", { fontSize: 27, fontWeight: 700, letterSpacing: 1 }, label),
-              el("div", { fontSize: 22, fontWeight: 700 }, time || ""));
-          return batches.flatMap((b) => {
-            const label = b === 0 ? "ROUND 1" : "ROUND " + (b + 1) + " - ADDED";
-            const its = o.items.filter((it) => (it.batch ?? 0) === b);
-            const big = b > 0; // additions slightly larger to catch the eye
-            return [
-              roundHeader(label, bt[b] || ""),
-              ...its.flatMap((it) => [
-                row(`${it.qty} x ${it.name}`,
-                  typeof it.price === "number" ? gbp(it.price) : "",
-                  { fontWeight: 700, fontSize: big ? 30 : 27, maxWidth: "430px" },
-                  { fontWeight: 700, fontSize: big ? 30 : 27 }),
-                ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
-                ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
-                el("div", { height: 6 }),
-              ]),
-            ];
-          });
-        })()
-      : o.items.flatMap((it) => [
-          row(`${it.qty} x ${it.name}`,
-            typeof it.price === "number" ? gbp(it.price) : "",
-            { fontWeight: 700, fontSize: 27, maxWidth: "430px" },
-            { fontWeight: 700, fontSize: 27 }),
-          ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
-          ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
-          el("div", { height: 6 }),
-        ])),
+              el("div", { fontSize: 22, fontWeight: 700 }, bt[b] || "")),
+            ...renderGrouped(its, b > 0),
+          ];
+        });
+      }
+      return renderGrouped(o.items, false);
+    })()),
     rule(),
     ...(typeof o.subtotal === "number" && o.subtotal !== o.total
       ? [row("Subtotal", gbp(o.subtotal))]

@@ -49,18 +49,6 @@ export default function KDS() {
   const [fullscreen, setFullscreen] = useState(false);
   const [undo, setUndo] = useState(null);
   const [armedBump, setArmedBump] = useState(null); // {id, timer} — first tap arms, second confirms
-  // Per-screen bump set: the order IDs THIS screen has bumped. Persisted in
-  // localStorage under a screen-specific key so each screen is independent.
-  const screenId = getScreenId();
-  const bumpedKey = "kds_bumped_" + screenId;
-  const [localBumped, setLocalBumped] = useState(() => {
-    try { return new Set(JSON.parse(localStorage.getItem("kds_bumped_" + getScreenId()) || "[]")); } catch { return new Set(); }
-  });
-  useEffect(() => { try { localStorage.setItem(bumpedKey, JSON.stringify([...localBumped])); } catch {} }, [localBumped, bumpedKey]);
-  // Ref mirror so the polling loop (load) always sees the current bumped set
-  // without needing to re-create the callback on every bump.
-  const localBumpedRef = useRef(localBumped);
-  useEffect(() => { localBumpedRef.current = localBumped; }, [localBumped]);
   const [rushIds, setRushIds] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("kds_rush") || "[]")); } catch { return new Set(); } });
   // Orders/payment view state
   const [view, setView] = useState("kitchen");      // "kitchen" | "orders"
@@ -114,7 +102,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status)"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.asc&limit=200";
       if (loc) url += "&location_id=eq." + loc;
@@ -122,23 +110,13 @@ export default function KDS() {
       if (!r.ok) throw new Error("http " + r.status);
       const data = await r.json();
       setConnected(true);
-      // Beep only for genuinely new orders this screen hasn't bumped yet.
-      const activeIds = new Set(data.filter((o) => !localBumpedRef.current.has(o.id)).map((o) => o.id));
+      // Beep only for genuinely new orders (not yet served).
+      const activeIds = new Set(data.filter((o) => o.status !== BUMP_TO).map((o) => o.id));
       let isNew = false;
       for (const id of activeIds) if (!prevIds.current.has(id)) { isNew = true; break; }
       if (isNew && prevIds.current.size > 0) beep();
       prevIds.current = activeIds;
       setOrders(data);
-      // Prune the local bumped set: once an order is archived (day close) it
-      // drops out of this query, so we can forget it here too — keeps
-      // localStorage from growing without bound.
-      const liveIds = new Set(data.map((o) => o.id));
-      if (localBumpedRef.current.size) {
-        let changed = false;
-        const pruned = new Set();
-        for (const id of localBumpedRef.current) { if (liveIds.has(id)) pruned.add(id); else changed = true; }
-        if (changed) setLocalBumped(pruned);
-      }
     } catch { setConnected(false); }
   }, [loc, beep]);
 
@@ -217,20 +195,11 @@ export default function KDS() {
 
   const start = (o) => patchOrder(o.id, { status: "preparing", kds_started_at: new Date().toISOString() });
   const bump = (o) => {
-    // Per-screen bump: mark this order done ON THIS SCREEN only (local set).
-    // We do NOT set status='served' in the DB, because that shared field is
-    // what would remove the order from the OTHER screen. Each screen clears
-    // its own copy independently.
-    setLocalBumped((prev) => { const n = new Set(prev); n.add(o.id); return n; });
-    // Still record kds_bumped_at once (for completion-time reporting) — only if
-    // not already stamped, so the first screen to bump sets the timestamp and
-    // we never overwrite it. This does not affect either board's visibility.
-    if (!o.kds_bumped_at) {
-      patchOrder(o.id, { kds_bumped_at: new Date().toISOString() });
-    }
+    const prevStatus = o.status;
+    patchOrder(o.id, { status: BUMP_TO, kds_bumped_at: new Date().toISOString() });
     if (undo && undo.timer) clearTimeout(undo.timer);
     const timer = setTimeout(() => setUndo(null), 6000);
-    setUndo({ order: o, timer });
+    setUndo({ order: o, prevStatus, timer });
   };
   // First tap arms the button ("Tap again"); a second tap within 2.5s actually
   // bumps. Prevents accidental single touches (brushes, cleaning) on the large
@@ -248,16 +217,31 @@ export default function KDS() {
   };
   const doUndo = () => {
     if (!undo) return;
-    // Undo the bump on THIS screen only — remove from the local set.
-    setLocalBumped((prev) => { const n = new Set(prev); n.delete(undo.order.id); return n; });
+    patchOrder(undo.order.id, { status: undo.prevStatus, kds_bumped_at: null });
     if (undo.timer) clearTimeout(undo.timer);
     setUndo(null);
   };
-  const recall = (o) => setLocalBumped((prev) => { const n = new Set(prev); n.delete(o.id); return n; });
+  const recall = (o) => patchOrder(o.id, { status: "preparing", kds_bumped_at: null });
   const toggleItem = (o, it) => patchItem(it.id, { item_status: it.item_status === DONE_ITEM ? "preparing" : DONE_ITEM });
   const toggleRush = (o) => setRushIds((prev) => { const n = new Set(prev); n.has(o.id) ? n.delete(o.id) : n.add(o.id); return n; });
 
   const stationOf = (it) => it.station || "kitchen";
+  // Master category name from the nested join (item -> category -> menu.name).
+  const catOf = (it) => {
+    try { return (it.menu_items?.menu_categories?.menu_menus?.name || "").toUpperCase() || "OTHER"; }
+    catch { return "OTHER"; }
+  };
+  // Group a list of items by master category, preserving first-seen order.
+  const groupByCat = (list) => {
+    const order = [];
+    const groups = {};
+    for (const it of list) {
+      const c = catOf(it);
+      if (!groups[c]) { groups[c] = []; order.push(c); }
+      groups[c].push(it);
+    }
+    return order.map((c) => [c, groups[c]]);
+  };
   const filterStation = (o) => {
     if (station === "all") return o;
     const items = (o.menu_order_items || []).filter((it) => stationOf(it) === station);
@@ -267,9 +251,9 @@ export default function KDS() {
   // Active/completed are decided PER SCREEN by this screen's local bump set —
   // not the shared DB status — so each screen is independent. An order is
   // "active" here until THIS screen bumps it; "completed" once it has.
-  let active = orders.filter((o) => !localBumped.has(o.id)).map(filterStation).filter(Boolean);
+  let active = orders.filter((o) => o.status !== BUMP_TO).map(filterStation).filter(Boolean);
   active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0));
-  const completed = orders.filter((o) => localBumped.has(o.id)).map(filterStation).filter(Boolean)
+  const completed = orders.filter((o) => o.status === BUMP_TO).map(filterStation).filter(Boolean)
     .sort((a, b) => new Date(b.kds_bumped_at || b.created_at) - new Date(a.kds_bumped_at || a.created_at));
 
   // Orders/payment view: all non-closed orders, split by paid state. Unpaid float
@@ -377,7 +361,7 @@ export default function KDS() {
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "#4ade80" : "#f87171" }} />
             {connected ? "Live" : "\u2026"}
           </div>
-          {getParam("screen") && <div style={{ fontSize: 12, fontWeight: 800, color: "#cbd5e1", background: "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }}>Screen {screenId}</div>}
+          {getParam("screen") && <div style={{ fontSize: 12, fontWeight: 800, color: "#cbd5e1", background: "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }}>Screen {getScreenId()}</div>}
         </div>
       </div>
 
@@ -417,19 +401,24 @@ export default function KDS() {
                   </div>
                 </div>
                 <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
-                  {items.map((it) => {
-                    const done = it.item_status === DONE_ITEM;
-                    const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
-                    return (
-                      <div key={it.id} className="kitem" onClick={() => toggleItem(o, it)} style={{ padding: F(6) + "px " + F(6) + "px", cursor: "pointer", opacity: done ? .34 : 1 }}>
-                        <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
-                          <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
-                          <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25, textDecoration: done ? "line-through" : "none" }}>{it.name_snapshot}</span>
-                        </div>
-                        {mods.length > 0 && <div style={{ fontSize: F(13), color: "#7dd3fc", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
-                      </div>
-                    );
-                  })}
+                  {groupByCat(items).map(([cat, catItems]) => (
+                    <div key={cat} style={{ marginBottom: F(4) }}>
+                      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: "#94a3b8", borderBottom: "1px solid #ffffff1f", paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
+                      {catItems.map((it) => {
+                        const done = it.item_status === DONE_ITEM;
+                        const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
+                        return (
+                          <div key={it.id} className="kitem" onClick={() => toggleItem(o, it)} style={{ padding: F(6) + "px " + F(6) + "px", cursor: "pointer", opacity: done ? .34 : 1 }}>
+                            <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
+                              <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
+                              <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25, textDecoration: done ? "line-through" : "none" }}>{it.name_snapshot}</span>
+                            </div>
+                            {mods.length > 0 && <div style={{ fontSize: F(13), color: "#7dd3fc", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
                   {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#fecaca", background: "#7f1d1d33", border: "1px solid #7f1d1d", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 2, padding: 2 }}>

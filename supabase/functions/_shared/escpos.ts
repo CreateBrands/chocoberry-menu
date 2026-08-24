@@ -129,6 +129,7 @@ export interface ReceiptItem {
   note?: string; // per-item kitchen note (e.g. "Extra hot, no cream")
   added?: boolean; // true if this line was added after the original order
   batch?: number; // round number: 0 = original, 1 = 2nd round, 2 = 3rd round ...
+  category?: string; // master category name, for grouping on the slip/KDS
 }
 
 export interface ReceiptOrder {
@@ -207,21 +208,36 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
     }
   };
 
+  // Group a list of items by master category under an underlined heading.
+  const printGrouped = (list: ReceiptItem[]) => {
+    const order: string[] = [];
+    const groups = new Map<string, ReceiptItem[]>();
+    for (const it of list) {
+      const cat = (it.category || "OTHER").toUpperCase();
+      if (!groups.has(cat)) { groups.set(cat, []); order.push(cat); }
+      groups.get(cat)!.push(it);
+    }
+    for (const cat of order) {
+      r.bold(true).line(cat).bold(false);
+      r.divider("-");
+      for (const it of groups.get(cat)!) printItem(it);
+    }
+  };
+
   if (o.hasAdditions) {
     const bt = o.batchTimes || [];
     const batches = [...new Set(o.items.map((it) => it.batch ?? 0))].sort((a, b) => a - b);
     for (const b of batches) {
       const label = b === 0 ? "ROUND 1" : "ROUND " + (b + 1) + " - ADDED";
       const time = bt[b] || "";
-      r.divider("-");
+      r.divider("=");
       r.bold(true).leftRight(label, time).bold(false);
-      r.divider("-");
-      for (const it of o.items.filter((x) => (x.batch ?? 0) === b)) printItem(it);
+      printGrouped(o.items.filter((x) => (x.batch ?? 0) === b));
     }
     r.divider("=");
   } else {
     r.divider("=");
-    for (const it of o.items) printItem(it);
+    printGrouped(o.items);
     r.divider("=");
   }
 
