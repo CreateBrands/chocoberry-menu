@@ -158,7 +158,7 @@ async function loadReceiptOrder(
   // Items
   const { data: itemRows, error: itemsErr } = await supabase
     .from("menu_order_items")
-    .select("item_id, name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total, added_batch, note, created_at")
+    .select("item_id, name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total, added_batch, note")
     .eq("order_id", orderId)
     .order("added_batch", { ascending: true });
   if (itemsErr) throw new Error("menu_order_items lookup failed: " + itemsErr.message);
