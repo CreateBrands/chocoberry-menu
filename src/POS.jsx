@@ -381,6 +381,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   }
   // required groups must have their minimum satisfied before Add is allowed
   const modMissing = (modItem?.modifiers || []).some((g) => g.required && (modSel[g.id] || []).length < (g.min_select || 1));
+  const modReqGroups = (modItem?.modifiers || []).filter((g) => g.required);
+  const modReqDone = modReqGroups.filter((g) => (modSel[g.id] || []).length >= (g.min_select || 1)).length;
   const modUnit = modItem ? modItem.price + (modItem.modifiers || []).flatMap((g) => (g.options || []).filter((o) => (modSel[g.id] || []).includes(o.id))).reduce((s, o) => s + Number(o.price_delta || 0), 0) : 0;
   const setQty = (key, d) => setTicket((p) => p.flatMap((l) => l.key === key ? (l.qty + d <= 0 ? [] : [{ ...l, qty: l.qty + d }]) : [l]));
   const removeLine = (key) => setTicket((p) => p.filter((l) => l.key !== key));
@@ -752,32 +754,55 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
       {/* MODIFIER POPUP */}
       {modItem && (
-        <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.4)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 18, padding: 22, width: 420, maxWidth: "100%", maxHeight: "82vh", overflowY: "auto", boxShadow: "0 24px 60px rgba(18,21,28,.3)" }}>
-            <div style={{ fontWeight: 500, fontSize: 22 }}>{modItem.name}</div>
-            <div style={{ color: P.muted, fontSize: 15.5, marginBottom: 18 }}>{gbp(modItem.price)} · {editKey ? "editing" : "customise"}</div>
+        <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.45)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, padding: 26, width: 560, maxWidth: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 70px rgba(18,21,28,.28)" }}>
+            {/* header */}
+            <div style={{ display: "flex", alignItems: "center", gap: 17 }}>
+              <div style={{ width: 70, height: 70, borderRadius: 20, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, color: "#fff", background: modItem.image_url ? "#f0f1f3" : "linear-gradient(135deg," + catColor(modItem.category || (master && master.name)).bar + "," + catColor(modItem.category || (master && master.name)).ink + ")", backgroundImage: modItem.image_url ? "url(" + modItem.image_url + ")" : undefined, backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 6px 16px rgba(0,0,0,.18)" }}>{!modItem.image_url && fallbackFor(modItem.name, modItem.category || "").icon}</div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.08 }}>{modItem.name}</div>
+                <div style={{ fontSize: 15, color: "#9aa1ac", marginTop: 4, fontWeight: 600 }}>{gbp(modItem.price)} · {editKey ? "editing" : "customise"}</div>
+              </div>
+            </div>
+
+            {/* required progress */}
+            {modReqGroups.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 12, margin: "22px 0 24px" }}>
+                <div style={{ display: "flex", gap: 6, flex: 1 }}>
+                  {modReqGroups.map((g, i) => (
+                    <span key={i} style={{ flex: 1, height: 8, borderRadius: 5, background: i < modReqDone ? P.tealDeep : "#eef0f2" }} />
+                  ))}
+                </div>
+                <span style={{ fontSize: 13.5, fontWeight: 700, color: P.tealDeep, whiteSpace: "nowrap" }}>{modReqDone} of {modReqGroups.length} done</span>
+              </div>
+            )}
+
+            {/* groups */}
             {(modItem.modifiers || []).map((g) => {
               const chosen = modSel[g.id] || [];
               const single = (g.max_select || 1) === 1;
+              const gDone = !g.required || chosen.length >= (g.min_select || 1);
               return (
-                <div key={g.id} style={{ marginBottom: 18, background: "#f8fafa", border: "1px solid " + P.line, borderRadius: 14, padding: "14px 16px" }}>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 16, fontWeight: 500 }}>{g.name || ""}</span>
+                <div key={g.id} style={{ marginBottom: 24 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 15 }}>
+                    <span style={{ fontSize: 20, fontWeight: 700, letterSpacing: "-.015em" }}>{g.name || ""}</span>
+                    {g.required && <span style={{ fontSize: 11, fontWeight: 800, color: P.tealDeep, background: "#f0fdfa", border: "1.5px solid #ccfbf1", padding: "4px 11px", borderRadius: 20, letterSpacing: ".05em" }}>REQUIRED</span>}
+                    {(g.max_select || 1) > 1 && <span style={{ fontSize: 14, color: "#aeb4bd", fontWeight: 600 }}>up to {g.max_select}</span>}
                     {g.required
-                      ? <span style={{ fontSize: 13, fontWeight: 500, color: "#fff", background: P.tealB, padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
-                      : <span style={{ fontSize: 13, fontWeight: 500, color: P.muted }}>{(g.max_select || 1) > 1 ? "Pick up to " + g.max_select : "Optional"}</span>}
+                      ? <span style={{ marginLeft: "auto", fontSize: 14, fontWeight: 700, display: "flex", alignItems: "center", gap: 6, color: gDone ? P.tealDeep : "#c99a2e" }}>{gDone ? "✓ Done" : "• Pick one"}</span>
+                      : <span style={{ marginLeft: "auto", fontSize: 14, color: "#aeb4bd", fontWeight: 600 }}>Optional</span>}
                   </div>
-                  {g.description && <div style={{ fontSize: 15, color: P.muted2, marginBottom: 10, lineHeight: 1.35 }}>{g.description}</div>}
-                  <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: g.description ? 0 : 8 }}>
+                  {g.description && <div style={{ fontSize: 15, color: P.muted2, marginBottom: 12, lineHeight: 1.35 }}>{g.description}</div>}
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
                     {(g.options || []).map((o) => {
                       const on = chosen.includes(o.id);
                       return (
-                        <div key={o.id} onClick={() => toggleOpt(g, o.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 15px", borderRadius: 11, cursor: "pointer", fontSize: 16, fontWeight: 500, background: on ? grad : "#fff", color: on ? "#fff" : P.ink, border: "1px solid " + (on ? "transparent" : P.line) }}>
-                          <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span style={{ width: 20, height: 20, borderRadius: single ? "50%" : 6, border: "2px solid " + (on ? "#fff" : "#cbd5cf"), display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{on ? <span style={{ color: "#fff", fontSize: 15 }}>✓</span> : null}</span>
-                            {o.name}
+                        <div key={o.id} onClick={() => toggleOpt(g, o.id)} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "19px 18px", borderRadius: 17, cursor: "pointer", fontSize: 17, fontWeight: 600, background: on ? "linear-gradient(135deg,#eafaf7,#d9f5ee)" : "#fff", color: on ? "#0d4f48" : P.ink, border: "2px solid " + (on ? P.tealDeep : "#eaedf0"), boxShadow: on ? "0 5px 16px rgba(15,118,110,.16)" : "none" }}>
+                          <span style={{ display: "flex", alignItems: "center", gap: 13, minWidth: 0 }}>
+                            <span style={{ width: 27, height: 27, borderRadius: single ? "50%" : 8, border: "2.5px solid " + (on ? P.tealDeep : "#d3d8dd"), background: on ? P.tealDeep : "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0, color: "#fff", fontSize: 16 }}>{on ? "✓" : ""}</span>
+                            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{o.name}</span>
                           </span>
-                          {Number(o.price_delta) ? <span style={{ fontSize: 15.5, fontWeight: 500, color: on ? "rgba(255,255,255,.9)" : P.tealDeep }}>+{gbp(o.price_delta)}</span> : null}
+                          {Number(o.price_delta) ? <span style={{ fontSize: 15, fontWeight: 800, color: P.tealDeep, flexShrink: 0 }}>+{gbp(o.price_delta)}</span> : null}
                         </div>
                       );
                     })}
@@ -785,9 +810,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 </div>
               );
             })}
-            <div style={{ background: "#fffbf4", border: "1px solid #f0e2cc", borderRadius: 14, padding: "14px 16px", marginBottom: 16 }}>
-              <div style={{ fontSize: 15, fontWeight: 600, marginBottom: 10 }}>📝 Kitchen note <span style={{ fontSize: 14, color: "#b0a48a", fontWeight: 400 }}>(optional)</span></div>
-              <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 10 }}>
+
+            {/* kitchen note */}
+            <div style={{ background: "#fffbf4", border: "1px solid #f0e2cc", borderRadius: 16, padding: "16px 18px", marginBottom: 18 }}>
+              <div style={{ fontSize: 15.5, fontWeight: 700, marginBottom: 11 }}>📝 Kitchen note <span style={{ fontSize: 14, color: "#b0a48a", fontWeight: 500 }}>(optional)</span></div>
+              <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 11 }}>
                 {(() => {
                   const name = (modItem.name || "").toLowerCase();
                   const isDrink = /shake|coffee|latte|tea|juice|smoothie|drink|frapp|mocha|chai|hot choc/.test(name);
@@ -802,17 +829,19 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                         const parts = (modNote || "").split(",").map((s) => s.trim()).filter(Boolean);
                         if (parts.includes(val)) setModNote(parts.filter((p) => p !== val).join(", "));
                         else setModNote([...parts, val].join(", "));
-                      }} style={{ fontSize: 14, fontWeight: 600, cursor: "pointer", padding: "6px 12px", borderRadius: 20, border: "1px solid " + (isAl ? "#e6b8b0" : "#ead9bd"), background: active ? (isAl ? "#f7e0dc" : "#f6ead2") : "#fff", color: isAl ? "#c0392b" : "#9a6a2c" }}>{c}{active ? " ✓" : ""}</span>
+                      }} style={{ fontSize: 14.5, fontWeight: 700, cursor: "pointer", padding: "8px 14px", borderRadius: 20, border: "1.5px solid " + (isAl ? "#e6b8b0" : "#ead9bd"), background: active ? (isAl ? "#f7e0dc" : "#f6ead2") : "#fff", color: isAl ? "#c0392b" : "#9a6a2c" }}>{c}{active ? " ✓" : ""}</span>
                     );
                   });
                 })()}
               </div>
               <input type="text" value={modNote} onChange={(e) => setModNote(e.target.value)} placeholder="Add a note for the kitchen…"
-                style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1px solid #ead9bd", borderRadius: 10, padding: "11px 13px", fontSize: 15.5, color: "#5b5540", fontFamily: "inherit", outline: "none" }} />
+                style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1px solid #ead9bd", borderRadius: 11, padding: "13px 15px", fontSize: 16, color: "#5b5540", fontFamily: "inherit", outline: "none" }} />
             </div>
-            <div style={{ display: "flex", gap: 9, marginTop: 10 }}>
-              <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ padding: "15px 20px", borderRadius: 13, background: P.chip, color: "#0f766e", fontWeight: 500, cursor: "pointer", fontSize: 16 }}>Cancel</div>
-              <div onClick={() => !modMissing && confirmMods()} style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 13, background: modMissing ? "#d7dade" : grad, color: "#fff", fontWeight: 500, fontSize: 17, cursor: modMissing ? "default" : "pointer", boxShadow: modMissing ? "none" : "0 6px 16px rgba(13,148,136,.3)" }}>{modMissing ? "Choose required options" : (editKey ? "Update · " : "Add · ") + gbp(modUnit)}</div>
+
+            {/* footer */}
+            <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+              <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ padding: "19px 28px", borderRadius: 18, background: "#f4f6f8", color: "#5b6472", fontWeight: 700, cursor: "pointer", fontSize: 17 }}>Cancel</div>
+              <div onClick={() => !modMissing && confirmMods()} style={{ flex: 1, textAlign: "center", padding: "19px 0", borderRadius: 18, background: modMissing ? "#dde1e5" : grad, color: modMissing ? "#8a929c" : "#fff", fontWeight: 700, fontSize: 19, letterSpacing: "-.01em", cursor: modMissing ? "default" : "pointer", boxShadow: modMissing ? "none" : "0 10px 26px rgba(13,148,136,.34)" }}>{modMissing ? "Choose required options" : (editKey ? "Update · " : "Add · ") + gbp(modUnit)}</div>
             </div>
           </div>
         </div>
