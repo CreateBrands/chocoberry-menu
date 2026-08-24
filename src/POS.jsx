@@ -479,7 +479,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
             <span style={{ fontSize: 15.5, color: P.muted2 }}>{shown.length} items</span>
           </div>
-          <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gridAutoRows: "min-content", gap: 10, overflowY: "auto" }}>
+          <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gridAutoRows: "min-content", gap: 13, overflowY: "auto" }}>
             {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
             {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
             {shown.map((it) => {
@@ -489,25 +489,25 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               const inCart = qtyInCart[it.id] || 0;
               const soldOut = it.available === false;
               return (
-                <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }} style={{ background: P.panel, borderRadius: 15, border: "0.5px solid " + (inCart ? P.tealB : "#e6e8ec"), boxShadow: inCart ? "0 0 0 1px " + P.tealB : "0 1px 2px rgba(18,21,28,.05)", cursor: soldOut ? "not-allowed" : "pointer", position: "relative", display: "flex", alignItems: "center", gap: 13, padding: "10px 12px", minHeight: 70, opacity: soldOut ? 0.5 : 1 }}>
+                <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }} style={{ background: P.panel, borderRadius: 16, border: "0.5px solid " + (inCart ? P.tealB : "#e6e8ec"), boxShadow: inCart ? "0 0 0 1.5px " + P.tealB : "0 1px 3px rgba(18,21,28,.06)", cursor: soldOut ? "not-allowed" : "pointer", position: "relative", display: "flex", alignItems: "center", gap: 15, padding: 13, minHeight: 92, opacity: soldOut ? 0.5 : 1 }}>
                   {/* thumbnail with category colour dot */}
-                  <div style={{ width: 52, height: 52, flexShrink: 0, borderRadius: 13, background: it.image_url ? "#f0f1f3" : cc.bg, display: "flex", alignItems: "center", justifyContent: "center", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : "none", backgroundSize: "cover", backgroundPosition: "center", position: "relative", boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,.04)" }}>
-                    {!it.image_url && <span style={{ fontSize: 25, filter: soldOut ? "grayscale(1)" : "none" }}>{fb.icon}</span>}
-                    <span style={{ position: "absolute", bottom: 4, left: 4, width: 6, height: 6, borderRadius: "50%", background: cc.bar, boxShadow: "0 0 0 1.5px #fff" }} />
-                    {hasMods && !soldOut ? <span style={{ position: "absolute", bottom: -4, right: -4, width: 19, height: 19, borderRadius: "50%", background: "#fff", border: "0.5px solid #e6e8ec", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: P.muted }}>⚙</span> : null}
+                  <div style={{ width: 66, height: 66, flexShrink: 0, borderRadius: 14, background: it.image_url ? "#f0f1f3" : cc.bg, display: "flex", alignItems: "center", justifyContent: "center", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : "none", backgroundSize: "cover", backgroundPosition: "center", position: "relative", boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,.04)" }}>
+                    {!it.image_url && <span style={{ fontSize: 34, filter: soldOut ? "grayscale(1)" : "none" }}>{fb.icon}</span>}
+                    <span style={{ position: "absolute", bottom: 5, left: 5, width: 8, height: 8, borderRadius: "50%", background: cc.bar, boxShadow: "0 0 0 2px #fff" }} />
+                    {hasMods && !soldOut ? <span style={{ position: "absolute", bottom: -5, right: -5, width: 22, height: 22, borderRadius: "50%", background: "#fff", border: "0.5px solid #e6e8ec", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: P.muted }}>⚙</span> : null}
                   </div>
                   {/* name + price */}
                   <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column" }}>
-                    <div style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.22, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
-                    <div style={{ fontWeight: 600, fontSize: 13.5, color: P.muted, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
+                    <div style={{ fontWeight: 600, fontSize: 17, lineHeight: 1.25, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
+                    <div style={{ fontWeight: 600, fontSize: 15, color: P.muted, marginTop: 5, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
                   </div>
                   {/* right affordance: quantity badge if in cart, 86 if sold out, else + */}
                   {soldOut ? (
-                    <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 800, color: "#b4462f", background: "#fbeaea", border: "1px solid #f0c9c2", borderRadius: 8, padding: "4px 8px", letterSpacing: ".02em" }}>86</span>
+                    <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 800, color: "#b4462f", background: "#fbeaea", border: "1px solid #f0c9c2", borderRadius: 9, padding: "5px 9px", letterSpacing: ".02em" }}>86</span>
                   ) : inCart ? (
-                    <span style={{ width: 34, height: 34, flexShrink: 0, borderRadius: 11, background: P.tealB, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, boxShadow: "0 2px 6px rgba(15,118,110,.3)" }}>{inCart}</span>
+                    <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 12, background: P.tealB, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, boxShadow: "0 2px 6px rgba(15,118,110,.3)" }}>{inCart}</span>
                   ) : (
-                    <span style={{ width: 34, height: 34, flexShrink: 0, borderRadius: 11, background: P.tealB, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 2px 6px rgba(15,118,110,.3)" }}>+</span>
+                    <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 12, background: P.tealB, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 23, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 2px 6px rgba(15,118,110,.3)" }}>+</span>
                   )}
                 </div>
               );
