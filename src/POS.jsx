@@ -255,12 +255,18 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
   const saveMerge = async ({ id, menu_id, new_name, category_ids }) => {
     try {
-      await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
         body: JSON.stringify({ pos: true, action: "merge_save", data: { id, menu_id, new_name, category_ids } }),
       });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || j.error) { alert("Merge failed: " + (j.error || ("HTTP " + r.status))); return false; }
       await loadMerges();
-    } catch { /* ignore */ }
+      return true;
+    } catch (e) {
+      alert("Merge failed: " + String(e && e.message ? e.message : e));
+      return false;
+    }
   };
   const deleteMerge = async (id) => {
     try {
@@ -819,8 +825,8 @@ function MergeEditor({ master, merges, P, grad, gbp, onSave, onDelete, onClose }
   const toggle = (id) => setSel((s) => ({ ...s, [id]: !s[id] }));
   const doMerge = async () => {
     if (!canMerge) return;
-    await onSave({ menu_id: master.id, new_name: name.trim(), category_ids: chosen.map((s) => s.id) });
-    setSel({}); setName("");
+    const ok = await onSave({ menu_id: master.id, new_name: name.trim(), category_ids: chosen.map((s) => s.id) });
+    if (ok) { setSel({}); setName(""); }
   };
   const catName = (id) => (raw.find((s) => s.id === id) || {}).name || "—";
   return (
