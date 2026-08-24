@@ -116,7 +116,7 @@ async function loadReceiptOrder(
   // Items
   const { data: itemRows, error: itemsErr } = await supabase
     .from("menu_order_items")
-    .select("item_id, name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total, added_batch, note")
+    .select("item_id, name_snapshot, price_snapshot, qty, modifiers_snapshot, line_total, added_batch, note, created_at")
     .eq("order_id", orderId)
     .order("added_batch", { ascending: true });
   if (itemsErr) throw new Error("menu_order_items lookup failed: " + itemsErr.message);
@@ -134,6 +134,7 @@ async function loadReceiptOrder(
         : parseFloat(String(it.line_total ?? "")) || undefined,
       station: stationByLine[i],
       added: (it.added_batch ?? 0) > 0,
+      batch: it.added_batch ?? 0,
       note: it.note ? String(it.note) : undefined,
       modifiers: Array.isArray(mods)
         ? (mods as unknown[]).map((m) => String(m))
@@ -143,6 +144,26 @@ async function loadReceiptOrder(
     };
   });
   const hasAdditions = items.some((it) => (it as any).added);
+
+  // Per-round timestamps: earliest item created_at within each added_batch,
+  // formatted as a short local time (e.g. "2:31 PM"). batchTimes[0] = original.
+  const batchFirstTs = new Map<number, number>();
+  for (const it of (itemRows ?? [])) {
+    const b = (it as any).added_batch ?? 0;
+    const ts = (it as any).created_at ? Date.parse(String((it as any).created_at)) : NaN;
+    if (!Number.isNaN(ts)) {
+      const cur = batchFirstTs.get(b);
+      if (cur === undefined || ts < cur) batchFirstTs.set(b, ts);
+    }
+  }
+  const maxBatch = Math.max(0, ...[...batchFirstTs.keys()]);
+  const batchTimes: string[] = [];
+  for (let b = 0; b <= maxBatch; b++) {
+    const ts = batchFirstTs.get(b);
+    batchTimes[b] = ts !== undefined
+      ? new Date(ts).toLocaleTimeString("en-GB", { timeZone: "Europe/London", hour: "numeric", minute: "2-digit", hour12: true })
+      : "";
+  }
 
   // Dine-in table name (best-effort: tolerate unknown column naming)
   let tableLabel: string | undefined;
@@ -204,6 +225,7 @@ async function loadReceiptOrder(
     tabletNo: rec.tablet_no ? String(rec.tablet_no) : undefined,
     storeName,
     hasAdditions,
+    batchTimes,
   };
 }
 

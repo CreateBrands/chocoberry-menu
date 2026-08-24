@@ -128,6 +128,7 @@ export interface ReceiptItem {
   modifiers?: string[]; // e.g. ["No cream", "Extra strawberries"]
   note?: string; // per-item kitchen note (e.g. "Extra hot, no cream")
   added?: boolean; // true if this line was added after the original order
+  batch?: number; // round number: 0 = original, 1 = 2nd round, 2 = 3rd round ...
 }
 
 export interface ReceiptOrder {
@@ -145,6 +146,7 @@ export interface ReceiptOrder {
   total?: number;
   notes?: string;
   storeName?: string;
+  batchTimes?: string[]; // pre-formatted local time per round; batchTimes[0]=original, [1]=2nd round ...
 }
 
 const gbp = (n: number) => "GBP " + n.toFixed(2);
@@ -206,16 +208,16 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
   };
 
   if (o.hasAdditions) {
-    const original = o.items.filter((it) => !it.added);
-    const added = o.items.filter((it) => it.added);
-    r.divider("=");
-    r.align(1).bold(true).line("ORIGINAL ORDER").bold(false).align(0);
-    r.divider("-");
-    for (const it of original) printItem(it);
-    r.feed(1).divider("*");
-    r.align(1).size(1, 1).bold(true).line("*** ADDED ***").bold(false).size(0, 0).align(0);
-    r.divider("*");
-    for (const it of added) printItem(it);
+    const bt = o.batchTimes || [];
+    const batches = [...new Set(o.items.map((it) => it.batch ?? 0))].sort((a, b) => a - b);
+    for (const b of batches) {
+      const label = b === 0 ? "ROUND 1" : "ROUND " + (b + 1) + " - ADDED";
+      const time = bt[b] || "";
+      r.divider("-");
+      r.bold(true).leftRight(label, time).bold(false);
+      r.divider("-");
+      for (const it of o.items.filter((x) => (x.batch ?? 0) === b)) printItem(it);
+    }
     r.divider("=");
   } else {
     r.divider("=");
@@ -238,12 +240,9 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
     for (const l of wrap(o.notes, LINE_WIDTH)) r.line(l);
   }
 
-  // When this order had items added, the earlier slip is now out of date — tell
-  // the kitchen to bin it so the original items aren't made twice.
+  // When this order had items added, remind the kitchen the newest round is last.
   if (o.hasAdditions) {
-    r.feed(1).divider("*");
-    r.align(1).size(1, 1).bold(true).line("DISCARD PREVIOUS").line("SLIP FOR THIS ORDER").bold(false).size(0, 0).align(0);
-    r.divider("*");
+    r.feed(1).align(1).line("-- newest round at the bottom --").align(0);
   }
 
   r.feed(1).align(1).line("Thank you!").feed(3).cut();

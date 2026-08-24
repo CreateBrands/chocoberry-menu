@@ -76,33 +76,35 @@ function receiptTree(o: ReceiptOrder): Node {
           el("div", {}, o.notes)),
         rule()]
       : []),
-    // Items. When items were added to an existing order, split into ORIGINAL and
-    // ADDED sections so the kitchen sees clearly what's new and doesn't remake the
-    // first part. Otherwise render a single flat list.
+    // Items. When items were added across multiple rounds, group by round
+    // (batch) so each addition is clearly separated with its own label + time.
+    // Otherwise render a single flat list.
     ...(o.hasAdditions
-      ? [
-          el("div", { fontWeight: 700, fontSize: 30, marginBottom: 4 }, "ORIGINAL ORDER"),
-          ...o.items.filter((it) => !it.added).flatMap((it) => [
-            row(`${it.qty} x ${it.name}`,
-              typeof it.price === "number" ? gbp(it.price) : "",
-              { fontWeight: 700, fontSize: 27, maxWidth: "430px" },
-              { fontWeight: 700, fontSize: 27 }),
-            ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
-          ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
-            el("div", { height: 6 }),
-          ]),
-          el("div", { flexDirection: "column", alignItems: "center", width: "100%", background: "#000", color: "#fff", padding: "6px 0", marginTop: 6, marginBottom: 6 },
-            el("div", { fontSize: 40, fontWeight: 700, letterSpacing: 2 }, "* * *  ADDED  * * *")),
-          ...o.items.filter((it) => it.added).flatMap((it) => [
-            row(`${it.qty} x ${it.name}`,
-              typeof it.price === "number" ? gbp(it.price) : "",
-              { fontWeight: 700, fontSize: 30, maxWidth: "430px" },
-              { fontWeight: 700, fontSize: 30 }),
-            ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
-          ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
-            el("div", { height: 6 }),
-          ]),
-        ]
+      ? (() => {
+          const bt = o.batchTimes || [];
+          const batches = [...new Set(o.items.map((it) => it.batch ?? 0))].sort((a, b) => a - b);
+          const roundHeader = (label: string, time: string) =>
+            el("div", { flexDirection: "row", alignItems: "baseline", justifyContent: "space-between", width: "100%", borderTop: "2px solid #000", paddingTop: 6, marginTop: 10, marginBottom: 6 },
+              el("div", { fontSize: 27, fontWeight: 700, letterSpacing: 1 }, label),
+              el("div", { fontSize: 22, fontWeight: 700 }, time || ""));
+          return batches.flatMap((b) => {
+            const label = b === 0 ? "ROUND 1" : "ROUND " + (b + 1) + " · ADDED";
+            const its = o.items.filter((it) => (it.batch ?? 0) === b);
+            const big = b > 0; // additions slightly larger to catch the eye
+            return [
+              roundHeader(label, bt[b] || ""),
+              ...its.flatMap((it) => [
+                row(`${it.qty} x ${it.name}`,
+                  typeof it.price === "number" ? gbp(it.price) : "",
+                  { fontWeight: 700, fontSize: big ? 30 : 27, maxWidth: "430px" },
+                  { fontWeight: 700, fontSize: big ? 30 : 27 }),
+                ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
+                ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
+                el("div", { height: 6 }),
+              ]),
+            ];
+          });
+        })()
       : o.items.flatMap((it) => [
           row(`${it.qty} x ${it.name}`,
             typeof it.price === "number" ? gbp(it.price) : "",
@@ -124,9 +126,8 @@ function receiptTree(o: ReceiptOrder): Node {
       : []),
     rule(),
     ...(o.hasAdditions
-      ? [el("div", { flexDirection: "column", alignItems: "center", width: "100%", background: "#000", color: "#fff", padding: "10px 0", marginBottom: 6 },
-          el("div", { fontSize: 34, fontWeight: 700 }, "DISCARD PREVIOUS"),
-          el("div", { fontSize: 34, fontWeight: 700 }, "SLIP FOR THIS ORDER"))]
+      ? [el("div", { justifyContent: "center", width: "100%", fontSize: 22, fontWeight: 700, marginBottom: 6 },
+          "-- newest round at the bottom --")]
       : []),
     el("div", { justifyContent: "center", width: "100%", fontSize: 22 },
       `Chocoberry${o.storeName ? " - " + o.storeName : ""} - thank you!`),
