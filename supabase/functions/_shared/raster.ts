@@ -122,7 +122,7 @@ function receiptTree(o: ReceiptOrder): Node {
         });
       }
       return renderGrouped(o.items, false);
-    })()),
+    })(),
     rule(),
     ...(typeof o.subtotal === "number" && o.subtotal !== o.total
       ? [row("Subtotal", gbp(o.subtotal))]
