@@ -395,14 +395,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const catColor = (menuName) => {
     const n = (menuName || "").toLowerCase();
     const COLORS = {
-      coldDrink: { bar: "#185FA5", bg: "#eaf3fb", ink: "#0C447C" },
-      hotDrink:  { bar: "#378ADD", bg: "#e6f1fb", ink: "#0C447C" },
-      breakfast: { bar: "#BA7517", bg: "#faeeda", ink: "#633806" },
-      food:      { bar: "#C0532E", bg: "#faece7", ink: "#7A2E15" },
-      bowls:     { bar: "#639922", bg: "#eaf3de", ink: "#27500A" },
-      dessert:   { bar: "#7F77DD", bg: "#eeedfe", ink: "#3C3489" },
-      kids:      { bar: "#D4537E", bg: "#fbeaf0", ink: "#993556" },
-      neutral:   { bar: "#94a3b8", bg: "#f1f5f9", ink: "#475569" },
+      coldDrink: { bar: "#185FA5", bg: "#eaf3fb", ink: "#0C447C", g1: "#eaf3fb", g2: "#d3e6f7" },
+      hotDrink:  { bar: "#378ADD", bg: "#e6f1fb", ink: "#0C447C", g1: "#eaf3fb", g2: "#d3e6f7" },
+      breakfast: { bar: "#BA7517", bg: "#faeeda", ink: "#633806", g1: "#faeeda", g2: "#f6dcae" },
+      food:      { bar: "#C0532E", bg: "#faece7", ink: "#7A2E15", g1: "#faece7", g2: "#f3d0c4" },
+      bowls:     { bar: "#639922", bg: "#eaf3de", ink: "#27500A", g1: "#eaf3de", g2: "#d5e8bd" },
+      dessert:   { bar: "#7F77DD", bg: "#eeedfe", ink: "#3C3489", g1: "#eeedfe", g2: "#dcd9f7" },
+      kids:      { bar: "#D4537E", bg: "#fbeaf0", ink: "#993556", g1: "#fbeaf0", g2: "#f5cfdd" },
+      neutral:   { bar: "#94a3b8", bg: "#f1f5f9", ink: "#475569", g1: "#f1f5f9", g2: "#e2e8f0" },
     };
     if (/kid/.test(n)) return COLORS.kids;
     if (/iced|cold|soft drink|juice|mocktail|shake|cooler|falooda|matcha/.test(n)) return COLORS.coldDrink;
@@ -479,7 +479,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
             <span style={{ fontSize: 15.5, color: P.muted2 }}>{shown.length} items</span>
           </div>
-          <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gridAutoRows: "min-content", gap: 13, overflowY: "auto" }}>
+          <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gridAutoRows: "min-content", gap: 15, overflowY: "auto" }}>
             {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
             {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
             {shown.map((it) => {
@@ -489,26 +489,27 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               const inCart = qtyInCart[it.id] || 0;
               const soldOut = it.available === false;
               return (
-                <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }} style={{ background: P.panel, borderRadius: 16, border: "0.5px solid " + (inCart ? P.tealB : "#e6e8ec"), boxShadow: inCart ? "0 0 0 1.5px " + P.tealB : "0 1px 3px rgba(18,21,28,.06)", cursor: soldOut ? "not-allowed" : "pointer", position: "relative", display: "flex", alignItems: "center", gap: 15, padding: 13, minHeight: 92, opacity: soldOut ? 0.5 : 1 }}>
-                  {/* thumbnail with category colour dot */}
-                  <div style={{ width: 66, height: 66, flexShrink: 0, borderRadius: 14, background: it.image_url ? "#f0f1f3" : cc.bg, display: "flex", alignItems: "center", justifyContent: "center", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : "none", backgroundSize: "cover", backgroundPosition: "center", position: "relative", boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,.04)" }}>
-                    {!it.image_url && <span style={{ fontSize: 34, filter: soldOut ? "grayscale(1)" : "none" }}>{fb.icon}</span>}
-                    <span style={{ position: "absolute", bottom: 5, left: 5, width: 8, height: 8, borderRadius: "50%", background: cc.bar, boxShadow: "0 0 0 2px #fff" }} />
-                    {hasMods && !soldOut ? <span style={{ position: "absolute", bottom: -5, right: -5, width: 22, height: 22, borderRadius: "50%", background: "#fff", border: "0.5px solid #e6e8ec", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: P.muted }}>⚙</span> : null}
+                <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }} style={{ background: P.panel, borderRadius: 20, border: "0.5px solid " + (inCart ? P.tealB : "#e6e8ec"), boxShadow: inCart ? "0 0 0 2px " + P.tealB + ", 0 2px 8px rgba(18,21,28,.06)" : "0 2px 8px rgba(18,21,28,.06)", cursor: soldOut ? "not-allowed" : "pointer", position: "relative", display: "flex", flexDirection: "column", overflow: "hidden", opacity: soldOut ? 0.55 : 1 }}>
+                  {/* photo (or gradient fallback) */}
+                  <div style={{ width: "100%", aspectRatio: "16 / 10", background: it.image_url ? "#f0f1f3" : "linear-gradient(135deg, " + (soldOut ? "#f0f0ef, #e2e2e0" : cc.g1 + ", " + cc.g2) + ")", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : undefined, backgroundSize: "cover", backgroundPosition: "center", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+                    {!it.image_url && <span style={{ fontSize: 52, color: soldOut ? "#999" : cc.bar, filter: soldOut ? "grayscale(1)" : "none" }}>{fb.icon}</span>}
+                    {/* category / sold-out pill */}
+                    <span style={{ position: "absolute", top: 11, left: 11, fontSize: 11.5, fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: "rgba(255,255,255,.86)", color: soldOut ? "#b4462f" : cc.ink }}>{soldOut ? "86 · sold out" : (it.category || "").slice(0, 16)}</span>
+                    {/* quantity badge, or modifier gear */}
+                    {!soldOut && inCart ? (
+                      <span style={{ position: "absolute", top: 11, right: 11, minWidth: 30, height: 30, padding: "0 8px", borderRadius: 15, background: P.tealB, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, boxShadow: "0 2px 6px rgba(15,118,110,.4)" }}>{inCart}</span>
+                    ) : (hasMods && !soldOut) ? (
+                      <span style={{ position: "absolute", top: 11, right: 11, width: 28, height: 28, borderRadius: "50%", background: "rgba(255,255,255,.92)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: "#555", boxShadow: "0 1px 3px rgba(0,0,0,.14)" }}>⚙</span>
+                    ) : null}
                   </div>
-                  {/* name + price */}
-                  <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column" }}>
-                    <div style={{ fontWeight: 600, fontSize: 17, lineHeight: 1.25, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
-                    <div style={{ fontWeight: 600, fontSize: 15, color: P.muted, marginTop: 5, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
+                  {/* name + price + add */}
+                  <div style={{ padding: "13px 15px 15px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 18, lineHeight: 1.22, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
+                      <div style={{ fontWeight: 600, fontSize: 15, color: P.muted, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
+                    </div>
+                    {!soldOut && <span style={{ width: 44, height: 44, flexShrink: 0, borderRadius: 14, background: P.tealB, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 25, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 3px 8px rgba(15,118,110,.32)" }}>+</span>}
                   </div>
-                  {/* right affordance: quantity badge if in cart, 86 if sold out, else + */}
-                  {soldOut ? (
-                    <span style={{ flexShrink: 0, fontSize: 13, fontWeight: 800, color: "#b4462f", background: "#fbeaea", border: "1px solid #f0c9c2", borderRadius: 9, padding: "5px 9px", letterSpacing: ".02em" }}>86</span>
-                  ) : inCart ? (
-                    <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 12, background: P.tealB, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 700, boxShadow: "0 2px 6px rgba(15,118,110,.3)" }}>{inCart}</span>
-                  ) : (
-                    <span style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 12, background: P.tealB, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 23, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 2px 6px rgba(15,118,110,.3)" }}>+</span>
-                  )}
                 </div>
               );
             })}
