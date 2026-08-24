@@ -499,12 +499,14 @@ Deno.serve(async (req) => {
   }
 
   // The automatic webhook (menu_orders INSERT) must carry the print secret.
-  // The manual reprint action (print-order) comes from the tablet with the anon
-  // key (validated by the platform) and is a low-risk staff action, so it does
-  // not require the master secret — we never ship that secret to the tablet.
+  // The manual reprint (print-order) and the recovery sweep (sweep-unprinted)
+  // are low-risk operational actions — they only re-push orders that already
+  // exist and were meant to print — so they don't require the master secret.
+  // We never ship that secret to the tablet or the cron scheduler.
   const secret = Deno.env.get("PRINT_WEBHOOK_SECRET");
-  const isReprint = body.action === "print-order";
-  if (!isReprint) {
+  const noSecretActions = new Set(["print-order", "sweep-unprinted"]);
+  const isOpen = noSecretActions.has(String(body.action));
+  if (!isOpen) {
     if (!secret || req.headers.get("x-print-secret") !== secret) {
       return json({ error: "unauthorized" }, 401);
     }
@@ -591,7 +593,7 @@ Deno.serve(async (req) => {
       case "sweep-unprinted": {
         const sinceMin = Number(body.since_minutes) || 180; // default: last 3h
         const sinceIso = new Date(Date.now() - sinceMin * 60000).toISOString();
-        // Candidate orders: created recently, not archived (closed_at null).
+        // Candidate orders: created recently, not archived, not on hold/cancelled.
         const { data: orders, error } = await supabase
           .from("menu_orders")
           .select("*")
@@ -599,15 +601,49 @@ Deno.serve(async (req) => {
           .is("closed_at", null)
           .order("created_at", { ascending: true });
         if (error) throw error;
-        // Which orders already have at least one confirmed ("sent") print job?
-        const ids = (orders || []).map((o: any) => o.id);
-        const printedSet = new Set<string>();
+        const candidates = (orders || []).filter((o: any) => o.status !== "hold" && o.status !== "cancelled");
+        const ids = candidates.map((o: any) => o.id);
+
+        // For each order, the highest round (batch) it currently has.
+        const orderMaxBatch = new Map<string, number>();
+        if (ids.length) {
+          const { data: its } = await supabase
+            .from("menu_order_items").select("order_id, added_batch").in("order_id", ids);
+          for (const it of its || []) {
+            const b = (it as any).added_batch ?? 0;
+            const cur = orderMaxBatch.get((it as any).order_id);
+            if (cur === undefined || b > cur) orderMaxBatch.set((it as any).order_id, b);
+          }
+        }
+
+        // Which active printers should have each order? (all of them, since both
+        // print the full order). We need per-(order,printer) confirmation.
+        const { data: activePrinters } = await supabase
+          .from("printers").select("sn").eq("active", true);
+        const printerSns = (activePrinters || []).map((p: any) => String(p.sn));
+
+        // Highest confirmed round per (order, printer).
+        const confirmed = new Map<string, number>(); // key: order_id + "|" + sn
         if (ids.length) {
           const { data: jobs } = await supabase
-            .from("print_jobs").select("order_id").eq("status", "sent").in("order_id", ids);
-          for (const j of jobs || []) printedSet.add(j.order_id);
+            .from("print_jobs").select("order_id, printer_sn, max_batch")
+            .eq("status", "sent").in("order_id", ids);
+          for (const j of jobs || []) {
+            const key = (j as any).order_id + "|" + (j as any).printer_sn;
+            const mb = typeof (j as any).max_batch === "number" ? (j as any).max_batch : 0;
+            const cur = confirmed.get(key);
+            if (cur === undefined || mb > cur) confirmed.set(key, mb);
+          }
         }
-        const missing = (orders || []).filter((o: any) => !printedSet.has(o.id));
+
+        // An order needs a re-push if ANY active printer is missing, or is behind
+        // the order's latest round. printOrder() then sends each printer only the
+        // rounds it lacks (per-printer independence), so this is safe + targeted.
+        const missing = candidates.filter((o: any) => {
+          const need = orderMaxBatch.get(o.id) ?? 0;
+          return printerSns.some((sn) => (confirmed.get(o.id + "|" + sn) ?? -1) < need);
+        });
+
         const results = [];
         for (const o of missing) {
           try {
@@ -617,7 +653,7 @@ Deno.serve(async (req) => {
             results.push({ order_id: o.id, order_no: o.order_no, repushed: false, error: String(e) });
           }
         }
-        return json({ ok: true, checked: orders?.length ?? 0, repushed: results.length, results });
+        return json({ ok: true, checked: candidates.length, repushed: results.length, results });
       }
 
       case "print-summary": {
