@@ -453,15 +453,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         {/* COLUMN 2 — subcategories only, full height */}
         <div style={{ width: "clamp(195px, 15vw, 255px)", flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
           {master && <div style={{ padding: "14px 15px 9px", fontSize: 15, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name}</div>}
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 13px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
             {subs.map((s, i) => {
               const on = activeSub === i && !search;
-              const scc = catColor(s.name);
-              const sicon = fallbackFor(s.name, s.name).icon;
               return (
-                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 14, padding: "12px 13px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, background: on ? "linear-gradient(135deg, " + scc.bar + ", " + scc.ink + ")" : "#fff", border: "0.5px solid " + (on ? "transparent" : "#eceef1"), boxShadow: on ? "0 5px 16px rgba(20,30,50,.16)" : "none" }}>
-                  <span style={{ width: 38, height: 38, borderRadius: 11, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20, background: on ? "rgba(255,255,255,.22)" : scc.bg, color: on ? "#fff" : scc.bar }}>{sicon}</span>
-                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: 15.5, fontWeight: on ? 600 : 500, letterSpacing: "-.01em", color: on ? "#fff" : "#2b3648" }}>{s.name}</span>
+                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 12, padding: "16px 15px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 17, fontWeight: 700, lineHeight: 1.2, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder), boxShadow: on ? "0 4px 12px rgba(13,148,136,.3)" : "none" }}>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</span>
                 </div>
               );
             })}
