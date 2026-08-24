@@ -571,19 +571,14 @@ Deno.serve(async (req) => {
           let online: boolean | null = null;
           try {
             const r = await sunmi.onlineStatus(String((p as any).sn));
-            let d: any = (r as any)?.data ?? r;
-            // Sunmi may return data as an array of { is_online, msn } or a single
-            // object. Normalise to the record for this SN.
-            if (Array.isArray(d)) {
-              const match = d.find((x: any) => String(x?.msn ?? x?.sn ?? "") === String((p as any).sn));
-              d = match ?? d[0] ?? {};
-            }
-            // is_online comes back as a STRING "1"/"0" (per Sunmi docs), sometimes
-            // a number/bool. Coerce all forms.
-            const v = d?.is_online ?? d?.online ?? d?.status;
+            // Sunmi shape: { code, data: { list: [ { sn, msn, is_online } ] } }.
+            // is_online is 1 (online) / 0 (offline). Match the row by sn.
+            const list: any[] = (r as any)?.data?.list ?? [];
+            const row = list.find((x: any) => String(x?.sn ?? x?.msn ?? "") === String((p as any).sn)) ?? list[0];
+            const v = row?.is_online;
             const s = String(v);
-            online = (s === "1" || s === "true" || s === "online") ? true
-                   : (s === "0" || s === "false" || s === "offline") ? false : null;
+            online = (s === "1" || s === "true") ? true
+                   : (s === "0" || s === "false") ? false : null;
           } catch { online = null; }
           const patch: Record<string, unknown> = { online };
           if (online === true) patch.last_online_at = nowIso;
