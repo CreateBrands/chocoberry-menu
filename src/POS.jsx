@@ -467,21 +467,21 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         </div>
 
         {/* ITEM GRID */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "#12161f" }}>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "16px 20px 0" }}>
-            <div style={{ background: "#1c2230", border: "1px solid #2c3444", borderRadius: 14, padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 20, color: "#7b8698" }}>⌕</span>
+            <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 14, padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20, color: P.muted2 }}>⌕</span>
               <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
-                style={{ flex: 1, border: "none", outline: "none", background: "transparent", padding: "14px 0", fontSize: 16, color: "#f1f3f7", fontFamily: "inherit" }} />
+                style={{ flex: 1, border: "none", outline: "none", background: "transparent", padding: "14px 0", fontSize: 16, color: P.ink, fontFamily: "inherit" }} />
             </div>
           </div>
           <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 20px 10px" }}>
-            <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px", color: "#f1f3f7" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
-            <span style={{ fontSize: 15.5, color: "#7b8698" }}>{shown.length} items</span>
+            <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
+            <span style={{ fontSize: 15.5, color: P.muted2 }}>{shown.length} items</span>
           </div>
           <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gridAutoRows: "min-content", gap: 15, overflowY: "auto" }}>
-            {cats === null && <div style={{ color: "#7b8698" }}>Loading menu…</div>}
-            {cats && shown.length === 0 && <div style={{ color: "#7b8698" }}>No items.</div>}
+            {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
+            {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
             {shown.map((it) => {
               const fb = fallbackFor(it.name, it.category || "");
               const hasMods = it.modifiers && it.modifiers.length;
@@ -492,21 +492,20 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }} style={{ borderRadius: 18, cursor: soldOut ? "not-allowed" : "pointer", position: "relative", overflow: "hidden", aspectRatio: "1 / 1", display: "flex", flexDirection: "column", justifyContent: "flex-end", boxShadow: inCart ? "0 0 0 2.5px " + P.tealA + ", 0 4px 14px rgba(0,0,0,.28)" : "0 4px 14px rgba(0,0,0,.28)", opacity: soldOut ? 0.5 : 1, background: it.image_url ? "#20242f" : "linear-gradient(150deg, " + cc.bar + ", " + cc.ink + ")", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : undefined, backgroundSize: "cover", backgroundPosition: "center" }}>
                   {/* big icon for colour-block (no photo) */}
                   {!it.image_url && <span style={{ position: "absolute", top: "34%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 60, color: "rgba(255,255,255,.9)", filter: soldOut ? "grayscale(1)" : "none" }}>{fb.icon}</span>}
-                  {/* readability gradient */}
-                  <div style={{ position: "absolute", inset: 0, background: it.image_url ? "linear-gradient(to top, rgba(0,0,0,.76) 0%, rgba(0,0,0,.12) 48%, rgba(0,0,0,0) 72%)" : "linear-gradient(to top, rgba(0,0,0,.5) 0%, rgba(0,0,0,0) 55%)" }} />
-                  {/* category / sold-out chip */}
-                  <span style={{ position: "absolute", top: 13, left: 13, fontSize: 11, fontWeight: 700, color: "#fff", background: soldOut ? "rgba(180,70,47,.9)" : "rgba(255,255,255,.24)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", padding: "3px 11px", borderRadius: 20, letterSpacing: ".01em" }}>{soldOut ? "86 · SOLD OUT" : (it.category || "").slice(0, 16)}</span>
+                  {/* subtle top vignette so the chip/add button read on light photos */}
+                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,.28) 0%, rgba(0,0,0,0) 26%)" }} />
+                  {/* category / sold-out chip — solid dark pill for readability */}
+                  <span style={{ position: "absolute", top: 13, left: 13, fontSize: 12, fontWeight: 700, color: "#fff", background: soldOut ? "rgba(180,70,47,.95)" : "rgba(15,18,25,.72)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", padding: "4px 12px", borderRadius: 20, letterSpacing: ".01em" }}>{soldOut ? "86 · SOLD OUT" : (it.category || "").slice(0, 18)}</span>
                   {/* quantity badge / modifier / add */}
                   {!soldOut && inCart ? (
-                    <span style={{ position: "absolute", top: 11, right: 11, minWidth: 40, height: 40, padding: "0 10px", borderRadius: 13, background: P.tealA, color: "#06231f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 800, boxShadow: "0 2px 8px rgba(0,0,0,.25)" }}>{inCart}</span>
+                    <span style={{ position: "absolute", top: 11, right: 11, minWidth: 42, height: 42, padding: "0 11px", borderRadius: 13, background: P.tealA, color: "#06231f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, fontWeight: 800, boxShadow: "0 2px 8px rgba(0,0,0,.3)" }}>{inCart}</span>
                   ) : !soldOut ? (
-                    <span style={{ position: "absolute", top: 11, right: 11, width: 40, height: 40, borderRadius: 13, background: "rgba(255,255,255,.24)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,.4)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 22, fontWeight: 400, lineHeight: 0, paddingBottom: 2 }}>+</span>
+                    <span style={{ position: "absolute", top: 11, right: 11, width: 42, height: 42, borderRadius: 13, background: "rgba(15,18,25,.55)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,.35)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 24, fontWeight: 400, lineHeight: 0, paddingBottom: 2 }}>+</span>
                   ) : null}
-                  {/* modifier hint (bottom, subtle) shown via 'from' price */}
-                  {/* name + price overlay */}
-                  <div style={{ position: "relative", padding: 14, color: "#fff" }}>
-                    <div style={{ fontSize: 18, fontWeight: 600, lineHeight: 1.2, letterSpacing: "-.01em", textShadow: "0 1px 5px rgba(0,0,0,.4)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
-                    <div style={{ fontSize: 15, fontWeight: 600, marginTop: 3, opacity: 0.96, textShadow: "0 1px 4px rgba(0,0,0,.4)", fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
+                  {/* name + price overlay — solid dark panel for readability */}
+                  <div style={{ position: "relative", padding: "12px 14px 14px", color: "#fff", background: "linear-gradient(to top, rgba(12,15,22,.92) 0%, rgba(12,15,22,.78) 60%, rgba(12,15,22,0) 100%)" }}>
+                    <div style={{ fontSize: 21, fontWeight: 700, lineHeight: 1.18, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
+                    <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4, opacity: 0.95, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
                   </div>
                 </div>
               );
