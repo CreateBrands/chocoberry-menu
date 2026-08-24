@@ -590,7 +590,6 @@ Deno.serve(async (req) => {
           try { await supabase.from("printers").update(patch).eq("id", (p as any).id); } catch { /* best effort */ }
           out.push({ sn: (p as any).sn, online });
         }
-        }
         return json({ ok: true, checked: out.length, printers: out });
       }
       case "test-raster": {
