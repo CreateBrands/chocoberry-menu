@@ -88,7 +88,7 @@ function receiptTree(o: ReceiptOrder): Node {
               el("div", { fontSize: 27, fontWeight: 700, letterSpacing: 1 }, label),
               el("div", { fontSize: 22, fontWeight: 700 }, time || ""));
           return batches.flatMap((b) => {
-            const label = b === 0 ? "ROUND 1" : "ROUND " + (b + 1) + " · ADDED";
+            const label = b === 0 ? "ROUND 1" : "ROUND " + (b + 1) + " - ADDED";
             const its = o.items.filter((it) => (it.batch ?? 0) === b);
             const big = b > 0; // additions slightly larger to catch the eye
             return [
