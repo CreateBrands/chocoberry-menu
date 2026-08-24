@@ -33,6 +33,7 @@ Deno.serve(async (req) => {
     "remove_order_item", "set_order_item_qty", "void_fired_item",
     "set_order_type",
     "day_summary",
+    "merges_list", "merge_save", "merge_delete",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   if (!isPosCall && (!pin || pin !== ADMIN_PIN)) return json({ error: "unauthorized" }, 401);
@@ -1027,6 +1028,36 @@ Deno.serve(async (req) => {
         const { id } = data || {};
         if (!id) return json({ error: "no id" }, 400);
         const { error } = await admin.from("menu_tables").delete().eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- POS CATEGORY MERGES: display-only grouping of subcategories ----
+      case "merges_list": {
+        const { data: rows, error } = await admin.from("pos_category_merges")
+          .select("id, menu_id, new_name, category_ids, sort_order")
+          .order("sort_order", { ascending: true });
+        if (error) throw error;
+        return json({ merges: rows || [] });
+      }
+      case "merge_save": {
+        const { id, menu_id, new_name, category_ids, sort_order } = data || {};
+        if (!new_name || !Array.isArray(category_ids) || category_ids.length < 2)
+          return json({ error: "need a name and at least 2 categories" }, 400);
+        const row: any = { menu_id: menu_id ?? null, new_name, category_ids, sort_order: sort_order ?? 0 };
+        if (id) {
+          const { error } = await admin.from("pos_category_merges").update(row).eq("id", id);
+          if (error) throw error;
+        } else {
+          const { error } = await admin.from("pos_category_merges").insert(row);
+          if (error) throw error;
+        }
+        return json({ ok: true });
+      }
+      case "merge_delete": {
+        const { id } = data || {};
+        if (!id) return json({ error: "no id" }, 400);
+        const { error } = await admin.from("pos_category_merges").delete().eq("id", id);
         if (error) throw error;
         return json({ ok: true });
       }

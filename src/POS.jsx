@@ -298,11 +298,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       if (placed.has(m.id)) continue; // already emitted this merged group
       placed.add(m.id);
       const items = [];
+      const groups = [];
       for (const cid of m.category_ids) {
         const src = raw.find((x) => x.id === cid);
-        if (src) items.push(...src.items);
+        if (src && src.items.length) { items.push(...src.items); groups.push({ name: src.name, items: src.items }); }
       }
-      out.push({ id: "merge:" + m.id, name: m.new_name, items, _merged: true });
+      out.push({ id: "merge:" + m.id, name: m.new_name, items, groups, _merged: true });
     }
     return out;
   }, [master, merges]);
@@ -480,6 +481,33 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   };
   const grad = "linear-gradient(140deg," + P.tealA + "," + P.tealB + ")";
 
+  // One item tile (shared by flat grids and grouped merged views).
+  const renderTile = (it) => {
+    const fb = fallbackFor(it.name, it.category || "");
+    const hasMods = it.modifiers && it.modifiers.length;
+    const cc = catColor(it.category || (master && master.name));
+    const inCart = qtyInCart[it.id] || 0;
+    const soldOut = it.available === false;
+    return (
+      <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }} style={{ borderRadius: 18, cursor: soldOut ? "not-allowed" : "pointer", position: "relative", overflow: "hidden", aspectRatio: "1 / 1", display: "flex", flexDirection: "column", justifyContent: "flex-end", boxShadow: inCart ? "0 0 0 2.5px " + P.tealA + ", 0 4px 14px rgba(0,0,0,.28)" : "0 4px 14px rgba(0,0,0,.28)", opacity: soldOut ? 0.5 : 1, background: it.image_url ? "#20242f" : "linear-gradient(150deg, " + cc.bar + ", " + cc.ink + ")", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : undefined, backgroundSize: "cover", backgroundPosition: "center" }}>
+        {!it.image_url && <span style={{ position: "absolute", top: "34%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 60, color: "rgba(255,255,255,.9)", filter: soldOut ? "grayscale(1)" : "none" }}>{fb.icon}</span>}
+        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,.28) 0%, rgba(0,0,0,0) 26%)" }} />
+        <span style={{ position: "absolute", top: 13, left: 13, fontSize: 12, fontWeight: 700, color: "#fff", background: soldOut ? "rgba(180,70,47,.95)" : "rgba(15,18,25,.72)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", padding: "4px 12px", borderRadius: 20, letterSpacing: ".01em" }}>{soldOut ? "86 · SOLD OUT" : (it.category || "").slice(0, 18)}</span>
+        {!soldOut && inCart ? (
+          <span style={{ position: "absolute", top: 11, right: 11, minWidth: 42, height: 42, padding: "0 11px", borderRadius: 13, background: P.tealA, color: "#06231f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, fontWeight: 800, boxShadow: "0 2px 8px rgba(0,0,0,.3)" }}>{inCart}</span>
+        ) : !soldOut ? (
+          <span style={{ position: "absolute", top: 11, right: 11, width: 42, height: 42, borderRadius: 13, background: "rgba(15,18,25,.55)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,.35)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 24, fontWeight: 400, lineHeight: 0, paddingBottom: 2 }}>+</span>
+        ) : null}
+        <div style={{ position: "relative", padding: "12px 14px 14px", color: "#fff", background: "linear-gradient(to top, rgba(12,15,22,.92) 0%, rgba(12,15,22,.78) 60%, rgba(12,15,22,0) 100%)" }}>
+          <div style={{ fontSize: 21, fontWeight: 700, lineHeight: 1.18, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
+          <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4, opacity: 0.95, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
+        </div>
+      </div>
+    );
+  };
+  const gridCols = "repeat(auto-fill, minmax(240px, 1fr))";
+  const showGroups = sub && sub._merged && Array.isArray(sub.groups) && sub.groups.length > 0 && !search;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
       {/* ── Slim header (single-screen: no mode switching) ── */}
@@ -547,38 +575,28 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
             <span style={{ fontSize: 15.5, color: P.muted2 }}>{shown.length} items</span>
           </div>
-          <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gridAutoRows: "min-content", gap: 15, overflowY: "auto" }}>
-            {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
-            {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
-            {shown.map((it) => {
-              const fb = fallbackFor(it.name, it.category || "");
-              const hasMods = it.modifiers && it.modifiers.length;
-              const cc = catColor(it.category || (master && master.name));
-              const inCart = qtyInCart[it.id] || 0;
-              const soldOut = it.available === false;
-              return (
-                <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }} style={{ borderRadius: 18, cursor: soldOut ? "not-allowed" : "pointer", position: "relative", overflow: "hidden", aspectRatio: "1 / 1", display: "flex", flexDirection: "column", justifyContent: "flex-end", boxShadow: inCart ? "0 0 0 2.5px " + P.tealA + ", 0 4px 14px rgba(0,0,0,.28)" : "0 4px 14px rgba(0,0,0,.28)", opacity: soldOut ? 0.5 : 1, background: it.image_url ? "#20242f" : "linear-gradient(150deg, " + cc.bar + ", " + cc.ink + ")", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : undefined, backgroundSize: "cover", backgroundPosition: "center" }}>
-                  {/* big icon for colour-block (no photo) */}
-                  {!it.image_url && <span style={{ position: "absolute", top: "34%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 60, color: "rgba(255,255,255,.9)", filter: soldOut ? "grayscale(1)" : "none" }}>{fb.icon}</span>}
-                  {/* subtle top vignette so the chip/add button read on light photos */}
-                  <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,.28) 0%, rgba(0,0,0,0) 26%)" }} />
-                  {/* category / sold-out chip — solid dark pill for readability */}
-                  <span style={{ position: "absolute", top: 13, left: 13, fontSize: 12, fontWeight: 700, color: "#fff", background: soldOut ? "rgba(180,70,47,.95)" : "rgba(15,18,25,.72)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", padding: "4px 12px", borderRadius: 20, letterSpacing: ".01em" }}>{soldOut ? "86 · SOLD OUT" : (it.category || "").slice(0, 18)}</span>
-                  {/* quantity badge / modifier / add */}
-                  {!soldOut && inCart ? (
-                    <span style={{ position: "absolute", top: 11, right: 11, minWidth: 42, height: 42, padding: "0 11px", borderRadius: 13, background: P.tealA, color: "#06231f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, fontWeight: 800, boxShadow: "0 2px 8px rgba(0,0,0,.3)" }}>{inCart}</span>
-                  ) : !soldOut ? (
-                    <span style={{ position: "absolute", top: 11, right: 11, width: 42, height: 42, borderRadius: 13, background: "rgba(15,18,25,.55)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,.35)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 24, fontWeight: 400, lineHeight: 0, paddingBottom: 2 }}>+</span>
-                  ) : null}
-                  {/* name + price overlay — solid dark panel for readability */}
-                  <div style={{ position: "relative", padding: "12px 14px 14px", color: "#fff", background: "linear-gradient(to top, rgba(12,15,22,.92) 0%, rgba(12,15,22,.78) 60%, rgba(12,15,22,0) 100%)" }}>
-                    <div style={{ fontSize: 21, fontWeight: 700, lineHeight: 1.18, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
-                    <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4, opacity: 0.95, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
+          {showGroups ? (
+            <div style={{ flex: 1, padding: "2px 20px 20px", overflowY: "auto" }}>
+              {sub.groups.map((g, gi) => (
+                <div key={gi} style={{ marginBottom: 18 }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 9, margin: "6px 2px 11px" }}>
+                    <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-.2px" }}>{g.name}</span>
+                    <span style={{ fontSize: 13.5, color: P.muted2 }}>{g.items.length}</span>
+                    <span style={{ flex: 1, height: 1, background: P.line, marginLeft: 4 }} />
+                  </div>
+                  <div style={{ display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "min-content", gap: 15 }}>
+                    {g.items.map(renderTile)}
                   </div>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "min-content", gap: 15, overflowY: "auto" }}>
+              {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
+              {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
+              {shown.map(renderTile)}
+            </div>
+          )}
         </div>
 
         {/* RIGHT PANEL — order detail when an order is tapped, else the cart */}
