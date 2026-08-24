@@ -224,12 +224,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const rows = r.ok ? await r.json() : [];
         const menuMap = new Map();
         for (const row of rows) {
-          if (row.available === false) continue;
           let mn = menuMap.get(row.menu_id);
           if (!mn) { mn = { id: row.menu_id, name: row.menu_name, sort: row.menu_sort ?? 0, subMap: new Map() }; menuMap.set(row.menu_id, mn); }
           let sc = mn.subMap.get(row.category_id);
           if (!sc) { sc = { id: row.category_id, name: row.category_name, sort: row.category_sort ?? 0, items: [] }; mn.subMap.set(row.category_id, sc); }
-          sc.items.push({ id: row.item_id, name: row.item_name, price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [] });
+          sc.items.push({ id: row.item_id, name: row.item_name, price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [], available: row.available !== false });
         }
         const masters = [...menuMap.values()].sort((a, b) => a.sort - b.sort)
           .map((m) => ({ id: m.id, name: m.name, subs: [...m.subMap.values()].sort((a, b) => a.sort - b.sort) }));
@@ -251,6 +250,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
   const itemCount = ticket.reduce((s, l) => s + l.qty, 0);
   const subtotal = ticket.reduce((s, l) => s + l.unit * l.qty, 0);
+  // Live per-item quantity in the current order (sum across lines / modifiers),
+  // so a tile can show its count instead of the + button.
+  const qtyInCart = useMemo(() => {
+    const m = {};
+    for (const l of ticket) { const id = l.item && l.item.id; if (id) m[id] = (m[id] || 0) + l.qty; }
+    return m;
+  }, [ticket]);
 
   function addItem(it) {
     if (it.modifiers && it.modifiers.length) {
@@ -381,6 +387,32 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
   // palette — emerald/teal POS scheme
   const P = { canvas: "#eceef1", ink: "#12151c", panel: "#fff", line: "#e8e9ec", line2: "#f1f2f4", muted: "#868d99", muted2: "#9aa1ac", chip: "#f0fdfa", chipBorder: "#ccfbf1", tealA: "#14b8a6", tealB: "#0d9488", tealDeep: "#0f766e", masterBg: "#0f2e29", masterMuted: "#5eead4", tealBg: "#f0fdfa" };
+
+  // Colour a tile by its top-level menu group. Broad zones keep the colour
+  // meaningful (drinks / breakfast / food / bowls / desserts / kids) rather
+  // than one colour per sub-category (which becomes noise). bar = left border,
+  // bg = tinted background, ink = readable text on that tint.
+  const catColor = (menuName) => {
+    const n = (menuName || "").toLowerCase();
+    const COLORS = {
+      coldDrink: { bar: "#185FA5", bg: "#eaf3fb", ink: "#0C447C" },
+      hotDrink:  { bar: "#378ADD", bg: "#e6f1fb", ink: "#0C447C" },
+      breakfast: { bar: "#BA7517", bg: "#faeeda", ink: "#633806" },
+      food:      { bar: "#C0532E", bg: "#faece7", ink: "#7A2E15" },
+      bowls:     { bar: "#639922", bg: "#eaf3de", ink: "#27500A" },
+      dessert:   { bar: "#7F77DD", bg: "#eeedfe", ink: "#3C3489" },
+      kids:      { bar: "#D4537E", bg: "#fbeaf0", ink: "#993556" },
+      neutral:   { bar: "#94a3b8", bg: "#f1f5f9", ink: "#475569" },
+    };
+    if (/kid/.test(n)) return COLORS.kids;
+    if (/iced|cold|soft drink|juice|mocktail|shake|cooler|falooda|matcha/.test(n)) return COLORS.coldDrink;
+    if (/coffee|latte|chai|tea|chocolate|cappuccino|cortado/.test(n)) return COLORS.hotDrink;
+    if (/breakfast|egg|toast|french toast|skillet|shakshuka/.test(n)) return COLORS.breakfast;
+    if (/steak|grill|burger|pasta|light bite|chicken|main/.test(n)) return COLORS.food;
+    if (/bowl|granola|salad/.test(n)) return COLORS.bowls;
+    if (/dessert|cake|cheesecake|kanafeh|waffle|crepe|churro|cookie|ice cream|strawberr|treat|milk cake/.test(n)) return COLORS.dessert;
+    return COLORS.neutral;
+  };
   const grad = "linear-gradient(140deg," + P.tealA + "," + P.tealB + ")";
 
   return (
@@ -447,27 +479,36 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
             <span style={{ fontSize: 15.5, color: P.muted2 }}>{shown.length} items</span>
           </div>
-          <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gridAutoRows: "min-content", gap: 14, overflowY: "auto" }}>
+          <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gridAutoRows: "min-content", gap: 10, overflowY: "auto" }}>
             {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
             {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
             {shown.map((it) => {
               const fb = fallbackFor(it.name, it.category || "");
               const hasMods = it.modifiers && it.modifiers.length;
+              const cc = catColor(it.category || (master && master.name));
+              const inCart = qtyInCart[it.id] || 0;
+              const soldOut = it.available === false;
               return (
-                <div key={it.id} onClick={() => addItem(it)} style={{ background: P.panel, borderRadius: 16, overflow: "hidden", boxShadow: "0 3px 10px rgba(18,21,28,.08)", border: "1px solid #f0f1f3", cursor: "pointer", position: "relative", display: "flex", flexDirection: "column" }}>
-                  {hasMods ? <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(255,255,255,.94)", borderRadius: 20, padding: "3px 10px", fontSize: 13, fontWeight: 600, color: "#8a5a2c", boxShadow: "0 1px 3px rgba(0,0,0,.12)", zIndex: 2 }}>Choices</div> : null}
-                  {/* square photo on top */}
-                  <div style={{ width: "100%", aspectRatio: "1 / 1", background: it.image_url ? "#f0f1f3" : fb.grad, display: "flex", alignItems: "center", justifyContent: "center", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : fb.grad, backgroundSize: "cover", backgroundPosition: "center" }}>
-                    {!it.image_url && <span style={{ fontSize: 38 }}>{fb.icon}</span>}
+                <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }} style={{ background: P.panel, borderRadius: 15, border: "0.5px solid " + (inCart ? P.tealB : "#e6e8ec"), boxShadow: inCart ? "0 0 0 1px " + P.tealB : "0 1px 2px rgba(18,21,28,.05)", cursor: soldOut ? "not-allowed" : "pointer", position: "relative", display: "flex", alignItems: "center", gap: 13, padding: "10px 12px", minHeight: 70, opacity: soldOut ? 0.5 : 1 }}>
+                  {/* thumbnail with category colour dot */}
+                  <div style={{ width: 52, height: 52, flexShrink: 0, borderRadius: 13, background: it.image_url ? "#f0f1f3" : cc.bg, display: "flex", alignItems: "center", justifyContent: "center", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : "none", backgroundSize: "cover", backgroundPosition: "center", position: "relative", boxShadow: "inset 0 0 0 0.5px rgba(0,0,0,.04)" }}>
+                    {!it.image_url && <span style={{ fontSize: 25, filter: soldOut ? "grayscale(1)" : "none" }}>{fb.icon}</span>}
+                    <span style={{ position: "absolute", bottom: 4, left: 4, width: 6, height: 6, borderRadius: "50%", background: cc.bar, boxShadow: "0 0 0 1.5px #fff" }} />
+                    {hasMods && !soldOut ? <span style={{ position: "absolute", bottom: -4, right: -4, width: 19, height: 19, borderRadius: "50%", background: "#fff", border: "0.5px solid #e6e8ec", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: P.muted }}>⚙</span> : null}
                   </div>
-                  {/* name + price below */}
-                  <div style={{ padding: "10px 11px 12px", display: "flex", flexDirection: "column", gap: 4, flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 15.5, lineHeight: 1.25, minHeight: 34 }}>{it.name}</div>
-                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: "auto" }}>
-                      <span style={{ color: P.ink, fontWeight: 700, fontSize: 17 }}>{gbp(it.price)}</span>
-                      <span style={{ width: 32, height: 32, flexShrink: 0, borderRadius: 10, background: P.tealBg, color: P.tealDeep, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 1px 4px rgba(13,148,136,.18)" }}>+</span>
-                    </div>
+                  {/* name + price */}
+                  <div style={{ minWidth: 0, flex: 1, display: "flex", flexDirection: "column" }}>
+                    <div style={{ fontWeight: 600, fontSize: 15, lineHeight: 1.22, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, color: P.muted, marginTop: 4, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
                   </div>
+                  {/* right affordance: quantity badge if in cart, 86 if sold out, else + */}
+                  {soldOut ? (
+                    <span style={{ flexShrink: 0, fontSize: 12, fontWeight: 800, color: "#b4462f", background: "#fbeaea", border: "1px solid #f0c9c2", borderRadius: 8, padding: "4px 8px", letterSpacing: ".02em" }}>86</span>
+                  ) : inCart ? (
+                    <span style={{ width: 34, height: 34, flexShrink: 0, borderRadius: 11, background: P.tealB, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 700, boxShadow: "0 2px 6px rgba(15,118,110,.3)" }}>{inCart}</span>
+                  ) : (
+                    <span style={{ width: 34, height: 34, flexShrink: 0, borderRadius: 11, background: P.tealB, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 20, fontWeight: 400, lineHeight: 0, paddingBottom: 2, boxShadow: "0 2px 6px rgba(15,118,110,.3)" }}>+</span>
+                  )}
                 </div>
               );
             })}
