@@ -140,15 +140,21 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try { localStorage.setItem(DEFAULT_KEY, v); } catch { /* ignore */ }
   }
 
+  const ordersReqRef = useRef(0);
   async function loadOrders() {
+    const myReq = ++ordersReqRef.current;
     setOrdersBusy(true);
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,print_failed,total,paid_method,paid_amount,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,print_failed,total,paid_method,paid_amount,amount_paid,is_split,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
         + (loc ? "&location_id=eq." + loc : "")
         + "&closed_at=is.null&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
-      setOrders(r.ok ? await r.json() : []);
-    } catch { setOrders([]); } finally { setOrdersBusy(false); }
+      const data = r.ok ? await r.json() : [];
+      // Ignore a response that is no longer the latest request in flight — this
+      // prevents a slow/stale poll from overwriting fresher state (e.g. clobbering
+      // a just-paid order back to unpaid).
+      if (myReq === ordersReqRef.current) setOrders(data);
+    } catch { if (myReq === ordersReqRef.current) setOrders([]); } finally { setOrdersBusy(false); }
   }
   // Orders strip is always visible — load on mount and refresh every 20s.
   useEffect(() => {

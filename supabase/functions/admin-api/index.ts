@@ -469,6 +469,11 @@ Deno.serve(async (req) => {
         const patch: Record<string, unknown> = {
           paid_method: method,
           paid_amount: paid,
+          // Keep amount_paid in sync with the ledger-based flow so every "is this
+          // paid?" check (list uses paid_method; detail uses total - amount_paid)
+          // agrees. Without this, mark_paid left amount_paid at 0 and the order
+          // flipped back to "unpaid" wherever the balance was checked.
+          amount_paid: paid,
           discount_type: (discount_type === "percent" || discount_type === "amount") ? discount_type : null,
           discount_value: dv,
           paid_at: new Date().toISOString(),
