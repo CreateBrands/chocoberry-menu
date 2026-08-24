@@ -571,15 +571,25 @@ Deno.serve(async (req) => {
           let online: boolean | null = null;
           try {
             const r = await sunmi.onlineStatus(String((p as any).sn));
-            const d: any = (r as any)?.data ?? r;
+            let d: any = (r as any)?.data ?? r;
+            // Sunmi may return data as an array of { is_online, msn } or a single
+            // object. Normalise to the record for this SN.
+            if (Array.isArray(d)) {
+              const match = d.find((x: any) => String(x?.msn ?? x?.sn ?? "") === String((p as any).sn));
+              d = match ?? d[0] ?? {};
+            }
+            // is_online comes back as a STRING "1"/"0" (per Sunmi docs), sometimes
+            // a number/bool. Coerce all forms.
             const v = d?.is_online ?? d?.online ?? d?.status;
-            online = (v === 1 || v === true || v === "online") ? true
-                   : (v === 0 || v === false || v === "offline") ? false : null;
+            const s = String(v);
+            online = (s === "1" || s === "true" || s === "online") ? true
+                   : (s === "0" || s === "false" || s === "offline") ? false : null;
           } catch { online = null; }
           const patch: Record<string, unknown> = { online };
           if (online === true) patch.last_online_at = nowIso;
           try { await supabase.from("printers").update(patch).eq("id", (p as any).id); } catch { /* best effort */ }
           out.push({ sn: (p as any).sn, online });
+        }
         }
         return json({ ok: true, checked: out.length, printers: out });
       }
