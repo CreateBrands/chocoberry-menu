@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { OrdersList, OrderDetailPanel } from "./OrdersStrip.jsx";
 import CartLine from "./CartLine.jsx";
 
@@ -63,6 +63,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [activeCat, setActiveCat] = useState(0);   // master index
   const [activeSub, setActiveSub] = useState(0);   // subcategory index within active master
   const [search, setSearch] = useState("");
+  const [merges, setMerges] = useState([]);        // [{id,menu_id,new_name,category_ids:[catId..]}]
+  const [showMerge, setShowMerge] = useState(false); // merge editor popup
   const [ticket, setTicket] = useState([]);
   const [table, setTable] = useState(null);
   const [appendTo, setAppendTo] = useState(null); // order id we're adding to
@@ -238,9 +240,66 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     return () => { alive = false; };
   }, [loc]);
 
+  // Load display-only category merges (saved in DB, shared across devices).
+  const loadMerges = useCallback(async () => {
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pos: true, action: "merges_list" }),
+      });
+      const j = await r.json();
+      if (Array.isArray(j.merges)) setMerges(j.merges);
+    } catch { /* ignore — no merges shown */ }
+  }, []);
+  useEffect(() => { loadMerges(); }, [loadMerges]);
+
+  const saveMerge = async ({ id, menu_id, new_name, category_ids }) => {
+    try {
+      await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pos: true, action: "merge_save", data: { id, menu_id, new_name, category_ids } }),
+      });
+      await loadMerges();
+    } catch { /* ignore */ }
+  };
+  const deleteMerge = async (id) => {
+    try {
+      await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pos: true, action: "merge_delete", data: { id } }),
+      });
+      await loadMerges();
+    } catch { /* ignore */ }
+  };
+
   const catList = cats || [];
   const master = catList[activeCat] || null;
-  const subs = master ? master.subs : [];
+  // Apply display-only merges: fold merged sub-categories into one synthetic
+  // category (custom name + combined items); hide the originals. DB untouched.
+  const subs = useMemo(() => {
+    if (!master) return [];
+    const raw = master.subs;
+    const relevant = merges.filter((m) => Array.isArray(m.category_ids) && m.category_ids.length >= 2
+      && m.category_ids.some((cid) => raw.some((s) => s.id === cid)));
+    if (relevant.length === 0) return raw;
+    const mergedIds = new Set();
+    relevant.forEach((m) => m.category_ids.forEach((cid) => mergedIds.add(cid)));
+    const out = [];
+    const placed = new Set();
+    for (const s of raw) {
+      const m = relevant.find((mm) => mm.category_ids.includes(s.id));
+      if (!m) { out.push(s); continue; }
+      if (placed.has(m.id)) continue; // already emitted this merged group
+      placed.add(m.id);
+      const items = [];
+      for (const cid of m.category_ids) {
+        const src = raw.find((x) => x.id === cid);
+        if (src) items.push(...src.items);
+      }
+      out.push({ id: "merge:" + m.id, name: m.new_name, items, _merged: true });
+    }
+    return out;
+  }, [master, merges]);
   const sub = subs[activeSub] || null;
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -452,7 +511,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
         {/* COLUMN 2 — subcategories only, full height */}
         <div style={{ width: "clamp(195px, 15vw, 255px)", flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
-          {master && <div style={{ padding: "14px 15px 9px", fontSize: 15, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{master.name}</div>}
+          {master && <div style={{ padding: "14px 15px 9px", display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ fontSize: 15, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>{master.name}</span>
+            <span onClick={() => setShowMerge(true)} title="Merge categories" style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: P.tealDeep, background: P.chip, border: "1px solid " + P.chipBorder, borderRadius: 8, padding: "4px 8px", cursor: "pointer", textTransform: "none", letterSpacing: 0 }}>⇱ Merge</span>
+          </div>}
           <div style={{ flex: 1, overflowY: "auto", padding: "0 13px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
             {subs.map((s, i) => {
               const on = activeSub === i && !search;
@@ -731,6 +793,81 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
         </div>
       )}
+      {showMerge && master && (
+        <MergeEditor
+          master={master}
+          merges={merges.filter((m) => (m.category_ids || []).some((cid) => master.subs.some((s) => s.id === cid)))}
+          P={P} grad={grad} gbp={gbp}
+          onSave={saveMerge}
+          onDelete={deleteMerge}
+          onClose={() => setShowMerge(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Merge editor — pick 2+ sub-categories of the active menu, name the group,
+// and save. Display-only (DB stores the grouping, real menu untouched).
+// Existing merges can be reverted with one tap.
+function MergeEditor({ master, merges, P, grad, gbp, onSave, onDelete, onClose }) {
+  const [sel, setSel] = useState({});
+  const [name, setName] = useState("");
+  const raw = master.subs;
+  const chosen = raw.filter((s) => sel[s.id]);
+  const canMerge = chosen.length >= 2 && name.trim().length > 0;
+  const toggle = (id) => setSel((s) => ({ ...s, [id]: !s[id] }));
+  const doMerge = async () => {
+    if (!canMerge) return;
+    await onSave({ menu_id: master.id, new_name: name.trim(), category_ids: chosen.map((s) => s.id) });
+    setSel({}); setName("");
+  };
+  const catName = (id) => (raw.find((s) => s.id === id) || {}).name || "—";
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.45)", zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ width: "min(560px, 96vw)", maxHeight: "88vh", overflowY: "auto", background: "#fff", borderRadius: 18, padding: 22, boxShadow: "0 24px 60px rgba(0,0,0,.3)" }}>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
+          <div style={{ fontSize: 20, fontWeight: 600 }}>Merge categories</div>
+          <div onClick={onClose} style={{ marginLeft: "auto", width: 34, height: 34, display: "flex", alignItems: "center", justifyContent: "center", background: "#f1f2f4", borderRadius: 9, cursor: "pointer", fontSize: 17, color: "#666" }}>✕</div>
+        </div>
+        <div style={{ fontSize: 13.5, color: "#8a8f98", marginBottom: 16 }}>In <b>{master.name}</b>. This only changes how the POS groups items — your real menu is untouched, and you can un-merge any time.</div>
+
+        {/* existing merges */}
+        {merges.length > 0 && (
+          <div style={{ marginBottom: 18 }}>
+            <div style={{ fontSize: 12.5, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 8 }}>Current merges</div>
+            {merges.map((m) => (
+              <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: "1px solid #eceef1", borderRadius: 11, marginBottom: 8 }}>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>{m.new_name}</div>
+                  <div style={{ fontSize: 12.5, color: "#8a8f98", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(m.category_ids || []).map(catName).join(" + ")}</div>
+                </div>
+                <div onClick={() => onDelete(m.id)} style={{ flexShrink: 0, fontSize: 13, fontWeight: 600, color: "#b4462f", background: "#fbeaea", border: "1px solid #f0c9c2", borderRadius: 9, padding: "7px 12px", cursor: "pointer" }}>Un-merge</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* build a new merge */}
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".4px", marginBottom: 8 }}>New merge — pick 2 or more</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 7, marginBottom: 14 }}>
+          {raw.map((s) => {
+            const on = !!sel[s.id];
+            return (
+              <div key={s.id} onClick={() => toggle(s.id)} style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 13px", borderRadius: 11, cursor: "pointer", border: "1.5px solid " + (on ? P.tealDeep : "#eceef1"), background: on ? P.chip : "#fff" }}>
+                <span style={{ width: 22, height: 22, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: on ? P.tealDeep : "#fff", border: "1.5px solid " + (on ? P.tealDeep : "#cfd4da"), color: "#fff", fontSize: 14 }}>{on ? "✓" : ""}</span>
+                <span style={{ fontSize: 15, fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.name}</span>
+                <span style={{ fontSize: 13, color: "#9aa1ac", flexShrink: 0 }}>{s.items.length}</span>
+              </div>
+            );
+          })}
+        </div>
+        <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="Name for the merged group…"
+          style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1px solid #dfe2e6", borderRadius: 11, padding: "13px 14px", fontSize: 16, color: "#12151c", fontFamily: "inherit", outline: "none", marginBottom: 12 }} />
+        <div onClick={doMerge} style={{ textAlign: "center", padding: "15px 0", borderRadius: 13, background: canMerge ? grad : "#d7dade", color: "#fff", fontWeight: 600, fontSize: 16.5, cursor: canMerge ? "pointer" : "default", boxShadow: canMerge ? "0 6px 16px rgba(13,148,136,.3)" : "none" }}>
+          {chosen.length < 2 ? "Pick at least 2 categories" : !name.trim() ? "Type a name for the group" : "Merge " + chosen.length + " into “" + name.trim() + "”"}
+        </div>
+      </div>
     </div>
   );
 }
