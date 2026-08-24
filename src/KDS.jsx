@@ -253,6 +253,8 @@ export default function KDS() {
   // "active" here until THIS screen bumps it; "completed" once it has.
   let active = orders.filter((o) => o.status !== BUMP_TO).map(filterStation).filter(Boolean);
   active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0));
+  // Orders that failed to print — shown as an un-ignorable banner across the KDS.
+  const failedOrders = orders.filter((o) => o.status !== BUMP_TO && o.status !== "cancelled" && o.print_failed);
   const completed = orders.filter((o) => o.status === BUMP_TO).map(filterStation).filter(Boolean)
     .sort((a, b) => new Date(b.kds_bumped_at || b.created_at) - new Date(a.kds_bumped_at || a.created_at));
 
@@ -315,7 +317,7 @@ export default function KDS() {
 
   return (
     <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "radial-gradient(1200px 600px at 50% -10%, #12151d, #0b0d11)", color: "#f8fafc", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
-      <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#ffffff08}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#2a2f3a;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#353c49}"}</style>
+      <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes kfailflash{0%,100%{background:#dc2626}50%{background:#8f1414}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#ffffff08}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#2a2f3a;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#353c49}"}</style>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "linear-gradient(180deg,#161a23,#0f131a)", borderBottom: "1px solid #20252f", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 4px 16px -8px rgba(0,0,0,.6)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
@@ -364,6 +366,21 @@ export default function KDS() {
           {getParam("screen") && <div style={{ fontSize: 12, fontWeight: 800, color: "#cbd5e1", background: "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }}>Screen {getScreenId()}</div>}
         </div>
       </div>
+
+      {failedOrders.length > 0 && (
+        <div style={{ animation: "kfailflash 1.1s ease-in-out infinite", color: "#fff", padding: "12px 20px", display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 19, boxShadow: "0 4px 14px rgba(220,38,38,.4)" }}>
+          <span style={{ fontSize: F(20) }}>{WARN}</span>
+          <span style={{ fontWeight: 900, fontSize: F(16), letterSpacing: ".02em" }}>
+            {failedOrders.length === 1
+              ? "ORDER #" + failedOrders[0].order_no + " DID NOT PRINT"
+              : failedOrders.length + " ORDERS DID NOT PRINT"}
+            <span style={{ fontWeight: 600, opacity: .9 }}> — check the printer (paper / power / jam)</span>
+          </span>
+          <span style={{ marginLeft: "auto", fontWeight: 800, fontSize: F(13), opacity: .9 }}>
+            #{failedOrders.slice(0, 6).map((o) => o.order_no).join("  #")}
+          </span>
+        </div>
+      )}
 
       {view === "kitchen" && tab === "active" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(268) + "px, 1fr))", gap: F(12), padding: F(16), alignItems: "start" }}>

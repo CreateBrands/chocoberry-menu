@@ -206,6 +206,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         method: "POST", headers: H,
         body: JSON.stringify({ action: "print-order", order_id: o.id, force: true }),
       });
+      await loadOrders(); // refresh so the print-failure banner clears on success
     } catch { /* ignore */ }
   }
   // "Add items" to an existing order: load that order into the current-order
@@ -220,6 +221,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
   const unpaidCount = (orders || []).filter((o) => o.status !== "cancelled" && !o.paid_method).length;
   const owedTotal = (orders || []).filter((o) => o.status !== "cancelled" && !o.paid_method).reduce((s, o) => s + Number(o.total || 0), 0);
+  // Orders that failed to print — surfaced as an un-ignorable banner so a
+  // print failure during a rush can't be missed. The 2-min sweep will often
+  // clear these automatically; staff can also tap to reprint immediately.
+  const failedPrintOrders = (orders || []).filter((o) => o.status !== "cancelled" && o.print_failed);
 
   // ---- Load menu (same source as the customer app) ----
   // Three levels: master MENU (Breakfast, Desserts…) → subcategory → items.
@@ -528,6 +533,30 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         )}
         <span style={{ marginLeft: "auto", fontSize: 14, color: P.muted2 }}>London Road</span>
       </div>
+
+      {/* ── Un-ignorable print-failure banner (Oracle-style) ── */}
+      {failedPrintOrders.length > 0 && (
+        <>
+          <style>{`@keyframes cbFailFlash { 0%,100%{background:#dc2626;} 50%{background:#a01515;} }`}</style>
+          <div style={{ flexShrink: 0, animation: "cbFailFlash 1.1s ease-in-out infinite", color: "#fff", padding: "11px 18px", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 3px 10px rgba(220,38,38,.35)" }}>
+            <span style={{ fontSize: 20 }}>⚠</span>
+            <span style={{ fontWeight: 800, fontSize: 15.5, letterSpacing: ".01em" }}>
+              {failedPrintOrders.length === 1
+                ? "ORDER #" + failedPrintOrders[0].order_no + " DID NOT PRINT"
+                : failedPrintOrders.length + " ORDERS DID NOT PRINT"}
+              <span style={{ fontWeight: 600, opacity: .9 }}> — check the printer (paper / power / jam)</span>
+            </span>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+              {failedPrintOrders.slice(0, 4).map((o) => (
+                <span key={o.id} onClick={() => ordReprint(o)} title={"Reprint order #" + o.order_no}
+                  style={{ cursor: "pointer", background: "rgba(255,255,255,.2)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "6px 12px", fontWeight: 800, fontSize: 14 }}>
+                  ⟳ #{o.order_no}
+                </span>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
 
