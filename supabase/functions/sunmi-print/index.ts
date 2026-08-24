@@ -318,6 +318,23 @@ async function alreadyPrinted(orderId: string, sn: string): Promise<boolean> {
   return !!data && data.length > 0;
 }
 
+// Highest round (batch) this printer has SUCCESSFULLY printed for this order,
+// or -1 if it has never printed it. Drives per-printer independence: a printer
+// only prints rounds beyond what it last confirmed, so a retry never reprints
+// rounds another printer (or an earlier attempt) already handled.
+async function lastPrintedBatch(orderId: string, sn: string): Promise<number> {
+  const { data } = await supabase
+    .from("print_jobs")
+    .select("max_batch")
+    .eq("order_id", orderId)
+    .eq("printer_sn", sn)
+    .eq("status", "sent")
+    .order("max_batch", { ascending: false })
+    .limit(1);
+  const v = data && data.length ? (data[0] as any).max_batch : null;
+  return typeof v === "number" ? v : -1;
+}
+
 async function printOrder(rec: Record<string, unknown>, force = false) {
   const orderId = String(rec.id);
 
@@ -346,7 +363,7 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
 
     // Filter this order's items to those for this printer's station.
     // Single-printer store => print everything regardless of station.
-    const lines = singlePrinter
+    let lines = singlePrinter
       ? allItems
       : allItems.filter((it) => {
           const s = it.station ?? DEFAULT_STATION;
@@ -361,16 +378,26 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
       continue;
     }
 
-    // Was this order already printed on this printer before? Used both to
-    // skip accidental auto-reprints AND to stamp REPRINT on deliberate ones.
+    // PER-PRINTER INDEPENDENCE. Each printer tracks the highest round (batch)
+    // it has already printed for this order. On a normal (non-forced) call it
+    // prints ONLY rounds newer than that — so:
+    //   - a retry after a failure re-sends only the round(s) that never
+    //     confirmed on THIS printer (a printer that already succeeded is skipped),
+    //   - a new round prints just that round, not the whole order again,
+    //   - the endless "reprint everything on both printers" loop is gone.
+    // A forced/manual reprint (force=true) always prints the full order.
     const printedBefore = await alreadyPrinted(orderId, sn);
-    // Skip only a plain auto-reprint of an unchanged order. An append (order
-    // has ADDED items) must always print so the kitchen sees the new items,
-    // and a forced/manual reprint always prints too.
-    if (!force && printedBefore && !order.hasAdditions) {
-      results.push({ printer: sn, station, skipped: true, reason: "already printed" });
+    const alreadyBatch = force ? -1 : await lastPrintedBatch(orderId, sn);
+    if (!force && alreadyBatch >= 0) {
+      lines = lines.filter((it) => (it.batch ?? 0) > alreadyBatch);
+    }
+    if (lines.length === 0) {
+      results.push({ printer: sn, station, skipped: true, reason: "already printed all rounds on this printer" });
       continue;
     }
+    // The highest round included in THIS print (logged on success so the next
+    // call knows this printer is caught up to here).
+    const maxBatchThisRun = lines.reduce((m, it) => Math.max(m, it.batch ?? 0), 0);
 
     // How many copies this printer should print (default 1).
     const copies = Math.max(1, parseInt(String((printer as any).copies ?? 1), 10) || 1);
@@ -378,12 +405,11 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
     // trade_no <=32 chars, unique per printer (station suffix), per reprint, and per copy.
     const base = orderId.replace(/-/g, "").slice(0, 24);
     for (let copy = 0; copy < copies; copy++) {
-      // A slip is a REPRINT if: this order was already printed on this printer
-      // before (any deliberate reprint), OR it's an extra copy in this run.
-      // Exception: an append reprint (order has ADDED items) is NOT stamped
-      // REPRINT — the ORIGINAL/ADDED/DISCARD PREVIOUS layout already makes it
-      // clear, and both banners at once would be confusing.
-      const isDuplicate = (printedBefore || copy > 0) && !order.hasAdditions;
+      // Stamp REPRINT only on a deliberate forced reprint or an extra copy in
+      // this run. Round-based additions are NOT stamped REPRINT — the ROUND
+      // headings already make clear what's new, and this printer is only being
+      // sent rounds it hasn't printed yet (not a true duplicate).
+      const isDuplicate = (force && printedBefore) || copy > 0;
       const stationOrder: ReceiptOrder = { ...order, items: lines, reprint: isDuplicate };
       const contentHex = await receiptHexFor(stationOrder);
 
@@ -426,6 +452,7 @@ async function printOrder(rec: Record<string, unknown>, force = false) {
         order_id: orderId,
         printer_sn: sn,
         status: success ? "sent" : (pushed ? "unconfirmed" : "failed"),
+        max_batch: success ? maxBatchThisRun : null,
         response: res,
         error: success ? null
           : !pushed ? (res.msg ?? "unknown Sunmi error") + " (push failed after " + attempts + " attempts)"
