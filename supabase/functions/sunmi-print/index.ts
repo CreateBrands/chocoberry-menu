@@ -687,6 +687,15 @@ Deno.serve(async (req) => {
           return printerSns.some((sn) => (confirmed.get(o.id + "|" + sn) ?? -1) < need);
         });
 
+        // Auto-clear stale flags: any candidate that is fully caught up on every
+        // printer but still carries print_failed = true is stale noise — clear it
+        // so the failure banner only ever shows genuine, current problems.
+        const missingIds = new Set(missing.map((o: any) => o.id));
+        const staleFlagged = candidates.filter((o: any) => o.print_failed === true && !missingIds.has(o.id)).map((o: any) => o.id);
+        if (staleFlagged.length) {
+          try { await supabase.from("menu_orders").update({ print_failed: false }).in("id", staleFlagged); } catch { /* best effort */ }
+        }
+
         const results = [];
         for (const o of missing) {
           try {
