@@ -1717,6 +1717,16 @@ export default function App() {
     } catch { setTablePinErr("Wrong PIN."); } finally { setTablePinChecking(false); }
   }
   const orderingOn = settings.ordering_enabled !== "off" && settings.ordering_enabled !== false;
+  // Per-store pause. Read from the SAME settings map that already powers the
+  // global ordering_enabled flag (fetchSettings pulls every key), instead of
+  // relying only on the separate accepting_orders poll — that poll returns
+  // early whenever the store token has not resolved, leaving the tablet
+  // permanently "accepting". Either source saying paused pauses the store.
+  const storeLocId = store && (store.location_id || store.id);
+  const storePausedBySetting = storeLocId
+    ? settings["accepting_orders:" + storeLocId] === "off"
+    : false;
+  const storeAccepting = acceptingOrders && !storePausedBySetting;
   const [sessionOrders, setSessionOrders] = useState(() => {
     try { const raw = localStorage.getItem("still_order_history"); return raw ? JSON.parse(raw) : []; } catch { return []; }
   });   // this tablet's placed orders, persisted across refresh
@@ -1985,11 +1995,11 @@ export default function App() {
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
             <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => {
-              if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
+              if (!storeAccepting) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
               if (orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
-            }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false && acceptingOrders} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
+            }} orderingEnabled={orderingOn && storeAccepting} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
