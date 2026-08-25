@@ -36,12 +36,59 @@ Deno.serve(async (req) => {
     "merges_list", "merge_save", "merge_delete",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
-  if (!isPosCall && (!pin || pin !== ADMIN_PIN)) return json({ error: "unauthorized" }, 401);
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
+
+  // ── Resolve the PIN to a SCOPE ──────────────────────────────────────────
+  //   master  → the env ADMIN_PIN; can see and change everything.
+  //   store   → a row in store_pins; can ONLY touch its own location_id.
+  // Isolation is enforced here on the server so a store manager can never
+  // reach another store's data, regardless of what the browser sends.
+  let scope: "master" | "store" | null = null;
+  let scopeLocationId: string | null = null;
+  if (pin && pin === ADMIN_PIN) {
+    scope = "master";
+  } else if (pin) {
+    const { data: sp } = await admin.from("store_pins")
+      .select("location_id, active").eq("pin", pin).eq("active", true).maybeSingle();
+    if (sp?.location_id) { scope = "store"; scopeLocationId = sp.location_id as string; }
+  }
+  if (!isPosCall && !scope) return json({ error: "unauthorized" }, 401);
+
+  // Actions a store-scoped manager is allowed to use (their own store only).
+  // Anything not in this set is master-only (e.g. editing the shared master
+  // menu, creating/deleting stores, price bands).
+  const STORE_ALLOWED = new Set([
+    "load",
+    "set_override",        // per-store price/availability override
+    "set_mod_override",    // per-store modifier override
+    "create_token", "delete_token", "release_token",
+    "create_table", "update_table", "delete_table",
+    "set_store_menus",
+  ]);
+
+  // For a store scope: block master-only actions, and force every location_id
+  // in the payload to the manager's own store.
+  if (scope === "store") {
+    if (!STORE_ALLOWED.has(action)) return json({ error: "forbidden for this store login" }, 403);
+    // Any location_id supplied by a store manager MUST equal their store.
+    const suppliedLoc = data?.location_id;
+    if (suppliedLoc && suppliedLoc !== scopeLocationId) {
+      return json({ error: "forbidden: cannot act on another store" }, 403);
+    }
+    // For actions that reference a token/table by id, verify it belongs to
+    // this store before allowing the write.
+    const idToCheck = data?.id;
+    if (idToCheck && ["delete_token", "release_token", "update_table", "delete_table"].includes(action)) {
+      const { data: row } = await admin.from("menu_tables").select("location_id").eq("id", idToCheck).maybeSingle();
+      if (!row || row.location_id !== scopeLocationId) {
+        return json({ error: "forbidden: item belongs to another store" }, 403);
+      }
+    }
+  }
 
   // Call the sunmi-print function server-side, so the print secret
   // (PRINT_WEBHOOK_SECRET) never reaches the browser.
@@ -81,20 +128,31 @@ Deno.serve(async (req) => {
           admin.from("menu_band_option_prices").select("*"),
         ]);
         for (const r of [cats, items, locs, overrides]) if (r.error) throw r.error;
+        // When a store manager is logged in, filter every location-specific
+        // dataset down to their store, and expose only their own location.
+        // The master menu (items/categories/menus/modifiers) is still returned
+        // so they can see items and set their own overrides — but those tables
+        // are read-only for them (enforced by STORE_ALLOWED above).
+        const only = (arr: any[] | null | undefined) =>
+          scope === "store" ? (arr ?? []).filter((x: any) => x.location_id === scopeLocationId) : (arr ?? []);
         return json({
           ok: true,
+          scope,
+          scopeLocationId,
           categories: cats.data,
           items: items.data,
-          locations: locs.data,
-          overrides: overrides.data,
+          locations: scope === "store"
+            ? (locs.data ?? []).filter((l: any) => l.id === scopeLocationId)
+            : locs.data,
+          overrides: only(overrides.data),
           settings: settings.data ?? [],
           menus: menus.data ?? [],
           modifierGroups: modGroups.data ?? [],
           modifierOptions: modOptions.data ?? [],
           itemModifiers: itemMods.data ?? [],
-          tables: tables.data ?? [],
-          locationMenus: locMenus.data ?? [],
-          modifierOverrides: modOverrides.data ?? [],
+          tables: only(tables.data),
+          locationMenus: only(locMenus.data),
+          modifierOverrides: only(modOverrides.data),
           priceBands: bands.data ?? [],
           bandPrices: bandPrices.data ?? [],
           bandOptionPrices: bandOptPrices.data ?? [],
@@ -946,6 +1004,32 @@ Deno.serve(async (req) => {
         const { id } = data || {};
         if (!id) return json({ error: "no id" }, 400);
         const { error } = await admin.from("menu_locations").delete().eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- STORE PINS (master-only): manage per-store manager logins ----
+      case "store_pin_list": {
+        const { data: rows, error } = await admin.from("store_pins")
+          .select("id, location_id, pin, label, active, created_at").order("created_at");
+        if (error) throw error;
+        return json({ ok: true, pins: rows ?? [] });
+      }
+      case "store_pin_set": {
+        const { location_id, pin: newPin, label } = data || {};
+        if (!location_id || !newPin) return json({ error: "location_id and pin required" }, 400);
+        if (String(newPin) === String(ADMIN_PIN)) return json({ error: "cannot reuse the master PIN" }, 400);
+        // One PIN per store: replace any existing pin for this location.
+        await admin.from("store_pins").delete().eq("location_id", location_id);
+        const { error } = await admin.from("store_pins")
+          .insert({ location_id, pin: String(newPin), label: label ?? null, active: true });
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      case "store_pin_delete": {
+        const { location_id } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const { error } = await admin.from("store_pins").delete().eq("location_id", location_id);
         if (error) throw error;
         return json({ ok: true });
       }
