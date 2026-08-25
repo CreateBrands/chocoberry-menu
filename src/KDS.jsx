@@ -28,6 +28,16 @@ function getParam(k) { try { return new URLSearchParams(window.location.search).
 // NOT clear the order from screen 2. Defaults to "main" when no param is given
 // (single-screen setups behave exactly as before).
 function getScreenId() { return getParam("screen") || "main"; }
+// SCREEN IDENTITY. Each physical KDS is tagged with a station (which printer it
+// owns) and an optional human label, set once via URL and then remembered:
+//   ?station=kitchen&name=Hot%20Kitchen     ?station=counter&name=Bar
+// The station is sent with every manual print so the slip comes out at THIS
+// screen's printer instead of every printer in the store.
+function getRemembered(key, param) {
+  const v = getParam(param);
+  if (v) { try { localStorage.setItem(key, v); } catch {} return v; }
+  try { return localStorage.getItem(key); } catch { return null; }
+}
 function minsSince(iso, now) { return (now - new Date(iso).getTime()) / 60000; }
 function fmtClock(iso, now) {
   const s = Math.max(0, Math.floor((now - new Date(iso).getTime()) / 1000));
@@ -43,6 +53,9 @@ export default function KDS() {
   const [loc, setLoc] = useState(getParam("loc") || (() => { try { return localStorage.getItem("kds_loc"); } catch { return null; } })());
   const [tab, setTab] = useState("active");
   const [station, setStation] = useState("all");
+  // This screen's own identity (not the item-filter dropdown above).
+  const [myStation] = useState(() => getRemembered("kds_station", "station"));
+  const [myName] = useState(() => getRemembered("kds_name", "name"));
   const [soundOn, setSoundOn] = useState(true);
   const [connected, setConnected] = useState(true);
   const [size, setSize] = useState(() => localStorage.getItem("kds_size") || "M");
@@ -198,7 +211,12 @@ export default function KDS() {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/sunmi-print", {
         method: "POST", headers: H,
-        body: JSON.stringify({ action: "print-order", order_id: o.id, force: true }),
+        body: JSON.stringify({
+          action: "print-order", order_id: o.id, force: true,
+          // Target THIS screen's printer. Omitted when the screen has no
+          // station set, which preserves the old all-printers behaviour.
+          ...(myStation ? { station: myStation } : {}),
+        }),
       });
       if (!r.ok) throw new Error("http " + r.status);
       setPrintMsg({ id: o.id, text: "Slip sent to printer" });
@@ -376,7 +394,12 @@ export default function KDS() {
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "#4ade80" : "#f87171" }} />
             {connected ? "Live" : "\u2026"}
           </div>
-          {getParam("screen") && <div style={{ fontSize: 12, fontWeight: 800, color: "#cbd5e1", background: "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }}>Screen {getScreenId()}</div>}
+          {/* ALWAYS shown. Previously this rendered only when ?screen= was
+              present, so an unlabelled screen displayed no identity at all —
+              exactly the screens most likely to be misconfigured. */}
+          <div style={{ fontSize: 12, fontWeight: 800, color: myStation ? "#052e16" : "#cbd5e1", background: myStation ? "#4ade80" : "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }} title={"Screen " + getScreenId() + (myStation ? " \u00B7 prints to " + myStation : " \u00B7 NO STATION SET \u2014 prints to every printer")}>
+            {(myName || ("Screen " + getScreenId())) + (myStation ? " \u00B7 " + myStation : " \u00B7 no station")}
+          </div>
         </div>
       </div>
 
