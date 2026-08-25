@@ -178,9 +178,22 @@ export default function KDS() {
   // staff drawer uses. force:true so it always prints even if already printed.
   const [printingId, setPrintingId] = useState(null);
   const [printMsg, setPrintMsg] = useState(null);
+  // Guard against reprint storms. Without this, repeated taps each fire a push;
+  // with copies:2 on the kitchen printer that is 2 slips per tap. (25 Aug: one
+  // order accumulated ~30 slips this way while the board was blank.)
+  const lastPrintRef = useRef({});
+  const PRINT_COOLDOWN_MS = 10000;
   async function printSlip(o, e) {
     if (e) e.stopPropagation();
     if (!o.id) return;
+    if (printingId) return;                       // a print is already in flight
+    const last = lastPrintRef.current[o.id] || 0;
+    if (Date.now() - last < PRINT_COOLDOWN_MS) {  // slips take a moment to emerge
+      setPrintMsg({ id: o.id, text: "Just printed \u2014 wait" });
+      setTimeout(() => setPrintMsg(null), 2000);
+      return;
+    }
+    lastPrintRef.current[o.id] = Date.now();
     setPrintingId(o.id); setPrintMsg(null);
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/sunmi-print", {
@@ -313,7 +326,7 @@ export default function KDS() {
   const stations = Array.from(new Set(orders.flatMap((o) => (o.menu_order_items || []).map(stationOf))));
   const nowClock = new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const F = (px) => Math.round(px * scale);
-  const BOLT = "\u26A1", CHECK = "\u2713", ARROW = "\u21A9", WARN = "\u26A0", DOT = "\u00B7", TIMES = "\u00D7", BELL = "\uD83D\uDD14", BELLOFF = "\uD83D\uDD15", EXPAND = "\u26F6", X = "\u2715";
+  const BOLT = "\u26A1", PRINTER = "\uD83D\uDDA8", CHECK = "\u2713", ARROW = "\u21A9", WARN = "\u26A0", DOT = "\u00B7", TIMES = "\u00D7", BELL = "\uD83D\uDD14", BELLOFF = "\uD83D\uDD15", EXPAND = "\u26F6", X = "\u2715";
 
   return (
     <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "radial-gradient(1200px 600px at 50% -10%, #12151d, #0b0d11)", color: "#f8fafc", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
@@ -440,6 +453,11 @@ export default function KDS() {
                 </div>
                 <div style={{ display: "flex", gap: 2, padding: 2 }}>
                   <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#fb7185" : "#ffffff0d", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#1a0a0d" : "#fff" }} title="Rush">{BOLT}</div>
+                  {/* Print slip. Deliberately on the LEFT, far from Bump: Bump is
+                      destructive and a mis-tap on a wall screen loses the ticket. */}
+                  <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff0d", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#fff", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
+                    {printingId === o.id ? "\u2026" : PRINTER}
+                  </div>
                   {o.status === "placed" && <div onClick={() => start(o)} className="kbtn" style={{ flex: 1, textAlign: "center", padding: F(11) + "px 0", background: "#ffffff14", borderRadius: 9, fontWeight: 700, fontSize: F(14), cursor: "pointer" }}>Start</div>}
                   <div onClick={() => requestBump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: (armedBump && armedBump.id === o.id) ? "#f59e0b" : (allDone ? "#34d399" : "#22c55e"), borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: (armedBump && armedBump.id === o.id) ? "#3a2400" : "#052e16", boxShadow: "0 2px 8px -2px " + (allDone ? "#34d39966" : "#22c55e55") }}>{(armedBump && armedBump.id === o.id) ? "Tap again ✓" : (CHECK + " Bump")}</div>
                 </div>
