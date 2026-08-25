@@ -1165,6 +1165,21 @@ export default function Admin() {
                           <span style={{ fontSize: 9.5, color: T.faint, fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase" }}>{lbl}</span>
                         </div>
                       ))}
+                      {/* Pause/resume customer ordering at this store. Reads the
+                          same menu_app_settings key the tablets poll every 10s;
+                          ONLY the exact string "off" means paused. */}
+                      {(() => {
+                        const sRow = (state.settings || []).find((x) => x.key === "accepting_orders:" + loc.id);
+                        const paused = sRow && sRow.value === "off";
+                        return (
+                          <div onClick={(e) => { e.stopPropagation(); act("set_accepting_orders", { location_id: loc.id, accepting: !!paused }); }}
+                            title={paused ? "Ordering paused — tap to resume" : "Accepting orders — tap to pause"}
+                            style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", borderRadius: 10, cursor: "pointer", background: paused ? "#f7e6e2" : T.bg, border: "1px solid " + (paused ? "#b4462f" : T.line), marginLeft: 6 }}>
+                            <span style={{ width: 8, height: 8, borderRadius: 4, background: paused ? "#b4462f" : "#2e7d52" }} />
+                            <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase", color: paused ? "#b4462f" : T.muted }}>{paused ? "Paused" : "Ordering"}</span>
+                          </div>
+                        );
+                      })()}
                       <div style={{ display: "flex", gap: 7, marginLeft: 6 }}>
                         {state.scope !== "store" && <div onClick={(e) => { e.stopPropagation(); const n = window.prompt("Rename store", loc.name); if (n && n !== loc.name) act("update_store", { id: loc.id, name: n }); }} style={{ width: 33, height: 33, borderRadius: 9, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", color: T.muted, border: "1px solid " + T.line }} title="Rename">✎</div>}
                         {state.scope !== "store" && <div onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete store '" + loc.name + "'? Removes its tablets and price overrides.")) act("delete_store", { id: loc.id }); }} style={{ width: 33, height: 33, borderRadius: 9, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", color: "#b4462f", border: "1px solid " + T.line }} title="Delete">🗑</div>}

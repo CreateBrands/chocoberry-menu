@@ -65,6 +65,7 @@ Deno.serve(async (req) => {
     "load",
     "set_override",        // per-store price/availability override
     "set_mod_override",    // per-store modifier override
+    "set_accepting_orders",// pause/resume ordering at their own store
     "create_token", "delete_token", "release_token",
     "create_table", "update_table", "delete_table",
     "set_store_menus",
@@ -491,6 +492,23 @@ Deno.serve(async (req) => {
         const { error } = await admin.from("menu_categories").update(patch).eq("id", id);
         if (error) throw error;
         return json({ ok: true });
+      }
+
+      // ---- Pause/resume customer ordering for ONE location ----
+      // The key is built server-side from location_id, so a store login cannot
+      // reach any other key in menu_app_settings (the generic set_setting
+      // action stays master-only for that reason). The customer app polls
+      // this every 10s and treats ONLY the exact string "off" as paused.
+      case "set_accepting_orders": {
+        const { location_id, accepting } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const key = "accepting_orders:" + String(location_id);
+        const value = accepting === false ? "off" : "on";
+        const { error } = await admin.from("menu_app_settings")
+          .upsert({ key, value, updated_at: new Date().toISOString() },
+                  { onConflict: "key" });
+        if (error) throw error;
+        return json({ ok: true, key, value });
       }
 
       // ---- SETTINGS: upsert a key/value into menu_app_settings ----
