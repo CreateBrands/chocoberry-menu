@@ -749,11 +749,14 @@ export default function Admin() {
   const [storeView, setStoreView] = useState(null); // store id for price editor
   const [openStore, setOpenStore] = useState(null);  // which store row is expanded (one at a time)
   const [storeTab, setStoreTab] = useState("tablets"); // active tab in the expanded store
+  const [storePins, setStorePins] = useState([]);      // master-only: per-store manager PINs
+  const loadStorePins = async () => { try { const r = await callAdmin(pin, "store_pin_list", {}); setStorePins(r.pins || []); } catch { /* ignore */ } };
+  useEffect(() => { if (showStores && state?.scope !== "store") loadStorePins(); /* eslint-disable-next-line */ }, [showStores]);
   const [modOpen, setModOpen] = useState({});
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [] });
+  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   // Optimistic availability toggle: flip the switch in the UI instantly, then
@@ -789,18 +792,27 @@ export default function Admin() {
       {/* SIDEBAR */}
       <div style={{ width: 210, flexShrink: 0, background: T.card, borderRight: "1px solid " + T.line, padding: "22px 14px", minHeight: "100vh", boxSizing: "border-box" }}>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, padding: "0 10px 20px" }}>Menu Admin</div>
+        {(() => {
+          const isStore = state.scope === "store";
+          const storeName = isStore ? ((state.locations || [])[0] || {}).name : null;
+          return isStore ? (
+            <div style={{ fontSize: 12, color: T.muted, padding: "0 10px 14px", lineHeight: 1.4 }}>
+              <span style={{ fontWeight: 700, color: T.accent }}>{storeName}</span><br />Store manager access
+            </div>
+          ) : null;
+        })()}
         {[
-          ["menus", "Menus", "🍽"],
-          ["overview", "Overview", "📋"],
-          ["pricing", "Pricing", "💷"],
-          ["modifiers", "Modifiers", "⚙"],
-          ["appearance", "Appearance", "🎨"],
-          ["welcome", "Welcome", "🏠"],
-          ["hero", "Hero", "🖼"],
-          ["stores", "Stores", "🏪"],
-          ["printers", "Printers", "🖨"],
-          ["settings", "Settings", "⚙"],
-        ].map(([key, label, icon]) => {
+          ["menus", "Menus", "🍽", true],
+          ["overview", "Overview", "📋", true],
+          ["pricing", "Pricing", "💷", true],
+          ["modifiers", "Modifiers", "⚙", true],
+          ["appearance", "Appearance", "🎨", true],
+          ["welcome", "Welcome", "🏠", true],
+          ["hero", "Hero", "🖼", true],
+          ["stores", "Stores", "🏪", false],
+          ["printers", "Printers", "🖨", false],
+          ["settings", "Settings", "⚙", true],
+        ].filter(([, , , masterOnly]) => state.scope !== "store" || !masterOnly).map(([key, label, icon]) => {
           const active = nav === key;
           return (
             <div key={key} onClick={() => {
@@ -1119,7 +1131,7 @@ export default function Admin() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Stores</div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <button onClick={async () => { const n = window.prompt("Store name?"); if (n) await act("create_store", { name: n }); }} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add store</button>
+                {state.scope !== "store" && <button onClick={async () => { const n = window.prompt("Store name?"); if (n) await act("create_store", { name: n }); }} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add store</button>}
                 <span onClick={() => setShowStores(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
               </div>
             </div>
@@ -1154,8 +1166,8 @@ export default function Admin() {
                         </div>
                       ))}
                       <div style={{ display: "flex", gap: 7, marginLeft: 6 }}>
-                        <div onClick={(e) => { e.stopPropagation(); const n = window.prompt("Rename store", loc.name); if (n && n !== loc.name) act("update_store", { id: loc.id, name: n }); }} style={{ width: 33, height: 33, borderRadius: 9, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", color: T.muted, border: "1px solid " + T.line }} title="Rename">✎</div>
-                        <div onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete store '" + loc.name + "'? Removes its tablets and price overrides.")) act("delete_store", { id: loc.id }); }} style={{ width: 33, height: 33, borderRadius: 9, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", color: "#b4462f", border: "1px solid " + T.line }} title="Delete">🗑</div>
+                        {state.scope !== "store" && <div onClick={(e) => { e.stopPropagation(); const n = window.prompt("Rename store", loc.name); if (n && n !== loc.name) act("update_store", { id: loc.id, name: n }); }} style={{ width: 33, height: 33, borderRadius: 9, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", color: T.muted, border: "1px solid " + T.line }} title="Rename">✎</div>}
+                        {state.scope !== "store" && <div onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete store '" + loc.name + "'? Removes its tablets and price overrides.")) act("delete_store", { id: loc.id }); }} style={{ width: 33, height: 33, borderRadius: 9, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", color: "#b4462f", border: "1px solid " + T.line }} title="Delete">🗑</div>}
                       </div>
                       <span style={{ fontSize: 13, color: isOpen ? T.accent : "#c3bcab", marginLeft: 4, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .18s" }}>▸</span>
                     </div>
@@ -1263,6 +1275,24 @@ export default function Admin() {
                           </div>
                         </div>
                       )}
+                      {state.scope !== "store" && (() => {
+                        const existing = storePins.find((sp) => sp.location_id === loc.id);
+                        return (
+                          <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px dashed " + T.line }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 8 }}>Manager access</div>
+                            <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 10 }}>Give this store its own PIN so a manager can log in and manage only {loc.name} — their prices, tablets, tables and menus. They can't see or change other stores or the master menu.</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                              {existing
+                                ? <>
+                                    <span style={{ fontSize: 13, fontWeight: 700, color: T.ink, background: "#eef3ea", border: "1px solid #d9e6d2", borderRadius: 8, padding: "7px 12px", letterSpacing: "2px" }}>PIN: {existing.pin}</span>
+                                    <span onClick={async () => { const p = window.prompt("New PIN for " + loc.name + " (numbers/letters):"); if (p) { await callAdmin(pin, "store_pin_set", { location_id: loc.id, pin: p.trim(), label: loc.name + " manager" }); loadStorePins(); } }} style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Change</span>
+                                    <span onClick={async () => { if (window.confirm("Remove manager access for " + loc.name + "? Their PIN will stop working.")) { await callAdmin(pin, "store_pin_delete", { location_id: loc.id }); loadStorePins(); } }} style={{ fontSize: 12, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Remove</span>
+                                  </>
+                                : <span onClick={async () => { const p = window.prompt("Set a PIN for " + loc.name + " (the manager will use this to log in):"); if (p) { await callAdmin(pin, "store_pin_set", { location_id: loc.id, pin: p.trim(), label: loc.name + " manager" }); loadStorePins(); } }} style={{ fontSize: 12.5, color: T.accent, fontWeight: 700, cursor: "pointer", border: "1px dashed #a9c199", borderRadius: 8, padding: "8px 13px", background: "#f6faf3" }}>+ Set manager PIN</span>}
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </div>
                   )}
                 </div>
