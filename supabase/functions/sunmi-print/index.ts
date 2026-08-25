@@ -696,16 +696,28 @@ Deno.serve(async (req) => {
           try { await supabase.from("menu_orders").update({ print_failed: false }).in("id", staleFlagged); } catch { /* best effort */ }
         }
 
-        // Auto-cancel stale EMPTY orders: header rows with no items and £0 that
-        // are older than 15 min are abandoned shells (a started-but-never-filled
-        // ticket). Cancel them so they don't clutter the "awaiting payment" list.
-        const staleEmpty = candidates.filter((o: any) => {
-          const has = (orderMaxBatch.has(o.id)); // orderMaxBatch only has entries for orders WITH items
-          const ageMin = (Date.now() - new Date(o.created_at).getTime()) / 60000;
-          return !has && Number(o.total || 0) === 0 && ageMin > 15;
-        }).map((o: any) => o.id);
-        if (staleEmpty.length) {
-          try { await supabase.from("menu_orders").update({ status: "cancelled", closed_at: new Date().toISOString() }).in("id", staleEmpty); } catch { /* best effort */ }
+        // Auto-cancel stale EMPTY orders (incl. abandoned pay-first "hold"
+        // shells): header rows with no items and £0 older than 15 min are
+        // abandoned — a "Pay" was pressed but payment never taken, or a ticket
+        // was started and never filled. Cancel them so they don't clutter the
+        // "awaiting payment" list. Orders WITH items are never touched, and a
+        // recent hold (< 15 min, payment in progress) is left alone.
+        const emptyAgeOk = (orders || []).filter((o: any) =>
+          o.status !== "cancelled" && o.closed_at == null
+          && Number(o.total || 0) === 0
+          && ((Date.now() - new Date(o.created_at).getTime()) / 60000) > 15);
+        if (emptyAgeOk.length) {
+          // Verify emptiness directly (don't rely on orderMaxBatch, which only
+          // covers non-hold candidates): which of these actually have items?
+          const checkIds = emptyAgeOk.map((o: any) => o.id);
+          const withItems = new Set<string>();
+          const { data: anyItems } = await supabase
+            .from("menu_order_items").select("order_id").in("order_id", checkIds);
+          for (const it of anyItems || []) withItems.add((it as any).order_id);
+          const staleEmpty = checkIds.filter((id: string) => !withItems.has(id));
+          if (staleEmpty.length) {
+            try { await supabase.from("menu_orders").update({ status: "cancelled", closed_at: new Date().toISOString() }).in("id", staleEmpty); } catch { /* best effort */ }
+          }
         }
 
         const results = [];
