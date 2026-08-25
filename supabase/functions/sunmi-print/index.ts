@@ -696,6 +696,18 @@ Deno.serve(async (req) => {
           try { await supabase.from("menu_orders").update({ print_failed: false }).in("id", staleFlagged); } catch { /* best effort */ }
         }
 
+        // Auto-cancel stale EMPTY orders: header rows with no items and £0 that
+        // are older than 15 min are abandoned shells (a started-but-never-filled
+        // ticket). Cancel them so they don't clutter the "awaiting payment" list.
+        const staleEmpty = candidates.filter((o: any) => {
+          const has = (orderMaxBatch.has(o.id)); // orderMaxBatch only has entries for orders WITH items
+          const ageMin = (Date.now() - new Date(o.created_at).getTime()) / 60000;
+          return !has && Number(o.total || 0) === 0 && ageMin > 15;
+        }).map((o: any) => o.id);
+        if (staleEmpty.length) {
+          try { await supabase.from("menu_orders").update({ status: "cancelled", closed_at: new Date().toISOString() }).in("id", staleEmpty); } catch { /* best effort */ }
+        }
+
         const results = [];
         for (const o of missing) {
           try {
