@@ -55,6 +55,14 @@ export default function KDS() {
   const [station, setStation] = useState("all");
   // This screen's own identity (not the item-filter dropdown above).
   const [myStation] = useState(() => getRemembered("kds_station", "station"));
+  // Designated printer for MANUAL prints from this screen, by serial:
+  //   ?printer=N450263A10230
+  // Serial rather than station, deliberately: both printers share the
+  // "kitchen" station so that AUTOMATIC printing sends the complete order to
+  // both. Targeting by station would therefore hit both on a manual print too.
+  // A serial narrows to exactly one device (sunmi-print gives printer_sn
+  // precedence over station in narrowToTarget).
+  const [myPrinter] = useState(() => getRemembered("kds_printer", "printer"));
   const [myName] = useState(() => getRemembered("kds_name", "name"));
   const [soundOn, setSoundOn] = useState(true);
   const [connected, setConnected] = useState(true);
@@ -215,7 +223,7 @@ export default function KDS() {
           action: "print-order", order_id: o.id, force: true,
           // Target THIS screen's printer. Omitted when the screen has no
           // station set, which preserves the old all-printers behaviour.
-          ...(myStation ? { station: myStation } : {}),
+          ...(myPrinter ? { printer_sn: myPrinter } : myStation ? { station: myStation } : {}),
         }),
       });
       if (!r.ok) throw new Error("http " + r.status);
@@ -415,7 +423,7 @@ export default function KDS() {
               present, so an unlabelled screen displayed no identity at all —
               exactly the screens most likely to be misconfigured. */}
           <div style={{ fontSize: 12, fontWeight: 800, color: myStation ? "#052e16" : "#cbd5e1", background: myStation ? "#4ade80" : "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }} title={"Screen " + getScreenId() + (myStation ? " \u00B7 prints to " + myStation : " \u00B7 NO STATION SET \u2014 prints to every printer")}>
-            {(myName || ("Screen " + getScreenId())) + (myStation ? " \u00B7 " + myStation : " \u00B7 no station")}
+            {(myName || ("Screen " + getScreenId())) + (myPrinter ? " \u00B7 prints here" : myStation ? " \u00B7 " + myStation : " \u00B7 no printer set")}
           </div>
         </div>
       </div>
