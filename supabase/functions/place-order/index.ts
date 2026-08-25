@@ -72,6 +72,28 @@ Deno.serve(async (req) => {
       location_id = loc?.id ?? null;
     }
 
+    // ── ORDERING PAUSED? Enforced SERVER-SIDE, deliberately. ──
+    // The tablet also checks this (App.jsx polls every 10s) but a client check
+    // alone does not hold: on 25 Aug, Slough had ordering paused at 22:47 and
+    // tablets 7 and 1 still placed orders at 22:49. A backgrounded, cached or
+    // offline tablet never sees the flag. This is the check that actually
+    // stops an order, for the same reason prices are re-resolved here rather
+    // than trusted from the client.
+    // ONLY the exact string "off" pauses; a missing row means accepting.
+    if (location_id) {
+      const { data: acc } = await admin
+        .from("menu_app_settings")
+        .select("value")
+        .eq("key", "accepting_orders:" + location_id)
+        .maybeSingle();
+      if (acc?.value === "off") {
+        return new Response(JSON.stringify({
+          error: "ordering_paused",
+          message: "We're not taking orders right now \u2014 please order at the counter.",
+        }), { status: 409, headers: { ...cors, "Content-Type": "application/json" } });
+      }
+    }
+
     // Look up REAL prices for every item id.
     const ids = [...new Set(items.map((l) => l.item_id))];
     // ── Resolve the price TIER for this location + all item/modifier data.
