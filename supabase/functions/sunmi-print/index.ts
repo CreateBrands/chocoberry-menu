@@ -280,6 +280,37 @@ async function loadReceiptOrder(
 // ---------------------------------------------------------------------------
 // All active printers for a location. Falls back to the single active printer
 // (proving phase) only when no location is given or none are mapped.
+// TARGETING (added): when a specific KDS screen asks for a print, it passes
+// its own station (or an exact printer_sn). We then narrow the printer list to
+// that one device, so "print" on the bar screen no longer fires the kitchen
+// printer too. With no target given, behaviour is unchanged: all printers at
+// the location, each filtered to its own station's items as before.
+function narrowToTarget(
+  printers: Array<Record<string, unknown>>,
+  target?: { station?: string; printer_sn?: string },
+): Array<Record<string, unknown>> {
+  if (!target) return printers;
+  if (target.printer_sn) {
+    const hit = printers.filter((p) => String((p as any).sn) === String(target.printer_sn));
+    if (hit.length) return hit;
+    throw new Error("printer_sn " + target.printer_sn + " is not active at this location");
+  }
+  if (target.station) {
+    const want = String(target.station).toLowerCase();
+    const hit = printers.filter(
+      (p) => String((p as any).station ?? DEFAULT_STATION).toLowerCase() === want,
+    );
+    if (hit.length) return hit;
+    // No printer for that station: fall back to the default-station printer so
+    // a ticket is never silently dropped, exactly as the item routing does.
+    const fallback = printers.filter(
+      (p) => String((p as any).station ?? DEFAULT_STATION).toLowerCase() === DEFAULT_STATION,
+    );
+    if (fallback.length) return fallback;
+  }
+  return printers;
+}
+
 async function findPrinters(locationId?: string): Promise<Array<Record<string, unknown>>> {
   if (locationId) {
     const { data, error } = await supabase
@@ -335,15 +366,20 @@ async function lastPrintedBatch(orderId: string, sn: string): Promise<number> {
   return typeof v === "number" ? v : -1;
 }
 
-async function printOrder(rec: Record<string, unknown>, force = false) {
+async function printOrder(
+  rec: Record<string, unknown>,
+  force = false,
+  target?: { station?: string; printer_sn?: string },
+) {
   const orderId = String(rec.id);
 
   if (rec.status === "cancelled") {
     return { skipped: true, reason: "order is cancelled" };
   }
 
-  const printers = await findPrinters(
-    rec.location_id ? String(rec.location_id) : undefined,
+  const printers = narrowToTarget(
+    await findPrinters(rec.location_id ? String(rec.location_id) : undefined),
+    target,
   );
   // Build the full order once (items now each carry a station).
   const order = await loadReceiptOrder(rec);
@@ -624,7 +660,13 @@ Deno.serve(async (req) => {
           .eq("id", String(body.order_id))
           .single();
         if (error || !data) return json({ error: "order not found" }, 404);
-        const result = await printOrder(data, body.force === true);
+        // A KDS screen sends its own station (or an exact printer_sn) so the
+        // slip prints at THAT station only. Omitted => every printer, as before.
+        const target = (body.station || body.printer_sn)
+          ? { station: body.station ? String(body.station) : undefined,
+              printer_sn: body.printer_sn ? String(body.printer_sn) : undefined }
+          : undefined;
+        const result = await printOrder(data, body.force === true, target);
         return json(result);
       }
 
