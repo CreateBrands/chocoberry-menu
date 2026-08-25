@@ -227,24 +227,41 @@ export default function KDS() {
   const start = (o) => patchOrder(o.id, { status: "preparing", kds_started_at: new Date().toISOString() });
   const bump = (o) => {
     const prevStatus = o.status;
-    patchOrder(o.id, { status: BUMP_TO, kds_bumped_at: new Date().toISOString() });
+    // Record WHICH screen bumped, so a ticket that vanishes unexpectedly can be
+    // traced. If kds_bumped_at is ever set while kds_bumped_by is null, the
+    // write did not come from this KDS at all — which narrows it immediately.
+    patchOrder(o.id, {
+      status: BUMP_TO,
+      kds_bumped_at: new Date().toISOString(),
+      kds_bumped_by: (myName || ("screen " + getScreenId())) + (myStation ? " / " + myStation : ""),
+    });
     if (undo && undo.timer) clearTimeout(undo.timer);
-    const timer = setTimeout(() => setUndo(null), 6000);
+    const timer = setTimeout(() => setUndo(null), 20000);
     setUndo({ order: o, prevStatus, timer });
   };
-  // First tap arms the button ("Tap again"); a second tap within 2.5s actually
-  // bumps. Prevents accidental single touches (brushes, cleaning) on the large
-  // touch targets from completing an order without a deliberate action.
+  // Bump needs TWO deliberate taps. Two guards make that reliable on a
+  // touchscreen:
+  //   MIN_CONFIRM_MS — a single physical tap can emit two click events (touch
+  //     -> click emulation, finger roll, contact bounce). Without a floor, one
+  //     tap arms AND confirms, and the ticket vanishes with nobody having
+  //     pressed twice. Anything faster than a human double-tap is ignored and
+  //     the card simply stays armed.
+  //   ARM_WINDOW_MS — 2.5s was too tight on a busy pass; the card disarmed
+  //     before the second tap landed, so staff learned to tap fast, which made
+  //     the double-fire above more likely.
+  const MIN_CONFIRM_MS = 400;
+  const ARM_WINDOW_MS = 8000;
   const requestBump = (o) => {
     if (armedBump && armedBump.id === o.id) {
+      if (Date.now() - armedBump.at < MIN_CONFIRM_MS) return; // stays armed
       if (armedBump.timer) clearTimeout(armedBump.timer);
       setArmedBump(null);
       bump(o);
       return;
     }
     if (armedBump && armedBump.timer) clearTimeout(armedBump.timer);
-    const timer = setTimeout(() => setArmedBump(null), 2500);
-    setArmedBump({ id: o.id, timer });
+    const timer = setTimeout(() => setArmedBump(null), ARM_WINDOW_MS);
+    setArmedBump({ id: o.id, at: Date.now(), timer });
   };
   const doUndo = () => {
     if (!undo) return;
