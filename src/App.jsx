@@ -1989,7 +1989,7 @@ export default function App() {
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
               if (orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
-            }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
+            }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false && acceptingOrders} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
