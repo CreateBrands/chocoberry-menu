@@ -747,6 +747,8 @@ export default function Admin() {
   const [showBands, setShowBands] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
   const [storeView, setStoreView] = useState(null); // store id for price editor
+  const [openStore, setOpenStore] = useState(null);  // which store row is expanded (one at a time)
+  const [storeTab, setStoreTab] = useState("tablets"); // active tab in the expanded store
   const [modOpen, setModOpen] = useState({});
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
@@ -1128,105 +1130,141 @@ export default function Admin() {
               const diningTables = (state.tables || []).filter((t) => t.location_id === loc.id && t.is_table !== false)
                 .sort((a, b) => (parseInt(String(a.label).replace(/\D/g, "")) || 0) - (parseInt(String(b.label).replace(/\D/g, "")) || 0));
               const ovCount = (state.overrides || []).filter((o) => o.location_id === loc.id).length;
+              const linkedCount = tokens.filter((tk) => tk.claimed_by).length;
+              const isOpen = openStore === loc.id;
+              const initials = String(loc.name || "?").split(/\s+/).map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+              const avatarBg = ["linear-gradient(135deg,#5E7A4D,#3f5733)", "linear-gradient(135deg,#b0894a,#8a6a2e)", "linear-gradient(135deg,#5b7db0,#3a5a8a)", "linear-gradient(135deg,#8a5b7d,#5f3a5a)"][(loc.name || "").length % 4];
+              const toggleOpen = () => { setOpenStore(isOpen ? null : loc.id); setStoreTab("tablets"); };
               return (
-                <div key={loc.id} style={{ border: "1px solid " + T.line, borderRadius: 12, padding: 14, marginBottom: 12, background: T.card }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span style={{ fontWeight: 700, fontSize: 15 }}>{loc.name}</span>
-                      <span onClick={() => act("update_store", { id: loc.id, active: !loc.active })} style={{ fontSize: 11, fontWeight: 600, color: loc.active ? T.accent : T.muted, cursor: "pointer", border: "1px solid " + T.line, borderRadius: 10, padding: "2px 8px" }}>{loc.active ? "Active" : "Inactive"}</span>
+                <div key={loc.id} style={{ border: "1px solid " + (isOpen ? "rgba(60,70,45,.22)" : T.line), borderRadius: 16, marginBottom: 13, background: T.card, overflow: "hidden", boxShadow: isOpen ? "0 8px 30px rgba(40,36,25,.10)" : "0 1px 3px rgba(40,36,25,.04)", transition: "box-shadow .18s" }}>
+                  {/* ── Collapsed header row ── */}
+                  <div onClick={toggleOpen} style={{ display: "flex", alignItems: "center", gap: 14, padding: "16px 18px", cursor: "pointer" }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 12, background: avatarBg, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 15, fontWeight: 800, flexShrink: 0, letterSpacing: "-.02em" }}>{initials}</div>
+                    <div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: T.ink, letterSpacing: "-.02em" }}>{loc.name}</div>
+                      <span onClick={(e) => { e.stopPropagation(); act("update_store", { id: loc.id, active: !loc.active }); }} style={{ fontSize: 10, fontWeight: 700, padding: "3px 9px", borderRadius: 20, letterSpacing: ".03em", display: "inline-flex", alignItems: "center", gap: 5, marginTop: 3, cursor: "pointer", background: loc.active ? "#e7f2e0" : "#efeee9", color: loc.active ? "#3c5a2e" : "#8a8578" }}>
+                        <span style={{ width: 6, height: 6, borderRadius: "50%", background: loc.active ? "#5E7A4D" : "#b3ad9e" }} />{loc.active ? "Active" : "Inactive"}
+                      </span>
                     </div>
-                    <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-                      <span onClick={() => { setStoreView(loc.id); }} style={{ fontSize: 13, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Prices ({ovCount})</span>
-                      <span onClick={() => { const n = window.prompt("Rename store", loc.name); if (n && n !== loc.name) act("update_store", { id: loc.id, name: n }); }} style={{ fontSize: 13, color: T.muted, cursor: "pointer" }}>✎</span>
-                      <span onClick={() => { if (window.confirm("Delete store '" + loc.name + "'? Removes its tablets and price overrides.")) act("delete_store", { id: loc.id }); }} style={{ fontSize: 13, color: "#b4462f", cursor: "pointer" }}>🗑</span>
-                    </div>
-                  </div>
-                  <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>TABLET LINKS</div>
-                    {tokens.map((tk) => {
-                      // Pull the tablet number from its label ("Tablet 3" -> 3) and bake it
-                      // into the link + QR, so setting up a tablet from here sets its number too.
-                      const tnum = (String(tk.label || "").match(/\d+/) || [])[0];
-                      const url = window.location.origin + "/?store=" + tk.qr_token + (tnum ? "&tablet=" + tnum : "");
-                      const qr = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=" + encodeURIComponent(url);
-                      return (
-                        <div key={tk.id} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 10, padding: 8, border: "1px solid " + T.line, borderRadius: 10, background: T.bg }}>
-                          <img src={qr} alt="QR" width={72} height={72} style={{ borderRadius: 6, background: "#fff", flexShrink: 0 }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 4 }}>{tk.label || "Tablet"}</div>
-                            <input readOnly value={url} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 6, padding: "6px 8px", fontSize: 11, background: T.card, color: T.ink }} />
-                            <div style={{ display: "flex", gap: 12, marginTop: 6, alignItems: "center" }}>
-                              <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Copy link</span>
-                              <a href={qr.replace("220x220", "600x600")} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.accent, fontWeight: 600, textDecoration: "none" }}>Open QR</a>
-                              {tk.claimed_by
-                                ? <span onClick={() => { if (window.confirm("Release this tablet link? The current device will be logged out and the QR can be linked to a new tablet.")) act("release_token", { id: tk.id }); }} style={{ fontSize: 12, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Release</span>
-                                : null}
-                              <span onClick={() => act("delete_token", { id: tk.id })} style={{ fontSize: 12, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Delete</span>
-                              <span style={{ fontSize: 11, fontWeight: 600, color: tk.claimed_by ? "#3c5a2e" : T.faint, marginLeft: "auto" }}>{tk.claimed_by ? "● Linked" : "○ Not linked"}</span>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    <button onClick={() => act("create_token", { location_id: loc.id, label: "Tablet " + (tokens.length + 1) })} style={{ fontSize: 13, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginTop: 2 }}>+ New tablet link</button>
-                  </div>
-                  <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10, marginTop: 10 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>KITCHEN DISPLAY (KDS)</div>
-                    <div style={{ fontSize: 11, color: T.faint, marginBottom: 8 }}>Scan this on the kitchen screen to open the live order board for this store. It stays linked.</div>
-                    {(() => {
-                      const kdsUrl = window.location.origin + "/kds?loc=" + loc.id;
-                      const kdsQr = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&margin=8&data=" + encodeURIComponent(kdsUrl);
-                      return (
-                        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: 8, border: "1px solid " + T.line, borderRadius: 10, background: T.bg }}>
-                          <img src={kdsQr} alt="KDS QR" width={72} height={72} style={{ borderRadius: 6, background: "#fff", flexShrink: 0 }} />
-                          <div style={{ flex: 1, minWidth: 0 }}>
-                            <div style={{ fontSize: 12, fontWeight: 600, color: T.muted, marginBottom: 4 }}>Kitchen display screen</div>
-                            <input readOnly value={kdsUrl} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 6, padding: "6px 8px", fontSize: 11, background: T.card, color: T.ink }} />
-                            <div style={{ display: "flex", gap: 12, marginTop: 6 }}>
-                              <span onClick={() => { navigator.clipboard?.writeText(kdsUrl); }} style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Copy link</span>
-                              <a href={kdsQr.replace("220x220", "600x600")} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.accent, fontWeight: 600, textDecoration: "none" }}>Open QR</a>
-                              <a href={kdsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 12, color: T.accent, fontWeight: 600, textDecoration: "none" }}>Open KDS</a>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })()}
-                  </div>
-                  <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10, marginTop: 10 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>DINING TABLES</div>
-                    <div style={{ fontSize: 11, color: T.faint, marginBottom: 8 }}>Tables customers can order to. Each has its own QR code for the table sticker. Click a name to rename.</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {diningTables.map((tb) => (
-                        <div key={tb.id} style={{ display: "flex", alignItems: "center", gap: 6, border: "1px solid " + T.line, borderRadius: 8, padding: "6px 10px", background: T.bg }}>
-                          <span onClick={() => { const n = window.prompt("Rename table", tb.label); if (n && n !== tb.label) act("update_table", { id: tb.id, fields: { label: n } }); }}
-                            style={{ fontSize: 13, fontWeight: 600, color: T.ink, cursor: "pointer" }} title="Click to rename">{tb.label}</span>
-                          <a href={"https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(window.location.origin + "/?store=" + tb.qr_token)} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: T.accent, textDecoration: "none", fontWeight: 600 }} title="Open QR for table sticker">QR</a>
-                          <span onClick={() => { if (window.confirm("Delete '" + tb.label + "'?")) act("delete_table", { id: tb.id }); }} style={{ fontSize: 13, color: "#b4462f", cursor: "pointer" }} title="Delete table">×</span>
+                    <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                      {[["Tablets", tokens.length], ["Tables", diningTables.length], ["Prices", ovCount]].map(([lbl, n]) => (
+                        <div key={lbl} onClick={lbl === "Prices" ? (e) => { e.stopPropagation(); setStoreView(loc.id); } : undefined} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 52, padding: "7px 4px", borderRadius: 10, background: T.bg, cursor: lbl === "Prices" ? "pointer" : "default" }}>
+                          <span style={{ fontSize: 16, fontWeight: 800, color: T.ink, lineHeight: 1, letterSpacing: "-.02em" }}>{n}</span>
+                          <span style={{ fontSize: 9.5, color: T.faint, fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase" }}>{lbl}</span>
                         </div>
                       ))}
-                      {diningTables.length === 0 && <span style={{ fontSize: 12, color: T.faint }}>No tables yet.</span>}
+                      <div style={{ display: "flex", gap: 7, marginLeft: 6 }}>
+                        <div onClick={(e) => { e.stopPropagation(); const n = window.prompt("Rename store", loc.name); if (n && n !== loc.name) act("update_store", { id: loc.id, name: n }); }} style={{ width: 33, height: 33, borderRadius: 9, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", color: T.muted, border: "1px solid " + T.line }} title="Rename">✎</div>
+                        <div onClick={(e) => { e.stopPropagation(); if (window.confirm("Delete store '" + loc.name + "'? Removes its tablets and price overrides.")) act("delete_store", { id: loc.id }); }} style={{ width: 33, height: 33, borderRadius: 9, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, cursor: "pointer", color: "#b4462f", border: "1px solid " + T.line }} title="Delete">🗑</div>
+                      </div>
+                      <span style={{ fontSize: 13, color: isOpen ? T.accent : "#c3bcab", marginLeft: 4, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform .18s" }}>▸</span>
                     </div>
-                    <button onClick={() => { const next = (diningTables.reduce((m, t) => Math.max(m, parseInt(String(t.label).replace(/\D/g, "")) || 0), 0)) + 1; act("create_table", { location_id: loc.id, label: "Table " + next }); }} style={{ fontSize: 13, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, marginTop: 8 }}>+ Add table</button>
                   </div>
-                  <div style={{ borderTop: "1px solid " + T.line, paddingTop: 10, marginTop: 10 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: T.muted, marginBottom: 6 }}>MENUS SHOWN AT THIS STORE</div>
-                    <div style={{ fontSize: 11, color: T.faint, marginBottom: 8 }}>Leave all unticked to show every menu (default). Tick specific menus to limit this store to only those.</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {(state.menus || []).map((mn) => {
-                        const assigned = (state.locationMenus || []).filter((x) => x.location_id === loc.id).map((x) => x.menu_id);
-                        const on = assigned.includes(mn.id);
+
+                  {/* ── Expanded body with tabs ── */}
+                  {isOpen && (
+                    <div style={{ borderTop: "1px solid " + T.line, padding: "18px", background: T.bg }}>
+                      <div style={{ display: "flex", gap: 4, marginBottom: 17, background: "#ecebe3", padding: 4, borderRadius: 12, width: "fit-content" }}>
+                        {[["tablets", "Tablets", tokens.length], ["tables", "Tables", diningTables.length], ["kitchen", "Kitchen", null], ["menus", "Menus", null]].map(([key, lbl, count]) => (
+                          <span key={key} onClick={() => setStoreTab(key)} style={{ padding: "8px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: storeTab === key ? T.ink : T.muted, background: storeTab === key ? "#fff" : "transparent", boxShadow: storeTab === key ? "0 2px 6px rgba(40,36,25,.09)" : "none", letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 7 }}>
+                            {lbl}{count != null && <span style={{ fontSize: 10.5, background: storeTab === key ? "#e7f2e0" : "#e0ded4", color: storeTab === key ? "#3c5a2e" : "#8a8272", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{count}</span>}
+                          </span>
+                        ))}
+                      </div>
+
+                      {/* TABLETS TAB */}
+                      {storeTab === "tablets" && (
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 11 }}>Tablet links · {linkedCount} linked</div>
+                          {tokens.map((tk) => {
+                            const tnum = (String(tk.label || "").match(/\d+/) || [])[0];
+                            const url = window.location.origin + "/?store=" + tk.qr_token + (tnum ? "&tablet=" + tnum : "");
+                            const qr = "https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(url);
+                            return (
+                              <div key={tk.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 14px", border: "1px solid " + T.line, borderRadius: 12, marginBottom: 8, background: T.card }}>
+                                <div style={{ width: 32, height: 32, borderRadius: 9, background: "#eef3ea", display: "flex", alignItems: "center", justifyContent: "center", color: T.accent, fontSize: 15, flexShrink: 0 }}>▤</div>
+                                <div>
+                                  <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{tk.label || "Tablet"}</div>
+                                  <div style={{ fontSize: 11, color: tk.claimed_by ? "#3c5a2e" : T.faint, fontWeight: 600, display: "flex", alignItems: "center", gap: 5, marginTop: 1 }}>
+                                    <span style={{ width: 6, height: 6, borderRadius: "50%", background: tk.claimed_by ? "#5E7A4D" : "#c3bcab" }} />{tk.claimed_by ? "Linked" : "Not linked"}
+                                  </div>
+                                </div>
+                                <div style={{ marginLeft: "auto", display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                                  <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: "#eef3ea", border: "1px solid #d9e6d2" }}>Copy link</span>
+                                  <a href={qr} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: T.muted, fontWeight: 600, textDecoration: "none", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>QR</a>
+                                  {tk.claimed_by ? <span onClick={() => { if (window.confirm("Release this tablet link? The current device will be logged out and the QR can be linked to a new tablet.")) act("release_token", { id: tk.id }); }} style={{ fontSize: 11.5, color: T.muted, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Release</span> : null}
+                                  <span onClick={() => act("delete_token", { id: tk.id })} style={{ fontSize: 11.5, color: "#b4462f", fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: "#fbeeeb", border: "1px solid #f2ddd6" }}>Delete</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {tokens.length === 0 && <div style={{ fontSize: 12.5, color: T.faint, padding: "4px 0 8px" }}>No tablet links yet.</div>}
+                          <button onClick={() => act("create_token", { location_id: loc.id, label: "Tablet " + (tokens.length + 1) })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 700, marginTop: 6, padding: 8 }}>+ New tablet link</button>
+                        </div>
+                      )}
+
+                      {/* TABLES TAB */}
+                      {storeTab === "tables" && (
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Dining tables · {diningTables.length}</div>
+                          <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 11 }}>Each has its own QR for the table sticker. Click a name to rename.</div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {diningTables.map((tb) => (
+                              <div key={tb.id} style={{ display: "flex", alignItems: "center", gap: 9, background: T.card, border: "1px solid " + T.line, borderRadius: 10, padding: "9px 13px", boxShadow: "0 1px 2px rgba(40,36,25,.03)" }}>
+                                <span onClick={() => { const n = window.prompt("Rename table", tb.label); if (n && n !== tb.label) act("update_table", { id: tb.id, fields: { label: n } }); }} style={{ fontSize: 13, fontWeight: 700, color: T.ink, cursor: "pointer" }} title="Click to rename">{tb.label}</span>
+                                <a href={"https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(window.location.origin + "/?store=" + tb.qr_token)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: T.accent, textDecoration: "none", opacity: .75 }} title="Open QR">▦</a>
+                                <span onClick={() => { if (window.confirm("Delete '" + tb.label + "'?")) act("delete_table", { id: tb.id }); }} style={{ fontSize: 13, color: "#b4462f", cursor: "pointer" }} title="Delete">×</span>
+                              </div>
+                            ))}
+                            <span onClick={() => { const next = (diningTables.reduce((m, t) => Math.max(m, parseInt(String(t.label).replace(/\D/g, "")) || 0), 0)) + 1; act("create_table", { location_id: loc.id, label: "Table " + next }); }} style={{ display: "flex", alignItems: "center", gap: 6, border: "1px dashed #a9c199", borderRadius: 10, padding: "9px 13px", fontSize: 13, fontWeight: 700, color: T.accent, background: "#f6faf3", cursor: "pointer" }}>+ Add table</span>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* KITCHEN TAB */}
+                      {storeTab === "kitchen" && (() => {
+                        const kdsUrl = window.location.origin + "/kds?loc=" + loc.id;
+                        const kdsQr = "https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(kdsUrl);
                         return (
-                          <label key={mn.id} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: T.ink, cursor: "pointer", border: "1px solid " + T.line, borderRadius: 8, padding: "5px 10px", background: on ? (T.accentSoft || "#EFEAD9") : T.bg }}>
-                            <input type="checkbox" checked={on} onChange={() => {
-                              const next = on ? assigned.filter((x) => x !== mn.id) : [...assigned, mn.id];
-                              act("set_store_menus", { location_id: loc.id, menu_ids: next });
-                            }} />
-                            {mn.name}
-                          </label>
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Kitchen display (KDS)</div>
+                            <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 11 }}>Scan this on the kitchen screen to open the live order board. It stays linked.</div>
+                            <div style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, border: "1px solid " + T.line, borderRadius: 12, background: T.card }}>
+                              <img src={kdsQr} alt="KDS QR" width={80} height={80} style={{ borderRadius: 8, background: "#fff", flexShrink: 0 }} />
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 5 }}>Kitchen display screen</div>
+                                <input readOnly value={kdsUrl} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 7, padding: "7px 9px", fontSize: 11, background: T.bg, color: T.ink }} />
+                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                  <span onClick={() => { navigator.clipboard?.writeText(kdsUrl); }} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: "#eef3ea", border: "1px solid #d9e6d2" }}>Copy link</span>
+                                  <a href={kdsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: T.muted, fontWeight: 600, textDecoration: "none", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Open KDS</a>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         );
-                      })}
+                      })()}
+
+                      {/* MENUS TAB */}
+                      {storeTab === "menus" && (
+                        <div>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Menus shown at this store</div>
+                          <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 11 }}>Leave all unticked to show every menu (default). Tick specific menus to limit this store to only those.</div>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                            {(state.menus || []).map((mn) => {
+                              const assigned = (state.locationMenus || []).filter((x) => x.location_id === loc.id).map((x) => x.menu_id);
+                              const on = assigned.includes(mn.id);
+                              return (
+                                <label key={mn.id} style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 13, fontWeight: 600, color: T.ink, cursor: "pointer", border: "1px solid " + (on ? "#a9c199" : T.line), borderRadius: 10, padding: "8px 13px", background: on ? "#eef3ea" : T.card }}>
+                                  <input type="checkbox" checked={on} onChange={() => { const next = on ? assigned.filter((x) => x !== mn.id) : [...assigned, mn.id]; act("set_store_menus", { location_id: loc.id, menu_ids: next }); }} />
+                                  {mn.name}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  </div>
+                  )}
                 </div>
               );
             })}
