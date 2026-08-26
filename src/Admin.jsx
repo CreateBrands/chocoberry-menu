@@ -920,42 +920,45 @@ function CoverageView({ state, T, money, act }) {
 // Silence matters. A band row that merely repeats the base menu blocks that
 // item from ever inheriting a change — the same trap as typing the master
 // price into a store price box. "Follows base" is the correct resting state.
-function MenuBands({ state, T, act }) {
-  const bands = (state.bands || []);
-  const menuBands = bands.filter((b) => b.band_kind === "menu" || b.band_kind === "both");
-  const [bandId, setBandId] = useState(null);
-  // bands arrive with the async load, so the first render has none. Select one
-  // as soon as they appear, otherwise the dropdown sits empty and every write
-  // goes out with a null band id.
-  useEffect(() => {
-    if (bandId && bands.some((b) => b.id === bandId)) return;
-    const first = menuBands[0] || bands[0];
-    if (first) setBandId(first.id);
-  }, [bands.length, menuBands.length]); // eslint-disable-line
-  const [tab, setTab] = useState("items");
-  const [q, setQ] = useState("");
-  const [diffOnly, setDiffOnly] = useState(false);
-
+function MenuBands({ state, T, act, money }) {
+  // NOTE: the load endpoint returns bands as `priceBands`, not `bands`.
+  // Reading the wrong key left this screen with an empty dropdown, a null
+  // band id, and every button silently doing nothing.
+  const bands = state.priceBands || [];
+  const locs = (state.locations || []).filter((l) => l.active);
   const items = state.items || [];
   const menus = state.menus || [];
   const catById = new Map((state.categories || []).map((c) => [c.id, c]));
   const bandItems = state.bandItems || [];
   const bandMenus = state.bandMenus || [];
-  const locs = (state.locations || []).filter((l) => l.active);
+
+  const [bandId, setBandId] = useState(null);
+  const [tab, setTab] = useState("items");
+  const [q, setQ] = useState("");
+  const [diffOnly, setDiffOnly] = useState(false);
+  const [cat, setCat] = useState("all");
+
+  useEffect(() => {
+    if (bandId && bands.some((b) => b.id === bandId)) return;
+    const menuFirst = bands.find((b) => b.band_kind === "menu" || b.band_kind === "both");
+    const first = menuFirst || bands[0];
+    if (first) setBandId(first.id);
+  }, [bands.length]); // eslint-disable-line
 
   const band = bands.find((b) => b.id === bandId);
   const onBand = bandId ? locs.filter((l) => l.menu_band_id === bandId) : [];
-
   const biFor = (itemId) => bandItems.find((r) => r.band_id === bandId && r.item_id === itemId);
   const bmOn = (menuId) => bandMenus.some((r) => r.band_id === bandId && r.menu_id === menuId);
   const anyMenuRows = bandMenus.some((r) => r.band_id === bandId);
 
-  const setItem = (itemId, available) => { if (!bandId) return; act("set_band_item", { band_id: bandId, item_id: itemId, available }); };
-  const setMenu = (menuId, on) => { if (!bandId) return; act("set_band_menu", { band_id: bandId, menu_id: menuId, on }); };
+  const setItem = (itemId, available) => { if (bandId) act("set_band_item", { band_id: bandId, item_id: itemId, available }); };
+  const setMenu = (menuId, on) => { if (bandId) act("set_band_menu", { band_id: bandId, menu_id: menuId, on }); };
 
+  const cats = [...new Set(items.map((it) => (catById.get(it.category_id) || {}).name || "Uncategorised"))].sort();
   const needle = q.trim().toLowerCase();
   const rows = items
     .filter((it) => !needle || it.name.toLowerCase().includes(needle))
+    .filter((it) => cat === "all" || ((catById.get(it.category_id) || {}).name || "Uncategorised") === cat)
     .filter((it) => !diffOnly || biFor(it.id))
     .sort((a, b) => {
       const ca = (catById.get(a.category_id) || {}).name || "";
@@ -964,149 +967,185 @@ function MenuBands({ state, T, act }) {
     });
 
   const nOff = bandItems.filter((r) => r.band_id === bandId && r.available === false).length;
-  const nOn  = bandItems.filter((r) => r.band_id === bandId && r.available === true).length;
 
-  const pill = (label, on, colour, onClick) => (
-    <span onClick={onClick} style={{ fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", padding: "5px 10px", borderRadius: 7, color: on ? "#fff" : T.muted, background: on ? colour : "transparent", border: "1px solid " + (on ? colour : T.line) }}>{label}</span>
-  );
+  // Turn a whole category off in one go — the common case is "this format
+  // does not do breakfast", not twenty individual decisions.
+  const setCategory = (catName, available) => {
+    if (!bandId) return;
+    const ids = items.filter((it) => ((catById.get(it.category_id) || {}).name || "Uncategorised") === catName).map((it) => it.id);
+    ids.forEach((id) => act("set_band_item", { band_id: bandId, item_id: id, available }));
+  };
 
-  let lastCat = null;
+  const seg = (on) => ({
+    fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "7px 15px", borderRadius: 8,
+    background: on ? T.accent : "transparent", color: on ? "#fff" : T.muted,
+  });
+
+  if (!bands.length) {
+    return (
+      <div>
+        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 6 }}>Band menus</div>
+        <div style={{ fontSize: 14, color: T.muted }}>Loading bands… if this stays empty, no bands exist yet.</div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Menu bands</div>
-      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18 }}>A format shared by several stores. Set it once here instead of store by store — blank means the band says nothing and the item follows the base menu.</div>
-
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", background: T.bg, borderRadius: 10, padding: 3, gap: 2 }}>
-          {[["items", "Items"], ["sections", "Sections"], ["stores", "Stores"]].map(([k, label]) => (
-            <span key={k} onClick={() => setTab(k)} style={{ fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "7px 15px", borderRadius: 8, background: tab === k ? T.accent : "transparent", color: tab === k ? "#fff" : T.muted }}>{label}</span>
-          ))}
-        </div>
-        <select value={bandId || ""} onChange={(e) => setBandId(e.target.value || null)}
-          style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "9px 12px", fontSize: 13.5, background: T.card, color: T.ink }}>
-          {bands.map((b) => <option key={b.id} value={b.id}>{b.name}{b.band_kind === "price" ? " (price band)" : ""}</option>)}
-        </select>
-        <span onClick={async () => { const n = window.prompt("Name the new format band, e.g. Dessert + cafe:"); if (n && n.trim()) await act("band_create", { name: n.trim(), band_kind: "menu" }); }}
-          style={{ fontSize: 12.5, fontWeight: 700, color: T.accent, cursor: "pointer", border: "1px dashed " + T.line, borderRadius: 9, padding: "8px 13px" }}>+ New band</span>
-        <span style={{ fontSize: 13, color: T.muted }}>
-          {onBand.length ? "used by " + onBand.length + " store" + (onBand.length === 1 ? "" : "s") : "not used by any store yet"}
-        </span>
+      <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Band menus</div>
+      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18, maxWidth: 760 }}>
+        A band is a menu format several stores share — "Dessert only", "Dessert + cafe". Set what it carries once here, and every store on the band follows. Most stores then need no settings of their own.
       </div>
 
-      {band && (
-        <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "14px 16px", marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
-            <span style={{ fontSize: 16, fontWeight: 700, color: T.ink }}>{band.name}</span>
-            <span style={{ fontSize: 11, background: band.band_kind === "price" ? "#f3eee2" : "#eef3ea", color: band.band_kind === "price" ? "#8a6a2b" : T.accent, padding: "3px 9px", borderRadius: 20, fontWeight: 600 }}>
-              {band.band_kind === "price" ? "price band" : band.band_kind === "both" ? "price + menu" : "menu band"}
-            </span>
-          </div>
-          <div style={{ fontSize: 12.5, color: T.muted }}>
-            Stores on this band carry what is set here. Anything left blank follows the base menu.
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+      {/* STEP 1 — pick a band */}
+      <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "14px 16px", marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".7px", marginBottom: 9 }}>1 · WHICH BAND</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+          <select value={bandId || ""} onChange={(e) => setBandId(e.target.value || null)}
+            style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "10px 13px", fontSize: 14, fontWeight: 600, background: T.bg, color: T.ink, minWidth: 220 }}>
+            {bands.map((b) => <option key={b.id} value={b.id}>{b.name}{b.band_kind === "price" ? "  (price band)" : ""}</option>)}
+          </select>
+          <span onClick={async () => { const n = window.prompt("Name the new format band, e.g. Dessert + cafe:"); if (n && n.trim()) await act("band_create", { name: n.trim(), band_kind: "menu" }); }}
+            style={{ fontSize: 13, fontWeight: 700, color: T.accent, cursor: "pointer", border: "1px dashed " + T.line, borderRadius: 9, padding: "9px 14px" }}>+ New band</span>
+        </div>
+
+        {band && (
+          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
             <span style={{ fontSize: 12, background: "#f6eaea", color: "#8a3b3b", padding: "5px 11px", borderRadius: 20, fontWeight: 600 }}>{nOff} not carried</span>
-            <span style={{ fontSize: 12, background: T.bg, color: T.muted, padding: "5px 11px", borderRadius: 20 }}>{items.length - nOff - nOn} follow base</span>
-            <span style={{ fontSize: 12, background: onBand.length ? "#fdf1e7" : T.bg, color: onBand.length ? "#8a5a2b" : T.faint, padding: "5px 11px", borderRadius: 20, fontWeight: onBand.length ? 600 : 400 }}>
-              {onBand.length ? "used by " + onBand.map((l) => l.name).join(", ") : "no stores yet"}
+            <span style={{ fontSize: 12, background: T.bg, color: T.muted, padding: "5px 11px", borderRadius: 20 }}>{items.length - nOff} follow base</span>
+            <span style={{ fontSize: 12, background: onBand.length ? "#eef3ea" : T.bg, color: onBand.length ? T.accent : T.faint, padding: "5px 11px", borderRadius: 20, fontWeight: onBand.length ? 600 : 400 }}>
+              {onBand.length ? onBand.map((l) => l.name).join(", ") : "no stores on this band"}
             </span>
+            {!onBand.length && <span onClick={() => setTab("stores")} style={{ fontSize: 12.5, color: T.accent, cursor: "pointer", fontWeight: 600 }}>Add stores →</span>}
           </div>
+        )}
+      </div>
+
+      {/* STEP 2 — what to change */}
+      <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "14px 16px", marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".7px", marginBottom: 9 }}>2 · WHAT TO SET</div>
+        <div style={{ display: "flex", background: T.bg, borderRadius: 10, padding: 3, gap: 2, width: "fit-content" }}>
+          <span onClick={() => setTab("items")} style={seg(tab === "items")}>Items</span>
+          <span onClick={() => setTab("sections")} style={seg(tab === "sections")}>Whole sections</span>
+          <span onClick={() => setTab("stores")} style={seg(tab === "stores")}>Stores using it</span>
+        </div>
+      </div>
+
+      {onBand.length > 1 && tab !== "stores" && (
+        <div style={{ fontSize: 12.5, color: "#8a5a2b", background: "#fdf1e7", border: "1px solid #f0d9c2", borderRadius: 9, padding: "10px 14px", marginBottom: 12 }}>
+          Heads up — this changes {onBand.length} stores at once: {onBand.map((l) => l.name).join(", ")}
         </div>
       )}
 
-      {onBand.length > 1 && (
-        <div style={{ fontSize: 12.5, color: "#8a5a2b", background: "#fdf1e7", border: "1px solid #f0d9c2", borderRadius: 9, padding: "9px 13px", marginBottom: 14 }}>
-          Changing this band changes {onBand.length} stores at once: {onBand.map((l) => l.name).join(", ")}
-        </div>
-      )}
-
-      {tab === "stores" ? (
+      {tab === "stores" && (
         <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "16px 18px" }}>
-          <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>
-            Which stores carry this band's menu. Separate from the price band — a store can share this format and still charge its own prices, which you set under <b>Pricing</b>.
-          </div>
+          <div style={{ fontSize: 13, color: T.muted, marginBottom: 14 }}>Tick the stores that use this format. Untick to put a store back on the full base menu.</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {locs.map((l) => {
               const here = l.menu_band_id === bandId;
               return (
                 <span key={l.id} onClick={() => act("set_menu_band", { location_id: l.id, band_id: here ? null : bandId })}
-                  style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, fontSize: 13.5,
-                    fontWeight: here ? 700 : 400,
-                    background: here ? "#eef3ea" : T.bg,
-                    color: here ? T.accent : T.muted,
+                  style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 15px", borderRadius: 10, fontSize: 14,
+                    fontWeight: here ? 700 : 400, background: here ? "#eef3ea" : T.bg, color: here ? T.accent : T.muted,
                     border: "1px solid " + (here ? "#d9e6d2" : T.line) }}>
-                  <span style={{ fontSize: 15 }}>{here ? "☑" : "☐"}</span>{l.name}
+                  <span style={{ fontSize: 16 }}>{here ? "☑" : "☐"}</span>{l.name}
                 </span>
               );
             })}
           </div>
-          <div style={{ fontSize: 12, color: T.faint, marginTop: 14, borderTop: "1px solid " + T.line, paddingTop: 12 }}>
-            A store with no band carries the full base menu. Its own item-level exceptions still win over whatever the band says — set those under Stores or in the network grid.
+          <div style={{ fontSize: 12, color: T.faint, marginTop: 16, borderTop: "1px solid " + T.line, paddingTop: 13 }}>
+            A store's own settings still win over the band. Prices are separate — set those under Pricing.
           </div>
         </div>
-      ) : tab === "sections" ? (
+      )}
+
+      {tab === "sections" && (
         <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
-          <div style={{ padding: "11px 14px", fontSize: 12.5, color: T.muted, borderBottom: "1px solid " + T.line }}>
-            {anyMenuRows ? "This band carries only the ticked sections." : "Nothing ticked — this band carries every section. Tick one to make it an explicit list."}
+          <div style={{ padding: "13px 16px", fontSize: 13, color: T.muted, borderBottom: "1px solid " + T.line }}>
+            {anyMenuRows
+              ? "Only the ticked sections appear at these stores."
+              : "Nothing ticked, so this band carries every section. Tick the ones it should carry to make it a set list."}
           </div>
           {menus.map((m) => (
-            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", borderTop: "1px solid " + T.line }}>
-              <input type="checkbox" checked={bmOn(m.id)} onChange={(e) => setMenu(m.id, e.target.checked)} style={{ cursor: "pointer" }} />
-              <span style={{ flex: 1, fontSize: 14, color: T.ink }}>{m.name}</span>
-              <span style={{ fontSize: 12, color: anyMenuRows && !bmOn(m.id) ? "#8a3b3b" : T.faint }}>
-                {anyMenuRows ? (bmOn(m.id) ? "carried" : "not carried") : "carried"}
+            <div key={m.id} onClick={() => setMenu(m.id, !bmOn(m.id))}
+              style={{ display: "flex", alignItems: "center", gap: 12, padding: "13px 16px", borderTop: "1px solid " + T.line, cursor: "pointer" }}>
+              <span style={{ fontSize: 17, color: bmOn(m.id) ? T.accent : T.faint }}>{bmOn(m.id) ? "☑" : "☐"}</span>
+              <span style={{ flex: 1, fontSize: 14.5, fontWeight: bmOn(m.id) ? 600 : 400, color: T.ink }}>{m.name}</span>
+              <span style={{ fontSize: 12.5, fontWeight: 600, color: anyMenuRows && !bmOn(m.id) ? "#8a3b3b" : "#2f6b3f" }}>
+                {anyMenuRows ? (bmOn(m.id) ? "Carried" : "Not carried") : "Carried"}
               </span>
             </div>
           ))}
         </div>
-      ) : (
+      )}
+
+      {tab === "items" && (
         <>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12, flexWrap: "wrap" }}>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items…"
-              style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "9px 13px", fontSize: 13.5, background: T.card, color: T.ink, minWidth: 200 }} />
+              style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "10px 13px", fontSize: 14, background: T.card, color: T.ink, minWidth: 190 }} />
+            <select value={cat} onChange={(e) => setCat(e.target.value)}
+              style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "10px 12px", fontSize: 13.5, background: T.card, color: T.ink }}>
+              <option value="all">All categories</option>
+              {cats.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
             <span onClick={() => setDiffOnly((v) => !v)}
-              style={{ fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "7px 13px", borderRadius: 20,
+              style={{ fontSize: 13, fontWeight: 600, cursor: "pointer", padding: "9px 14px", borderRadius: 20,
                 color: diffOnly ? "#fff" : T.accent, background: diffOnly ? T.accent : "transparent",
                 border: "1px solid " + (diffOnly ? T.accent : T.line) }}>
-              Only differences
+              {diffOnly ? "Showing changes only" : "Show changes only"}
             </span>
-            <span style={{ fontSize: 12, color: T.faint }}>{rows.length} of {items.length} shown</span>
+            <span style={{ fontSize: 12.5, color: T.faint }}>{rows.length} of {items.length}</span>
+            {cat !== "all" && (
+              <span style={{ marginLeft: "auto", display: "flex", gap: 6, alignItems: "center" }}>
+                <span style={{ fontSize: 12.5, color: T.muted }}>All of {cat}:</span>
+                <span onClick={() => setCategory(cat, null)} style={{ fontSize: 12.5, fontWeight: 700, cursor: "pointer", color: T.accent, border: "1px solid " + T.line, borderRadius: 8, padding: "7px 12px" }}>Carry</span>
+                <span onClick={() => { if (window.confirm("Stop carrying every item in " + cat + " on this band?")) setCategory(cat, false); }}
+                  style={{ fontSize: 12.5, fontWeight: 700, cursor: "pointer", color: "#a34a4a", border: "1px solid " + T.line, borderRadius: 8, padding: "7px 12px" }}>Don't carry</span>
+              </span>
+            )}
           </div>
 
           <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
-            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 70px 150px 110px", padding: "10px 14px", background: T.bg, borderBottom: "1px solid " + T.line }}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 190px 130px", padding: "11px 16px", background: T.bg, borderBottom: "1px solid " + T.line }}>
               <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint }}>ITEM</span>
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "center" }}>BASE</span>
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "center" }}>THIS BAND</span>
-              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "right" }}>RESULT</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "center" }}>DOES THIS BAND CARRY IT?</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "right" }}>AT THESE STORES</span>
             </div>
 
             {rows.map((it) => {
-              const cat = (catById.get(it.category_id) || {}).name || "Uncategorised";
-              const header = cat !== lastCat ? cat : null;
-              lastCat = cat;
               const bi = biFor(it.id);
               const says = bi ? bi.available : null;
               const baseOn = it.available !== false && it.published !== false;
               const result = says === null ? baseOn : says;
               return (
-                <Fragment key={it.id}>
-                  {header && <div style={{ padding: "8px 14px", background: T.bg, fontSize: 12.5, fontWeight: 700, color: T.ink, borderTop: "1px solid " + T.line }}>{header}</div>}
-                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 70px 150px 110px", padding: "9px 14px", borderTop: "1px solid " + T.line, alignItems: "center" }}>
-                    <span style={{ fontSize: 13.5, color: result ? T.ink : T.muted, textDecoration: result ? "none" : "line-through", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12 }}>{it.name}</span>
-                    <span style={{ fontSize: 12, color: T.faint, textAlign: "center" }}>{baseOn ? "on" : "off"}</span>
-                    <span style={{ display: "flex", gap: 3, justifyContent: "center" }}>
-                      {pill("Carry", says === true, T.accent, () => setItem(it.id, says === true ? null : true))}
-                      {pill("No", says === false, "#a34a4a", () => setItem(it.id, says === false ? null : false))}
+                <div key={it.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 190px 130px", padding: "10px 16px", borderTop: "1px solid " + T.line, alignItems: "center", background: says === false ? "#fdf6f6" : "transparent" }}>
+                  <span style={{ minWidth: 0 }}>
+                    <span style={{ fontSize: 14, color: result ? T.ink : T.muted, textDecoration: result ? "none" : "line-through" }}>{it.name}</span>
+                    <span style={{ fontSize: 11.5, color: T.faint, marginLeft: 8 }}>
+                      {(catById.get(it.category_id) || {}).name}{!baseOn ? " · off everywhere" : ""}
                     </span>
-                    <span style={{ fontSize: 12, fontWeight: 600, textAlign: "right", color: says === null ? T.faint : (result ? "#2f6b3f" : "#8a3b3b") }}>
-                      {says === null ? "Follows base" : (result ? "On sale" : "Not carried")}
+                  </span>
+                  <span style={{ display: "flex", gap: 4, justifyContent: "center" }}>
+                    <span onClick={() => setItem(it.id, says === null ? false : null)}
+                      style={{ fontSize: 12.5, fontWeight: 700, cursor: "pointer", padding: "7px 13px", borderRadius: 8,
+                        color: says === false ? "#fff" : T.muted,
+                        background: says === false ? "#a34a4a" : "transparent",
+                        border: "1px solid " + (says === false ? "#a34a4a" : T.line) }}>
+                      {says === false ? "Not carried" : "Stop carrying"}
                     </span>
-                  </div>
-                </Fragment>
+                  </span>
+                  <span style={{ fontSize: 12.5, fontWeight: 600, textAlign: "right", color: result ? "#2f6b3f" : "#8a3b3b" }}>
+                    {result ? "On sale" : "Hidden"}
+                  </span>
+                </div>
               );
             })}
+            {rows.length === 0 && <div style={{ padding: 26, textAlign: "center", fontSize: 13.5, color: T.muted }}>Nothing matches.</div>}
+          </div>
+
+          <div style={{ fontSize: 12.5, color: T.muted, marginTop: 12 }}>
+            Everything is carried unless you say otherwise. Click <b>Stop carrying</b> to hide an item at every store on this band; click again to put it back.
           </div>
         </>
       )}
@@ -1246,7 +1285,7 @@ export default function Admin() {
       {/* MAIN CONTENT */}
       <div style={{ flex: 1, minWidth: 0, padding: "26px 28px 60px", overflowY: "auto", maxHeight: "100vh", boxSizing: "border-box" }}>
         {nav === "bandmenus" ? (
-          <MenuBands state={state} T={T} act={act} />
+          <MenuBands state={state} T={T} act={act} money={money} />
         ) : nav === "coverage" ? (
           <CoverageView state={state} T={T} money={money} act={act} />
         ) : nav === "pricing" ? (
