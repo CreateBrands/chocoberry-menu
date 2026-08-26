@@ -951,8 +951,22 @@ function MenuBands({ state, T, act, money }) {
   const bmOn = (menuId) => bandMenus.some((r) => r.band_id === bandId && r.menu_id === menuId);
   const anyMenuRows = bandMenus.some((r) => r.band_id === bandId);
 
-  const setItem = (itemId, available) => { if (bandId) act("set_band_item", { band_id: bandId, item_id: itemId, available }); };
-  const setMenu = (menuId, on) => { if (bandId) act("set_band_menu", { band_id: bandId, menu_id: menuId, on }); };
+  // Errors surface ON THIS SCREEN. act() swallows failures into a global
+  // message that is easy to miss, which is how this screen looked "dead"
+  // while it was actually being rejected.
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const send = async (action, payload) => {
+    if (!bandId) { setErr("No band selected — pick one above first."); return; }
+    setErr(""); setBusy(true);
+    try { await act(action, payload); }
+    catch (e) { setErr(e && e.message ? e.message : "That didn't save."); }
+    setBusy(false);
+  };
+
+  const setItem = (itemId, available) => send("set_band_item", { band_id: bandId, item_id: itemId, available });
+  const setMenu = (menuId, on) => send("set_band_menu", { band_id: bandId, menu_id: menuId, on });
 
   const cats = [...new Set(items.map((it) => (catById.get(it.category_id) || {}).name || "Uncategorised"))].sort();
   const needle = q.trim().toLowerCase();
@@ -970,10 +984,13 @@ function MenuBands({ state, T, act, money }) {
 
   // Turn a whole category off in one go — the common case is "this format
   // does not do breakfast", not twenty individual decisions.
-  const setCategory = (catName, available) => {
-    if (!bandId) return;
+  const setCategory = async (catName, available) => {
+    if (!bandId) { setErr("No band selected."); return; }
     const ids = items.filter((it) => ((catById.get(it.category_id) || {}).name || "Uncategorised") === catName).map((it) => it.id);
-    ids.forEach((id) => act("set_band_item", { band_id: bandId, item_id: id, available }));
+    setErr(""); setBusy(true);
+    try { for (const id of ids) await act("set_band_item", { band_id: bandId, item_id: id, available }); }
+    catch (e) { setErr(e && e.message ? e.message : "That didn't save."); }
+    setBusy(false);
   };
 
   const seg = (on) => ({
