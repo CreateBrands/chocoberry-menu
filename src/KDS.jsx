@@ -62,7 +62,28 @@ export default function KDS() {
   // both. Targeting by station would therefore hit both on a manual print too.
   // A serial narrows to exactly one device (sunmi-print gives printer_sn
   // precedence over station in narrowToTarget).
-  const [myPrinter] = useState(() => getRemembered("kds_printer", "printer"));
+  const [myPrinter, setMyPrinter] = useState(() => getRemembered("kds_printer", "printer"));
+  // The DB is the source of truth for this screen's printer. kds_screens is
+  // keyed (location_id, screen_key) and is managed centrally, so a replaced
+  // tablet or a cleared browser picks its printer back up on load instead of
+  // silently falling back to "every printer". The URL param / localStorage
+  // value above is only the initial seed for a screen not yet registered.
+  useEffect(() => {
+    if (!loc) return;
+    let alive = true;
+    const url = SUPABASE_URL + "/rest/v1/kds_screens?location_id=eq." + encodeURIComponent(loc)
+      + "&screen_key=eq." + encodeURIComponent(getScreenId())
+      + "&select=printer_sn,label,station&limit=1";
+    fetch(url, { headers: H, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        if (!alive || !rows.length) return;
+        const sn = rows[0].printer_sn;
+        if (sn) { setMyPrinter(sn); try { localStorage.setItem("kds_printer", sn); } catch {} }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [loc]);
   const [myName] = useState(() => getRemembered("kds_name", "name"));
   const [soundOn, setSoundOn] = useState(true);
   const [connected, setConnected] = useState(true);
