@@ -114,10 +114,10 @@ Deno.serve(async (req) => {
     switch (action) {
       // ---- READ: everything the admin UI needs in one call ----
       case "load": {
-        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus, modOverrides, bands, bandPrices, bandOptPrices, kdsScreens, printers] = await Promise.all([
+        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus, modOverrides, bands, bandPrices, bandOptPrices, kdsScreens, printers, bandItems, bandMenus] = await Promise.all([
           admin.from("menu_categories").select("*").order("sort_order"),
           admin.from("menu_items").select("*").order("sort_order"),
-          admin.from("menu_locations").select("id,name,slug,active,brand_id,price_band_id").order("name"),
+          admin.from("menu_locations").select("id,name,slug,active,brand_id,price_band_id,menu_band_id").order("name"),
           admin.from("menu_item_overrides").select("*"),
           admin.from("menu_app_settings").select("key,value"),
           admin.from("menu_menus").select("*").order("sort_order"),
@@ -136,6 +136,10 @@ Deno.serve(async (req) => {
           // band prices, priceBands received printers).
           admin.from("kds_screens").select("*"),
           admin.from("printers").select("sn,label,station,active,location_id"),
+          // Appended AFTER printers, with their names appended in the same
+          // order above — never inserted mid-array. See the note above.
+          admin.from("menu_band_items").select("*"),
+          admin.from("menu_band_menus").select("*"),
         ]);
         for (const r of [cats, items, locs, overrides]) if (r.error) throw r.error;
         // When a store manager is logged in, filter every location-specific
@@ -163,6 +167,8 @@ Deno.serve(async (req) => {
           tables: only(tables.data),
           locationMenus: only(locMenus.data),
           kdsScreens: only(kdsScreens.data),
+          bandItems: bandItems.data || [],
+          bandMenus: bandMenus.data || [],
           printers: only(printers.data),
           modifierOverrides: only(modOverrides.data),
           priceBands: bands.data ?? [],
@@ -501,6 +507,67 @@ Deno.serve(async (req) => {
         const patch: any = {};
         for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
         const { error } = await admin.from("menu_categories").update(patch).eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- Assign a store's MENU band (what it carries) ----
+      // Separate from price_band_id on purpose: a store can share a format
+      // with others while pricing differently. Master-only — a franchisee
+      // does not get to move their own store onto a different format.
+      case "set_menu_band": {
+        const { location_id, band_id } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const { error } = await admin.from("menu_locations")
+          .update({ menu_band_id: band_id || null }).eq("id", location_id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- Set what a BAND carries: one item, on or off ----
+      // null = the band says nothing and the item follows the base menu.
+      // Leaving it silent matters: a band row that merely repeats the base
+      // blocks that item from ever inheriting a change.
+      case "set_band_item": {
+        const { band_id, item_id, available } = data || {};
+        if (!band_id || !item_id) return json({ error: "band_id and item_id required" }, 400);
+        if (available === null || available === undefined) {
+          const { error } = await admin.from("menu_band_items")
+            .delete().eq("band_id", band_id).eq("item_id", item_id);
+          if (error) throw error;
+          return json({ ok: true, cleared: true });
+        }
+        const { error } = await admin.from("menu_band_items")
+          .upsert({ band_id, item_id, available: !!available }, { onConflict: "band_id,item_id" });
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- Set which menu SECTIONS a band carries ----
+      // No rows at all = the band carries every active menu. Once there is at
+      // least one row it becomes an explicit list, so removing the last row
+      // returns the band to "carries everything" rather than "carries nothing".
+      case "set_band_menu": {
+        const { band_id, menu_id, on } = data || {};
+        if (!band_id || !menu_id) return json({ error: "band_id and menu_id required" }, 400);
+        if (on) {
+          const { error } = await admin.from("menu_band_menus")
+            .upsert({ band_id, menu_id }, { onConflict: "band_id,menu_id" });
+          if (error) throw error;
+        } else {
+          const { error } = await admin.from("menu_band_menus")
+            .delete().eq("band_id", band_id).eq("menu_id", menu_id);
+          if (error) throw error;
+        }
+        return json({ ok: true });
+      }
+
+      // ---- Create a band ----
+      case "band_create": {
+        const { name, band_kind } = data || {};
+        if (!name) return json({ error: "name required" }, 400);
+        const { error } = await admin.from("menu_price_bands")
+          .insert({ name: String(name).trim(), band_kind: band_kind === "menu" ? "menu" : "price" });
         if (error) throw error;
         return json({ ok: true });
       }
