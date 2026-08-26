@@ -962,10 +962,10 @@ function MenuBands({ state, T, act, money }) {
   const send = async (action, payload) => {
     const id = bandId || (bands[0] ? bands[0].id : null);
     if (!id) { setErr("No menu band exists yet — create one above."); return; }
-    payload = { ...payload, band_id: id };
     setErr(""); setBusy(true);
-    try { await act(action, payload); }
-    catch (e) { setErr(e && e.message ? e.message : "That didn't save."); }
+    // act() catches its own errors and never rethrows, so there is nothing to
+    // catch here — it reports failures through the admin's own message line.
+    await act(action, { ...payload, band_id: id });
     setBusy(false);
   };
 
@@ -1221,7 +1221,7 @@ export default function Admin() {
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [], kdsScreens: res.kdsScreens || [], printers: res.printers || [] });
+  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [], kdsScreens: res.kdsScreens || [], printers: res.printers || [], bandItems: res.bandItems || [], bandMenus: res.bandMenus || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   // Optimistic availability toggle: flip the switch in the UI instantly, then
