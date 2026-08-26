@@ -1273,8 +1273,22 @@ export default function Admin() {
                                   <img src={qr} alt={"KDS QR screen " + k.screen_key} width={80} height={80} style={{ borderRadius: 8, background: "#fff", flexShrink: 0 }} />
                                   <div style={{ flex: 1, minWidth: 0 }}>
                                     <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 3 }}>{(k.label || "Screen " + k.screen_key) + " \u00B7 screen " + k.screen_key}</div>
-                                    <div style={{ fontSize: 11.5, color: printer ? T.muted : "#b4462f", marginBottom: 5 }}>
-                                      {printer ? "Prints to " + printer.label : "No printer set \u2014 prints to every printer"}
+                                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+                                      <span style={{ fontSize: 11.5, color: T.faint }}>Prints to</span>
+                                      <select
+                                        value={k.printer_sn || ""}
+                                        onChange={(e) => act("set_kds_printer", {
+                                          location_id: loc.id,
+                                          screen_key: k.screen_key,
+                                          label: k.label || null,
+                                          printer_sn: e.target.value || null,
+                                        })}
+                                        style={{ fontSize: 11.5, fontWeight: 600, border: "1px solid " + (k.printer_sn ? T.line : "#b4462f"), borderRadius: 8, padding: "5px 8px", background: T.bg, color: k.printer_sn ? T.ink : "#b4462f" }}>
+                                        <option value="">Every printer (none set)</option>
+                                        {(state.printers || [])
+                                          .filter((p) => p.location_id === loc.id && p.active)
+                                          .map((p) => <option key={p.sn} value={p.sn}>{p.label}</option>)}
+                                      </select>
                                     </div>
                                     <input readOnly value={url} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 7, padding: "7px 9px", fontSize: 11, background: T.bg, color: T.ink }} />
                                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>

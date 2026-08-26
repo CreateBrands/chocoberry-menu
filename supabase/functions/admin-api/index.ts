@@ -66,6 +66,7 @@ Deno.serve(async (req) => {
     "set_override",        // per-store price/availability override
     "set_mod_override",    // per-store modifier override
     "set_accepting_orders",// pause/resume ordering at their own store
+    "set_kds_printer",     // point one of their KDS screens at a printer
     "create_token", "delete_token", "release_token",
     "create_table", "update_table", "delete_table",
     "set_store_menus",
@@ -498,6 +499,33 @@ Deno.serve(async (req) => {
         const patch: any = {};
         for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
         const { error } = await admin.from("menu_categories").update(patch).eq("id", id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- KDS: set which printer a screen's MANUAL prints go to ----
+      // Upserts by (location_id, screen_key) so a screen can be registered and
+      // pointed at a printer in one action. printer_sn null = every printer.
+      case "set_kds_printer": {
+        const { location_id, screen_key, printer_sn, label } = data || {};
+        if (!location_id || !screen_key) {
+          return json({ error: "location_id and screen_key required" }, 400);
+        }
+        // A screen may only be pointed at a printer AT ITS OWN LOCATION.
+        if (printer_sn) {
+          const { data: p } = await admin.from("printers")
+            .select("location_id").eq("sn", String(printer_sn)).maybeSingle();
+          if (!p || p.location_id !== location_id) {
+            return json({ error: "printer is not at this location" }, 400);
+          }
+        }
+        const row: Record<string, unknown> = {
+          location_id, screen_key: String(screen_key),
+          printer_sn: printer_sn ? String(printer_sn) : null,
+        };
+        if (label) row.label = String(label);
+        const { error } = await admin.from("kds_screens")
+          .upsert(row, { onConflict: "location_id,screen_key" });
         if (error) throw error;
         return json({ ok: true });
       }
