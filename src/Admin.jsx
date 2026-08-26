@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import MenuOverview from "./MenuOverview";
 import PriceBands from "./PriceBands";
 import PricingManager from "./PricingManager";
@@ -725,6 +725,126 @@ function PrintersModal({ pin, locations, onClose }) {
   );
 }
 
+
+// ── COVERAGE ────────────────────────────────────────────
+// Items down, stores across. At four stores you can open each store dialog in
+// turn; at 26 you cannot, and nobody can answer "which stores sell Turkish
+// Eggs?" without four screens. Read-only on purpose: it shows WHY an item is
+// not on sale, and you change it in Stores or Pricing.
+function CoverageView({ state, T, money }) {
+  const [q, setQ] = useState("");
+  const [only, setOnly] = useState("all");
+
+  const locs = (state.locations || []).filter((l) => l.active);
+  const ovs = state.overrides || [];
+  const items = state.items || [];
+  const catById = new Map((state.categories || []).map((c) => [c.id, c]));
+  const now = new Date();
+
+  const ovFor = (locId, itemId) => ovs.find((o) => o.location_id === locId && o.item_id === itemId);
+
+  const cellFor = (loc, it) => {
+    if (it.published === false) return { k: "unpub", label: "\u2014", title: "Unpublished centrally" };
+    const o = ovFor(loc.id, it.id);
+    if (o && o.unavailable_until && new Date(o.unavailable_until) > now) {
+      return { k: "off", label: "86", title: "Off today, back " + new Date(o.unavailable_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+    }
+    if (o && o.available === false) return { k: "no", label: "\u00d7", title: "Not carried here" };
+    if (o && o.price != null) return { k: "price", label: money(o.price), title: "Own price \u00b7 master " + money(it.price) };
+    return { k: "yes", label: "\u2713", title: "Carried at master price" };
+  };
+
+  const style = {
+    yes:   { c: T.faint, b: "transparent" },
+    price: { c: "#2f6b3f", b: "#eef3ea" },
+    off:   { c: "#8a5a2b", b: "#fdf1e7" },
+    no:    { c: "#8a3b3b", b: "#f6eaea" },
+    unpub: { c: T.faint, b: "transparent" },
+  };
+
+  const needle = q.trim().toLowerCase();
+  const rows = items
+    .filter((it) => !needle || it.name.toLowerCase().includes(needle))
+    .filter((it) => only === "all" || locs.some((l) => cellFor(l, it).k === only))
+    .sort((a, b) => {
+      const ca = (catById.get(a.category_id) || {}).name || "";
+      const cb = (catById.get(b.category_id) || {}).name || "";
+      return ca.localeCompare(cb) || a.name.localeCompare(b.name);
+    });
+
+  const tally = (k) => locs.reduce((n, l) => n + items.filter((it) => cellFor(l, it).k === k).length, 0);
+
+  const chip = (key, label, n) => (
+    <span onClick={() => setOnly(only === key ? "all" : key)}
+      style={{ fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "6px 13px", borderRadius: 20,
+        color: only === key ? "#fff" : style[key].c,
+        background: only === key ? style[key].c : style[key].b,
+        border: "1px solid " + (only === key ? "transparent" : T.line) }}>{n} {label}</span>
+  );
+
+  const grid = "minmax(0,1fr) repeat(" + locs.length + ", 96px)";
+  let lastCat = null;
+
+  return (
+    <div>
+      <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Coverage</div>
+      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18 }}>Every item, every store, and why something is not on sale. Read-only \u2014 change things in Stores or Pricing.</div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items\u2026"
+          style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "9px 13px", fontSize: 13.5, background: T.card, color: T.ink, minWidth: 200 }} />
+        {chip("price", "own price", tally("price"))}
+        {chip("off", "off today", tally("off"))}
+        {chip("no", "not carried", tally("no"))}
+        {only !== "all" && <span onClick={() => setOnly("all")} style={{ fontSize: 12.5, color: T.accent, cursor: "pointer", fontWeight: 600 }}>Clear filter</span>}
+      </div>
+
+      <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
+        <div style={{ display: "grid", gridTemplateColumns: grid, padding: "10px 14px", background: T.bg, borderBottom: "1px solid " + T.line }}>
+          <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint }}>ITEM</span>
+          {locs.map((l) => (
+            <span key={l.id} title={l.name} style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {l.name.replace(/^Chocoberry\s*\u2014?\s*/i, "").toUpperCase()}
+            </span>
+          ))}
+        </div>
+
+        {rows.map((it) => {
+          const cat = (catById.get(it.category_id) || {}).name || "Uncategorised";
+          const header = cat !== lastCat ? cat : null;
+          lastCat = cat;
+          return (
+            <Fragment key={it.id}>
+              {header && <div style={{ padding: "8px 14px", background: T.bg, fontSize: 12.5, fontWeight: 700, color: T.ink, borderTop: "1px solid " + T.line }}>{header}</div>}
+              <div style={{ display: "grid", gridTemplateColumns: grid, padding: "9px 14px", borderTop: "1px solid " + T.line, alignItems: "center" }}>
+                <span style={{ fontSize: 13.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12 }}>
+                  {it.name}<span style={{ fontSize: 11.5, color: T.faint, marginLeft: 8 }}>{money(it.price)}</span>
+                </span>
+                {locs.map((l) => {
+                  const c = cellFor(l, it);
+                  return (
+                    <span key={l.id} title={c.title}
+                      style={{ textAlign: "center", fontSize: c.k === "price" ? 12 : 13, fontWeight: c.k === "yes" ? 400 : 700, color: style[c.k].c, background: style[c.k].b, borderRadius: 6, padding: "4px 0" }}>{c.label}</span>
+                  );
+                })}
+              </div>
+            </Fragment>
+          );
+        })}
+        {rows.length === 0 && <div style={{ padding: 24, textAlign: "center", fontSize: 13.5, color: T.muted }}>Nothing matches.</div>}
+      </div>
+
+      <div style={{ display: "flex", gap: 18, marginTop: 14, fontSize: 12, color: T.muted, flexWrap: "wrap" }}>
+        <span>\u2713 carried at master price</span>
+        <span style={{ color: "#2f6b3f" }}>\u00a3 own price</span>
+        <span style={{ color: "#8a5a2b" }}>86 off today</span>
+        <span style={{ color: "#8a3b3b" }}>\u00d7 not carried</span>
+        <span>\u2014 unpublished centrally</span>
+      </div>
+    </div>
+  );
+}
+
 export default function Admin() {
   const [pin, setPin] = useState(null);
   const [state, setState] = useState(null);
@@ -810,6 +930,7 @@ export default function Admin() {
           ["welcome", "Welcome", "🏠", true],
           ["hero", "Hero", "🖼", true],
           ["stores", "Stores", "🏪", false],
+          ["coverage", "Coverage", "🗂", true],
           ["printers", "Printers", "🖨", false],
           ["settings", "Settings", "⚙", true],
         ].filter(([, , , masterOnly]) => state.scope !== "store" || !masterOnly).map(([key, label, icon]) => {
@@ -856,7 +977,9 @@ export default function Admin() {
 
       {/* MAIN CONTENT */}
       <div style={{ flex: 1, minWidth: 0, padding: "26px 28px 60px", overflowY: "auto", maxHeight: "100vh", boxSizing: "border-box" }}>
-        {nav === "pricing" ? (
+        {nav === "coverage" ? (
+          <CoverageView state={state} T={T} money={money} />
+        ) : nav === "pricing" ? (
           <PricingManager state={state} T={T} act={act} onClose={() => { setNav("menus"); setLevel("menus"); }} />
         ) : (
         <>
