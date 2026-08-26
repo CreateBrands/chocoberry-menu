@@ -68,6 +68,7 @@ Deno.serve(async (req) => {
     "set_accepting_orders",// pause/resume ordering at their own store
     "set_kds_printer",     // point one of their KDS screens at a printer
     "set_item_86",         // mark one of their items off for today
+    "bulk_set_availability",// bulk carry / stop / 86 — forced to their store
     "create_token", "delete_token", "release_token",
     "create_table", "update_table", "delete_table",
     "set_store_menus",
@@ -502,6 +503,63 @@ Deno.serve(async (req) => {
         const { error } = await admin.from("menu_categories").update(patch).eq("id", id);
         if (error) throw error;
         return json({ ok: true });
+      }
+
+      // ---- BULK: set availability for MANY items across MANY stores ----
+      // The whole point of the network screen. Launching an item at 1 of 26
+      // stores previously meant opening 25 store dialogs and hiding it in
+      // each. This does it in one call: pass the item ids, the location ids,
+      // and what they should become.
+      //   mode "carry"       -> on sale (clears any hide and any 86)
+      //   mode "dont_carry"  -> permanently not carried at those stores
+      //   mode "off_today"   -> 86 until the next 06:00 London
+      case "bulk_set_availability": {
+        const { item_ids, location_ids, mode } = data || {};
+        if (!Array.isArray(item_ids) || !item_ids.length) return json({ error: "item_ids required" }, 400);
+        if (!Array.isArray(location_ids) || !location_ids.length) return json({ error: "location_ids required" }, 400);
+        if (!["carry", "dont_carry", "off_today"].includes(mode)) return json({ error: "bad mode" }, 400);
+
+        // A store login may only ever touch its own location.
+        const locs = scope === "store"
+          ? location_ids.filter((l: string) => l === scopeLocationId)
+          : location_ids;
+        if (!locs.length) return json({ error: "forbidden for this store login" }, 403);
+
+        if (mode === "off_today") {
+          for (const l of locs) {
+            for (const it of item_ids) {
+              const { error } = await admin.rpc("menu_item_86", { p_location_id: l, p_item_id: it });
+              if (error) throw error;
+            }
+          }
+          return json({ ok: true, changed: locs.length * item_ids.length });
+        }
+
+        const rows: Array<Record<string, unknown>> = [];
+        for (const l of locs) {
+          for (const it of item_ids) {
+            rows.push({
+              location_id: l,
+              item_id: it,
+              available: mode === "carry" ? null : false,
+              unavailable_until: null,
+            });
+          }
+        }
+        // onConflict leaves any existing price alone — this action is about
+        // availability only, never pricing.
+        const { error } = await admin.from("menu_item_overrides")
+          .upsert(rows, { onConflict: "location_id,item_id", ignoreDuplicates: false });
+        if (error) throw error;
+
+        // "carry" with no price left behind is a dead row that would block the
+        // item inheriting future band and master changes. Clear those out.
+        if (mode === "carry") {
+          await admin.from("menu_item_overrides")
+            .delete().in("location_id", locs).in("item_id", item_ids)
+            .is("price", null).is("available", null).is("unavailable_until", null);
+        }
+        return json({ ok: true, changed: rows.length });
       }
 
       // ---- 86 an item at ONE store, or put it back on sale ----

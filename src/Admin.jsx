@@ -731,9 +731,12 @@ function PrintersModal({ pin, locations, onClose }) {
 // turn; at 26 you cannot, and nobody can answer "which stores sell Turkish
 // Eggs?" without four screens. Read-only on purpose: it shows WHY an item is
 // not on sale, and you change it in Stores or Pricing.
-function CoverageView({ state, T, money }) {
+function CoverageView({ state, T, money, act }) {
   const [q, setQ] = useState("");
   const [only, setOnly] = useState("all");
+  const [selItems, setSelItems] = useState(() => new Set());
+  const [selLocs, setSelLocs] = useState(() => new Set());
+  const [busy, setBusy] = useState(false);
 
   const locs = (state.locations || []).filter((l) => l.active);
   const ovs = state.overrides || [];
@@ -744,22 +747,22 @@ function CoverageView({ state, T, money }) {
   const ovFor = (locId, itemId) => ovs.find((o) => o.location_id === locId && o.item_id === itemId);
 
   const cellFor = (loc, it) => {
-    if (it.published === false) return { k: "unpub", label: "\u2014", title: "Unpublished centrally" };
+    if (it.published === false) return { k: "unpub", label: "\u2014", title: "Unpublished centrally \u2014 change in Menus" };
     const o = ovFor(loc.id, it.id);
     if (o && o.unavailable_until && new Date(o.unavailable_until) > now) {
       return { k: "off", label: "86", title: "Off today, back " + new Date(o.unavailable_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
     }
-    if (o && o.available === false) return { k: "no", label: "\u00d7", title: "Not carried here" };
-    if (o && o.price != null) return { k: "price", label: money(o.price), title: "Own price \u00b7 master " + money(it.price) };
-    return { k: "yes", label: "\u2713", title: "Carried at master price" };
+    if (o && o.available === false) return { k: "no", label: "\u00d7", title: "Not carried here \u2014 click to carry" };
+    if (o && o.price != null) return { k: "price", label: money(o.price), title: "Own price \u00b7 master " + money(it.price) + " \u2014 click to stop carrying" };
+    return { k: "yes", label: "\u2713", title: "Carried \u2014 click to stop carrying" };
   };
 
   const style = {
-    yes:   { c: T.faint, b: "transparent" },
+    yes:   { c: T.faint,   b: "transparent" },
     price: { c: "#2f6b3f", b: "#eef3ea" },
     off:   { c: "#8a5a2b", b: "#fdf1e7" },
     no:    { c: "#8a3b3b", b: "#f6eaea" },
-    unpub: { c: T.faint, b: "transparent" },
+    unpub: { c: T.faint,   b: "transparent" },
   };
 
   const needle = q.trim().toLowerCase();
@@ -774,6 +777,36 @@ function CoverageView({ state, T, money }) {
 
   const tally = (k) => locs.reduce((n, l) => n + items.filter((it) => cellFor(l, it).k === k).length, 0);
 
+  const apply = async (mode, itemIds, locIds) => {
+    if (!itemIds.length || !locIds.length || busy) return;
+    setBusy(true);
+    try {
+      // act() reloads state on success, so the grid repaints itself.
+      await act("bulk_set_availability", { item_ids: itemIds, location_ids: locIds, mode });
+    } finally { setBusy(false); }
+  };
+
+  // One cell click flips that single item at that single store.
+  const toggleCell = (loc, it) => {
+    const c = cellFor(loc, it);
+    if (c.k === "unpub") return;
+    apply(c.k === "no" ? "carry" : "dont_carry", [it.id], [loc.id]);
+  };
+
+  const toggleItem = (id) => setSelItems((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggleLoc  = (id) => setSelLocs((p)  => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const clearSel = () => { setSelItems(new Set()); setSelLocs(new Set()); };
+
+  const selectCategory = (catName) => {
+    const ids = rows.filter((it) => ((catById.get(it.category_id) || {}).name || "Uncategorised") === catName).map((it) => it.id);
+    setSelItems((p) => {
+      const n = new Set(p);
+      const allIn = ids.every((i) => n.has(i));
+      ids.forEach((i) => allIn ? n.delete(i) : n.add(i));
+      return n;
+    });
+  };
+
   const chip = (key, label, n) => (
     <span onClick={() => setOnly(only === key ? "all" : key)}
       style={{ fontSize: 12, fontWeight: 600, cursor: "pointer", padding: "6px 13px", borderRadius: 20,
@@ -782,13 +815,20 @@ function CoverageView({ state, T, money }) {
         border: "1px solid " + (only === key ? "transparent" : T.line) }}>{n} {label}</span>
   );
 
-  const grid = "minmax(0,1fr) repeat(" + locs.length + ", 96px)";
+  const btn = (label, colour, onClick) => (
+    <span onClick={onClick} style={{ fontSize: 12.5, fontWeight: 700, cursor: busy ? "wait" : "pointer", padding: "8px 14px", borderRadius: 9, color: "#fff", background: colour, opacity: busy ? .5 : 1 }}>{label}</span>
+  );
+
+  const grid = "26px minmax(0,1fr) repeat(" + locs.length + ", 96px)";
+  const itemIds = [...selItems];
+  const locIds = selLocs.size ? [...selLocs] : locs.map((l) => l.id);
+  const allLocs = selLocs.size === 0;
   let lastCat = null;
 
   return (
     <div>
-      <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Coverage</div>
-      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18 }}>Every item, every store, and why something is not on sale. Read-only \u2014 change things in Stores or Pricing.</div>
+      <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Network menu</div>
+      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18 }}>Every item, every store, on one screen. Click a cell to turn one item on or off at one store \u2014 or tick items and stores and change them all at once.</div>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items\u2026"
@@ -799,11 +839,28 @@ function CoverageView({ state, T, money }) {
         {only !== "all" && <span onClick={() => setOnly("all")} style={{ fontSize: 12.5, color: T.accent, cursor: "pointer", fontWeight: 600 }}>Clear filter</span>}
       </div>
 
+      {selItems.size > 0 && (
+        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "#2f3326", color: "#fff", borderRadius: 12, padding: "13px 16px", marginBottom: 14 }}>
+          <span style={{ fontSize: 13.5, fontWeight: 700 }}>
+            {selItems.size} item{selItems.size === 1 ? "" : "s"} \u00b7 {allLocs ? "all " + locs.length + " stores" : selLocs.size + " store" + (selLocs.size === 1 ? "" : "s")}
+          </span>
+          <span style={{ flex: 1 }} />
+          {btn("Carry", "#4f7a3a", () => apply("carry", itemIds, locIds))}
+          {btn("Off today", "#b57628", () => apply("off_today", itemIds, locIds))}
+          {btn("Stop carrying", "#a34a4a", () => apply("dont_carry", itemIds, locIds))}
+          <span onClick={clearSel} style={{ fontSize: 12.5, color: "#c9cbbf", cursor: "pointer", fontWeight: 600 }}>Clear</span>
+        </div>
+      )}
+
       <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
-        <div style={{ display: "grid", gridTemplateColumns: grid, padding: "10px 14px", background: T.bg, borderBottom: "1px solid " + T.line }}>
+        <div style={{ display: "grid", gridTemplateColumns: grid, padding: "10px 14px", background: T.bg, borderBottom: "1px solid " + T.line, alignItems: "center" }}>
+          <span />
           <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint }}>ITEM</span>
           {locs.map((l) => (
-            <span key={l.id} title={l.name} style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "center", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+            <span key={l.id} onClick={() => toggleLoc(l.id)} title={"Click to select " + l.name}
+              style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", textAlign: "center", cursor: "pointer",
+                color: selLocs.has(l.id) ? "#fff" : T.faint, background: selLocs.has(l.id) ? T.accent : "transparent",
+                borderRadius: 6, padding: "4px 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {l.name.replace(/^Chocoberry\s*\u2014?\s*/i, "").toUpperCase()}
             </span>
           ))}
@@ -813,18 +870,27 @@ function CoverageView({ state, T, money }) {
           const cat = (catById.get(it.category_id) || {}).name || "Uncategorised";
           const header = cat !== lastCat ? cat : null;
           lastCat = cat;
+          const picked = selItems.has(it.id);
           return (
             <Fragment key={it.id}>
-              {header && <div style={{ padding: "8px 14px", background: T.bg, fontSize: 12.5, fontWeight: 700, color: T.ink, borderTop: "1px solid " + T.line }}>{header}</div>}
-              <div style={{ display: "grid", gridTemplateColumns: grid, padding: "9px 14px", borderTop: "1px solid " + T.line, alignItems: "center" }}>
+              {header && (
+                <div onClick={() => selectCategory(cat)} title="Click to select every item in this category"
+                  style={{ padding: "8px 14px", background: T.bg, fontSize: 12.5, fontWeight: 700, color: T.ink, borderTop: "1px solid " + T.line, cursor: "pointer" }}>
+                  {header}
+                </div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: grid, padding: "9px 14px", borderTop: "1px solid " + T.line, alignItems: "center", background: picked ? "#f4f7f0" : "transparent" }}>
+                <input type="checkbox" checked={picked} onChange={() => toggleItem(it.id)} style={{ cursor: "pointer" }} />
                 <span style={{ fontSize: 13.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12 }}>
                   {it.name}<span style={{ fontSize: 11.5, color: T.faint, marginLeft: 8 }}>{money(it.price)}</span>
                 </span>
                 {locs.map((l) => {
                   const c = cellFor(l, it);
                   return (
-                    <span key={l.id} title={c.title}
-                      style={{ textAlign: "center", fontSize: c.k === "price" ? 12 : 13, fontWeight: c.k === "yes" ? 400 : 700, color: style[c.k].c, background: style[c.k].b, borderRadius: 6, padding: "4px 0" }}>{c.label}</span>
+                    <span key={l.id} title={c.title} onClick={() => toggleCell(l, it)}
+                      style={{ textAlign: "center", fontSize: c.k === "price" ? 12 : 13, fontWeight: c.k === "yes" ? 400 : 700,
+                        color: style[c.k].c, background: style[c.k].b, borderRadius: 6, padding: "4px 0",
+                        cursor: c.k === "unpub" ? "default" : "pointer" }}>{c.label}</span>
                   );
                 })}
               </div>
@@ -835,11 +901,12 @@ function CoverageView({ state, T, money }) {
       </div>
 
       <div style={{ display: "flex", gap: 18, marginTop: 14, fontSize: 12, color: T.muted, flexWrap: "wrap" }}>
-        <span>\u2713 carried at master price</span>
+        <span>\u2713 carried</span>
         <span style={{ color: "#2f6b3f" }}>\u00a3 own price</span>
         <span style={{ color: "#8a5a2b" }}>86 off today</span>
         <span style={{ color: "#8a3b3b" }}>\u00d7 not carried</span>
         <span>\u2014 unpublished centrally</span>
+        <span style={{ marginLeft: "auto" }}>Tip: click a category name to select everything in it.</span>
       </div>
     </div>
   );
@@ -978,7 +1045,7 @@ export default function Admin() {
       {/* MAIN CONTENT */}
       <div style={{ flex: 1, minWidth: 0, padding: "26px 28px 60px", overflowY: "auto", maxHeight: "100vh", boxSizing: "border-box" }}>
         {nav === "coverage" ? (
-          <CoverageView state={state} T={T} money={money} />
+          <CoverageView state={state} T={T} money={money} act={act} />
         ) : nav === "pricing" ? (
           <PricingManager state={state} T={T} act={act} onClose={() => { setNav("menus"); setLevel("menus"); }} />
         ) : (
