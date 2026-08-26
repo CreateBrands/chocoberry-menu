@@ -912,6 +912,149 @@ function CoverageView({ state, T, money, act }) {
   );
 }
 
+
+// \u2500\u2500 MENU BANDS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// A band is a format shared by several stores: "Dessert only", "Dessert +
+// cafe", "Breakfast". Set what the band carries once and every store on it
+// follows, so most stores need no store-level rows at all.
+//
+// Silence matters. A band row that merely repeats the base menu blocks that
+// item from ever inheriting a change \u2014 the same trap as typing the master
+// price into a store price box. "Follows base" is the correct resting state.
+function MenuBands({ state, T, act }) {
+  const bands = (state.bands || []);
+  const menuBands = bands.filter((b) => b.band_kind === "menu" || b.band_kind === "both");
+  const [bandId, setBandId] = useState(() => (menuBands[0] || bands[0] || {}).id || null);
+  const [tab, setTab] = useState("items");
+  const [q, setQ] = useState("");
+
+  const items = state.items || [];
+  const menus = state.menus || [];
+  const catById = new Map((state.categories || []).map((c) => [c.id, c]));
+  const bandItems = state.bandItems || [];
+  const bandMenus = state.bandMenus || [];
+  const locs = (state.locations || []).filter((l) => l.active);
+
+  const band = bands.find((b) => b.id === bandId);
+  const onBand = locs.filter((l) => (l.menu_band_id || l.price_band_id) === bandId);
+
+  const biFor = (itemId) => bandItems.find((r) => r.band_id === bandId && r.item_id === itemId);
+  const bmOn = (menuId) => bandMenus.some((r) => r.band_id === bandId && r.menu_id === menuId);
+  const anyMenuRows = bandMenus.some((r) => r.band_id === bandId);
+
+  const setItem = (itemId, available) => act("set_band_item", { band_id: bandId, item_id: itemId, available });
+  const setMenu = (menuId, on) => act("set_band_menu", { band_id: bandId, menu_id: menuId, on });
+
+  const needle = q.trim().toLowerCase();
+  const rows = items
+    .filter((it) => !needle || it.name.toLowerCase().includes(needle))
+    .sort((a, b) => {
+      const ca = (catById.get(a.category_id) || {}).name || "";
+      const cb = (catById.get(b.category_id) || {}).name || "";
+      return ca.localeCompare(cb) || a.name.localeCompare(b.name);
+    });
+
+  const nOff = bandItems.filter((r) => r.band_id === bandId && r.available === false).length;
+  const nOn  = bandItems.filter((r) => r.band_id === bandId && r.available === true).length;
+
+  const pill = (label, on, colour, onClick) => (
+    <span onClick={onClick} style={{ fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", padding: "5px 10px", borderRadius: 7, color: on ? "#fff" : T.muted, background: on ? colour : "transparent", border: "1px solid " + (on ? colour : T.line) }}>{label}</span>
+  );
+
+  let lastCat = null;
+
+  return (
+    <div>
+      <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Menu bands</div>
+      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18 }}>A format shared by several stores. Set it once here instead of store by store \u2014 blank means the band says nothing and the item follows the base menu.</div>
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", background: T.bg, borderRadius: 10, padding: 3, gap: 2 }}>
+          {[["items", "Items"], ["sections", "Sections"]].map(([k, label]) => (
+            <span key={k} onClick={() => setTab(k)} style={{ fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "7px 15px", borderRadius: 8, background: tab === k ? T.accent : "transparent", color: tab === k ? "#fff" : T.muted }}>{label}</span>
+          ))}
+        </div>
+        <select value={bandId || ""} onChange={(e) => setBandId(e.target.value || null)}
+          style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "9px 12px", fontSize: 13.5, background: T.card, color: T.ink }}>
+          {bands.map((b) => <option key={b.id} value={b.id}>{b.name}{b.band_kind === "price" ? " (price band)" : ""}</option>)}
+        </select>
+        <span onClick={async () => { const n = window.prompt("Name the new format band, e.g. Dessert + cafe:"); if (n && n.trim()) await act("band_create", { name: n.trim(), band_kind: "menu" }); }}
+          style={{ fontSize: 12.5, fontWeight: 700, color: T.accent, cursor: "pointer", border: "1px dashed " + T.line, borderRadius: 9, padding: "8px 13px" }}>+ New band</span>
+        <span style={{ fontSize: 13, color: T.muted }}>
+          {onBand.length ? "used by " + onBand.length + " store" + (onBand.length === 1 ? "" : "s") : "not used by any store yet"}
+        </span>
+      </div>
+
+      {onBand.length > 1 && (
+        <div style={{ fontSize: 12.5, color: "#8a5a2b", background: "#fdf1e7", border: "1px solid #f0d9c2", borderRadius: 9, padding: "9px 13px", marginBottom: 14 }}>
+          Changing this band changes {onBand.length} stores at once: {onBand.map((l) => l.name).join(", ")}
+        </div>
+      )}
+
+      {tab === "sections" ? (
+        <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
+          <div style={{ padding: "11px 14px", fontSize: 12.5, color: T.muted, borderBottom: "1px solid " + T.line }}>
+            {anyMenuRows ? "This band carries only the ticked sections." : "Nothing ticked \u2014 this band carries every section. Tick one to make it an explicit list."}
+          </div>
+          {menus.map((m) => (
+            <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", borderTop: "1px solid " + T.line }}>
+              <input type="checkbox" checked={bmOn(m.id)} onChange={(e) => setMenu(m.id, e.target.checked)} style={{ cursor: "pointer" }} />
+              <span style={{ flex: 1, fontSize: 14, color: T.ink }}>{m.name}</span>
+              <span style={{ fontSize: 12, color: anyMenuRows && !bmOn(m.id) ? "#8a3b3b" : T.faint }}>
+                {anyMenuRows ? (bmOn(m.id) ? "carried" : "not carried") : "carried"}
+              </span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items\u2026"
+              style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "9px 13px", fontSize: 13.5, background: T.card, color: T.ink, minWidth: 200 }} />
+            <span style={{ fontSize: 12, color: "#8a3b3b" }}>{nOff} not carried</span>
+            <span style={{ fontSize: 12, color: T.accent }}>{nOn} forced on</span>
+          </div>
+
+          <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 70px 150px 110px", padding: "10px 14px", background: T.bg, borderBottom: "1px solid " + T.line }}>
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint }}>ITEM</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "center" }}>BASE</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "center" }}>THIS BAND</span>
+              <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", color: T.faint, textAlign: "right" }}>RESULT</span>
+            </div>
+
+            {rows.map((it) => {
+              const cat = (catById.get(it.category_id) || {}).name || "Uncategorised";
+              const header = cat !== lastCat ? cat : null;
+              lastCat = cat;
+              const bi = biFor(it.id);
+              const says = bi ? bi.available : null;
+              const baseOn = it.available !== false && it.published !== false;
+              const result = says === null ? baseOn : says;
+              return (
+                <Fragment key={it.id}>
+                  {header && <div style={{ padding: "8px 14px", background: T.bg, fontSize: 12.5, fontWeight: 700, color: T.ink, borderTop: "1px solid " + T.line }}>{header}</div>}
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 70px 150px 110px", padding: "9px 14px", borderTop: "1px solid " + T.line, alignItems: "center" }}>
+                    <span style={{ fontSize: 13.5, color: result ? T.ink : T.muted, textDecoration: result ? "none" : "line-through", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", paddingRight: 12 }}>{it.name}</span>
+                    <span style={{ fontSize: 12, color: T.faint, textAlign: "center" }}>{baseOn ? "on" : "off"}</span>
+                    <span style={{ display: "flex", gap: 3, justifyContent: "center" }}>
+                      {pill("Carry", says === true, T.accent, () => setItem(it.id, says === true ? null : true))}
+                      {pill("No", says === false, "#a34a4a", () => setItem(it.id, says === false ? null : false))}
+                    </span>
+                    <span style={{ fontSize: 12, fontWeight: 600, textAlign: "right", color: says === null ? T.faint : (result ? "#2f6b3f" : "#8a3b3b") }}>
+                      {says === null ? "Follows base" : (result ? "On sale" : "Not carried")}
+                    </span>
+                  </div>
+                </Fragment>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Admin() {
   const [pin, setPin] = useState(null);
   const [state, setState] = useState(null);
@@ -998,6 +1141,7 @@ export default function Admin() {
           ["hero", "Hero", "🖼", true],
           ["stores", "Stores", "🏪", false],
           ["coverage", "Coverage", "🗂", true],
+          ["bands", "Menu bands", "🎚", true],
           ["printers", "Printers", "🖨", false],
           ["settings", "Settings", "⚙", true],
         ].filter(([, , , masterOnly]) => state.scope !== "store" || !masterOnly).map(([key, label, icon]) => {
@@ -1044,7 +1188,9 @@ export default function Admin() {
 
       {/* MAIN CONTENT */}
       <div style={{ flex: 1, minWidth: 0, padding: "26px 28px 60px", overflowY: "auto", maxHeight: "100vh", boxSizing: "border-box" }}>
-        {nav === "coverage" ? (
+        {nav === "bands" ? (
+          <MenuBands state={state} T={T} act={act} />
+        ) : nav === "coverage" ? (
           <CoverageView state={state} T={T} money={money} act={act} />
         ) : nav === "pricing" ? (
           <PricingManager state={state} T={T} act={act} onClose={() => { setNav("menus"); setLevel("menus"); }} />
@@ -1512,6 +1658,30 @@ export default function Admin() {
                                 </label>
                               );
                             })}
+                          </div>
+                        </div>
+                      )}
+                      {state.scope !== "store" && (
+                        <div style={{ marginTop: 16, paddingTop: 14, borderTop: "1px dashed " + T.line }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 8 }}>Bands</div>
+                          <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 10 }}>Two independent choices: what this store charges, and what it carries. Set both and it inherits from the band instead of needing its own rows.</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap" }}>
+                            <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: T.muted }}>
+                              Charges
+                              <select value={loc.price_band_id || ""} onChange={(e) => act("set_store_band", { location_id: loc.id, band_id: e.target.value || null })}
+                                style={{ border: "1px solid " + T.line, borderRadius: 8, padding: "7px 10px", fontSize: 12.5, background: T.bg, color: T.ink }}>
+                                <option value="">Master prices</option>
+                                {(state.bands || []).filter((b) => b.band_kind !== "menu").map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                              </select>
+                            </label>
+                            <label style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: T.muted }}>
+                              Carries
+                              <select value={loc.menu_band_id || ""} onChange={(e) => act("set_menu_band", { location_id: loc.id, band_id: e.target.value || null })}
+                                style={{ border: "1px solid " + T.line, borderRadius: 8, padding: "7px 10px", fontSize: 12.5, background: T.bg, color: T.ink }}>
+                                <option value="">Full base menu</option>
+                                {(state.bands || []).filter((b) => b.band_kind !== "price").map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
+                              </select>
+                            </label>
                           </div>
                         </div>
                       )}
