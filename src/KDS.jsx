@@ -612,30 +612,59 @@ export default function KDS() {
         <div style={{ padding: F(16) }}>
           <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Recently bumped {DOT} tap Recall to bring one back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(268) + "px, 1fr))", gap: F(12), alignItems: "start" }}>
-            {completed.slice(0, 40).map((o) => (
-              <div key={o.id} style={{ background: "#ffffff", color: "#1f2937", borderRadius: F(14), border: "1px solid #d8dce2", borderLeft: "4px solid #94a3b8", boxShadow: "0 1px 3px rgba(15,23,42,.08)", overflow: "hidden" }}>
-                <div style={{ padding: F(9) + "px " + F(12) + "px", background: "#e8ebef", color: "#334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontWeight: 700, fontSize: F(15) }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
-                  <span style={{ fontSize: F(12), fontWeight: 600 }}>{o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
-                </div>
-                <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
-                  {groupByCat(o.menu_order_items || []).map(([cat, catItems]) => (
-                    <div key={cat} style={{ marginBottom: F(4) }}>
-                      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: "#64748b", borderBottom: "1px solid #00000014", paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
-                      {catItems.map((it) => (
-                        <div key={it.id} style={{ padding: F(6) + "px " + F(6) + "px" }}>
-                          <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
-                            <span style={{ fontWeight: 900, fontSize: F(15), color: "#64748b", minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
-                            <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25 }}>{it.name_snapshot}</span>
-                          </div>
-                        </div>
-                      ))}
+            {completed.slice(0, 40).map((o) => {
+              // Identical structure to an ACTIVE ticket — same header, table
+              // label, station groupings, modifiers and note — so the two tabs
+              // read the same. Only the palette is neutral (it is finished) and
+              // the footer is Recall instead of Bump.
+              const pal = { accent: "#64748b", tint: "#ffffff", head: "#e8ebef", headText: "#334155", body: "#1f2937", sub: "#64748b", rule: "#00000014" };
+              const items = o.menu_order_items || [];
+              const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : "Takeaway");
+              const note = (o.customer_note || "").trim();
+              const served = o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+              return (
+                <div key={o.id} style={{ background: pal.tint, color: pal.body, borderRadius: F(14), overflow: "hidden", border: "1px solid #d8dce2", borderLeft: "4px solid " + pal.accent, boxShadow: "0 1px 3px rgba(15,23,42,.08)", display: "flex", flexDirection: "column" }}>
+                  <div style={{ background: pal.head, color: pal.headText, padding: F(9) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: F(19), letterSpacing: "-.01em" }}>
+                        {(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}
+                      </div>
+                      <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>{typeLabel}{o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}</div>
                     </div>
-                  ))}
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 900, fontSize: F(20), fontVariantNumeric: "tabular-nums", color: pal.accent, letterSpacing: "-.02em" }}>{served}</div>
+                      <div style={{ fontSize: F(10), opacity: .7, fontWeight: 600, marginTop: 1 }}>{items.length ? items.length + " items" : ""}</div>
+                    </div>
+                  </div>
+                  <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
+                    {groupByCat(items).map(([cat, catItems]) => (
+                      <div key={cat} style={{ marginBottom: F(4) }}>
+                        <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: pal.sub, borderBottom: "1px solid " + pal.rule, paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
+                        {catItems.map((it) => {
+                          const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
+                          return (
+                            <div key={it.id} style={{ padding: F(6) + "px " + F(6) + "px" }}>
+                              <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
+                                <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
+                                <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25 }}>{it.name_snapshot}</span>
+                              </div>
+                              {mods.length > 0 && <div style={{ fontSize: F(13), color: "#0369a1", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                    {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#7f1d1d", background: "#fee2e2", border: "1px solid #fca5a5", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
+                  </div>
+                  <div style={{ display: "flex", gap: 2, padding: 2 }}>
+                    <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#334155", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
+                      {printingId === o.id ? "\u2026" : PRINTER}
+                    </div>
+                    <div onClick={() => recall(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: "#475569", borderRadius: 9, fontWeight: 800, fontSize: F(15.5), cursor: "pointer", color: "#ffffff" }}>{ARROW + " Recall"}</div>
+                  </div>
                 </div>
-                <div onClick={() => recall(o)} className="kbtn" style={{ textAlign: "center", padding: F(8) + "px 0", background: "#475569", color: "#ffffff", fontWeight: 800, fontSize: F(14), cursor: "pointer" }}>{ARROW + " Recall"}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
