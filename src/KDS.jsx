@@ -448,13 +448,13 @@ export default function KDS() {
   const BOLT = "\u26A1", PRINTER = "\uD83D\uDDA8", CHECK = "\u2713", ARROW = "\u21A9", WARN = "\u26A0", DOT = "\u00B7", TIMES = "\u00D7", BELL = "\uD83D\uDD14", BELLOFF = "\uD83D\uDD15", EXPAND = "\u26F6", X = "\u2715";
 
   return (
-    <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "radial-gradient(1200px 600px at 50% -10%, #12151d, #0b0d11)", color: "#f8fafc", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
+    <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "#eef0f3", color: "#1f2937", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes kfailflash{0%,100%{background:#dc2626}50%{background:#8f1414}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#ffffff08}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#2a2f3a;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#353c49}"}</style>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "linear-gradient(180deg,#161a23,#0f131a)", borderBottom: "1px solid #20252f", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 4px 16px -8px rgba(0,0,0,.6)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "#ffffff", borderBottom: "1px solid #d8dce2", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 4px 16px -8px rgba(0,0,0,.6)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
-          <div style={{ display: "flex", background: "#0c0f16", borderRadius: 10, padding: 3, gap: 2 }}>
+          <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
             {[["kitchen", "Kitchen"], ["orders", "Orders"], ["pos", "POS"]].map(([v, label]) => (
               <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#9aa3b2" }}>
                 {label}{v === "orders" && unpaidOrders.length ? " " + unpaidOrders.length : ""}
@@ -479,7 +479,7 @@ export default function KDS() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {stations.length > 1 && (
-            <select value={station} onChange={(e) => setStation(e.target.value)} style={{ background: "#20242f", color: "#fff", border: "1px solid #333", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}>
+            <select value={station} onChange={(e) => setStation(e.target.value)} style={{ background: "#ffffff", color: "#1f2937", border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}>
               <option value="all">All stations</option>
               {stations.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -521,30 +521,30 @@ export default function KDS() {
 
       {view === "kitchen" && tab === "active" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(268) + "px, 1fr))", gap: F(12), padding: F(16), alignItems: "start" }}>
-          {active.length === 0 && <div style={{ color: "#6b7280", padding: 48, fontSize: 18 }}>No active orders.</div>}
+          {active.length === 0 && <div style={{ color: "#64748b", padding: 48, fontSize: 18 }}>No active orders.</div>}
           {active.map((o, i) => {
             const age = minsSince(o.created_at, now);
             const isRush = rushIds.has(o.id);
             const isLate = age >= LATE_MIN;
             const pal = isRush
-              ? { accent: "#fb7185", tint: "#1c1215", head: "#7f1d2e" }
+              ? { accent: "#e11d48", tint: "#ffffff", head: "#ffe4e6", headText: "#881337", body: "#1f2937", sub: "#9f1239", rule: "#00000014" }
               : isLate
-              ? { accent: "#f87171", tint: "#1a1315", head: "#7f1d1d" }
+              ? { accent: "#dc2626", tint: "#ffffff", head: "#fee2e2", headText: "#7f1d1d", body: "#1f2937", sub: "#991b1b", rule: "#00000014" }
               : age >= WARN_MIN
-              ? { accent: "#fbbf24", tint: "#1a1712", head: "#733f12" }
-              : { accent: "#34d399", tint: "#121a16", head: "#14532d" };
+              ? { accent: "#d97706", tint: "#ffffff", head: "#fef3c7", headText: "#78350f", body: "#1f2937", sub: "#92400e", rule: "#00000014" }
+              : { accent: "#16a34a", tint: "#ffffff", head: "#dcfce7", headText: "#14532d", body: "#1f2937", sub: "#15803d", rule: "#00000014" };
             const items = o.menu_order_items || [];
             const doneCount = items.filter((it) => it.item_status === DONE_ITEM).length;
             const allDone = items.length > 0 && doneCount === items.length;
             const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : "Takeaway");
             const note = (o.customer_note || "").trim();
             return (
-              <div key={o.id} className={"kcard" + (isRush ? " krush" : "") + (isLate ? " klate" : "")} style={{ background: pal.tint, borderRadius: F(14), overflow: "hidden", boxShadow: "0 1px 0 #ffffff08 inset, 0 6px 20px -8px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", borderLeft: "4px solid " + pal.accent }}>
-                <div style={{ background: pal.head, padding: F(9) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div key={o.id} className={"kcard" + (isRush ? " krush" : "") + (isLate ? " klate" : "")} style={{ background: pal.tint, color: pal.body, borderRadius: F(14), overflow: "hidden", border: "1px solid #d8dce2", borderLeft: "4px solid " + pal.accent, boxShadow: "0 1px 3px rgba(15,23,42,.08)", display: "flex", flexDirection: "column" }}>
+                <div style={{ background: pal.head, color: pal.headText, padding: F(9) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: F(19), letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 6 }}>
                       {isRush && <span style={{ fontSize: F(15) }}>{BOLT}</span>}{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}
-                      <span style={{ fontSize: F(11), fontWeight: 700, opacity: .55, background: "#00000033", padding: "1px 7px", borderRadius: 20 }}>{i + 1}</span>
+                      <span style={{ fontSize: F(11), fontWeight: 700, opacity: .75, background: "#0000000f", padding: "1px 7px", borderRadius: 20 }}>{i + 1}</span>
                     </div>
                     <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>{typeLabel}{o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}</div>
                     {o.print_failed && <div style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 5, background: "#dc2626", color: "#fff", fontSize: F(11), fontWeight: 800, padding: "2px 8px", borderRadius: 6, letterSpacing: ".02em" }}>⚠ NOT PRINTED</div>}
@@ -557,7 +557,7 @@ export default function KDS() {
                 <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
                   {groupByCat(items).map(([cat, catItems]) => (
                     <div key={cat} style={{ marginBottom: F(4) }}>
-                      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: "#94a3b8", borderBottom: "1px solid #ffffff1f", paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
+                      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: pal.sub, borderBottom: "1px solid " + pal.rule, paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
                       {catItems.map((it) => {
                         const done = it.item_status === DONE_ITEM;
                         const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
@@ -579,7 +579,7 @@ export default function KDS() {
                   <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#fb7185" : "#ffffff0d", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#1a0a0d" : "#fff" }} title="Rush">{BOLT}</div>
                   {/* Print slip. Deliberately on the LEFT, far from Bump: Bump is
                       destructive and a mis-tap on a wall screen loses the ticket. */}
-                  <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff0d", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#fff", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
+                  <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#f1f3f6", border: "1px solid #d8dce2", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#1f2937", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
                     {printingId === o.id ? "\u2026" : PRINTER}
                   </div>
                   {o.status === "placed" && <div onClick={() => start(o)} className="kbtn" style={{ flex: 1, textAlign: "center", padding: F(11) + "px 0", background: "#ffffff14", borderRadius: 9, fontWeight: 700, fontSize: F(14), cursor: "pointer" }}>Start</div>}
@@ -593,10 +593,10 @@ export default function KDS() {
 
       {view === "kitchen" && tab === "allday" && (
         <div style={{ padding: F(16), maxWidth: 620 }}>
-          <div style={{ fontSize: F(14), color: "#9ca3af", marginBottom: 12 }}>Everything working right now, across all active orders:</div>
-          {alldayRows.length === 0 && <div style={{ color: "#6b7280" }}>Nothing in the queue.</div>}
+          <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Everything working right now, across all active orders:</div>
+          {alldayRows.length === 0 && <div style={{ color: "#64748b" }}>Nothing in the queue.</div>}
           {alldayRows.map(([name, qty]) => (
-            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: F(12) + "px " + F(16) + "px", background: "#161a22", borderRadius: 10, marginBottom: 8, border: "1px solid #262b36" }}>
+            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: F(12) + "px " + F(16) + "px", background: "#ffffff", borderRadius: 10, marginBottom: 8, border: "1px solid #d8dce2" }}>
               <span style={{ fontWeight: 700, fontSize: F(17) }}>{name}</span>
               <span style={{ fontWeight: 800, fontSize: F(23), color: "#fbbf24", fontVariantNumeric: "tabular-nums" }}>{qty}</span>
             </div>
@@ -606,13 +606,13 @@ export default function KDS() {
 
       {view === "kitchen" && tab === "completed" && (
         <div style={{ padding: F(16) }}>
-          <div style={{ fontSize: F(14), color: "#9ca3af", marginBottom: 12 }}>Recently bumped {DOT} tap Recall to bring one back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
+          <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Recently bumped {DOT} tap Recall to bring one back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(244) + "px, 1fr))", gap: F(12) }}>
             {completed.slice(0, 40).map((o) => (
-              <div key={o.id} style={{ background: "#161a22", borderRadius: 10, border: "1px solid #262b36", overflow: "hidden", opacity: .9 }}>
+              <div key={o.id} style={{ background: "#ffffff", borderRadius: 10, border: "1px solid #d8dce2", overflow: "hidden" }}>
                 <div style={{ padding: F(8) + "px " + F(12) + "px", background: "#20242f", display: "flex", justifyContent: "space-between" }}>
                   <span style={{ fontWeight: 700, fontSize: F(15) }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
-                  <span style={{ fontSize: F(12), color: "#9ca3af" }}>{o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                  <span style={{ fontSize: F(12), color: "#64748b" }}>{o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
                 </div>
                 <div style={{ padding: F(8) + "px " + F(12) + "px", fontSize: F(13), color: "#cbd5e1", display: "flex", flexDirection: "column", gap: F(3) }}>
                   {(o.menu_order_items || []).map((it) => (
@@ -642,7 +642,7 @@ export default function KDS() {
               <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2 }}>GBP {totalUnpaid.toFixed(2)}</div>
               <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 2 }}>{unpaidOrders.length} order{unpaidOrders.length === 1 ? "" : "s"}</div>
             </div>
-            <div style={{ flex: 1, minWidth: 160, background: "linear-gradient(180deg,#121a16,#0d130f)", border: "1px solid #1c3a2a", borderRadius: 12, padding: "12px 16px" }}>
+            <div style={{ flex: 1, minWidth: 160, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#4ade80", letterSpacing: ".04em" }}>TAKEN TODAY</div>
               <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2 }}>GBP {totalTaken.toFixed(2)}</div>
               <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 2 }}>{paidOrders.length} paid</div>
@@ -656,7 +656,7 @@ export default function KDS() {
           </div>
           {/* Order rows */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
-            {shownOrders.length === 0 && <div style={{ color: "#6b7280", padding: 40, fontSize: 17 }}>No {orderFilter === "all" ? "" : orderFilter} orders.</div>}
+            {shownOrders.length === 0 && <div style={{ color: "#64748b", padding: 40, fontSize: 17 }}>No {orderFilter === "all" ? "" : orderFilter} orders.</div>}
             {shownOrders.map((o) => {
               const paid = isPaid(o);
               const items = o.menu_order_items || [];
@@ -665,7 +665,7 @@ export default function KDS() {
               const waited = Math.floor(minsSince(o.created_at, now));
               return (
                 <div key={o.id} onClick={() => { if (!paid) { setPayFor(o); setPayMethod(null); setPayPin(""); setPayErr(""); } }}
-                  style={{ background: paid ? "linear-gradient(180deg,#121a16,#0e130f)" : "linear-gradient(180deg,#1c1712,#15100a)", border: "1px solid " + (paid ? "#1c3a2a" : "#3a2e17"), borderLeft: "4px solid " + (paid ? "#4ade80" : "#fbbf24"), borderRadius: 12, padding: "12px 14px", cursor: paid ? "default" : "pointer" }}>
+                  style={{ background: "#ffffff", border: "1px solid " + (paid ? "#bbf7d0" : "#fde68a"), borderLeft: "4px solid " + (paid ? "#16a34a" : "#d97706"), borderRadius: 12, padding: "12px 14px", cursor: paid ? "default" : "pointer" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontWeight: 800, fontSize: 17 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
                     <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: 20, background: paid ? "#14532d" : "#7c5310", color: paid ? "#86efac" : "#fcd34d" }}>{paid ? (o.paid_method === "card" ? "PAID · CARD" : "PAID · CASH") : "UNPAID"}</span>
@@ -706,10 +706,10 @@ export default function KDS() {
               ))}
             </div>
             <input type="text" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="Or type a reason…"
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: "10px 12px", borderRadius: 10, border: "1px solid #374151", background: "#0f131a", color: "#fff", marginBottom: 12 }} />
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#ffffff", color: "#1f2937", marginBottom: 12 }} />
             <input type="text" inputMode="numeric" value={voidPin} onChange={(e) => setVoidPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && voidOrder()} placeholder="Staff PIN to confirm"
               autoComplete="off" name="kds-void-nosave" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
-              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #374151", background: "#0f131a", color: "#fff", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
+              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #cbd5e1", background: "#ffffff", color: "#1f2937", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
             {voidErr && <div style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 8 }}>{voidErr}</div>}
             <div onClick={voidOrder} className="kbtn" style={{ textAlign: "center", padding: "13px 0", borderRadius: 30, background: (voidReason.trim() && voidPin) ? "#b4462f" : "#334155", color: "#fff", fontWeight: 800, fontSize: 16, cursor: (voidReason.trim() && voidPin) ? "pointer" : "default", opacity: voidBusy ? .6 : 1 }}>{voidBusy ? "Voiding…" : "Confirm void"}</div>
           </div>
@@ -737,7 +737,7 @@ export default function KDS() {
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <div onClick={() => { setPayDiscType(payDiscType === "percent" ? null : "percent"); setPayDiscVal(""); }} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 700, background: payDiscType === "percent" ? "#3730a3" : "#20242f" }}>% off</div>
               <div onClick={() => { setPayDiscType(payDiscType === "amount" ? null : "amount"); setPayDiscVal(""); }} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 700, background: payDiscType === "amount" ? "#3730a3" : "#20242f" }}>GBP off</div>
-              {payDiscType && <input type="number" value={payDiscVal} onChange={(e) => setPayDiscVal(e.target.value)} placeholder={payDiscType === "percent" ? "%" : "GBP"} style={{ width: 70, textAlign: "center", borderRadius: 9, border: "1px solid #374151", background: "#0f131a", color: "#fff", fontSize: 15 }} />}
+              {payDiscType && <input type="number" value={payDiscVal} onChange={(e) => setPayDiscVal(e.target.value)} placeholder={payDiscType === "percent" ? "%" : "GBP"} style={{ width: 70, textAlign: "center", borderRadius: 9, border: "1px solid #cbd5e1", background: "#ffffff", color: "#1f2937", fontSize: 15 }} />}
             </div>
             {/* Method */}
             <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
@@ -748,7 +748,7 @@ export default function KDS() {
             {/* PIN — required to confirm */}
             <input type="text" inputMode="numeric" value={payPin} onChange={(e) => setPayPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && takePayment()} placeholder="Staff PIN to confirm"
               autoComplete="off" name="kds-code-nosave" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
-              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #374151", background: "#0f131a", color: "#fff", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
+              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #cbd5e1", background: "#ffffff", color: "#1f2937", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
             {payErr && <div style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 8 }}>{payErr}</div>}
             <div onClick={takePayment} className="kbtn" style={{ textAlign: "center", padding: "13px 0", borderRadius: 30, background: (payMethod && payPin) ? "#16a34a" : "#334155", color: "#fff", fontWeight: 800, fontSize: 16, cursor: (payMethod && payPin) ? "pointer" : "default", opacity: payBusy ? .6 : 1 }}>{payBusy ? "Processing…" : "Confirm payment"}</div>
           </div>
@@ -756,7 +756,7 @@ export default function KDS() {
       )}
 
       {undo && (
-        <div style={{ position: "fixed", bottom: 24, left: "50%", animation: "ktoast .2s cubic-bezier(.2,.8,.2,1)", background: "linear-gradient(180deg,#232b39,#1a212c)", border: "1px solid #374151", borderRadius: 14, padding: "12px 14px 12px 18px", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 16px 48px -12px rgba(0,0,0,.7)", zIndex: 50 }}>
+        <div style={{ position: "fixed", bottom: 24, left: "50%", animation: "ktoast .2s cubic-bezier(.2,.8,.2,1)", background: "#ffffff", border: "1px solid #d8dce2", borderRadius: 14, padding: "12px 14px 12px 18px", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 16px 48px -12px rgba(0,0,0,.7)", zIndex: 50 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>Bumped <b style={{ fontWeight: 800 }}>{(undo.order.tablet_no ? "T" + undo.order.tablet_no + "-" : "#") + (undo.order.order_no ?? "")}</b></span>
           <div onClick={doUndo} className="kbtn" style={{ background: "#ec4899", padding: "8px 18px", borderRadius: 10, fontWeight: 800, fontSize: 14, cursor: "pointer", color: "#fff", boxShadow: "0 2px 10px -2px #ec489988" }}>Undo</div>
         </div>
@@ -769,7 +769,7 @@ function Stat({ label, value, accent }) {
   return (
     <div style={{ textAlign: "center", lineHeight: 1.1 }}>
       <div style={{ fontWeight: 800, fontSize: 17, color: accent || "#fff", fontVariantNumeric: "tabular-nums" }}>{value}</div>
-      <div style={{ fontSize: 10, color: "#6b7280", textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
+      <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
     </div>
   );
 }
