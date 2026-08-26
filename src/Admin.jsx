@@ -756,7 +756,7 @@ export default function Admin() {
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [] });
+  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [], kdsScreens: res.kdsScreens || [], printers: res.printers || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   // Optimistic availability toggle: flip the switch in the UI instantly, then
@@ -1250,23 +1250,44 @@ export default function Admin() {
 
                       {/* KITCHEN TAB */}
                       {storeTab === "kitchen" && (() => {
-                        const kdsUrl = window.location.origin + "/kds?loc=" + loc.id;
-                        const kdsQr = "https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(kdsUrl);
+                        // ONE QR PER SCREEN. The QR previously carried only
+                        // ?loc=, so every screen at a store opened as "main" —
+                        // they shared one identity and could not target
+                        // different printers. Each screen now gets its own QR
+                        // with &screen=N, which matches kds_screens.screen_key
+                        // and therefore its printer_sn.
+                        const screens = (state.kdsScreens || [])
+                          .filter((k) => k.location_id === loc.id)
+                          .sort((a, b) => String(a.screen_key).localeCompare(String(b.screen_key), undefined, { numeric: true }));
+                        const rows = screens.length ? screens : [{ screen_key: "1", label: "Kitchen display", printer_sn: null }];
                         return (
                           <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Kitchen display (KDS)</div>
-                            <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 11 }}>Scan this on the kitchen screen to open the live order board. It stays linked.</div>
-                            <div style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, border: "1px solid " + T.line, borderRadius: 12, background: T.card }}>
-                              <img src={kdsQr} alt="KDS QR" width={80} height={80} style={{ borderRadius: 8, background: "#fff", flexShrink: 0 }} />
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 5 }}>Kitchen display screen</div>
-                                <input readOnly value={kdsUrl} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 7, padding: "7px 9px", fontSize: 11, background: T.bg, color: T.ink }} />
-                                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                                  <span onClick={() => { navigator.clipboard?.writeText(kdsUrl); }} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: "#eef3ea", border: "1px solid #d9e6d2" }}>Copy link</span>
-                                  <a href={kdsUrl} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: T.muted, fontWeight: 600, textDecoration: "none", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Open KDS</a>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Kitchen displays (KDS)</div>
+                            <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 11 }}>Scan a screen's own QR on that screen. It stays linked, and prints go to the printer set for it.</div>
+                            {rows.map((k) => {
+                              const url = window.location.origin + "/kds?loc=" + loc.id + "&screen=" + encodeURIComponent(k.screen_key);
+                              const qr = "https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(url);
+                              const printer = (state.printers || []).find((p) => p.sn === k.printer_sn);
+                              return (
+                                <div key={k.screen_key} style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, border: "1px solid " + T.line, borderRadius: 12, background: T.card, marginBottom: 10 }}>
+                                  <img src={qr} alt={"KDS QR screen " + k.screen_key} width={80} height={80} style={{ borderRadius: 8, background: "#fff", flexShrink: 0 }} />
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 3 }}>{(k.label || "Screen " + k.screen_key) + " \u00B7 screen " + k.screen_key}</div>
+                                    <div style={{ fontSize: 11.5, color: printer ? T.muted : "#b4462f", marginBottom: 5 }}>
+                                      {printer ? "Prints to " + printer.label : "No printer set \u2014 prints to every printer"}
+                                    </div>
+                                    <input readOnly value={url} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 7, padding: "7px 9px", fontSize: 11, background: T.bg, color: T.ink }} />
+                                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                                      <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: "#eef3ea", border: "1px solid #d9e6d2" }}>Copy link</span>
+                                      <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: T.muted, fontWeight: 600, textDecoration: "none", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Open KDS</a>
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
-                            </div>
+                              );
+                            })}
+                            {!screens.length && (
+                              <div style={{ fontSize: 11.5, color: T.faint }}>No screens registered for this store yet — showing screen 1. Add rows to kds_screens to give each screen its own QR and printer.</div>
+                            )}
                           </div>
                         );
                       })()}

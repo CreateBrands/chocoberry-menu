@@ -111,7 +111,7 @@ Deno.serve(async (req) => {
     switch (action) {
       // ---- READ: everything the admin UI needs in one call ----
       case "load": {
-        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus, modOverrides, bands, bandPrices, bandOptPrices] = await Promise.all([
+        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus, modOverrides, bands, bandPrices, bandOptPrices, kdsScreens, printers] = await Promise.all([
           admin.from("menu_categories").select("*").order("sort_order"),
           admin.from("menu_items").select("*").order("sort_order"),
           admin.from("menu_locations").select("id,name,slug,active,brand_id,price_band_id").order("name"),
@@ -123,6 +123,8 @@ Deno.serve(async (req) => {
           admin.from("menu_item_modifiers").select("*"),
           admin.from("menu_tables").select("*"),
           admin.from("menu_location_menus").select("*"),
+          admin.from("kds_screens").select("*"),
+          admin.from("printers").select("sn,label,station,active,location_id"),
           admin.from("menu_modifier_overrides").select("*"),
           admin.from("menu_price_bands").select("*").order("sort_order"),
           admin.from("menu_band_prices").select("*"),
@@ -153,6 +155,8 @@ Deno.serve(async (req) => {
           itemModifiers: itemMods.data ?? [],
           tables: only(tables.data),
           locationMenus: only(locMenus.data),
+          kdsScreens: only(kdsScreens.data),
+          printers: only(printers.data),
           modifierOverrides: only(modOverrides.data),
           priceBands: bands.data ?? [],
           bandPrices: bandPrices.data ?? [],
