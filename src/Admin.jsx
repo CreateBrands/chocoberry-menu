@@ -1019,6 +1019,17 @@ function MenuBands({ state, T, act, money }) {
             {!onBand.length && <span onClick={() => setTab("stores")} style={{ fontSize: 12.5, color: T.accent, cursor: "pointer", fontWeight: 600 }}>Add stores →</span>}
           </div>
         )}
+        {!band && (
+          <div style={{ fontSize: 12.5, color: "#b4462f", marginTop: 10, fontWeight: 600 }}>
+            No band selected — {bands.length} band{bands.length === 1 ? "" : "s"} loaded. Pick one from the list above.
+          </div>
+        )}
+        {err && (
+          <div style={{ fontSize: 13, color: "#8a3b3b", background: "#f6eaea", border: "1px solid #e8cfcf", borderRadius: 9, padding: "10px 13px", marginTop: 10, fontWeight: 600 }}>
+            {err}
+          </div>
+        )}
+        {busy && <div style={{ fontSize: 12.5, color: T.muted, marginTop: 8 }}>Saving…</div>}
       </div>
 
       {/* STEP 2 — what to change */}
