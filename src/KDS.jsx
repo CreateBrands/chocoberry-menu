@@ -27,7 +27,17 @@ function getParam(k) { try { return new URLSearchParams(window.location.search).
 // orders can each bump their own copy independently — bumping on screen 1 does
 // NOT clear the order from screen 2. Defaults to "main" when no param is given
 // (single-screen setups behave exactly as before).
-function getScreenId() { return getParam("screen") || "main"; }
+// Persisted like loc/station/printer. Previously this read the URL every time,
+// so ANY reload without the full query string (home-screen shortcut, crash
+// recovery, tab reopened) silently reverted the screen to "main" — losing its
+// identity and, with it, its kds_screens printer preference.
+function getScreenId() {
+  try {
+    const url = getParam("screen");
+    if (url) { localStorage.setItem("kds_screen", url); return url; }
+    return localStorage.getItem("kds_screen") || "main";
+  } catch { return getParam("screen") || "main"; }
+}
 // SCREEN IDENTITY. Each physical KDS is tagged with a station (which printer it
 // owns) and an optional human label, set once via URL and then remembered:
 //   ?station=kitchen&name=Hot%20Kitchen     ?station=counter&name=Bar
