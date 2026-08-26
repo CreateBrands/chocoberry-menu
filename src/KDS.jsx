@@ -453,14 +453,14 @@ export default function KDS() {
 
   return (
     <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "#eef0f3", color: "#1f2937", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
-      <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes kfailflash{0%,100%{background:#dc2626}50%{background:#8f1414}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#ffffff08}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#2a2f3a;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#353c49}"}</style>
+      <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes kfailflash{0%,100%{background:#dc2626}50%{background:#8f1414}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#00000008}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#c3c9d2;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#a8b0bb}"}</style>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "#ffffff", borderBottom: "1px solid #d8dce2", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 4px 16px -8px rgba(0,0,0,.6)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "#ffffff", borderBottom: "1px solid #d8dce2", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
           <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
             {[["kitchen", "Kitchen"], ["orders", "Orders"], ["pos", "POS"]].map(([v, label]) => (
-              <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#9aa3b2" }}>
+              <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#475569" }}>
                 {label}{v === "orders" && unpaidOrders.length ? " " + unpaidOrders.length : ""}
               </div>
             ))}
@@ -477,9 +477,9 @@ export default function KDS() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 13 }}>
           <Stat label="Time" value={nowClock} />
-          <Stat label="Working" value={active.length} accent="#fbbf24" />
-          <Stat label="Avg today" value={avgLabel} accent="#60a5fa" />
-          {onTimePct !== null && <Stat label="On-time" value={onTimePct + "%"} accent={onTimePct >= 80 ? "#4ade80" : "#f59e0b"} />}
+          <Stat label="Working" value={active.length} accent="#b45309" />
+          <Stat label="Avg today" value={avgLabel} accent="#1d4ed8" />
+          {onTimePct !== null && <Stat label="On-time" value={onTimePct + "%"} accent={onTimePct >= 80 ? "#15803d" : "#b45309"} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {stations.length > 1 && (
@@ -488,15 +488,15 @@ export default function KDS() {
               {stations.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
-          <div style={{ display: "flex", background: "#20242f", borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ display: "flex", background: "#e2e5ea", border: "1px solid #d8dce2", borderRadius: 8, overflow: "hidden" }}>
             {Object.keys(SIZES).map((s) => (
-              <div key={s} onClick={() => setSize(s)} className="kbtn" style={{ padding: "6px 9px", cursor: "pointer", fontSize: 12, fontWeight: 700, background: size === s ? "#ec4899" : "transparent" }}>{s}</div>
+              <div key={s} onClick={() => setSize(s)} className="kbtn" style={{ padding: "6px 9px", cursor: "pointer", fontSize: 12, fontWeight: 700, background: size === s ? "#ec4899" : "transparent", color: size === s ? "#ffffff" : "#475569" }}>{s}</div>
             ))}
           </div>
-          <div onClick={() => setSoundOn((v) => !v)} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#20242f", fontSize: 15 }}>{soundOn ? BELL : BELLOFF}</div>
-          <div onClick={goFullscreen} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#20242f", fontSize: 15 }} title="Fullscreen">{fullscreen ? X : EXPAND}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: connected ? "#4ade80" : "#f87171", marginLeft: 2 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "#4ade80" : "#f87171" }} />
+          <div onClick={() => setSoundOn((v) => !v)} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#ffffff", border: "1px solid #d8dce2", fontSize: 15 }}>{soundOn ? BELL : BELLOFF}</div>
+          <div onClick={goFullscreen} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#ffffff", border: "1px solid #d8dce2", fontSize: 15 }} title="Fullscreen">{fullscreen ? X : EXPAND}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: connected ? "#15803d" : "#b91c1c", marginLeft: 2 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "#16a34a" : "#dc2626" }} />
             {connected ? "Live" : "\u2026"}
           </div>
           {/* ALWAYS shown. Previously this rendered only when ?screen= was
@@ -580,14 +580,14 @@ export default function KDS() {
                   {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#7f1d1d", background: "#fee2e2", border: "1px solid #fca5a5", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 2, padding: 2 }}>
-                  <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#e11d48" : "#f1f3f6", border: "1px solid #d8dce2", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#ffffff" : "#475569" }} title="Rush">{BOLT}</div>
+                  <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#e11d48" : "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#ffffff" : "#475569" }} title="Rush">{BOLT}</div>
                   {/* Print slip. Deliberately on the LEFT, far from Bump: Bump is
                       destructive and a mis-tap on a wall screen loses the ticket. */}
-                  <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#f1f3f6", border: "1px solid #d8dce2", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#1f2937", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
+                  <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#334155", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
                     {printingId === o.id ? "\u2026" : PRINTER}
                   </div>
                   {o.status === "placed" && <div onClick={() => start(o)} className="kbtn" style={{ flex: 1, textAlign: "center", padding: F(11) + "px 0", background: "#ffffff14", borderRadius: 9, fontWeight: 700, fontSize: F(14), cursor: "pointer" }}>Start</div>}
-                  <div onClick={() => requestBump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: (armedBump && armedBump.id === o.id) ? "#f59e0b" : (allDone ? "#34d399" : "#22c55e"), borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: (armedBump && armedBump.id === o.id) ? "#3a2400" : "#052e16", boxShadow: "0 2px 8px -2px " + (allDone ? "#34d39966" : "#22c55e55") }}>{(armedBump && armedBump.id === o.id) ? "Tap again ✓" : (CHECK + " Bump")}</div>
+                  <div onClick={() => requestBump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: (armedBump && armedBump.id === o.id) ? "#b45309" : (allDone ? "#15803d" : "#16a34a"), borderRadius: 9, fontWeight: 800, fontSize: F(15.5), cursor: "pointer", color: "#ffffff", boxShadow: "none" }}>{(armedBump && armedBump.id === o.id) ? "Tap again ✓" : (CHECK + " Bump")}</div>
                 </div>
               </div>
             );
@@ -611,22 +611,29 @@ export default function KDS() {
       {view === "kitchen" && tab === "completed" && (
         <div style={{ padding: F(16) }}>
           <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Recently bumped {DOT} tap Recall to bring one back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(244) + "px, 1fr))", gap: F(12) }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(268) + "px, 1fr))", gap: F(12), alignItems: "start" }}>
             {completed.slice(0, 40).map((o) => (
               <div key={o.id} style={{ background: "#ffffff", color: "#1f2937", borderRadius: F(14), border: "1px solid #d8dce2", borderLeft: "4px solid #94a3b8", boxShadow: "0 1px 3px rgba(15,23,42,.08)", overflow: "hidden" }}>
                 <div style={{ padding: F(9) + "px " + F(12) + "px", background: "#e8ebef", color: "#334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontWeight: 700, fontSize: F(15) }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
                   <span style={{ fontSize: F(12), fontWeight: 600 }}>{o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
                 </div>
-                <div style={{ padding: F(8) + "px " + F(12) + "px", fontSize: F(13), color: "#1f2937", display: "flex", flexDirection: "column", gap: F(3) }}>
-                  {(o.menu_order_items || []).map((it) => (
-                    <div key={it.id} style={{ display: "flex", gap: F(6), lineHeight: 1.3 }}>
-                      <span style={{ fontWeight: 700, color: "#64748b", flexShrink: 0, minWidth: F(20) }}>{it.qty}{TIMES}</span>
-                      <span>{it.name_snapshot}</span>
+                <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
+                  {groupByCat(o.menu_order_items || []).map(([cat, catItems]) => (
+                    <div key={cat} style={{ marginBottom: F(4) }}>
+                      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: "#64748b", borderBottom: "1px solid #00000014", paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
+                      {catItems.map((it) => (
+                        <div key={it.id} style={{ padding: F(6) + "px " + F(6) + "px" }}>
+                          <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
+                            <span style={{ fontWeight: 900, fontSize: F(15), color: "#64748b", minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
+                            <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25 }}>{it.name_snapshot}</span>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>
-                <div onClick={() => recall(o)} className="kbtn" style={{ textAlign: "center", padding: F(8) + "px 0", background: "#f1f3f6", color: "#334155", borderTop: "1px solid #d8dce2", fontWeight: 700, fontSize: F(13), cursor: "pointer" }}>{ARROW + " Recall"}</div>
+                <div onClick={() => recall(o)} className="kbtn" style={{ textAlign: "center", padding: F(8) + "px 0", background: "#475569", color: "#ffffff", fontWeight: 800, fontSize: F(14), cursor: "pointer" }}>{ARROW + " Recall"}</div>
               </div>
             ))}
           </div>
