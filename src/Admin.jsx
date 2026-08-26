@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import MenuOverview from "./MenuOverview";
-import PriceBands from "./PriceBands";
 import PricingManager from "./PricingManager";
 
 // ============================================================
@@ -927,6 +926,7 @@ function MenuBands({ state, T, act }) {
   const [bandId, setBandId] = useState(() => (menuBands[0] || bands[0] || {}).id || null);
   const [tab, setTab] = useState("items");
   const [q, setQ] = useState("");
+  const [diffOnly, setDiffOnly] = useState(false);
 
   const items = state.items || [];
   const menus = state.menus || [];
@@ -948,6 +948,7 @@ function MenuBands({ state, T, act }) {
   const needle = q.trim().toLowerCase();
   const rows = items
     .filter((it) => !needle || it.name.toLowerCase().includes(needle))
+    .filter((it) => !diffOnly || biFor(it.id))
     .sort((a, b) => {
       const ca = (catById.get(a.category_id) || {}).name || "";
       const cb = (catById.get(b.category_id) || {}).name || "";
@@ -970,7 +971,7 @@ function MenuBands({ state, T, act }) {
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
         <div style={{ display: "flex", background: T.bg, borderRadius: 10, padding: 3, gap: 2 }}>
-          {[["items", "Items"], ["sections", "Sections"]].map(([k, label]) => (
+          {[["items", "Items"], ["sections", "Sections"], ["stores", "Stores"]].map(([k, label]) => (
             <span key={k} onClick={() => setTab(k)} style={{ fontSize: 13, fontWeight: 700, cursor: "pointer", padding: "7px 15px", borderRadius: 8, background: tab === k ? T.accent : "transparent", color: tab === k ? "#fff" : T.muted }}>{label}</span>
           ))}
         </div>
@@ -985,13 +986,58 @@ function MenuBands({ state, T, act }) {
         </span>
       </div>
 
+      {band && (
+        <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "14px 16px", marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 16, fontWeight: 700, color: T.ink }}>{band.name}</span>
+            <span style={{ fontSize: 11, background: band.band_kind === "price" ? "#f3eee2" : "#eef3ea", color: band.band_kind === "price" ? "#8a6a2b" : T.accent, padding: "3px 9px", borderRadius: 20, fontWeight: 600 }}>
+              {band.band_kind === "price" ? "price band" : band.band_kind === "both" ? "price + menu" : "menu band"}
+            </span>
+          </div>
+          <div style={{ fontSize: 12.5, color: T.muted }}>
+            Stores on this band carry what is set here. Anything left blank follows the base menu.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 12, background: "#f6eaea", color: "#8a3b3b", padding: "5px 11px", borderRadius: 20, fontWeight: 600 }}>{nOff} not carried</span>
+            <span style={{ fontSize: 12, background: T.bg, color: T.muted, padding: "5px 11px", borderRadius: 20 }}>{items.length - nOff - nOn} follow base</span>
+            <span style={{ fontSize: 12, background: onBand.length ? "#fdf1e7" : T.bg, color: onBand.length ? "#8a5a2b" : T.faint, padding: "5px 11px", borderRadius: 20, fontWeight: onBand.length ? 600 : 400 }}>
+              {onBand.length ? "used by " + onBand.map((l) => l.name).join(", ") : "no stores yet"}
+            </span>
+          </div>
+        </div>
+      )}
+
       {onBand.length > 1 && (
         <div style={{ fontSize: 12.5, color: "#8a5a2b", background: "#fdf1e7", border: "1px solid #f0d9c2", borderRadius: 9, padding: "9px 13px", marginBottom: 14 }}>
           Changing this band changes {onBand.length} stores at once: {onBand.map((l) => l.name).join(", ")}
         </div>
       )}
 
-      {tab === "sections" ? (
+      {tab === "stores" ? (
+        <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "16px 18px" }}>
+          <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>
+            Which stores carry this band's menu. Separate from the price band \u2014 a store can share this format and still charge its own prices, which you set under <b>Pricing</b>.
+          </div>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {locs.map((l) => {
+              const here = l.menu_band_id === bandId;
+              return (
+                <span key={l.id} onClick={() => act("set_menu_band", { location_id: l.id, band_id: here ? null : bandId })}
+                  style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 14px", borderRadius: 10, fontSize: 13.5,
+                    fontWeight: here ? 700 : 400,
+                    background: here ? "#eef3ea" : T.bg,
+                    color: here ? T.accent : T.muted,
+                    border: "1px solid " + (here ? "#d9e6d2" : T.line) }}>
+                  <span style={{ fontSize: 15 }}>{here ? "\u2611" : "\u2610"}</span>{l.name}
+                </span>
+              );
+            })}
+          </div>
+          <div style={{ fontSize: 12, color: T.faint, marginTop: 14, borderTop: "1px solid " + T.line, paddingTop: 12 }}>
+            A store with no band carries the full base menu. Its own item-level exceptions still win over whatever the band says \u2014 set those under Stores or in the network grid.
+          </div>
+        </div>
+      ) : tab === "sections" ? (
         <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "11px 14px", fontSize: 12.5, color: T.muted, borderBottom: "1px solid " + T.line }}>
             {anyMenuRows ? "This band carries only the ticked sections." : "Nothing ticked \u2014 this band carries every section. Tick one to make it an explicit list."}
@@ -1011,8 +1057,13 @@ function MenuBands({ state, T, act }) {
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items\u2026"
               style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "9px 13px", fontSize: 13.5, background: T.card, color: T.ink, minWidth: 200 }} />
-            <span style={{ fontSize: 12, color: "#8a3b3b" }}>{nOff} not carried</span>
-            <span style={{ fontSize: 12, color: T.accent }}>{nOn} forced on</span>
+            <span onClick={() => setDiffOnly((v) => !v)}
+              style={{ fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "7px 13px", borderRadius: 20,
+                color: diffOnly ? "#fff" : T.accent, background: diffOnly ? T.accent : "transparent",
+                border: "1px solid " + (diffOnly ? T.accent : T.line) }}>
+              Only differences
+            </span>
+            <span style={{ fontSize: 12, color: T.faint }}>{rows.length} of {items.length} shown</span>
           </div>
 
           <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
@@ -1074,7 +1125,6 @@ export default function Admin() {
   const [showStores, setShowStores] = useState(false);
   const [showPrinters, setShowPrinters] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
-  const [showBands, setShowBands] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
   const [storeView, setStoreView] = useState(null); // store id for price editor
   const [openStore, setOpenStore] = useState(null);  // which store row is expanded (one at a time)
@@ -1141,7 +1191,7 @@ export default function Admin() {
           ["hero", "Hero", "🖼", true],
           ["stores", "Stores", "🏪", false],
           ["coverage", "Coverage", "🗂", true],
-          ["bands", "Menu bands", "🎚", true],
+          ["bandmenus", "Band menus", "🎚", true],
           ["printers", "Printers", "🖨", false],
           ["settings", "Settings", "⚙", true],
         ].filter(([, , , masterOnly]) => state.scope !== "store" || !masterOnly).map(([key, label, icon]) => {
@@ -1175,7 +1225,6 @@ export default function Admin() {
               if (key === "stores") setShowStores(true);
               if (key === "printers") setShowPrinters(true);
               if (key === "overview") setShowOverview(true);
-              if (key === "bands") setShowBands(true);
               if (key === "pricing") setShowPricing(true);
               if (key === "settings") setShowAppearance(true);
             }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, marginBottom: 2, cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500, background: active ? T.accentSoft || "#EFEAD9" : "transparent", color: active ? T.accent : T.muted }}>
@@ -1188,7 +1237,7 @@ export default function Admin() {
 
       {/* MAIN CONTENT */}
       <div style={{ flex: 1, minWidth: 0, padding: "26px 28px 60px", overflowY: "auto", maxHeight: "100vh", boxSizing: "border-box" }}>
-        {nav === "bands" ? (
+        {nav === "bandmenus" ? (
           <MenuBands state={state} T={T} act={act} />
         ) : nav === "coverage" ? (
           <CoverageView state={state} T={T} money={money} act={act} />
@@ -1301,7 +1350,6 @@ export default function Admin() {
       {editItem && <ItemEditor pin={pin} item={editItem} groups={state.modifierGroups || []} itemGroupIds={(state.itemModifiers || []).filter((im) => im.item_id === editItem.id).map((im) => im.group_id)} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); reload(); }} />}
       {showPrinters && <PrintersModal pin={pin} locations={state.locations} onClose={() => setShowPrinters(false)} />}
       {showOverview && <MenuOverview state={state} T={T} act={act} onEditItem={setEditItem} onClose={() => setShowOverview(false)} />}
-      {showBands && <PriceBands state={state} T={T} act={act} onClose={() => setShowBands(false)} />}
       {showAppearance && (
         <div onClick={() => setShowAppearance(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 420, maxWidth: "92vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "88vh", overflowY: "auto" }}>
