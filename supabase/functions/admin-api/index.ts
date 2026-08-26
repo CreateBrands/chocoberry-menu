@@ -123,12 +123,16 @@ Deno.serve(async (req) => {
           admin.from("menu_item_modifiers").select("*"),
           admin.from("menu_tables").select("*"),
           admin.from("menu_location_menus").select("*"),
-          admin.from("kds_screens").select("*"),
-          admin.from("printers").select("sn,label,station,active,location_id"),
           admin.from("menu_modifier_overrides").select("*"),
           admin.from("menu_price_bands").select("*").order("sort_order"),
           admin.from("menu_band_prices").select("*"),
           admin.from("menu_band_option_prices").select("*"),
+          // NOTE: these two MUST stay last — they match the final two names in
+          // the destructuring above. Inserting a query mid-array without moving
+          // its name shifts every result after it (kdsScreens once received
+          // band prices, priceBands received printers).
+          admin.from("kds_screens").select("*"),
+          admin.from("printers").select("sn,label,station,active,location_id"),
         ]);
         for (const r of [cats, items, locs, overrides]) if (r.error) throw r.error;
         // When a store manager is logged in, filter every location-specific
