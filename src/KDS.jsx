@@ -73,6 +73,29 @@ export default function KDS() {
   // A serial narrows to exactly one device (sunmi-print gives printer_sn
   // precedence over station in narrowToTarget).
   const [myPrinter, setMyPrinter] = useState(() => getRemembered("kds_printer", "printer"));
+  // Orders THIS screen has bumped, from kds_bumps. Kept in the DB rather than
+  // localStorage so it survives a reload and so other screens are unaffected:
+  // bumping here no longer clears the ticket on the other screen.
+  const [myBumps, setMyBumps] = useState(() => new Set());
+  // Load THIS screen's bumps on start and keep them fresh, so a reload (or a
+  // replaced tablet) does not resurrect tickets this screen already cleared.
+  useEffect(() => {
+    if (!loc) return;
+    let alive = true;
+    const load = () => {
+      const since = new Date(Date.now() - 18 * 3600 * 1000).toISOString();
+      fetch(SUPABASE_URL + "/rest/v1/kds_bumps?location_id=eq." + encodeURIComponent(loc)
+            + "&screen_key=eq." + encodeURIComponent(getScreenId())
+            + "&bumped_at=gte." + encodeURIComponent(since)
+            + "&select=order_id", { headers: H, cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows) => { if (alive) setMyBumps(new Set((rows || []).map((r) => r.order_id))); })
+        .catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(t); };
+  }, [loc]);
   // The DB is the source of truth for this screen's printer. kds_screens is
   // keyed (location_id, screen_key) and is managed centrally, so a replaced
   // tablet or a cleared browser picks its printer back up on load instead of
@@ -269,11 +292,24 @@ export default function KDS() {
     // Record WHICH screen bumped, so a ticket that vanishes unexpectedly can be
     // traced. If kds_bumped_at is ever set while kds_bumped_by is null, the
     // write did not come from this KDS at all — which narrows it immediately.
-    patchOrder(o.id, {
-      status: BUMP_TO,
-      kds_bumped_at: new Date().toISOString(),
-      kds_bumped_by: (myName || ("screen " + getScreenId())) + (myStation ? " / " + myStation : ""),
-    });
+    // Record THIS screen's bump, then let the server decide whether every
+    // active screen has now bumped it (only then does it become "served").
+    const who = (myName || ("screen " + getScreenId())) + (myStation ? " / " + myStation : "");
+    setMyBumps((prev) => new Set(prev).add(o.id));
+    (async () => {
+      try {
+        await fetch(SUPABASE_URL + "/rest/v1/kds_bumps", {
+          method: "POST",
+          headers: { ...H, Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({
+            order_id: o.id, screen_key: getScreenId(), location_id: loc, bumped_by: who,
+          }),
+        });
+        await fetch(SUPABASE_URL + "/rest/v1/rpc/kds_settle_order", {
+          method: "POST", headers: H, body: JSON.stringify({ p_order_id: o.id }),
+        });
+      } catch {}
+    })();
     if (undo && undo.timer) clearTimeout(undo.timer);
     const timer = setTimeout(() => setUndo(null), 20000);
     setUndo({ order: o, prevStatus, timer });
@@ -304,11 +340,20 @@ export default function KDS() {
   };
   const doUndo = () => {
     if (!undo) return;
-    patchOrder(undo.order.id, { status: undo.prevStatus, kds_bumped_at: null });
+    unbumpHere(undo.order);
     if (undo.timer) clearTimeout(undo.timer);
     setUndo(null);
   };
-  const recall = (o) => patchOrder(o.id, { status: "preparing", kds_bumped_at: null });
+  const unbumpHere = async (o) => {
+    setMyBumps((prev) => { const n = new Set(prev); n.delete(o.id); return n; });
+    try {
+      await fetch(SUPABASE_URL + "/rest/v1/rpc/kds_unbump", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ p_order_id: o.id, p_screen_key: getScreenId() }),
+      });
+    } catch {}
+  };
+  const recall = (o) => unbumpHere(o);
   const toggleItem = (o, it) => patchItem(it.id, { item_status: it.item_status === DONE_ITEM ? "preparing" : DONE_ITEM });
   const toggleRush = (o) => setRushIds((prev) => { const n = new Set(prev); n.has(o.id) ? n.delete(o.id) : n.add(o.id); return n; });
 
@@ -338,11 +383,11 @@ export default function KDS() {
   // Active/completed are decided PER SCREEN by this screen's local bump set —
   // not the shared DB status — so each screen is independent. An order is
   // "active" here until THIS screen bumps it; "completed" once it has.
-  let active = orders.filter((o) => o.status !== BUMP_TO).map(filterStation).filter(Boolean);
+  let active = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled").map(filterStation).filter(Boolean);
   active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0));
   // Orders that failed to print — shown as an un-ignorable banner across the KDS.
-  const failedOrders = orders.filter((o) => o.status !== BUMP_TO && o.status !== "cancelled" && o.print_failed);
-  const completed = orders.filter((o) => o.status === BUMP_TO).map(filterStation).filter(Boolean)
+  const failedOrders = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled" && o.print_failed);
+  const completed = orders.filter((o) => myBumps.has(o.id)).map(filterStation).filter(Boolean)
     .sort((a, b) => new Date(b.kds_bumped_at || b.created_at) - new Date(a.kds_bumped_at || a.created_at));
 
   // Orders/payment view: all non-closed orders, split by paid state. Unpaid float
