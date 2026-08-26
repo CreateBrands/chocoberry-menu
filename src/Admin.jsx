@@ -924,7 +924,10 @@ function MenuBands({ state, T, act, money }) {
   // NOTE: the load endpoint returns bands as `priceBands`, not `bands`.
   // Reading the wrong key left this screen with an empty dropdown, a null
   // band id, and every button silently doing nothing.
-  const bands = state.priceBands || [];
+  const allBands = state.priceBands || [];
+  // Only menu-kind bands. Price bands (Master, TOP Tier) belong to Pricing —
+  // mixing them here lets a menu change land on a price list by accident.
+  const bands = allBands.filter((b) => b.band_kind === "menu" || b.band_kind === "both");
   const locs = (state.locations || []).filter((l) => l.active);
   const items = state.items || [];
   const menus = state.menus || [];
@@ -940,16 +943,15 @@ function MenuBands({ state, T, act, money }) {
 
   useEffect(() => {
     if (bandId && bands.some((b) => b.id === bandId)) return;
-    const menuFirst = bands.find((b) => b.band_kind === "menu" || b.band_kind === "both");
-    const first = menuFirst || bands[0];
-    if (first) setBandId(first.id);
+    if (bands[0]) setBandId(bands[0].id);
   }, [bands.length]); // eslint-disable-line
 
-  const band = bands.find((b) => b.id === bandId);
-  const onBand = bandId ? locs.filter((l) => l.menu_band_id === bandId) : [];
-  const biFor = (itemId) => bandItems.find((r) => r.band_id === bandId && r.item_id === itemId);
-  const bmOn = (menuId) => bandMenus.some((r) => r.band_id === bandId && r.menu_id === menuId);
-  const anyMenuRows = bandMenus.some((r) => r.band_id === bandId);
+  const band = bands.find((b) => b.id === (bandId || (bands[0] ? bands[0].id : null)));
+  const effBandId = bandId || (bands[0] ? bands[0].id : null);
+  const onBand = effBandId ? locs.filter((l) => l.menu_band_id === effBandId) : [];
+  const biFor = (itemId) => bandItems.find((r) => r.band_id === effBandId && r.item_id === itemId);
+  const bmOn = (menuId) => bandMenus.some((r) => r.band_id === effBandId && r.menu_id === menuId);
+  const anyMenuRows = bandMenus.some((r) => r.band_id === effBandId);
 
   // Errors surface ON THIS SCREEN. act() swallows failures into a global
   // message that is easy to miss, which is how this screen looked "dead"
@@ -958,7 +960,9 @@ function MenuBands({ state, T, act, money }) {
   const [busy, setBusy] = useState(false);
 
   const send = async (action, payload) => {
-    if (!bandId) { setErr("No band selected — pick one above first."); return; }
+    const id = bandId || (bands[0] ? bands[0].id : null);
+    if (!id) { setErr("No menu band exists yet — create one above."); return; }
+    payload = { ...payload, band_id: id };
     setErr(""); setBusy(true);
     try { await act(action, payload); }
     catch (e) { setErr(e && e.message ? e.message : "That didn't save."); }
@@ -980,15 +984,16 @@ function MenuBands({ state, T, act, money }) {
       return ca.localeCompare(cb) || a.name.localeCompare(b.name);
     });
 
-  const nOff = bandItems.filter((r) => r.band_id === bandId && r.available === false).length;
+  const nOff = bandItems.filter((r) => r.band_id === effBandId && r.available === false).length;
 
   // Turn a whole category off in one go — the common case is "this format
   // does not do breakfast", not twenty individual decisions.
   const setCategory = async (catName, available) => {
-    if (!bandId) { setErr("No band selected."); return; }
+    const bid = bandId || (bands[0] ? bands[0].id : null);
+    if (!bid) { setErr("No menu band exists yet."); return; }
     const ids = items.filter((it) => ((catById.get(it.category_id) || {}).name || "Uncategorised") === catName).map((it) => it.id);
     setErr(""); setBusy(true);
-    try { for (const id of ids) await act("set_band_item", { band_id: bandId, item_id: id, available }); }
+    try { for (const id of ids) await act("set_band_item", { band_id: bid, item_id: id, available }); }
     catch (e) { setErr(e && e.message ? e.message : "That didn't save."); }
     setBusy(false);
   };
@@ -1002,7 +1007,12 @@ function MenuBands({ state, T, act, money }) {
     return (
       <div>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 6 }}>Band menus</div>
-        <div style={{ fontSize: 14, color: T.muted }}>Loading bands… if this stays empty, no bands exist yet.</div>
+        <div style={{ fontSize: 14, color: T.muted, marginBottom: 16, maxWidth: 620 }}>
+          No menu bands yet. A menu band is a format several stores share — "Dessert only", "Dessert + cafe".
+          It is separate from a price band: a store can share this format and still charge its own prices.
+        </div>
+        <span onClick={async () => { const n = window.prompt("Name the new format band, e.g. Dessert + cafe:"); if (n && n.trim()) await act("band_create", { name: n.trim(), band_kind: "menu" }); }}
+          style={{ fontSize: 13.5, fontWeight: 700, color: "#fff", background: T.accent, cursor: "pointer", borderRadius: 9, padding: "11px 18px" }}>+ Create a menu band</span>
       </div>
     );
   }
@@ -1018,9 +1028,9 @@ function MenuBands({ state, T, act, money }) {
       <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "14px 16px", marginBottom: 12 }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".7px", marginBottom: 9 }}>1 · WHICH BAND</div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <select value={bandId || ""} onChange={(e) => setBandId(e.target.value || null)}
+          <select value={bandId || (bands[0] ? bands[0].id : "")} onChange={(e) => setBandId(e.target.value || null)}
             style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "10px 13px", fontSize: 14, fontWeight: 600, background: T.bg, color: T.ink, minWidth: 220 }}>
-            {bands.map((b) => <option key={b.id} value={b.id}>{b.name}{b.band_kind === "price" ? "  (price band)" : ""}</option>)}
+            {bands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
           <span onClick={async () => { const n = window.prompt("Name the new format band, e.g. Dessert + cafe:"); if (n && n.trim()) await act("band_create", { name: n.trim(), band_kind: "menu" }); }}
             style={{ fontSize: 13, fontWeight: 700, color: T.accent, cursor: "pointer", border: "1px dashed " + T.line, borderRadius: 9, padding: "9px 14px" }}>+ New band</span>
@@ -1070,9 +1080,9 @@ function MenuBands({ state, T, act, money }) {
           <div style={{ fontSize: 13, color: T.muted, marginBottom: 14 }}>Tick the stores that use this format. Untick to put a store back on the full base menu.</div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {locs.map((l) => {
-              const here = l.menu_band_id === bandId;
+              const here = l.menu_band_id === effBandId;
               return (
-                <span key={l.id} onClick={() => act("set_menu_band", { location_id: l.id, band_id: here ? null : bandId })}
+                <span key={l.id} onClick={() => act("set_menu_band", { location_id: l.id, band_id: here ? null : effBandId })}
                   style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 8, padding: "10px 15px", borderRadius: 10, fontSize: 14,
                     fontWeight: here ? 700 : 400, background: here ? "#eef3ea" : T.bg, color: here ? T.accent : T.muted,
                     border: "1px solid " + (here ? "#d9e6d2" : T.line) }}>
