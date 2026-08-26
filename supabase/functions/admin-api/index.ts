@@ -67,6 +67,7 @@ Deno.serve(async (req) => {
     "set_mod_override",    // per-store modifier override
     "set_accepting_orders",// pause/resume ordering at their own store
     "set_kds_printer",     // point one of their KDS screens at a printer
+    "set_item_86",         // mark one of their items off for today
     "create_token", "delete_token", "release_token",
     "create_table", "update_table", "delete_table",
     "set_store_menus",
@@ -501,6 +502,29 @@ Deno.serve(async (req) => {
         const { error } = await admin.from("menu_categories").update(patch).eq("id", id);
         if (error) throw error;
         return json({ ok: true });
+      }
+
+      // ---- 86 an item at ONE store, or put it back on sale ----
+      // Temporary and self-clearing: menu_item_86 sets unavailable_until to
+      // the next 06:00 Europe/London, so an item 86d at 23:00 stays off for
+      // the rest of the night's trade and returns for the next opening rather
+      // than reappearing at midnight. Distinct from available=false, which is
+      // the permanent "we do not carry this here".
+      case "set_item_86": {
+        const { location_id, item_id, on } = data || {};
+        if (!location_id || !item_id) {
+          return json({ error: "location_id and item_id required" }, 400);
+        }
+        if (on === false) {
+          const { error } = await admin.rpc("menu_item_restore",
+            { p_location_id: location_id, p_item_id: item_id });
+          if (error) throw error;
+          return json({ ok: true, until: null });
+        }
+        const { data: until, error } = await admin.rpc("menu_item_86",
+          { p_location_id: location_id, p_item_id: item_id });
+        if (error) throw error;
+        return json({ ok: true, until });
       }
 
       // ---- KDS: set which printer a screen's MANUAL prints go to ----

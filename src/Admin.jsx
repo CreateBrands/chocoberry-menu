@@ -1364,18 +1364,50 @@ export default function Admin() {
                 <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{loc ? loc.name : "Store"} — Prices</div>
                 <span onClick={() => setStoreView(null)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
               </div>
-              <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Set a store-specific price, or hide an item at this store. Blank price = uses the master price.</div>
+              <div style={{ fontSize: 13, color: T.muted, marginBottom: 12 }}>Blank price = uses the master price. <strong>Off today</strong> comes back on its own tomorrow morning; <strong>Not carried</strong> is permanent.</div>
+              {(() => {
+                const rows = (state.items || []);
+                const n86 = rows.filter((it) => { const o = findOv(it.id); return o && o.unavailable_until && new Date(o.unavailable_until) > new Date(); }).length;
+                const nHid = rows.filter((it) => { const o = findOv(it.id); return o && o.available === false; }).length;
+                const nPr = rows.filter((it) => { const o = findOv(it.id); return o && o.price != null; }).length;
+                const chip = (n, label, fg, bg, bd) => (
+                  <span style={{ fontSize: 12, fontWeight: 600, color: n ? fg : T.faint, background: n ? bg : "transparent", border: "1px solid " + (n ? bd : T.line), borderRadius: 20, padding: "5px 12px" }}>{n} {label}</span>
+                );
+                return (
+                  <div style={{ display: "flex", gap: 8, marginBottom: 14, flexWrap: "wrap" }}>
+                    {chip(n86, "off today", "#8a5a2b", "#fdf1e7", "#f0d9c2")}
+                    {chip(nHid, "not carried", "#8a3b3b", "#f6eaea", "#e8cfcf")}
+                    {chip(nPr, "own price", T.accent, "#eef3ea", "#d9e6d2")}
+                  </div>
+                );
+              })()}
               {(state.items || []).map((it) => {
                 const o = findOv(it.id);
                 const hidden = o && o.available === false;
+                const off = o && o.unavailable_until && new Date(o.unavailable_until) > new Date();
+                const dim = hidden || off;
+                const back = off ? new Date(o.unavailable_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : null;
+                const state3 = (label, activeNow, colour, bgc, onClick) => (
+                  <span onClick={onClick} style={{ fontSize: 11.5, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", padding: "6px 10px", borderRadius: 7, color: activeNow ? "#fff" : T.muted, background: activeNow ? colour : "transparent", border: "1px solid " + (activeNow ? colour : T.line) }}>{label}</span>
+                );
                 return (
                   <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", borderBottom: "1px solid " + T.line }}>
-                    <span style={{ flex: 1, fontSize: 14, color: hidden ? T.muted : T.ink, textDecoration: hidden ? "line-through" : "none" }}>{it.name}</span>
-                    <span style={{ fontSize: 12, color: T.faint }}>master {money(it.price)}</span>
+                    <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: dim ? T.muted : T.ink, textDecoration: dim ? "line-through" : "none" }}>
+                      {it.name}
+                      {off && <span style={{ marginLeft: 8, fontSize: 11.5, fontWeight: 600, color: "#8a5a2b", textDecoration: "none" }}>back {back}</span>}
+                    </span>
+                    <span style={{ fontSize: 12, color: T.faint, whiteSpace: "nowrap" }}>master {money(it.price)}</span>
                     <input type="number" step="0.05" placeholder={String(it.price)} defaultValue={o && o.price != null ? o.price : ""}
                       onBlur={(e) => { const v = e.target.value === "" ? null : parseFloat(e.target.value); act("set_override", { item_id: it.id, location_id: storeView, price: v, available: o ? o.available : null }); }}
-                      style={{ width: 90, border: "1px solid " + T.line, borderRadius: 8, padding: "7px 9px", fontSize: 13, background: T.card, color: T.ink }} />
-                    <span onClick={() => act("set_override", { item_id: it.id, location_id: storeView, price: o ? o.price : null, available: hidden ? true : false })} style={{ fontSize: 12, fontWeight: 600, color: hidden ? "#b4462f" : T.accent, cursor: "pointer", border: "1px solid " + T.line, borderRadius: 8, padding: "6px 10px", whiteSpace: "nowrap" }}>{hidden ? "Hidden" : "Shown"}</span>
+                      style={{ width: 82, border: "1px solid " + T.line, borderRadius: 8, padding: "7px 9px", fontSize: 13, background: T.card, color: T.ink }} />
+                    <div style={{ display: "flex", gap: 3 }}>
+                      {state3("Carried", !hidden && !off, T.accent, null, () => {
+                        if (off) act("set_item_86", { location_id: storeView, item_id: it.id, on: false });
+                        if (hidden) act("set_override", { item_id: it.id, location_id: storeView, price: o ? o.price : null, available: true });
+                      })}
+                      {state3("Off today", !!off, "#c07a2e", null, () => act("set_item_86", { location_id: storeView, item_id: it.id, on: !off }))}
+                      {state3("Not carried", !!hidden, "#a34a4a", null, () => act("set_override", { item_id: it.id, location_id: storeView, price: o ? o.price : null, available: hidden ? true : false }))}
+                    </div>
                   </div>
                 );
               })}
