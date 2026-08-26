@@ -30,8 +30,14 @@ export default function PricingManager({ state, T, act, onClose }) {
   );
   const catName = (id) => (cats.find((c) => c.id === id) || {}).name || "Uncategorised";
   const stores = useMemo(() => [...(state.locations || [])].sort((a, b) => a.name.localeCompare(b.name)), [state.locations]);
+  // PRICE bands only. menu_price_bands holds both kinds: price bands decide
+  // what a store CHARGES, menu bands decide what it CARRIES (managed under
+  // Band menus). Listing menu bands here let a price change land on a format
+  // band by accident, and cluttered both screens with the other's entries.
   const bands = useMemo(
-    () => [...(state.priceBands || [])].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.name.localeCompare(b.name)),
+    () => [...(state.priceBands || [])]
+      .filter((b) => b.band_kind !== "menu")
+      .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0) || a.name.localeCompare(b.name)),
     [state.priceBands]
   );
 
@@ -133,7 +139,7 @@ export default function PricingManager({ state, T, act, onClose }) {
     const name = newBandName.trim();
     if (!name) { setErr("Give the band a name."); return; }
     if (bands.some((b) => b.name.toLowerCase() === name.toLowerCase())) { setErr("There's already a band called that."); return; }
-    run(async () => { await act("create_band", { name, copy_from: copyFrom }); setNewBandName(""); setMsg("Band created."); });
+    run(async () => { await act("create_band", { name, copy_from: copyFrom, band_kind: "price" }); setNewBandName(""); setMsg("Band created."); });
   };
   const renameBand = (b) => {
     const name = draftName.trim();
