@@ -13,8 +13,12 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json" };
 
-const WARN_MIN = 8;
-const LATE_MIN = 15;
+// Age bands for ticket colour. Industry norm is tight — most operators run
+// green under ~5 min, amber to ~8, red beyond. Set these to YOUR speed-of-
+// service standard: if nearly every ticket sits red, the colour stops being a
+// signal and staff learn to ignore it.
+const WARN_MIN = 6;
+const LATE_MIN = 12;
 const POLL_MS = 4000;
 const BUMP_TO = "served";
 const DONE_ITEM = "ready";
@@ -464,7 +468,7 @@ export default function KDS() {
           {view === "kitchen" && (
           <div style={{ display: "flex", gap: 6 }}>
             {[["active", "Active"], ["allday", "All-day"], ["completed", "Done"]].map(([t, label]) => (
-              <div key={t} onClick={() => setTab(t)} className="kbtn" style={{ padding: "7px 15px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, background: tab === t ? "#ec4899" : "#20242f", transition: "background .12s" }}>
+              <div key={t} onClick={() => setTab(t)} className="kbtn" style={{ padding: "7px 15px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, background: tab === t ? "#ec4899" : "#ffffff", color: tab === t ? "#ffffff" : "#475569", border: "1px solid #d8dce2", transition: "background .12s" }}>
                 {label}{t === "active" ? " " + active.length : ""}
               </div>
             ))}
@@ -567,16 +571,16 @@ export default function KDS() {
                               <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
                               <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25, textDecoration: done ? "line-through" : "none" }}>{it.name_snapshot}</span>
                             </div>
-                            {mods.length > 0 && <div style={{ fontSize: F(13), color: "#7dd3fc", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
+                            {mods.length > 0 && <div style={{ fontSize: F(13), color: "#0369a1", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
                           </div>
                         );
                       })}
                     </div>
                   ))}
-                  {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#fecaca", background: "#7f1d1d33", border: "1px solid #7f1d1d", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
+                  {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#7f1d1d", background: "#fee2e2", border: "1px solid #fca5a5", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 2, padding: 2 }}>
-                  <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#fb7185" : "#ffffff0d", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#1a0a0d" : "#fff" }} title="Rush">{BOLT}</div>
+                  <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#e11d48" : "#f1f3f6", border: "1px solid #d8dce2", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#ffffff" : "#475569" }} title="Rush">{BOLT}</div>
                   {/* Print slip. Deliberately on the LEFT, far from Bump: Bump is
                       destructive and a mis-tap on a wall screen loses the ticket. */}
                   <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#f1f3f6", border: "1px solid #d8dce2", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#1f2937", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
@@ -609,20 +613,20 @@ export default function KDS() {
           <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Recently bumped {DOT} tap Recall to bring one back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(244) + "px, 1fr))", gap: F(12) }}>
             {completed.slice(0, 40).map((o) => (
-              <div key={o.id} style={{ background: "#ffffff", borderRadius: 10, border: "1px solid #d8dce2", overflow: "hidden" }}>
-                <div style={{ padding: F(8) + "px " + F(12) + "px", background: "#20242f", display: "flex", justifyContent: "space-between" }}>
+              <div key={o.id} style={{ background: "#ffffff", color: "#1f2937", borderRadius: F(14), border: "1px solid #d8dce2", borderLeft: "4px solid #94a3b8", boxShadow: "0 1px 3px rgba(15,23,42,.08)", overflow: "hidden" }}>
+                <div style={{ padding: F(9) + "px " + F(12) + "px", background: "#e8ebef", color: "#334155", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span style={{ fontWeight: 700, fontSize: F(15) }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
-                  <span style={{ fontSize: F(12), color: "#64748b" }}>{o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
+                  <span style={{ fontSize: F(12), fontWeight: 600 }}>{o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
                 </div>
-                <div style={{ padding: F(8) + "px " + F(12) + "px", fontSize: F(13), color: "#cbd5e1", display: "flex", flexDirection: "column", gap: F(3) }}>
+                <div style={{ padding: F(8) + "px " + F(12) + "px", fontSize: F(13), color: "#1f2937", display: "flex", flexDirection: "column", gap: F(3) }}>
                   {(o.menu_order_items || []).map((it) => (
                     <div key={it.id} style={{ display: "flex", gap: F(6), lineHeight: 1.3 }}>
-                      <span style={{ fontWeight: 700, color: "#f472b6", flexShrink: 0, minWidth: F(20) }}>{it.qty}{TIMES}</span>
+                      <span style={{ fontWeight: 700, color: "#64748b", flexShrink: 0, minWidth: F(20) }}>{it.qty}{TIMES}</span>
                       <span>{it.name_snapshot}</span>
                     </div>
                   ))}
                 </div>
-                <div onClick={() => recall(o)} className="kbtn" style={{ textAlign: "center", padding: F(8) + "px 0", background: "#1e40af", fontWeight: 700, fontSize: F(13), cursor: "pointer" }}>{ARROW + " Recall"}</div>
+                <div onClick={() => recall(o)} className="kbtn" style={{ textAlign: "center", padding: F(8) + "px 0", background: "#f1f3f6", color: "#334155", borderTop: "1px solid #d8dce2", fontWeight: 700, fontSize: F(13), cursor: "pointer" }}>{ARROW + " Recall"}</div>
               </div>
             ))}
           </div>
