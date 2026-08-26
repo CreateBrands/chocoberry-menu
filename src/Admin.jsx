@@ -746,14 +746,14 @@ function CoverageView({ state, T, money, act }) {
   const ovFor = (locId, itemId) => ovs.find((o) => o.location_id === locId && o.item_id === itemId);
 
   const cellFor = (loc, it) => {
-    if (it.published === false) return { k: "unpub", label: "\u2014", title: "Unpublished centrally \u2014 change in Menus" };
+    if (it.published === false) return { k: "unpub", label: "—", title: "Unpublished centrally — change in Menus" };
     const o = ovFor(loc.id, it.id);
     if (o && o.unavailable_until && new Date(o.unavailable_until) > now) {
       return { k: "off", label: "86", title: "Off today, back " + new Date(o.unavailable_until).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
     }
-    if (o && o.available === false) return { k: "no", label: "\u00d7", title: "Not carried here \u2014 click to carry" };
-    if (o && o.price != null) return { k: "price", label: money(o.price), title: "Own price \u00b7 master " + money(it.price) + " \u2014 click to stop carrying" };
-    return { k: "yes", label: "\u2713", title: "Carried \u2014 click to stop carrying" };
+    if (o && o.available === false) return { k: "no", label: "×", title: "Not carried here — click to carry" };
+    if (o && o.price != null) return { k: "price", label: money(o.price), title: "Own price · master " + money(it.price) + " — click to stop carrying" };
+    return { k: "yes", label: "✓", title: "Carried — click to stop carrying" };
   };
 
   const style = {
@@ -827,10 +827,10 @@ function CoverageView({ state, T, money, act }) {
   return (
     <div>
       <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Network menu</div>
-      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18 }}>Every item, every store, on one screen. Click a cell to turn one item on or off at one store \u2014 or tick items and stores and change them all at once.</div>
+      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18 }}>Every item, every store, on one screen. Click a cell to turn one item on or off at one store — or tick items and stores and change them all at once.</div>
 
       <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items\u2026"
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items…"
           style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "9px 13px", fontSize: 13.5, background: T.card, color: T.ink, minWidth: 200 }} />
         {chip("price", "own price", tally("price"))}
         {chip("off", "off today", tally("off"))}
@@ -841,7 +841,7 @@ function CoverageView({ state, T, money, act }) {
       {selItems.size > 0 && (
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", background: "#2f3326", color: "#fff", borderRadius: 12, padding: "13px 16px", marginBottom: 14 }}>
           <span style={{ fontSize: 13.5, fontWeight: 700 }}>
-            {selItems.size} item{selItems.size === 1 ? "" : "s"} \u00b7 {allLocs ? "all " + locs.length + " stores" : selLocs.size + " store" + (selLocs.size === 1 ? "" : "s")}
+            {selItems.size} item{selItems.size === 1 ? "" : "s"} · {allLocs ? "all " + locs.length + " stores" : selLocs.size + " store" + (selLocs.size === 1 ? "" : "s")}
           </span>
           <span style={{ flex: 1 }} />
           {btn("Carry", "#4f7a3a", () => apply("carry", itemIds, locIds))}
@@ -860,7 +860,7 @@ function CoverageView({ state, T, money, act }) {
               style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".8px", textAlign: "center", cursor: "pointer",
                 color: selLocs.has(l.id) ? "#fff" : T.faint, background: selLocs.has(l.id) ? T.accent : "transparent",
                 borderRadius: 6, padding: "4px 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-              {l.name.replace(/^Chocoberry\s*\u2014?\s*/i, "").toUpperCase()}
+              {l.name.replace(/^Chocoberry\s*—?\s*/i, "").toUpperCase()}
             </span>
           ))}
         </div>
@@ -900,11 +900,11 @@ function CoverageView({ state, T, money, act }) {
       </div>
 
       <div style={{ display: "flex", gap: 18, marginTop: 14, fontSize: 12, color: T.muted, flexWrap: "wrap" }}>
-        <span>\u2713 carried</span>
-        <span style={{ color: "#2f6b3f" }}>\u00a3 own price</span>
+        <span>✓ carried</span>
+        <span style={{ color: "#2f6b3f" }}>£ own price</span>
         <span style={{ color: "#8a5a2b" }}>86 off today</span>
-        <span style={{ color: "#8a3b3b" }}>\u00d7 not carried</span>
-        <span>\u2014 unpublished centrally</span>
+        <span style={{ color: "#8a3b3b" }}>× not carried</span>
+        <span>— unpublished centrally</span>
         <span style={{ marginLeft: "auto" }}>Tip: click a category name to select everything in it.</span>
       </div>
     </div>
@@ -912,18 +912,26 @@ function CoverageView({ state, T, money, act }) {
 }
 
 
-// \u2500\u2500 MENU BANDS \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// ── MENU BANDS ───────────────────────────────────
 // A band is a format shared by several stores: "Dessert only", "Dessert +
 // cafe", "Breakfast". Set what the band carries once and every store on it
 // follows, so most stores need no store-level rows at all.
 //
 // Silence matters. A band row that merely repeats the base menu blocks that
-// item from ever inheriting a change \u2014 the same trap as typing the master
+// item from ever inheriting a change — the same trap as typing the master
 // price into a store price box. "Follows base" is the correct resting state.
 function MenuBands({ state, T, act }) {
   const bands = (state.bands || []);
   const menuBands = bands.filter((b) => b.band_kind === "menu" || b.band_kind === "both");
-  const [bandId, setBandId] = useState(() => (menuBands[0] || bands[0] || {}).id || null);
+  const [bandId, setBandId] = useState(null);
+  // bands arrive with the async load, so the first render has none. Select one
+  // as soon as they appear, otherwise the dropdown sits empty and every write
+  // goes out with a null band id.
+  useEffect(() => {
+    if (bandId && bands.some((b) => b.id === bandId)) return;
+    const first = menuBands[0] || bands[0];
+    if (first) setBandId(first.id);
+  }, [bands.length, menuBands.length]); // eslint-disable-line
   const [tab, setTab] = useState("items");
   const [q, setQ] = useState("");
   const [diffOnly, setDiffOnly] = useState(false);
@@ -936,14 +944,14 @@ function MenuBands({ state, T, act }) {
   const locs = (state.locations || []).filter((l) => l.active);
 
   const band = bands.find((b) => b.id === bandId);
-  const onBand = locs.filter((l) => (l.menu_band_id || l.price_band_id) === bandId);
+  const onBand = bandId ? locs.filter((l) => l.menu_band_id === bandId) : [];
 
   const biFor = (itemId) => bandItems.find((r) => r.band_id === bandId && r.item_id === itemId);
   const bmOn = (menuId) => bandMenus.some((r) => r.band_id === bandId && r.menu_id === menuId);
   const anyMenuRows = bandMenus.some((r) => r.band_id === bandId);
 
-  const setItem = (itemId, available) => act("set_band_item", { band_id: bandId, item_id: itemId, available });
-  const setMenu = (menuId, on) => act("set_band_menu", { band_id: bandId, menu_id: menuId, on });
+  const setItem = (itemId, available) => { if (!bandId) return; act("set_band_item", { band_id: bandId, item_id: itemId, available }); };
+  const setMenu = (menuId, on) => { if (!bandId) return; act("set_band_menu", { band_id: bandId, menu_id: menuId, on }); };
 
   const needle = q.trim().toLowerCase();
   const rows = items
@@ -967,7 +975,7 @@ function MenuBands({ state, T, act }) {
   return (
     <div>
       <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Menu bands</div>
-      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18 }}>A format shared by several stores. Set it once here instead of store by store \u2014 blank means the band says nothing and the item follows the base menu.</div>
+      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 18 }}>A format shared by several stores. Set it once here instead of store by store — blank means the band says nothing and the item follows the base menu.</div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 16, flexWrap: "wrap" }}>
         <div style={{ display: "flex", background: T.bg, borderRadius: 10, padding: 3, gap: 2 }}>
@@ -1016,7 +1024,7 @@ function MenuBands({ state, T, act }) {
       {tab === "stores" ? (
         <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "16px 18px" }}>
           <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 14 }}>
-            Which stores carry this band's menu. Separate from the price band \u2014 a store can share this format and still charge its own prices, which you set under <b>Pricing</b>.
+            Which stores carry this band's menu. Separate from the price band — a store can share this format and still charge its own prices, which you set under <b>Pricing</b>.
           </div>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
             {locs.map((l) => {
@@ -1028,19 +1036,19 @@ function MenuBands({ state, T, act }) {
                     background: here ? "#eef3ea" : T.bg,
                     color: here ? T.accent : T.muted,
                     border: "1px solid " + (here ? "#d9e6d2" : T.line) }}>
-                  <span style={{ fontSize: 15 }}>{here ? "\u2611" : "\u2610"}</span>{l.name}
+                  <span style={{ fontSize: 15 }}>{here ? "☑" : "☐"}</span>{l.name}
                 </span>
               );
             })}
           </div>
           <div style={{ fontSize: 12, color: T.faint, marginTop: 14, borderTop: "1px solid " + T.line, paddingTop: 12 }}>
-            A store with no band carries the full base menu. Its own item-level exceptions still win over whatever the band says \u2014 set those under Stores or in the network grid.
+            A store with no band carries the full base menu. Its own item-level exceptions still win over whatever the band says — set those under Stores or in the network grid.
           </div>
         </div>
       ) : tab === "sections" ? (
         <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
           <div style={{ padding: "11px 14px", fontSize: 12.5, color: T.muted, borderBottom: "1px solid " + T.line }}>
-            {anyMenuRows ? "This band carries only the ticked sections." : "Nothing ticked \u2014 this band carries every section. Tick one to make it an explicit list."}
+            {anyMenuRows ? "This band carries only the ticked sections." : "Nothing ticked — this band carries every section. Tick one to make it an explicit list."}
           </div>
           {menus.map((m) => (
             <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "11px 14px", borderTop: "1px solid " + T.line }}>
@@ -1055,7 +1063,7 @@ function MenuBands({ state, T, act }) {
       ) : (
         <>
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items\u2026"
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items…"
               style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "9px 13px", fontSize: 13.5, background: T.card, color: T.ink, minWidth: 200 }} />
             <span onClick={() => setDiffOnly((v) => !v)}
               style={{ fontSize: 12.5, fontWeight: 600, cursor: "pointer", padding: "7px 13px", borderRadius: 20,
