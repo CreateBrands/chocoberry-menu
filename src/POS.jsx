@@ -28,18 +28,22 @@ function menuIcon(name, active) {
   const c = active ? "#fff" : "currentColor";
   const p = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
   const n = (name || "").toLowerCase();
+  // Round waffle — the old dome read as nothing in particular.
   if (n.includes("dessert") || n.includes("cake") || n.includes("sweet"))
-    return <svg {...p}><path d="M4 16h16M6 16c0-3 2-5 6-5s6 2 6 5M9 8c0-1 .5-2 3-2s3 1 3 2M12 3v1" /></svg>;
+    return <svg {...p}><circle cx="12" cy="12.6" r="8" /><path d="M4.6 9.4h14.8M4.6 15.8h14.8M8.8 4.9v15.4M15.2 4.9v15.4" /></svg>;
+  // Toast — the one shape common to most of an all-day breakfast menu. The old
+  // fried egg read as a camera lens with a handle.
   if (n.includes("breakfast") || n.includes("brunch") || n.includes("egg"))
-    return <svg {...p}><circle cx="10" cy="13" r="6" /><circle cx="10" cy="13" r="2.2" /><path d="M16 9h3a2 2 0 0 1 0 4h-2" /></svg>;
+    return <svg {...p}><path d="M5.6 9.4c0-2.6 2.9-4.6 6.4-4.6s6.4 2 6.4 4.6v8.4a1.8 1.8 0 0 1-1.8 1.8H7.4a1.8 1.8 0 0 1-1.8-1.8Z" /><path d="M8.9 12.4h6.2M8.9 15.6h4" /></svg>;
   if (n.includes("dinner") || n.includes("main") || n.includes("meal"))
     return <svg {...p}><path d="M4 18h16M6 18a6 6 0 0 1 12 0M12 6v0" /><path d="M12 6a2 2 0 0 1 0-2" /></svg>;
   if (n.includes("cold") || n.includes("iced") || n.includes("juice") || n.includes("soft") || n.includes("shake") || n.includes("drink") || n.includes("mocktail"))
     return <svg {...p}><path d="M7 8h10l-1 12H8zM7 8l-.5-3h11L17 8M10 12v4M14 12v4" /></svg>;
   if (n.includes("hot") || n.includes("coffee") || n.includes("tea") || n.includes("latte") || n.includes("chocolate") || n.includes("matcha"))
     return <svg {...p}><path d="M5 9h11v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM16 10h2a2 2 0 0 1 0 4h-2M8 3c-.4 1 .4 2 0 3M12 3c-.4 1 .4 2 0 3" /></svg>;
+  // A child, rather than the old shape that read as a table lamp.
   if (n.includes("kid") || n.includes("child"))
-    return <svg {...p}><path d="M8 21h8M12 21v-6M8 10a4 4 0 0 1 8 0zM7.5 10h9l-1.2 5H8.7z" /></svg>;
+    return <svg {...p}><circle cx="12" cy="7" r="3.6" /><path d="M5.5 20.5c0-3.6 2.9-6.5 6.5-6.5s6.5 2.9 6.5 6.5" /><path d="M9.6 6.2c.5.6 1.4.6 1.9 0M13.1 6.2c.5.6 1.4.6 1.9 0" /></svg>;
   return <svg {...p}><path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 0-3 2-3 5s1 4 3 4M17 3v18" /></svg>;
 }
 
