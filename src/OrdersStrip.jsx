@@ -151,7 +151,7 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint }) {
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, printingId = null }) {
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
@@ -448,13 +448,25 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ flex: 1, padding: "12px 13px", borderRadius: 12, background: "#e6ecdd", color: C.paidText, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 7 }}>{o.paid_method === "cash" ? Ico.cash(15) : Ico.card(15)} Paid{o.is_split ? " · Split" : o.paid_method === "cash" ? " · Cash" : " · Card"}</div>
           <span onClick={() => onUnpaid(o)} style={{ padding: "12px 15px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, color: C.ink, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Undo</span>
-          <span onClick={() => onReprint(o)} style={{ padding: "11px 13px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 12.5, color: "#2f6b4f" }}>{Ico.printer(16)} Print</span>
+          {(() => {
+            // A silent button is why staff pressed it repeatedly and got a
+            // stack of slips. It now says what it is doing and refuses a
+            // second press while the first is still going.
+            const p = printingId === o.id;
+            return (
+              <span onClick={() => { if (!p) onReprint(o); }}
+                style={{ padding: "11px 13px", borderRadius: 12, background: p ? "#e6ecdd" : "#fff", border: "1.5px solid " + C.line, cursor: p ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 12.5, color: "#2f6b4f", opacity: p ? .7 : 1 }}>
+                {Ico.printer(16)} {p ? "Sending…" : "Print"}
+              </span>
+            );
+          })()}
         </div>
       ) : (
         <div style={{ display: "flex", gap: 8 }}>
           <span onClick={() => setMode("method")} style={{ flex: 1, textAlign: "center", background: "#5E7A4D", color: "#fff", padding: "14px 0", borderRadius: 13, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Take payment</span>
           <span onClick={() => setMode("edit")} style={{ padding: "14px 17px", background: "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>Edit</span>
-          <span onClick={() => onReprint(o)} style={{ padding: "12px 14px", background: "#fff", border: "1.5px solid " + C.line, borderRadius: 13, cursor: "pointer", display: "flex", alignItems: "center" }}>{Ico.printer(17)}</span>
+          <span onClick={() => { if (printingId !== o.id) onReprint(o); }}
+            style={{ padding: "12px 14px", background: printingId === o.id ? "#e6ecdd" : "#fff", border: "1.5px solid " + C.line, borderRadius: 13, cursor: printingId === o.id ? "default" : "pointer", display: "flex", alignItems: "center", opacity: printingId === o.id ? .7 : 1 }}>{Ico.printer(17)}</span>
         </div>
       )}
     </div>

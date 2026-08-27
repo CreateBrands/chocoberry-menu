@@ -200,14 +200,46 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const ordSetType = (o, order_type) => ordAction("set_order_type", { order_id: o.id, order_type });
   // Void a single already-fired item, with a reason (prints a VOID chit).
   const ordVoidFired = (o, iid, reason) => ordAction("void_fired_item", { order_id: o.id, order_item_id: iid, reason, location_id: loc || null });
+  // A customer receipt belongs at the COUNTER, not on the kitchen printer.
+  // Without a target sunmi-print falls back to default routing, which sends it
+  // to every printer at the location — so every receipt reprint was also
+  // spitting a slip out of the kitchen machine mid-service.
+  const [printingId, setPrintingId] = useState(null);
+  const [printedAt, setPrintedAt] = useState({});   // order id -> ms of last OK
+  const PRINT_COOLDOWN_MS = 8000;
+
   async function ordReprint(o) {
+    // The button gave no feedback at all, so staff pressed it again — and
+    // again — believing nothing had happened. Same cause as the kitchen
+    // reprint storm. Ignore repeats while in flight and for a short window
+    // after, and show what is actually going on.
+    if (printingId === o.id) return;
+    const last = printedAt[o.id] || 0;
+    if (Date.now() - last < PRINT_COOLDOWN_MS) {
+      setMsg("Already sent to the counter printer — give it a few seconds.");
+      return;
+    }
+    setPrintingId(o.id);
     try {
-      await fetch(SUPABASE_URL + "/functions/v1/sunmi-print", {
+      const res = await fetch(SUPABASE_URL + "/functions/v1/sunmi-print", {
         method: "POST", headers: H,
-        body: JSON.stringify({ action: "print-order", order_id: o.id, force: true }),
+        body: JSON.stringify({
+          action: "print-order", order_id: o.id, force: true,
+          // sunmi-print resolves the station server-side against the printers
+          // table, so naming the station is enough — no printer list needed
+          // here, and it keeps working when a store swaps hardware.
+          station: "counter",
+        }),
       });
+      const ok = res.ok;
+      setPrintedAt((m) => ({ ...m, [o.id]: Date.now() }));
+      setMsg(ok ? "Receipt sent to the counter printer." : "Printer did not accept the job — try again.");
       await loadOrders(); // refresh so the print-failure banner clears on success
-    } catch { /* ignore */ }
+    } catch {
+      setMsg("Could not reach the printer — check it is on and connected.");
+    } finally {
+      setPrintingId(null);
+    }
   }
   // "Add items" to an existing order: load that order into the current-order
   // ticket in append mode, switch to New order to pick items.
@@ -640,6 +672,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         <div style={{ width: "clamp(380px, 30vw, 560px)", flexShrink: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
           {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
             <OrderDetailPanel
+              printingId={printingId}
               order={(payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : (orders || []).find((o) => o.id === selOrderId)}
               now={now}
               busy={ordersBusy}
