@@ -28,6 +28,30 @@ import { buildOrderRasterHex } from "../_shared/raster.ts";
 // "raster" = Uber-style image tickets (real typography); anything else = text
 const RECEIPT_MODE = Deno.env.get("RECEIPT_MODE") ?? "text";
 
+// A kitchen ticket and a customer receipt are not the same document. The
+// receipt records a transaction — every line with prices, totals, payment.
+// The ticket directs production — what to make, and nothing else. Printing
+// prices to a chef is noise that makes the ticket slower to read.
+//
+// Stripping the money here rather than in the renderer means both slips keep
+// the identical layout, grouping and modifier handling; the ticket simply has
+// no figures on it.
+function asKitchenTicket(order: ReceiptOrder): ReceiptOrder {
+  const o: any = { ...order };
+  o.items = (order.items as any[]).map((it) => {
+    const c: any = { ...it };
+    delete c.price;
+    return c;
+  });
+  delete o.subtotal;
+  delete o.total;
+  delete o.amount_paid;
+  delete o.paid_method;
+  delete o.discount_value;
+  o.isKitchenTicket = true;
+  return o as ReceiptOrder;
+}
+
 async function receiptHexFor(order: ReceiptOrder): Promise<string> {
   // NOTE: with RECEIPT_MODE="raster" (default) the LIVE receipt layout lives in
   // raster.ts (receiptTree). escpos.ts buildOrderReceipt is only the text
@@ -519,7 +543,9 @@ async function printOrder(
       // headings already make clear what's new, and this printer is only being
       // sent rounds it hasn't printed yet (not a true duplicate).
       const isDuplicate = (force && printedBefore) || copy > 0;
-      const stationOrder: ReceiptOrder = { ...order, items: lines, reprint: isDuplicate };
+      let stationOrder: ReceiptOrder = { ...order, items: lines, reprint: isDuplicate };
+      // A ticket carries no money. Same layout, figures removed.
+      if (pass.mode === "ticket") stationOrder = asKitchenTicket(stationOrder);
       const contentHex = await receiptHexFor(stationOrder);
 
       const tag = (force ? Date.now().toString(36) : "") + sn.slice(-5) + (copy > 0 ? "c" + copy : "");

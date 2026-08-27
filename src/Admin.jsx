@@ -653,7 +653,7 @@ function PrintersModal({ pin, locations, onClose }) {
           <button onClick={onClose} style={{ fontSize: 20, background: "none", border: "none", cursor: "pointer", color: T.muted }}>×</button>
         </div>
         <div style={{ fontSize: 13, color: T.muted, marginBottom: 18, maxWidth: 720 }}>
-          Each printer does one job. <b>Kitchen ticket</b> prints only the items for its own station. <b>Full receipt</b> prints the whole order every time — that is what a counter printer should be. Set a printer to <b>Manual</b> to stop automatic prints while keeping reprints working.
+          Each printer decides for itself. <b>Kitchen ticket</b> is what to make, with no prices. <b>Full receipt</b> is every line with prices. Turn on both and that printer produces two slips. Printers are independent — two of them can print the same items.
         </div>
 
         {msg && <div style={{ fontSize: 13, color: msg.startsWith("Test sent") ? T.accent : T.danger, marginBottom: 12 }}>{msg}</div>}
@@ -667,7 +667,13 @@ function PrintersModal({ pin, locations, onClose }) {
             // grid overflowed the dialog and clipped the last column; stacking
             // them into labelled fields fits, and each control can say what it
             // is instead of relying on a header far away.
-            const isReceipt = (p.print_role || "station") === "receipt";
+            // Independent switches: a printer can print a ticket, a receipt,
+            // both (two slips) or neither. Falls back to the older print_role
+            // for any printer not yet migrated.
+            const legacy = (p.print_role || "station") === "receipt";
+            const ticket = p.print_ticket ?? !legacy;
+            const receipt = p.print_receipt ?? legacy;
+            const isReceipt = receipt && !ticket;
             const auto = p.auto_print !== false;
             const fieldLab = { fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", color: T.faint, marginBottom: 5, textTransform: "uppercase" };
             const sel = { width: "100%", fontSize: 13, padding: "8px 9px", borderRadius: 9, border: "1px solid " + T.line, background: T.bg, color: T.ink };
@@ -679,10 +685,9 @@ function PrintersModal({ pin, locations, onClose }) {
                   <div style={{ fontWeight: 700, color: T.ink, fontSize: 15 }}>{p.label || "Printer"}</div>
                   <div style={{ fontSize: 11.5, color: T.faint, fontFamily: "monospace" }}>{p.sn}</div>
                 </div>
-                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20,
-                  background: isReceipt ? "#E1F5EE" : "#FAEEDA", color: isReceipt ? "#0F6E56" : "#854F0B" }}>
-                  {isReceipt ? "RECEIPT" : "STATION"}
-                </span>
+                {ticket && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#FAEEDA", color: "#854F0B" }}>TICKET</span>}
+                {receipt && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#E1F5EE", color: "#0F6E56" }}>RECEIPT</span>}
+                {!ticket && !receipt && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#FCEBEB", color: "#A32D2D" }}>PRINTS NOTHING</span>}
                 {!auto && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#F1EFE8", color: "#5F5E5A" }}>MANUAL</span>}
                 <span style={{ flex: 1 }} />
                 <button disabled={busy} onClick={() => testPrint(p)} style={{ fontSize: 13, fontWeight: 600, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 13px", cursor: "pointer" }}>Test print</button>
@@ -699,24 +704,25 @@ function PrintersModal({ pin, locations, onClose }) {
                   </select>
                 </div>
                 <div>
-                  <div style={fieldLab}>Prints</div>
-                  <select value={p.print_role || "station"} onChange={(e) => changeRole(p, e.target.value)} style={sel}>
-                    <option value="station">Kitchen ticket</option>
-                    <option value="receipt">Full receipt</option>
-                  </select>
+                  <div style={fieldLab}>Kitchen ticket</div>
+                  <button onClick={() => act("printer_update", { id: p.id, fields: { print_ticket: !ticket } })} disabled={busy}
+                    style={{ ...sel, textAlign: "left", fontWeight: 700, cursor: "pointer",
+                      background: ticket ? "rgba(186,117,23,.12)" : T.bg, color: ticket ? "#854F0B" : T.muted }}>
+                    {ticket ? "On" : "Off"}
+                  </button>
                   <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
-                    {isReceipt ? "The whole order, every time." : "Only this station's items."}
+                    What to make. No prices.
                   </div>
                 </div>
                 <div>
-                  <div style={fieldLab}>Station</div>
-                  <select value={p.station || "kitchen"} onChange={(e) => changeStation(p, e.target.value)} disabled={isReceipt}
-                    style={{ ...sel, opacity: isReceipt ? .45 : 1, cursor: isReceipt ? "not-allowed" : "pointer" }}>
-                    <option value="kitchen">Kitchen</option>
-                    <option value="counter">Counter</option>
-                  </select>
+                  <div style={fieldLab}>Full receipt</div>
+                  <button onClick={() => act("printer_update", { id: p.id, fields: { print_receipt: !receipt } })} disabled={busy}
+                    style={{ ...sel, textAlign: "left", fontWeight: 700, cursor: "pointer",
+                      background: receipt ? "rgba(15,110,86,.12)" : T.bg, color: receipt ? "#0F6E56" : T.muted }}>
+                    {receipt ? "On" : "Off"}
+                  </button>
                   <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
-                    {isReceipt ? "Not used — receipts ignore stations." : "Which items reach it."}
+                    Every line, with prices.
                   </div>
                 </div>
                 <div>
@@ -742,7 +748,6 @@ function PrintersModal({ pin, locations, onClose }) {
             </div>
             );
           })}
-          ))}
         </div>
 
         {/* ADD */}
@@ -1258,6 +1263,119 @@ function MenuBands({ state, T, act, money }) {
   );
 }
 
+
+// ── PRINT ROUTING ───────────────────────────────────────────────────────────
+// Which printer makes which item. sunmi-print resolves every line as:
+//     item.station  ->  its category.station  ->  kitchen
+// Both columns already existed; nothing could set them. Setting a whole
+// category is the normal case ("all drinks go to the bar"); the per-item
+// override is for the odd exception.
+function PrintRouting({ state, T, act }) {
+  const [q, setQ] = useState("");
+  const [openCat, setOpenCat] = useState(null);
+
+  const items = state.items || [];
+  const cats = (state.categories || []).filter((c) => c.active !== false);
+  const menus = state.menus || [];
+  const menuById = new Map(menus.map((m) => [m.id, m]));
+  const printers = (state.printers || []).filter((p) => p.active);
+
+  // Only STATION printers take routed items. A receipt printer gets the whole
+  // order regardless, so listing it here would imply a choice that has no effect.
+  const stationPrinters = printers.filter((p) => (p.print_role || "station") !== "receipt");
+  const stations = [...new Set(stationPrinters.map((p) => p.station || "kitchen"))];
+  if (!stations.length) stations.push("kitchen");
+
+  const printerFor = (st) => stationPrinters.filter((p) => (p.station || "kitchen") === st).map((p) => p.label).join(", ");
+  const label = (st) => st.charAt(0).toUpperCase() + st.slice(1);
+
+  const needle = q.trim().toLowerCase();
+  const shown = cats
+    .map((c) => ({
+      cat: c,
+      menu: (menuById.get(c.menu_id) || {}).name || "",
+      rows: items.filter((it) => it.category_id === c.id && (!needle || it.name.toLowerCase().includes(needle))),
+    }))
+    .filter((g) => g.rows.length || !needle)
+    .sort((a, b) => a.menu.localeCompare(b.menu) || a.cat.name.localeCompare(b.cat.name));
+
+  const setCat = (c, station) => act("update_category", { id: c.id, fields: { station } });
+  const setItem = (it, station) => act("update_item", { id: it.id, fields: { station: station || null } });
+
+  const sel = { fontSize: 13, padding: "7px 9px", borderRadius: 9, border: "1px solid " + T.line, background: T.bg, color: T.ink };
+
+  return (
+    <div>
+      <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Printing</div>
+      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 16, maxWidth: 760 }}>
+        Which printer makes which item. Set a whole category at once — that covers almost everything. An item can override its category when it needs a different printer.
+      </div>
+
+      <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "13px 15px", marginBottom: 14 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".06em", marginBottom: 8 }}>STATIONS AT YOUR STORES</div>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {stations.map((st) => (
+            <span key={st} style={{ fontSize: 12.5, background: T.bg, border: "1px solid " + T.line, borderRadius: 20, padding: "6px 12px", color: T.ink }}>
+              <b>{label(st)}</b>{printerFor(st) ? " · " + printerFor(st) : " · no printer yet"}
+            </span>
+          ))}
+          {printers.some((p) => (p.print_role || "station") === "receipt") && (
+            <span style={{ fontSize: 12.5, color: T.faint, alignSelf: "center" }}>
+              Receipt printers take the whole order and are not routed here.
+            </span>
+          )}
+        </div>
+      </div>
+
+      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items…"
+        style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "10px 13px", fontSize: 14, background: T.card, color: T.ink, minWidth: 220, marginBottom: 14 }} />
+
+      <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
+        {shown.map((g, gi) => {
+          const open = openCat === g.cat.id || !!needle;
+          const catStation = g.cat.station || "kitchen";
+          const overrides = g.rows.filter((it) => it.station).length;
+          return (
+            <Fragment key={g.cat.id}>
+              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 15px", borderTop: gi ? "1px solid " + T.line : "none", background: T.bg }}>
+                <span onClick={() => setOpenCat(open && !needle ? null : g.cat.id)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{g.cat.name}</span>
+                  <span style={{ fontSize: 11.5, color: T.faint, marginLeft: 8 }}>
+                    {g.menu} · {g.rows.length} item{g.rows.length === 1 ? "" : "s"}
+                    {overrides ? " · " + overrides + " overridden" : ""}
+                  </span>
+                </span>
+                <span style={{ fontSize: 11.5, color: T.faint }}>Whole category</span>
+                <select value={catStation} onChange={(e) => setCat(g.cat, e.target.value)} style={sel}>
+                  {stations.map((st) => <option key={st} value={st}>{label(st)}</option>)}
+                </select>
+              </div>
+
+              {open && g.rows.map((it) => (
+                <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 15px 9px 30px", borderTop: "1px solid " + T.line }}>
+                  <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
+                  <span style={{ fontSize: 12, fontWeight: 600, color: it.station ? T.accent : T.faint, minWidth: 96, textAlign: "right" }}>
+                    {it.station ? "Goes to " + label(it.station) : "Follows category"}
+                  </span>
+                  <select value={it.station || ""} onChange={(e) => setItem(it, e.target.value)} style={sel}>
+                    <option value="">Follow category</option>
+                    {stations.map((st) => <option key={st} value={st}>{label(st)}</option>)}
+                  </select>
+                </div>
+              ))}
+            </Fragment>
+          );
+        })}
+        {shown.length === 0 && <div style={{ padding: 24, textAlign: "center", fontSize: 13.5, color: T.muted }}>Nothing matches.</div>}
+      </div>
+
+      <div style={{ fontSize: 12.5, color: T.muted, marginTop: 12 }}>
+        An item with no printer for its station falls back to the kitchen printer, so nothing is ever silently dropped.
+      </div>
+    </div>
+  );
+}
+
 export default function Admin() {
   const [pin, setPin] = useState(null);
   const [state, setState] = useState(null);
@@ -1344,6 +1462,7 @@ export default function Admin() {
           ["stores", "Stores", "🏪", false],
           ["coverage", "Coverage", "🗂", true],
           ["bandmenus", "Band menus", "🎚", true],
+          ["routing", "Printing", "🖨", true],
           ["printers", "Printers", "🖨", false],
           ["settings", "Settings", "⚙", true],
         ].filter(([, , , masterOnly]) => state.scope !== "store" || !masterOnly).map(([key, label, icon]) => {
@@ -1389,7 +1508,9 @@ export default function Admin() {
 
       {/* MAIN CONTENT */}
       <div style={{ flex: 1, minWidth: 0, padding: "26px 28px 60px", overflowY: "auto", maxHeight: "100vh", boxSizing: "border-box" }}>
-        {nav === "bandmenus" ? (
+        {nav === "routing" ? (
+          <PrintRouting state={state} T={T} act={act} />
+        ) : nav === "bandmenus" ? (
           <MenuBands state={state} T={T} act={act} money={money} />
         ) : nav === "coverage" ? (
           <CoverageView state={state} T={T} money={money} act={act} />
