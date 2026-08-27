@@ -26,7 +26,7 @@ function fallbackFor(name = "", cat = "") {
 // Top-level menu icons — same set the customer tablet uses in its bottom nav.
 function menuIcon(name, active) {
   const c = active ? "#fff" : "currentColor";
-  const p = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+  const p = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 2.3, strokeLinecap: "round", strokeLinejoin: "round" };
   const n = (name || "").toLowerCase();
   // Round waffle — the old dome read as nothing in particular.
   if (n.includes("dessert") || n.includes("cake") || n.includes("sweet"))
@@ -35,10 +35,13 @@ function menuIcon(name, active) {
   // fried egg read as a camera lens with a handle.
   if (n.includes("breakfast") || n.includes("brunch") || n.includes("egg"))
     return <svg {...p}><path d="M5.6 9.4c0-2.6 2.9-4.6 6.4-4.6s6.4 2 6.4 4.6v8.4a1.8 1.8 0 0 1-1.8 1.8H7.4a1.8 1.8 0 0 1-1.8-1.8Z" /><path d="M8.9 12.4h6.2M8.9 15.6h4" /></svg>;
+  // Fork and knife — the old dome had two floating strokes above it that read
+  // as nothing at all.
   if (n.includes("dinner") || n.includes("main") || n.includes("meal"))
-    return <svg {...p}><path d="M4 18h16M6 18a6 6 0 0 1 12 0M12 6v0" /><path d="M12 6a2 2 0 0 1 0-2" /></svg>;
+    return <svg {...p}><path d="M4 4v5a2.5 2.5 0 0 0 5 0V4" /><path d="M6.5 4v16" /><path d="M17.5 4c-1.8 0-2.8 2-2.8 4.6 0 2.2 1 3.4 2.8 3.4" /><path d="M17.5 4v16" /></svg>;
+  // Takeaway cup with a domed lid and straw, rather than a plain tub.
   if (n.includes("cold") || n.includes("iced") || n.includes("juice") || n.includes("soft") || n.includes("shake") || n.includes("drink") || n.includes("mocktail"))
-    return <svg {...p}><path d="M7 8h10l-1 12H8zM7 8l-.5-3h11L17 8M10 12v4M14 12v4" /></svg>;
+    return <svg {...p}><path d="M7.5 8.5h9l-1 11a1 1 0 0 1-1 .9h-5a1 1 0 0 1-1-.9Z" /><path d="M9.8 8.5V5.2a2.2 2.2 0 0 1 4.4 0v3.3" /><path d="M7 12h10" /></svg>;
   if (n.includes("hot") || n.includes("coffee") || n.includes("tea") || n.includes("latte") || n.includes("chocolate") || n.includes("matcha"))
     return <svg {...p}><path d="M5 9h11v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM16 10h2a2 2 0 0 1 0 4h-2M8 3c-.4 1 .4 2 0 3M12 3c-.4 1 .4 2 0 3" /></svg>;
   // A child, rather than the old shape that read as a table lamp.
