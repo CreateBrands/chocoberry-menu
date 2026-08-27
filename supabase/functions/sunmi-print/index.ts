@@ -220,6 +220,7 @@ async function loadReceiptOrder(
         : parseFloat(String(it.line_total ?? "")) || undefined,
       station: stationByLine[i],
       category_id: categoryIdByLine[i],
+      item_id: it.item_id ?? null,
       category: categoryByLine[i],
       added: (it.added_batch ?? 0) > 0,
       batch: it.added_batch ?? 0,
@@ -481,10 +482,20 @@ async function printOrder(
     // Which categories this printer's TICKET covers. No rows = all of them,
     // so narrowing is always a deliberate act.
     let coveredCats: Set<string> | null = null;
+    // Per-item exceptions sit on top: include one its category misses, or
+    // withhold one its category covers.
+    const forceItems = new Set<string>();
+    const blockItems = new Set<string>();
     if (wantsTicket) {
       const { data: pc } = await supabase
         .from("printer_categories").select("category_id").eq("printer_sn", sn);
       if (pc && pc.length) coveredCats = new Set(pc.map((r: any) => String(r.category_id)));
+
+      const { data: pi } = await supabase
+        .from("printer_items").select("item_id, include").eq("printer_sn", sn);
+      for (const r of pi ?? []) {
+        (r.include === false ? blockItems : forceItems).add(String(r.item_id));
+      }
     }
 
     // Auto/manual is per SLIP. A printer can fire its kitchen ticket on every
@@ -505,9 +516,14 @@ async function printOrder(
     // no longer compete for items.
     let lines = wantsReceipt && !wantsTicket
       ? allItems
-      : (coveredCats
-          ? allItems.filter((it) => coveredCats!.has(String((it as any).category_id ?? "")))
-          : allItems);
+      : allItems.filter((it) => {
+          const iid = String((it as any).item_id ?? "");
+          // An item exception always wins over its category.
+          if (iid && blockItems.has(iid)) return false;
+          if (iid && forceItems.has(iid)) return true;
+          if (!coveredCats) return true;              // covers everything
+          return coveredCats.has(String((it as any).category_id ?? ""));
+        });
 
     if (lines.length === 0) {
       results.push({ printer: sn, station, skipped: true, reason: "no items for this station" });

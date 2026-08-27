@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
     switch (action) {
       // ---- READ: everything the admin UI needs in one call ----
       case "load": {
-        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus, modOverrides, bands, bandPrices, bandOptPrices, kdsScreens, printers, bandItems, bandMenus, printerCats] = await Promise.all([
+        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus, modOverrides, bands, bandPrices, bandOptPrices, kdsScreens, printers, bandItems, bandMenus, printerCats, printerItems] = await Promise.all([
           admin.from("menu_categories").select("*").order("sort_order"),
           admin.from("menu_items").select("*").order("sort_order"),
           admin.from("menu_locations").select("id,name,slug,active,brand_id,price_band_id,menu_band_id").order("name"),
@@ -141,6 +141,7 @@ Deno.serve(async (req) => {
           admin.from("menu_band_items").select("*"),
           admin.from("menu_band_menus").select("*"),
           admin.from("printer_categories").select("*"),
+          admin.from("printer_items").select("*"),
         ]);
         for (const r of [cats, items, locs, overrides]) if (r.error) throw r.error;
         // When a store manager is logged in, filter every location-specific
@@ -171,6 +172,7 @@ Deno.serve(async (req) => {
           bandItems: bandItems.data || [],
           bandMenus: bandMenus.data || [],
           printerCategories: printerCats.data || [],
+          printerItems: printerItems.data || [],
           printers: only(printers.data),
           modifierOverrides: only(modOverrides.data),
           priceBands: bands.data ?? [],
@@ -592,6 +594,25 @@ Deno.serve(async (req) => {
           if (error) throw error;
         }
         return json({ ok: true, count: ids.length });
+      }
+
+      // ---- Per-item exception for one printer ----
+      // state "on"  = print it even if its category is not covered
+      // state "off" = do not print it even if its category is
+      // state null  = follow the category (row removed)
+      case "set_printer_item": {
+        const { printer_sn, item_id, state: st } = data || {};
+        if (!printer_sn || !item_id) return json({ error: "printer_sn and item_id required" }, 400);
+        if (st === null || st === undefined) {
+          const { error } = await admin.from("printer_items")
+            .delete().eq("printer_sn", printer_sn).eq("item_id", item_id);
+          if (error) throw error;
+          return json({ ok: true, cleared: true });
+        }
+        const { error } = await admin.from("printer_items")
+          .upsert({ printer_sn, item_id, include: st === "on" }, { onConflict: "printer_sn,item_id" });
+        if (error) throw error;
+        return json({ ok: true });
       }
 
       // ---- BULK: set availability for MANY items across MANY stores ----

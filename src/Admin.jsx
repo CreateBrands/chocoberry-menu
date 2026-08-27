@@ -1306,6 +1306,11 @@ function PrintRouting({ state, T, act }) {
   });
 
   const [sel, setSel] = useState(() => (ticketPrinters[0] || {}).sn || null);
+  const [openCat, setOpenCat] = useState(null);
+  const allItems = state.items || [];
+  const piRows = state.printerItems || [];
+  const itemsIn = (cid) => allItems.filter((it) => it.category_id === cid && it.published !== false);
+  const excFor = (iid) => piRows.find((r) => r.printer_sn === sel && String(r.item_id) === String(iid));
   useEffect(() => {
     if (sel && ticketPrinters.some((p) => p.sn === sel)) return;
     if (ticketPrinters[0]) setSel(ticketPrinters[0].sn);
@@ -1397,24 +1402,61 @@ function PrintRouting({ state, T, act }) {
                     {g.rows.map((c) => {
                       const on = coversAll || covered.has(String(c.id));
                       return (
-                        <span key={c.id} onClick={() => toggle(c.id)}
-                          style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 13px", borderRadius: 10, fontSize: 13.5,
+                        <span key={c.id}
+                          style={{ display: "inline-flex", alignItems: "center", borderRadius: 10, fontSize: 13.5,
                             fontWeight: on ? 600 : 400,
                             background: on ? "#EEF3EA" : T.bg,
                             color: on ? T.accent : T.muted,
-                            border: "1px solid " + (on ? "#D9E6D2" : T.line) }}>
-                          <span style={{ fontSize: 15 }}>{on ? "☑" : "☐"}</span>{c.name}
+                            border: "1px solid " + (openCat === c.id ? T.accent : (on ? "#D9E6D2" : T.line)) }}>
+                          <span onClick={() => toggle(c.id)} style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 4px 8px 13px" }}>
+                            <span style={{ fontSize: 15 }}>{on ? "☑" : "☐"}</span>{c.name}
+                          </span>
+                          <span onClick={() => setOpenCat(openCat === c.id ? null : c.id)} title="Per-item exceptions"
+                            style={{ cursor: "pointer", padding: "8px 11px 8px 7px", fontSize: 11.5, opacity: .85 }}>
+                            {itemsIn(c.id).filter((it) => excFor(it.id)).length || "⋯"}
+                          </span>
                         </span>
                       );
                     })}
                   </div>
+
+                  {g.rows.some((c) => c.id === openCat) && (() => {
+                    const c = g.rows.find((x) => x.id === openCat);
+                    const catOn = coversAll || covered.has(String(c.id));
+                    return (
+                      <div style={{ margin: "0 15px 14px", background: T.bg, border: "1px solid " + T.line, borderRadius: 11, padding: "12px 14px" }}>
+                        <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 10 }}>
+                          Exceptions in <b>{c.name}</b> — this category is {catOn ? "printed" : "not printed"} here, so anything you tick below goes against it.
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 7 }}>
+                          {itemsIn(c.id).map((it) => {
+                            const e = excFor(it.id);
+                            const effective = e ? e.include : catOn;
+                            return (
+                              <span key={it.id}
+                                onClick={() => act("set_printer_item", { printer_sn: sel, item_id: it.id, state: e ? null : (catOn ? "off" : "on") })}
+                                style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5,
+                                  fontWeight: e ? 700 : 400,
+                                  background: e ? (effective ? "#EAF3DE" : "#FCEBEB") : T.card,
+                                  color: e ? (effective ? "#3B6D11" : "#A32D2D") : T.muted,
+                                  border: "1px solid " + (e ? (effective ? "#C0DD97" : "#F7C1C1") : T.line) }}>
+                                {it.name}
+                                {e && <span style={{ marginLeft: 6, fontSize: 11 }}>{effective ? "prints" : "skipped"}</span>}
+                              </span>
+                            );
+                          })}
+                          {itemsIn(c.id).length === 0 && <span style={{ fontSize: 12.5, color: T.faint }}>No items in this category.</span>}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </Fragment>
               );
             })}
           </div>
 
           <div style={{ fontSize: 12.5, color: T.muted, marginTop: 12 }}>
-            Untick everything you do not want. A printer covering all categories stores no settings at all, so new categories are included automatically.
+            Click the number on a category for per-item exceptions. Untick everything you do not want. A printer covering all categories stores no settings at all, so new categories are included automatically.
           </div>
         </>
       )}
@@ -1452,7 +1494,7 @@ export default function Admin() {
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [], kdsScreens: res.kdsScreens || [], printers: res.printers || [], bandItems: res.bandItems || [], bandMenus: res.bandMenus || [], printerCategories: res.printerCategories || [] });
+  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [], kdsScreens: res.kdsScreens || [], printers: res.printers || [], bandItems: res.bandItems || [], bandMenus: res.bandMenus || [], printerCategories: res.printerCategories || [], printerItems: res.printerItems || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   // Optimistic availability toggle: flip the switch in the UI instantly, then
