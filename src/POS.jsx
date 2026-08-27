@@ -265,6 +265,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // print failure during a rush can't be missed. The 2-min sweep will often
   // clear these automatically; staff can also tap to reprint immediately.
   const failedPrintOrders = (orders || []).filter((o) => o.status !== "cancelled" && o.print_failed);
+  // Open tables for the unpaid strip: anything not cancelled with money still
+  // owed, oldest first so the table waiting longest is at the top.
+  const unpaidOrders = (orders || [])
+    .filter((o) => o.status !== "cancelled" && (Number(o.total) || 0) - (Number(o.amount_paid) || 0) > 0.009)
+    .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   // ---- Load menu (same source as the customer app) ----
   // Three levels: master MENU (Breakfast, Desserts…) → subcategory → items.
@@ -655,49 +660,55 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         </>
       )}
 
-      <div style={{ display: "flex", flex: 1, minHeight: 0 }}>
+      {/* ── SIX-COLUMN SHELL ────────────────────────────────────────────────
+          84px icon rail · 140px category rail · item grid · 330px order panel
+          · 104px unpaid strip. The old layout spent ~625px of width on two
+          navigation columns and left the order panel empty until someone
+          tapped something; this reclaims both.
+          The item grid, order panel and modifier sheet below are unchanged. */}
+      <div style={{ display: "grid", gridTemplateColumns: "84px 140px minmax(0,1fr) 330px 104px", flex: 1, minHeight: 0 }}>
 
-        {/* COLUMN 1 — master categories (top) + orders list (below) */}
-        <div style={{ width: "clamp(230px, 18vw, 300px)", flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column", position: "relative" }}>
-          {/* master categories — top, dark zone */}
-          <div style={{ background: P.masterBg, padding: "11px 11px", display: "flex", flexDirection: "column", gap: 7, flexShrink: 0 }}>
-            {catList.map((m, i) => {
-              const on = activeCat === i;
-              return (
-                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} style={{ borderRadius: 12, padding: "14px 15px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, fontSize: 17, fontWeight: 700, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
-                  <span style={{ display: "flex", height: 24 }}>{menuIcon(m.name, on)}</span>
-                  <span title={m.name} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.posName || m.name}</span>
-                </div>
-              );
-            })}
-          </div>
-          {/* orders list — fills the rest */}
-          <div style={{ borderTop: "1px solid " + P.line, display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
-            <OrdersList orders={orders || []} now={now} selId={selOrderId} onSelect={(id) => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(id); }} />
-          </div>
+        {/* 1 — MENU RAIL. Icon over label, so six menus fit 84px instead of 300. */}
+        <div style={{ background: P.masterBg, padding: "10px 6px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto" }}>
+          {catList.map((m, i) => {
+            const on = activeCat === i;
+            return (
+              <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }}
+                title={m.name}
+                style={{ borderRadius: 10, padding: "11px 3px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
+                <span style={{ display: "flex", height: 24 }}>{menuIcon(m.name, on)}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, lineHeight: 1.15, textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.posName || m.name}</span>
+              </div>
+            );
+          })}
         </div>
 
-        {/* COLUMN 2 — subcategories only, full height */}
-        <div style={{ width: "clamp(195px, 15vw, 255px)", flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
-          {master && <div style={{ padding: "14px 15px 9px", display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 15, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }} title={master.name}>{master.posName || master.name}</span>
-            <span onClick={() => setShowMerge(true)} title="Merge categories" style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: P.tealDeep, background: P.chip, border: "1px solid " + P.chipBorder, borderRadius: 8, padding: "4px 8px", cursor: "pointer", textTransform: "none", letterSpacing: 0 }}>⇱ Merge</span>
-          </div>}
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 13px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {/* 2 — CATEGORY RAIL. Vertical, because the names are long: a chip row
+             wraps to three lines and eats the height it was meant to save. */}
+        <div style={{ background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          {master && (
+            <div style={{ padding: "10px 10px 7px", display: "flex", alignItems: "center", gap: 6 }}>
+              <span title={master.name} style={{ flex: 1, minWidth: 0, fontSize: 10.5, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{master.posName || master.name}</span>
+              <span onClick={() => setShowMerge(true)} title="Merge categories" style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: P.tealDeep, background: P.chip, border: "1px solid " + P.chipBorder, borderRadius: 7, padding: "3px 6px", cursor: "pointer" }}>⇱</span>
+            </div>
+          )}
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
             {subs.map((s, i) => {
               const on = activeSub === i && !search;
               return (
-                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 12, padding: "16px 15px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 17, fontWeight: 700, lineHeight: 1.2, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder), boxShadow: on ? "0 4px 12px rgba(13,148,136,.3)" : "none" }}>
-                  <span title={s.name} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{s.posName || s.name}</span>
+                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={s.name}
+                  style={{ borderRadius: 9, padding: "10px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder) }}>
+                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.posName || s.name}</span>
+                  <span style={{ fontSize: 10.5, fontWeight: 600, opacity: .6, flexShrink: 0 }}>{(s.items || []).length}</span>
                 </div>
               );
             })}
-            {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 15.5, textAlign: "center", marginTop: 20 }}>No categories</div>}
+            {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 12.5, textAlign: "center", marginTop: 16 }}>No categories</div>}
           </div>
         </div>
 
-        {/* ITEM GRID */}
-        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column" }}>
+        {/* 3 — ITEM GRID (unchanged inside; it is now a grid cell) */}
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
           <div style={{ padding: "16px 20px 0" }}>
             <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 14, padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
               <span style={{ fontSize: 20, color: P.muted2 }}>⌕</span>
@@ -733,8 +744,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           )}
         </div>
 
-        {/* RIGHT PANEL — order detail when an order is tapped, else the cart */}
-        <div style={{ width: "clamp(380px, 30vw, 560px)", flexShrink: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
+        {/* 4 — ORDER PANEL (unchanged inside) */}
+        <div style={{ minWidth: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
           {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
             <OrderDetailPanel
               printingId={printingId}
@@ -855,6 +866,46 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
           </>
           )}
+        </div>
+
+        {/* 5 — UNPAID STRIP. The orders list used to sit at the bottom of the
+             left column, below the menus, where it was easy to miss. Open
+             tables are the thing a cafe most needs permanently visible, so it
+             gets its own column. Tapping one opens it in the order panel. */}
+        <div style={{ minWidth: 0, background: P.masterBg, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={{ padding: "10px 7px 7px", textAlign: "center", flexShrink: 0 }}>
+            <div style={{ fontSize: 19, fontWeight: 800, color: unpaidOrders.length ? "#E8A87C" : P.masterMuted, lineHeight: 1 }}>{unpaidOrders.length}</div>
+            <div style={{ fontSize: 8.5, letterSpacing: ".08em", color: P.masterMuted, marginTop: 3 }}>UNPAID</div>
+            {unpaidOrders.length > 0 && (
+              <div style={{ fontSize: 10.5, color: "#E8A87C", fontWeight: 700, marginTop: 3 }}>
+                {gbp(unpaidOrders.reduce((t, o) => t + (Number(o.total) || 0) - (Number(o.amount_paid) || 0), 0))}
+              </div>
+            )}
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "0 6px 8px", display: "flex", flexDirection: "column", gap: 5 }}>
+            {unpaidOrders.map((o) => {
+              const on = selOrderId === o.id;
+              const mins = Math.max(0, Math.round((now - new Date(o.created_at).getTime()) / 60000));
+              return (
+                <div key={o.id} onClick={() => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(o.id); }}
+                  title={"Order #" + o.order_no}
+                  style={{ borderRadius: 9, padding: "8px 5px", cursor: "pointer", textAlign: "center",
+                    background: on ? grad : "rgba(255,255,255,.06)",
+                    border: "1px solid " + (on ? "transparent" : "rgba(255,255,255,.09)") }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: on ? "#fff" : "#E8DFD2", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no)}
+                  </div>
+                  <div style={{ fontSize: 9, color: on ? "rgba(255,255,255,.8)" : P.masterMuted, marginTop: 2 }}>
+                    {mins < 60 ? mins + "m" : Math.floor(mins / 60) + "h" + (mins % 60) + "m"}
+                  </div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: on ? "#fff" : "#E8A87C", marginTop: 3 }}>{gbp(o.total)}</div>
+                </div>
+              );
+            })}
+            {unpaidOrders.length === 0 && (
+              <div style={{ fontSize: 9.5, color: P.masterMuted, textAlign: "center", marginTop: 12, lineHeight: 1.4 }}>All paid</div>
+            )}
+          </div>
         </div>
       </div>
 
