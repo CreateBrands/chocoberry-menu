@@ -68,11 +68,27 @@ const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
 
 const DEFAULT_STATION = "kitchen";
 
+// Each order-item row -> its menu category id. Ticket routing filters on this
+// now that printers cover categories rather than competing over stations.
+async function resolveLineCategoryIds(
+  rows: Array<Record<string, unknown>>,
+): Promise<Array<string | null>> {
+  const itemIds = [...new Set(rows.map((r) => r.item_id).filter(Boolean).map(String))];
+  const byItem = new Map<string, string | null>();
+  if (itemIds.length) {
+    const { data: mi } = await supabase
+      .from("menu_items").select("id, category_id").in("id", itemIds);
+    for (const r of mi ?? []) byItem.set(String(r.id), (r.category_id as string) ?? null);
+  }
+  return rows.map((r) => (r.item_id ? byItem.get(String(r.item_id)) ?? null : null));
+}
+
 // For each order-item row, resolve the effective station:
 //   item.station  (if set)  ->  its category.station  ->  DEFAULT_STATION
 async function resolveLineStations(
   rows: Array<Record<string, unknown>>,
 ): Promise<string[]> {
+  // (categories for the same rows are resolved by resolveLineCategories below)
   const itemIds = [...new Set(rows.map((r) => r.item_id).filter(Boolean).map(String))];
   const itemStation = new Map<string, string | null>();
   const itemCategory = new Map<string, string | null>();
@@ -167,6 +183,8 @@ async function loadReceiptOrder(
   const stationByLine = await resolveLineStations(itemRows ?? []);
   // Resolve each line's master category name (menu_menus.name) for grouping.
   const categoryByLine = await resolveLineCategories(itemRows ?? []);
+  // Category ID per line — what printer ticket routing filters on.
+  const categoryIdByLine = await resolveLineCategoryIds(itemRows ?? []);
 
   const items: ReceiptItem[] = (itemRows ?? []).map((it, i) => {
     const mods = it.modifiers_snapshot as Record<string, unknown> | unknown[] | null;
@@ -177,6 +195,7 @@ async function loadReceiptOrder(
         ? it.line_total
         : parseFloat(String(it.line_total ?? "")) || undefined,
       station: stationByLine[i],
+      category_id: categoryIdByLine[i],
       category: categoryByLine[i],
       added: (it.added_batch ?? 0) > 0,
       batch: it.added_batch ?? 0,
@@ -347,12 +366,13 @@ async function logJob(fields: Record<string, unknown>) {
   if (error) console.error("print_jobs insert failed:", error.message);
 }
 
-async function alreadyPrinted(orderId: string, sn: string): Promise<boolean> {
+async function alreadyPrinted(orderId: string, sn: string, slip = "ticket"): Promise<boolean> {
   const { data } = await supabase
     .from("print_jobs")
     .select("id")
     .eq("order_id", orderId)
     .eq("printer_sn", sn)
+    .eq("slip", slip)
     .eq("status", "sent")
     .limit(1);
   return !!data && data.length > 0;
@@ -362,12 +382,13 @@ async function alreadyPrinted(orderId: string, sn: string): Promise<boolean> {
 // or -1 if it has never printed it. Drives per-printer independence: a printer
 // only prints rounds beyond what it last confirmed, so a retry never reprints
 // rounds another printer (or an earlier attempt) already handled.
-async function lastPrintedBatch(orderId: string, sn: string): Promise<number> {
+async function lastPrintedBatch(orderId: string, sn: string, slip = "ticket"): Promise<number> {
   const { data } = await supabase
     .from("print_jobs")
     .select("max_batch")
     .eq("order_id", orderId)
     .eq("printer_sn", sn)
+    .eq("slip", slip)
     .eq("status", "sent")
     .order("max_batch", { ascending: false })
     .limit(1);
@@ -402,16 +423,45 @@ async function printOrder(
 
   const results: Array<Record<string, unknown>> = [];
 
-  for (const printer of printers) {
+  // A printer set to print BOTH a ticket and a receipt is visited twice: once
+  // producing the items ticket, once the priced receipt. Expanding the list
+  // here keeps the per-print logic below (rounds, copies, retries) untouched
+  // and identical for both slips.
+  const passes: Array<{ printer: Record<string, unknown>; mode: "ticket" | "receipt" }> = [];
+  for (const pr of printers) {
+    const lr = String((pr as any).print_role ?? "station").toLowerCase();
+    const t = (pr as any).print_ticket ?? (lr !== "receipt");
+    const r = (pr as any).print_receipt ?? (lr === "receipt");
+    if (t) passes.push({ printer: pr, mode: "ticket" });
+    if (r) passes.push({ printer: pr, mode: "receipt" });
+  }
+
+  for (const pass of passes) {
+    const printer = pass.printer;
     const sn = String((printer as any).sn);
     const station = String((printer as any).station ?? DEFAULT_STATION);
 
-    // A RECEIPT printer (the counter) takes the WHOLE order every time. It has
-    // no station of its own, so station filtering does not apply to it — that
-    // is exactly why the counter went silent when it moved off station
-    // 'kitchen': no menu item resolves to 'counter', so it matched nothing.
-    const role = String((printer as any).print_role ?? "station").toLowerCase();
-    const isReceipt = role === "receipt";
+    // PRINTERS ARE INDEPENDENT. Each one decides for itself what it prints;
+    // two printers may both cover the same category, and one printer may print
+    // BOTH an items ticket and a full receipt for the same order.
+    //
+    //   print_ticket  -> an items ticket, narrowed by printer_categories
+    //                    (no rows for this printer = every category)
+    //   print_receipt -> the whole order with prices
+    //
+    // Falls back to the older print_role for any printer not yet migrated.
+    const wantsTicket = pass.mode === "ticket";
+    const wantsReceipt = pass.mode === "receipt";
+    const isReceipt = wantsReceipt;
+
+    // Which categories this printer's TICKET covers. No rows = all of them,
+    // so narrowing is always a deliberate act.
+    let coveredCats: Set<string> | null = null;
+    if (wantsTicket) {
+      const { data: pc } = await supabase
+        .from("printer_categories").select("category_id").eq("printer_sn", sn);
+      if (pc && pc.length) coveredCats = new Set(pc.map((r: any) => String(r.category_id)));
+    }
 
     // auto_print=false: excluded from AUTOMATIC prints only. A targeted or
     // forced print (reprint, "print slip") still works, so a printer being
@@ -421,17 +471,15 @@ async function printOrder(
       continue;
     }
 
-    // Filter this order's items to those for this printer's station.
-    // Single-printer store => print everything regardless of station.
-    let lines = (singlePrinter || isReceipt)
+    // What this printer's TICKET contains. A receipt-only printer takes the
+    // whole order. A ticket printer takes the categories it covers — and if it
+    // covers all of them, it takes everything. No station filtering: printers
+    // no longer compete for items.
+    let lines = wantsReceipt && !wantsTicket
       ? allItems
-      : allItems.filter((it) => {
-          const s = it.station ?? DEFAULT_STATION;
-          // If an item's station has no dedicated printer, fall it back to
-          // the kitchen printer so nothing is silently dropped.
-          if (stations.has(s)) return s === station;
-          return station === DEFAULT_STATION;
-        });
+      : (coveredCats
+          ? allItems.filter((it) => coveredCats!.has(String((it as any).category_id ?? "")))
+          : allItems);
 
     if (lines.length === 0) {
       results.push({ printer: sn, station, skipped: true, reason: "no items for this station" });
@@ -446,8 +494,9 @@ async function printOrder(
     //   - a new round prints just that round, not the whole order again,
     //   - the endless "reprint everything on both printers" loop is gone.
     // A forced/manual reprint (force=true) always prints the full order.
-    const printedBefore = await alreadyPrinted(orderId, sn);
-    const alreadyBatch = force ? -1 : await lastPrintedBatch(orderId, sn);
+    const slip = pass.mode;
+    const printedBefore = await alreadyPrinted(orderId, sn, slip);
+    const alreadyBatch = force ? -1 : await lastPrintedBatch(orderId, sn, slip);
     if (!force && alreadyBatch >= 0) {
       lines = lines.filter((it) => (it.batch ?? 0) > alreadyBatch);
     }
@@ -523,6 +572,7 @@ async function printOrder(
         printer_sn: sn,
         status: success ? "sent" : (pending ? "pending" : "failed"),
         max_batch: success ? maxBatchThisRun : null,
+        slip,
         response: res,
         error: success ? null
           : pending ? "pushed to Sunmi queue; awaiting printer confirmation"
