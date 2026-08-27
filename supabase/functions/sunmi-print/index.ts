@@ -301,6 +301,15 @@ function narrowToTarget(
       (p) => String((p as any).station ?? DEFAULT_STATION).toLowerCase() === want,
     );
     if (hit.length) return hit;
+    // Asking for the counter is really asking for the RECEIPT printer. Match on
+    // role too, so targeting keeps working even if a receipt printer has no
+    // station set — which is the correct state for one.
+    if (want === "counter") {
+      const byRole = printers.filter(
+        (p) => String((p as any).print_role ?? "station").toLowerCase() === "receipt",
+      );
+      if (byRole.length) return byRole;
+    }
     // No printer for that station: fall back to the default-station printer so
     // a ticket is never silently dropped, exactly as the item routing does.
     const fallback = printers.filter(
@@ -397,9 +406,24 @@ async function printOrder(
     const sn = String((printer as any).sn);
     const station = String((printer as any).station ?? DEFAULT_STATION);
 
+    // A RECEIPT printer (the counter) takes the WHOLE order every time. It has
+    // no station of its own, so station filtering does not apply to it — that
+    // is exactly why the counter went silent when it moved off station
+    // 'kitchen': no menu item resolves to 'counter', so it matched nothing.
+    const role = String((printer as any).print_role ?? "station").toLowerCase();
+    const isReceipt = role === "receipt";
+
+    // auto_print=false: excluded from AUTOMATIC prints only. A targeted or
+    // forced print (reprint, "print slip") still works, so a printer being
+    // serviced can be muted without losing on-demand use.
+    if (!force && !target && (printer as any).auto_print === false) {
+      results.push({ printer: sn, station, skipped: true, reason: "auto-print off for this printer" });
+      continue;
+    }
+
     // Filter this order's items to those for this printer's station.
     // Single-printer store => print everything regardless of station.
-    let lines = singlePrinter
+    let lines = (singlePrinter || isReceipt)
       ? allItems
       : allItems.filter((it) => {
           const s = it.station ?? DEFAULT_STATION;

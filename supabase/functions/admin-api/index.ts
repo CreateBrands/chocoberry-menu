@@ -465,7 +465,7 @@ Deno.serve(async (req) => {
       case "printer_update": {
         const { id, fields } = data || {};
         if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["label", "store_id", "location_id", "active", "station", "copies"];
+        const allowed = ["label", "store_id", "location_id", "active", "station", "copies", "print_role", "auto_print"];
         const patch: any = {};
         for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
         const { error } = await admin.from("printers").update(patch).eq("id", id);

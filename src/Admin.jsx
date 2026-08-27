@@ -613,6 +613,20 @@ function PrintersModal({ pin, locations, onClose }) {
     try { await callAdmin(pin, "printer_update", { id: p.id, fields: { station } }); await load(); }
     catch (e) { setMsg(e.message); } finally { setBusy(false); }
   };
+  // A printer does one of two jobs. A STATION printer gets only the lines for
+  // its own station (a kitchen ticket). A RECEIPT printer gets the whole order
+  // every time — that is the counter. Getting this wrong is why the counter
+  // stopped printing when its station changed.
+  const changeRole = async (p, print_role) => {
+    setBusy(true); setMsg("");
+    try { await callAdmin(pin, "printer_update", { id: p.id, fields: { print_role } }); await load(); }
+    catch (e) { setMsg(e.message); } finally { setBusy(false); }
+  };
+  const toggleAuto = async (p) => {
+    setBusy(true); setMsg("");
+    try { await callAdmin(pin, "printer_update", { id: p.id, fields: { auto_print: p.auto_print === false } }); await load(); }
+    catch (e) { setMsg(e.message); } finally { setBusy(false); }
+  };
   const changeCopies = async (p, copies) => {
     setBusy(true);
     try { await callAdmin(pin, "printer_update", { id: p.id, fields: { copies: parseInt(copies, 10) || 1 } }); await load(); }
@@ -638,7 +652,9 @@ function PrintersModal({ pin, locations, onClose }) {
           <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22, color: T.ink }}>Printers</div>
           <button onClick={onClose} style={{ fontSize: 20, background: "none", border: "none", cursor: "pointer", color: T.muted }}>×</button>
         </div>
-        <div style={{ fontSize: 13, color: T.muted, marginBottom: 18 }}>Kitchen printers for your stores. Orders print automatically to the printer mapped to their store.</div>
+        <div style={{ fontSize: 13, color: T.muted, marginBottom: 18, maxWidth: 720 }}>
+          Each printer does one job. <b>Kitchen ticket</b> prints only the items for its own station. <b>Full receipt</b> prints the whole order every time — that is what a counter printer should be. Set a printer to <b>Manual</b> to stop automatic prints while keeping reprints working.
+        </div>
 
         {msg && <div style={{ fontSize: 13, color: msg.startsWith("Test sent") ? T.accent : T.danger, marginBottom: 12 }}>{msg}</div>}
 
@@ -647,7 +663,7 @@ function PrintersModal({ pin, locations, onClose }) {
           {printers === null && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>Loading…</div>}
           {printers && printers.length === 0 && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>No printers yet. Add one below.</div>}
           {printers && printers.map((p, idx) => (
-            <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr 110px 96px 90px 140px", gap: 12, alignItems: "center", padding: "13px 16px", borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .55 }}>
+            <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 108px 104px 92px 86px 84px 120px", gap: 10, alignItems: "center", padding: "13px 16px", borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .55 }}>
               <div style={{ display: "flex", alignItems: "center" }}>
                 <Dot online={p.online} />
                 <div>
@@ -668,6 +684,23 @@ function PrintersModal({ pin, locations, onClose }) {
                   <option value="kitchen">Kitchen</option>
                   <option value="counter">Counter</option>
                 </select>
+              </div>
+              <div>
+                <select value={p.print_role || "station"} onChange={(e) => changeRole(p, e.target.value)}
+                  title="Station: only this station's items, as a kitchen ticket. Receipt: the whole order, every time."
+                  style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid " + T.line, background: T.bg, color: T.ink }}>
+                  <option value="station">Kitchen ticket</option>
+                  <option value="receipt">Full receipt</option>
+                </select>
+              </div>
+              <div>
+                <button onClick={() => toggleAuto(p)} disabled={busy}
+                  title={p.auto_print === false ? "Not printed to automatically. On-demand prints still work." : "Prints automatically when an order comes in."}
+                  style={{ fontSize: 12, fontWeight: 700, border: "none", borderRadius: 20, padding: "5px 10px", cursor: "pointer", width: "100%",
+                    background: p.auto_print === false ? "rgba(150,140,120,.16)" : "rgba(94,122,77,.14)",
+                    color: p.auto_print === false ? T.muted : T.accent }}>
+                  {p.auto_print === false ? "Manual" : "Auto"}
+                </button>
               </div>
               <div>
                 <select value={p.copies || 1} onChange={(e) => changeCopies(p, e.target.value)} title="How many copies of each slip this printer prints"
