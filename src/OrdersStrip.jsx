@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import CartLine from "./CartLine.jsx";
 
 // ── Single-screen POS orders ─────────────────────────────────────────
@@ -155,6 +155,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
+  const payingRef = useRef(false);                     // in-flight payment latch
   const [splitAmt, setSplitAmt] = useState("");        // typed amount for split-by-amount
   const [evenN, setEvenN] = useState(2);               // number of ways for split-evenly
   const [evenGiven, setEvenGiven] = useState(null);    // cash tendered for current even share
@@ -180,8 +181,22 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   const isPaid = !!o.paid_method || remaining <= 0.001;
 
   async function pay(method, amount, extra) {
+    // DOUBLE-TAP GUARD. `busy` was checked on some buttons but never set here,
+    // so two taps fired two identical tenders milliseconds apart and the order
+    // was recorded as paid twice. The database now refuses the duplicate; this
+    // stops it being attempted at all, so staff see nothing rather than an error.
+    if (payingRef.current) return { ok: false, duplicate: true };
+    payingRef.current = true;
+    setBusy(true);
     const fn = onTakePayment || onPay;
-    const res = await fn(o, method, amount, extra || {});
+    let res;
+    try {
+      res = await fn(o, method, amount, extra || {});
+    } finally {
+      setBusy(false);
+      // Short tail so a second tap landing just after the response still misses.
+      setTimeout(() => { payingRef.current = false; }, 1200);
+    }
     if (res && res.unauthorized) { setNote("Enter your PIN and try again."); return res; }
     if (res && res.ok === false) { setNote("Payment failed — try again."); return res; }
     if (res && res.fully_paid) { /* parent closes panel */ return res; }
@@ -234,7 +249,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div onClick={() => { setMode("cash"); setCashGiven(null); }} style={{ padding: "28px 0", borderRadius: 14, background: "#5E7A4D", color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.cash(22, "#fff")} Cash</div>
-          <div onClick={() => pay("card", remaining)} style={{ padding: "28px 0", borderRadius: 14, background: C.paidGreen, color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, opacity: busy ? .6 : 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.card(22, "#fff")} Card</div>
+          <div onClick={() => { if (!busy) pay("card", remaining); }} style={{ padding: "28px 0", borderRadius: 14, background: C.paidGreen, color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, opacity: busy ? .6 : 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.card(22, "#fff")} Card</div>
         </div>
         <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, margin: "14px 2px 8px" }}>Split the bill</div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
