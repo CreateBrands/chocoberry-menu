@@ -662,63 +662,86 @@ function PrintersModal({ pin, locations, onClose }) {
         <div style={{ background: T.card, borderRadius: 14, border: "1px solid " + T.line, overflow: "hidden", marginBottom: 18 }}>
           {printers === null && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>Loading…</div>}
           {printers && printers.length === 0 && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>No printers yet. Add one below.</div>}
-          {printers && printers.map((p, idx) => (
-            <div key={p.id} style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 108px 104px 92px 86px 84px 120px", gap: 10, alignItems: "center", padding: "13px 16px", borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .55 }}>
-              <div style={{ display: "flex", alignItems: "center" }}>
+          {printers && printers.map((p, idx) => {
+            // One CARD per printer rather than one wide row. Eight controls in a
+            // grid overflowed the dialog and clipped the last column; stacking
+            // them into labelled fields fits, and each control can say what it
+            // is instead of relying on a header far away.
+            const isReceipt = (p.print_role || "station") === "receipt";
+            const auto = p.auto_print !== false;
+            const fieldLab = { fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", color: T.faint, marginBottom: 5, textTransform: "uppercase" };
+            const sel = { width: "100%", fontSize: 13, padding: "8px 9px", borderRadius: 9, border: "1px solid " + T.line, background: T.bg, color: T.ink };
+            return (
+            <div key={p.id} style={{ padding: "16px 18px", borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
                 <Dot online={p.online} />
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, color: T.ink, fontSize: 15 }}>{p.label || "Printer"}</div>
+                  <div style={{ fontSize: 11.5, color: T.faint, fontFamily: "monospace" }}>{p.sn}</div>
+                </div>
+                <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20,
+                  background: isReceipt ? "#E1F5EE" : "#FAEEDA", color: isReceipt ? "#0F6E56" : "#854F0B" }}>
+                  {isReceipt ? "RECEIPT" : "STATION"}
+                </span>
+                {!auto && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#F1EFE8", color: "#5F5E5A" }}>MANUAL</span>}
+                <span style={{ flex: 1 }} />
+                <button disabled={busy} onClick={() => testPrint(p)} style={{ fontSize: 13, fontWeight: 600, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 13px", cursor: "pointer" }}>Test print</button>
+                <button onClick={() => toggleActive(p)} style={{ fontSize: 12.5, fontWeight: 700, border: "none", borderRadius: 9, padding: "8px 13px", cursor: "pointer", background: p.active ? "rgba(94,122,77,.14)" : "rgba(178,59,59,.12)", color: p.active ? T.accent : T.danger }}>{p.active ? "Active" : "Off"}</button>
+                <button disabled={busy} onClick={() => removePrinter(p)} title="Remove printer" style={{ fontSize: 18, color: T.faint, background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}>×</button>
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
                 <div>
-                  <div style={{ fontWeight: 600, color: T.ink, fontSize: 14 }}>{p.label || "Printer"}</div>
-                  <div style={{ fontSize: 12, color: T.muted, fontFamily: "monospace" }}>{p.sn}</div>
+                  <div style={fieldLab}>Store</div>
+                  <select value={p.location_id || ""} onChange={(e) => changeStore(p, e.target.value)} style={sel}>
+                    <option value="">— unassigned —</option>
+                    {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <div style={fieldLab}>Prints</div>
+                  <select value={p.print_role || "station"} onChange={(e) => changeRole(p, e.target.value)} style={sel}>
+                    <option value="station">Kitchen ticket</option>
+                    <option value="receipt">Full receipt</option>
+                  </select>
+                  <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
+                    {isReceipt ? "The whole order, every time." : "Only this station's items."}
+                  </div>
+                </div>
+                <div>
+                  <div style={fieldLab}>Station</div>
+                  <select value={p.station || "kitchen"} onChange={(e) => changeStation(p, e.target.value)} disabled={isReceipt}
+                    style={{ ...sel, opacity: isReceipt ? .45 : 1, cursor: isReceipt ? "not-allowed" : "pointer" }}>
+                    <option value="kitchen">Kitchen</option>
+                    <option value="counter">Counter</option>
+                  </select>
+                  <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
+                    {isReceipt ? "Not used — receipts ignore stations." : "Which items reach it."}
+                  </div>
+                </div>
+                <div>
+                  <div style={fieldLab}>When an order comes in</div>
+                  <button onClick={() => toggleAuto(p)} disabled={busy} style={{ ...sel, textAlign: "left", fontWeight: 700, cursor: "pointer",
+                    background: auto ? "rgba(94,122,77,.12)" : T.bg, color: auto ? T.accent : T.muted }}>
+                    {auto ? "Print automatically" : "Manual only"}
+                  </button>
+                  <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
+                    {auto ? "Reprints work too." : "Reprints still work."}
+                  </div>
+                </div>
+                <div>
+                  <div style={fieldLab}>Copies</div>
+                  <select value={p.copies || 1} onChange={(e) => changeCopies(p, e.target.value)} style={sel}>
+                    <option value={1}>1 copy</option>
+                    <option value={2}>2 copies</option>
+                    <option value={3}>3 copies</option>
+                    <option value={4}>4 copies</option>
+                  </select>
                 </div>
               </div>
-              <div>
-                <select value={p.location_id || ""} onChange={(e) => changeStore(p, e.target.value)}
-                  style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid " + T.line, background: T.bg, color: T.ink, maxWidth: "100%" }}>
-                  <option value="">— unassigned —</option>
-                  {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
-                </select>
-              </div>
-              <div>
-                <select value={p.station || "kitchen"} onChange={(e) => changeStation(p, e.target.value)}
-                  style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid " + T.line, background: T.bg, color: T.ink }}>
-                  <option value="kitchen">Kitchen</option>
-                  <option value="counter">Counter</option>
-                </select>
-              </div>
-              <div>
-                <select value={p.print_role || "station"} onChange={(e) => changeRole(p, e.target.value)}
-                  title="Station: only this station's items, as a kitchen ticket. Receipt: the whole order, every time."
-                  style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid " + T.line, background: T.bg, color: T.ink }}>
-                  <option value="station">Kitchen ticket</option>
-                  <option value="receipt">Full receipt</option>
-                </select>
-              </div>
-              <div>
-                <button onClick={() => toggleAuto(p)} disabled={busy}
-                  title={p.auto_print === false ? "Not printed to automatically. On-demand prints still work." : "Prints automatically when an order comes in."}
-                  style={{ fontSize: 12, fontWeight: 700, border: "none", borderRadius: 20, padding: "5px 10px", cursor: "pointer", width: "100%",
-                    background: p.auto_print === false ? "rgba(150,140,120,.16)" : "rgba(94,122,77,.14)",
-                    color: p.auto_print === false ? T.muted : T.accent }}>
-                  {p.auto_print === false ? "Manual" : "Auto"}
-                </button>
-              </div>
-              <div>
-                <select value={p.copies || 1} onChange={(e) => changeCopies(p, e.target.value)} title="How many copies of each slip this printer prints"
-                  style={{ fontSize: 13, padding: "6px 8px", borderRadius: 8, border: "1px solid " + T.line, background: T.bg, color: T.ink }}>
-                  <option value={1}>1 copy</option>
-                  <option value={2}>2 copies</option>
-                  <option value={3}>3 copies</option>
-                  <option value={4}>4 copies</option>
-                </select>
-              </div>
-              <div>
-                <button onClick={() => toggleActive(p)} style={{ fontSize: 12, fontWeight: 700, border: "none", borderRadius: 20, padding: "5px 10px", cursor: "pointer", background: p.active ? "rgba(94,122,77,.14)" : "rgba(178,59,59,.12)", color: p.active ? T.accent : T.danger }}>{p.active ? "Active" : "Off"}</button>
-              </div>
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button disabled={busy} onClick={() => testPrint(p)} style={{ fontSize: 13, fontWeight: 600, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 8, padding: "5px 10px", cursor: "pointer" }}>Test</button>
-                <button disabled={busy} onClick={() => removePrinter(p)} title="Remove" style={{ fontSize: 16, color: T.danger, background: "none", border: "none", cursor: "pointer" }}>×</button>
-              </div>
             </div>
+            );
+          })}
           ))}
         </div>
 
