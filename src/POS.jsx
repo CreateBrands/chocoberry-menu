@@ -265,10 +265,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // print failure during a rush can't be missed. The 2-min sweep will often
   // clear these automatically; staff can also tap to reprint immediately.
   const failedPrintOrders = (orders || []).filter((o) => o.status !== "cancelled" && o.print_failed);
-  // Open tables for the unpaid strip: anything not cancelled with money still
-  // owed, oldest first so the table waiting longest is at the top.
+  // Open tables for the unpaid strip. Paid is decided by paid_method, the same
+  // test OrdersList uses — NOT by amount_paid, which stays at zero on orders
+  // settled at the counter and made paid orders look outstanding.
   const unpaidOrders = (orders || [])
-    .filter((o) => o.status !== "cancelled" && (Number(o.total) || 0) - (Number(o.amount_paid) || 0) > 0.009)
+    .filter((o) => o.status !== "cancelled" && !o.paid_method)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
 
   // ---- Load menu (same source as the customer app) ----
@@ -878,7 +879,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <div style={{ fontSize: 8.5, letterSpacing: ".08em", color: P.masterMuted, marginTop: 3 }}>UNPAID</div>
             {unpaidOrders.length > 0 && (
               <div style={{ fontSize: 10.5, color: "#E8A87C", fontWeight: 700, marginTop: 3 }}>
-                {gbp(unpaidOrders.reduce((t, o) => t + (Number(o.total) || 0) - (Number(o.amount_paid) || 0), 0))}
+                {gbp(unpaidOrders.reduce((t, o) => t + (Number(o.total) || 0), 0))}
               </div>
             )}
           </div>
