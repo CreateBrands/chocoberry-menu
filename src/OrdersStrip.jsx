@@ -255,11 +255,24 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
           <div onClick={() => { setMode("cash"); setCashGiven(null); }} style={{ padding: "28px 0", borderRadius: 14, background: "#5E7A4D", color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.cash(22, "#fff")} Cash</div>
           <div onClick={() => { if (!busy) pay("card", remaining); }} style={{ padding: "28px 0", borderRadius: 14, background: C.paidGreen, color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, opacity: busy ? .6 : 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.card(22, "#fff")} Card</div>
         </div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, margin: "14px 2px 8px" }}>Split the bill</div>
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div onClick={() => { setSplitAmt(""); setMode("splitAmt"); }} style={{ padding: "14px 15px", borderRadius: 12, background: "#EDE7D9", color: "#4a4f3d", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>By amount / tender <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>£X card, rest cash</span></div>
-          <div onClick={() => { setEvenN(2); setEvenGiven(null); setMode("splitEven"); }} style={{ padding: "14px 15px", borderRadius: 12, background: "#EDE7D9", color: "#4a4f3d", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>Split evenly <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>2, 3, 4 ways…</span></div>
-          <div onClick={() => { setPickIds({}); setMode("splitItem"); }} style={{ padding: "14px 15px", borderRadius: 12, background: "#EDE7D9", color: "#4a4f3d", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>By item <span style={{ fontSize: 11, color: C.sub, fontWeight: 600 }}>pick items to pay</span></div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, margin: "18px 2px 9px" }}>Split the bill</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
+          {[
+            // Same tile language as Cash and Card, one step quieter: white with
+            // a green edge rather than solid green, so they read as the same
+            // family without competing with the two primary actions.
+            { key: "amt",  label: "By amount", hint: "£X, rest after", icon: Ico.cash,     go: () => { setSplitAmt(""); setMode("splitAmt"); } },
+            { key: "even", label: "Evenly",    hint: "2, 3, 4 ways",   icon: Ico.card,     go: () => { setEvenN(2); setEvenGiven(null); setMode("splitEven"); } },
+            { key: "item", label: "By item",   hint: "pick items",     icon: Ico.utensils, go: () => { setPickIds({}); setMode("splitItem"); } },
+          ].map((o2) => (
+            <div key={o2.key} onClick={o2.go}
+              style={{ padding: "18px 8px 15px", borderRadius: 14, background: "#fff", border: "1.5px solid #5E7A4D",
+                textAlign: "center", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>
+              {o2.icon(20, "#5E7A4D")}
+              <span style={{ fontWeight: 700, fontSize: 14, color: "#3d4a33", lineHeight: 1.2 }}>{o2.label}</span>
+              <span style={{ fontSize: 10.5, color: C.sub, fontWeight: 600, lineHeight: 1.25 }}>{o2.hint}</span>
+            </div>
+          ))}
         </div>
       </div>
     </>);
