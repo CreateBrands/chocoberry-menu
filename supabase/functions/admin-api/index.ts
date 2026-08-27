@@ -135,7 +135,7 @@ Deno.serve(async (req) => {
           // its name shifts every result after it (kdsScreens once received
           // band prices, priceBands received printers).
           admin.from("kds_screens").select("*"),
-          admin.from("printers").select("sn,label,station,active,location_id"),
+          admin.from("printers").select("sn,label,station,active,location_id,print_role,auto_print,copies,print_ticket,print_receipt,auto_ticket,auto_receipt"),
           // Appended AFTER printers, with their names appended in the same
           // order above — never inserted mid-array. See the note above.
           admin.from("menu_band_items").select("*"),
@@ -465,7 +465,7 @@ Deno.serve(async (req) => {
       case "printer_update": {
         const { id, fields } = data || {};
         if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["label", "store_id", "location_id", "active", "station", "copies", "print_role", "auto_print"];
+        const allowed = ["label", "store_id", "location_id", "active", "station", "copies", "print_role", "auto_print", "print_ticket", "print_receipt", "auto_ticket", "auto_receipt"];
         const patch: any = {};
         for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
         const { error } = await admin.from("printers").update(patch).eq("id", id);

@@ -487,11 +487,15 @@ async function printOrder(
       if (pc && pc.length) coveredCats = new Set(pc.map((r: any) => String(r.category_id)));
     }
 
-    // auto_print=false: excluded from AUTOMATIC prints only. A targeted or
-    // forced print (reprint, "print slip") still works, so a printer being
-    // serviced can be muted without losing on-demand use.
-    if (!force && !target && (printer as any).auto_print === false) {
-      results.push({ printer: sn, station, skipped: true, reason: "auto-print off for this printer" });
+    // Auto/manual is per SLIP. A printer can fire its kitchen ticket on every
+    // order while its customer receipt waits to be asked for. Excluded from
+    // AUTOMATIC prints only — a targeted or forced print still works, so a
+    // printer can be muted without losing reprints.
+    const autoForSlip = pass.mode === "receipt"
+      ? ((printer as any).auto_receipt ?? (printer as any).auto_print ?? true)
+      : ((printer as any).auto_ticket ?? (printer as any).auto_print ?? true);
+    if (!force && !target && autoForSlip === false) {
+      results.push({ printer: sn, station, slip: pass.mode, skipped: true, reason: "auto-print off for this slip" });
       continue;
     }
 

@@ -675,6 +675,8 @@ function PrintersModal({ pin, locations, onClose }) {
             const receipt = p.print_receipt ?? legacy;
             const isReceipt = receipt && !ticket;
             const auto = p.auto_print !== false;
+            const autoTicket = p.auto_ticket ?? auto;
+            const autoReceipt = p.auto_receipt ?? auto;
             const fieldLab = { fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", color: T.faint, marginBottom: 5, textTransform: "uppercase" };
             const sel = { width: "100%", fontSize: 13, padding: "8px 9px", borderRadius: 9, border: "1px solid " + T.line, background: T.bg, color: T.ink };
             return (
@@ -688,7 +690,7 @@ function PrintersModal({ pin, locations, onClose }) {
                 {ticket && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#FAEEDA", color: "#854F0B" }}>TICKET</span>}
                 {receipt && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#E1F5EE", color: "#0F6E56" }}>RECEIPT</span>}
                 {!ticket && !receipt && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#FCEBEB", color: "#A32D2D" }}>PRINTS NOTHING</span>}
-                {!auto && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#F1EFE8", color: "#5F5E5A" }}>MANUAL</span>}
+                {((ticket && !autoTicket) || (receipt && !autoReceipt)) && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#F1EFE8", color: "#5F5E5A" }}>SOME MANUAL</span>}
                 <span style={{ flex: 1 }} />
                 <button disabled={busy} onClick={() => testPrint(p)} style={{ fontSize: 13, fontWeight: 600, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 13px", cursor: "pointer" }}>Test print</button>
                 <button onClick={() => toggleActive(p)} style={{ fontSize: 12.5, fontWeight: 700, border: "none", borderRadius: 9, padding: "8px 13px", cursor: "pointer", background: p.active ? "rgba(94,122,77,.14)" : "rgba(178,59,59,.12)", color: p.active ? T.accent : T.danger }}>{p.active ? "Active" : "Off"}</button>
@@ -705,34 +707,44 @@ function PrintersModal({ pin, locations, onClose }) {
                 </div>
                 <div>
                   <div style={fieldLab}>Kitchen ticket</div>
-                  <button onClick={() => act("printer_update", { id: p.id, fields: { print_ticket: !ticket } })} disabled={busy}
-                    style={{ ...sel, textAlign: "left", fontWeight: 700, cursor: "pointer",
-                      background: ticket ? "rgba(186,117,23,.12)" : T.bg, color: ticket ? "#854F0B" : T.muted }}>
-                    {ticket ? "On" : "Off"}
-                  </button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => act("printer_update", { id: p.id, fields: { print_ticket: !ticket } })} disabled={busy}
+                      style={{ ...sel, flex: 1, textAlign: "left", fontWeight: 700, cursor: "pointer",
+                        background: ticket ? "rgba(186,117,23,.12)" : T.bg, color: ticket ? "#854F0B" : T.muted }}>
+                      {ticket ? "On" : "Off"}
+                    </button>
+                    {ticket && (
+                      <button onClick={() => act("printer_update", { id: p.id, fields: { auto_ticket: !autoTicket } })} disabled={busy}
+                        title={autoTicket ? "Prints on every order" : "Only prints when asked"}
+                        style={{ ...sel, width: 84, textAlign: "center", fontWeight: 700, cursor: "pointer",
+                          background: T.bg, color: autoTicket ? T.accent : T.muted }}>
+                        {autoTicket ? "Auto" : "Manual"}
+                      </button>
+                    )}
+                  </div>
                   <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
                     What to make. No prices.
                   </div>
                 </div>
                 <div>
                   <div style={fieldLab}>Full receipt</div>
-                  <button onClick={() => act("printer_update", { id: p.id, fields: { print_receipt: !receipt } })} disabled={busy}
-                    style={{ ...sel, textAlign: "left", fontWeight: 700, cursor: "pointer",
-                      background: receipt ? "rgba(15,110,86,.12)" : T.bg, color: receipt ? "#0F6E56" : T.muted }}>
-                    {receipt ? "On" : "Off"}
-                  </button>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <button onClick={() => act("printer_update", { id: p.id, fields: { print_receipt: !receipt } })} disabled={busy}
+                      style={{ ...sel, flex: 1, textAlign: "left", fontWeight: 700, cursor: "pointer",
+                        background: receipt ? "rgba(15,110,86,.12)" : T.bg, color: receipt ? "#0F6E56" : T.muted }}>
+                      {receipt ? "On" : "Off"}
+                    </button>
+                    {receipt && (
+                      <button onClick={() => act("printer_update", { id: p.id, fields: { auto_receipt: !autoReceipt } })} disabled={busy}
+                        title={autoReceipt ? "Prints on every order" : "Only prints when asked"}
+                        style={{ ...sel, width: 84, textAlign: "center", fontWeight: 700, cursor: "pointer",
+                          background: T.bg, color: autoReceipt ? T.accent : T.muted }}>
+                        {autoReceipt ? "Auto" : "Manual"}
+                      </button>
+                    )}
+                  </div>
                   <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
                     Every line, with prices.
-                  </div>
-                </div>
-                <div>
-                  <div style={fieldLab}>When an order comes in</div>
-                  <button onClick={() => toggleAuto(p)} disabled={busy} style={{ ...sel, textAlign: "left", fontWeight: 700, cursor: "pointer",
-                    background: auto ? "rgba(94,122,77,.12)" : T.bg, color: auto ? T.accent : T.muted }}>
-                    {auto ? "Print automatically" : "Manual only"}
-                  </button>
-                  <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
-                    {auto ? "Reprints work too." : "Reprints still work."}
                   </div>
                 </div>
                 <div>
