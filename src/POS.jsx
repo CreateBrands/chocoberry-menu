@@ -548,24 +548,56 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const cc = catColor(it.category || (master && master.name));
     const inCart = qtyInCart[it.id] || 0;
     const soldOut = it.available === false;
+    // ROW LAYOUT — photo left, name centre, price right.
+    // The square photo tiles put the name over the image, where a long name
+    // like "Pistachio Kanafeh Chocolate Dream Cake" wrapped across a busy
+    // photo, hid the price, and fitted only six items on screen. A fixed
+    // three-column grid gives each element its own lane so nothing can
+    // overlap, and roughly triples how much of the menu is visible.
+    const chip = soldOut
+      ? { text: "BACK 6AM", fg: "#8A5A15", bg: "#F6E9D5" }
+      : hasMods ? { text: "OPTIONS", fg: "#8A6A3E", bg: "#FBF2E4" } : null;
     return (
-      <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }} style={{ borderRadius: 18, cursor: soldOut ? "not-allowed" : "pointer", position: "relative", overflow: "hidden", aspectRatio: "1 / 1", display: "flex", flexDirection: "column", justifyContent: "flex-end", boxShadow: inCart ? "0 0 0 2.5px " + P.tealA + ", 0 4px 14px rgba(0,0,0,.28)" : "0 4px 14px rgba(0,0,0,.28)", opacity: soldOut ? 0.5 : 1, background: it.image_url ? "#20242f" : "linear-gradient(150deg, " + cc.bar + ", " + cc.ink + ")", backgroundImage: it.image_url ? "url(" + it.image_url + ")" : undefined, backgroundSize: "cover", backgroundPosition: "center" }}>
-        {!it.image_url && <span style={{ position: "absolute", top: "34%", left: "50%", transform: "translate(-50%,-50%)", fontSize: 60, color: "rgba(255,255,255,.9)", filter: soldOut ? "grayscale(1)" : "none" }}>{fb.icon}</span>}
-        <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to bottom, rgba(0,0,0,.28) 0%, rgba(0,0,0,0) 26%)" }} />
-        <span style={{ position: "absolute", top: 13, left: 13, fontSize: 12, fontWeight: 700, color: "#fff", background: soldOut ? "rgba(180,70,47,.95)" : "rgba(15,18,25,.72)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", padding: "4px 12px", borderRadius: 20, letterSpacing: ".01em" }}>{soldOut ? "86 · SOLD OUT" : (it.category || "").slice(0, 18)}</span>
-        {!soldOut && inCart ? (
-          <span style={{ position: "absolute", top: 11, right: 11, minWidth: 42, height: 42, padding: "0 11px", borderRadius: 13, background: P.tealA, color: "#06231f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 19, fontWeight: 800, boxShadow: "0 2px 8px rgba(0,0,0,.3)" }}>{inCart}</span>
-        ) : !soldOut ? (
-          <span style={{ position: "absolute", top: 11, right: 11, width: 42, height: 42, borderRadius: 13, background: "rgba(15,18,25,.55)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,.35)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 24, fontWeight: 400, lineHeight: 0, paddingBottom: 2 }}>+</span>
-        ) : null}
-        <div style={{ position: "relative", padding: "12px 14px 14px", color: "#fff", background: "linear-gradient(to top, rgba(12,15,22,.92) 0%, rgba(12,15,22,.78) 60%, rgba(12,15,22,0) 100%)" }}>
-          <div style={{ fontSize: 21, fontWeight: 700, lineHeight: 1.18, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={it.name}>{it.posName || it.name}</div>
-          <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4, opacity: 0.95, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
-        </div>
+      <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }}
+        style={{
+          display: "grid", gridTemplateColumns: "4px 56px minmax(0,1fr) 84px",
+          alignItems: "center", columnGap: 12,
+          height: 80, boxSizing: "border-box", overflow: "hidden",
+          padding: "10px 12px 10px 0", borderRadius: 14,
+          cursor: soldOut ? "not-allowed" : "pointer",
+          background: soldOut ? "#F0EADF" : inCart ? "#F7FAF3" : "#fff",
+          border: inCart ? "1.5px solid " + P.tealA : "1px solid " + (soldOut ? "#E4DCCB" : "#E7E0D1"),
+        }}>
+        <span style={{ width: 4, height: 80, background: cc.bar, opacity: soldOut ? .4 : 1 }} />
+        <span style={{ position: "relative", width: 56, height: 56 }}>
+          <span style={{
+            display: "block", width: 56, height: 56, borderRadius: 12,
+            background: it.image_url ? "#E7E0D1" : "linear-gradient(150deg," + cc.bar + "," + cc.ink + ")",
+            backgroundImage: it.image_url ? "url(" + it.image_url + ")" : undefined,
+            backgroundSize: "cover", backgroundPosition: "center",
+            filter: soldOut ? "grayscale(1)" : "none", opacity: soldOut ? .55 : 1,
+          }}>
+            {!it.image_url && <span style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", fontSize: 26, color: "rgba(255,255,255,.92)" }}>{fb.icon}</span>}
+          </span>
+          {!soldOut && inCart > 0 && (
+            <span style={{ position: "absolute", top: -7, right: -7, minWidth: 23, height: 23, padding: "0 6px", borderRadius: 12, background: P.tealA, color: "#06231f", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12.5, fontWeight: 800, border: "2.5px solid #F7FAF3", fontVariantNumeric: "tabular-nums" }}>{inCart}</span>
+          )}
+        </span>
+        <span style={{ minWidth: 0 }}>
+          <span title={it.name} style={{ display: "-webkit-box", WebkitLineClamp: chip ? 2 : 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 14.5, fontWeight: 600, lineHeight: 1.3, letterSpacing: "-.005em", color: soldOut ? "#8A8170" : "#221D17" }}>
+            {it.posName || it.name}
+          </span>
+          {chip && (
+            <span style={{ display: "inline-block", marginTop: 4, fontSize: 10, letterSpacing: ".04em", fontWeight: 700, color: chip.fg, background: chip.bg, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>{chip.text}</span>
+          )}
+        </span>
+        <span style={{ textAlign: "right", fontSize: 17, fontWeight: 700, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums", color: soldOut ? "#B6AA96" : inCart ? "#3F5A2F" : "#221D17" }}>
+          {gbp(it.price)}
+        </span>
       </div>
     );
   };
-  const gridCols = "repeat(auto-fill, minmax(240px, 1fr))";
+  const gridCols = "repeat(auto-fill, minmax(290px, 1fr))";
   const showGroups = sub && sub._merged && Array.isArray(sub.groups) && sub.groups.length > 0 && !search;
 
   return (
@@ -668,14 +700,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     <span style={{ fontSize: 13.5, color: P.muted2 }}>{g.items.length}</span>
                     <span style={{ flex: 1, height: 1, background: P.line, marginLeft: 4 }} />
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "min-content", gap: 15 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "min-content", gap: 10 }}>
                     {g.items.map(renderTile)}
                   </div>
                 </div>
               ))}
             </div>
           ) : (
-            <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "min-content", gap: 15, overflowY: "auto" }}>
+            <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "min-content", gap: 10, overflowY: "auto" }}>
               {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
               {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
               {shown.map(renderTile)}
