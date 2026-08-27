@@ -225,10 +225,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         method: "POST", headers: H,
         body: JSON.stringify({
           action: "print-order", order_id: o.id, force: true,
-          // sunmi-print resolves the station server-side against the printers
-          // table, so naming the station is enough — no printer list needed
-          // here, and it keeps working when a store swaps hardware.
+          // Name the SLIP as well as the station. The counter may be set to
+          // print both a kitchen ticket and a receipt; a customer asking for
+          // their receipt should not also produce a kitchen ticket.
           station: "counter",
+          slip: "receipt",
         }),
       });
       const ok = res.ok;

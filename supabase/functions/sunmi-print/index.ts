@@ -331,7 +331,7 @@ async function loadReceiptOrder(
 // the location, each filtered to its own station's items as before.
 function narrowToTarget(
   printers: Array<Record<string, unknown>>,
-  target?: { station?: string; printer_sn?: string },
+  target?: { station?: string; printer_sn?: string; slip?: string },
 ): Array<Record<string, unknown>> {
   if (!target) return printers;
   if (target.printer_sn) {
@@ -424,7 +424,7 @@ async function lastPrintedBatch(orderId: string, sn: string, slip = "ticket"): P
 async function printOrder(
   rec: Record<string, unknown>,
   force = false,
-  target?: { station?: string; printer_sn?: string },
+  target?: { station?: string; printer_sn?: string; slip?: string },
 ) {
   const orderId = String(rec.id);
 
@@ -453,12 +453,16 @@ async function printOrder(
   // here keeps the per-print logic below (rounds, copies, retries) untouched
   // and identical for both slips.
   const passes: Array<{ printer: Record<string, unknown>; mode: "ticket" | "receipt" }> = [];
+  // A targeted print may name the slip it wants. Without this, asking the
+  // counter for a customer receipt also produced its kitchen ticket, because
+  // the printer is set to do both.
+  const wantSlip = target?.slip ? String(target.slip).toLowerCase() : null;
   for (const pr of printers) {
     const lr = String((pr as any).print_role ?? "station").toLowerCase();
     const t = (pr as any).print_ticket ?? (lr !== "receipt");
     const r = (pr as any).print_receipt ?? (lr === "receipt");
-    if (t) passes.push({ printer: pr, mode: "ticket" });
-    if (r) passes.push({ printer: pr, mode: "receipt" });
+    if (t && wantSlip !== "receipt") passes.push({ printer: pr, mode: "ticket" });
+    if (r && wantSlip !== "ticket") passes.push({ printer: pr, mode: "receipt" });
   }
 
   for (const pass of passes) {
@@ -562,6 +566,10 @@ async function printOrder(
       // this run. Round-based additions are NOT stamped REPRINT — the ROUND
       // headings already make clear what's new, and this printer is only being
       // sent rounds it hasn't printed yet (not a true duplicate).
+      // REPRINT means "you have had this slip before". printedBefore is now
+      // per SLIP, so a receipt printed on demand for the first time is not a
+      // reprint even though the kitchen ticket for the same order was printed
+      // automatically minutes earlier.
       const isDuplicate = (force && printedBefore) || copy > 0;
       let stationOrder: ReceiptOrder = { ...order, items: lines, reprint: isDuplicate };
       // A ticket carries no money. Same layout, figures removed.
@@ -782,9 +790,10 @@ Deno.serve(async (req) => {
         if (error || !data) return json({ error: "order not found" }, 404);
         // A KDS screen sends its own station (or an exact printer_sn) so the
         // slip prints at THAT station only. Omitted => every printer, as before.
-        const target = (body.station || body.printer_sn)
+        const target = (body.station || body.printer_sn || body.slip)
           ? { station: body.station ? String(body.station) : undefined,
-              printer_sn: body.printer_sn ? String(body.printer_sn) : undefined }
+              printer_sn: body.printer_sn ? String(body.printer_sn) : undefined,
+              slip: body.slip ? String(body.slip) : undefined }
           : undefined;
         const result = await printOrder(data, body.force === true, target);
         return json(result);
