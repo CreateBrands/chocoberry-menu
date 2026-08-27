@@ -583,18 +583,18 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     return (
       <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }}
         style={{
-          display: "grid", gridTemplateColumns: "4px 56px minmax(0,1fr) 84px",
+          display: "grid", gridTemplateColumns: "4px clamp(56px,4.2vw,82px) minmax(0,1fr) clamp(84px,5.5vw,120px)",
           alignItems: "center", columnGap: 12,
-          height: 80, boxSizing: "border-box", overflow: "hidden",
+          height: "clamp(80px,6.2vw,116px)", boxSizing: "border-box", overflow: "hidden",
           padding: "10px 12px 10px 0", borderRadius: 14,
           cursor: soldOut ? "not-allowed" : "pointer",
           background: soldOut ? "#F0EADF" : inCart ? "#F7FAF3" : "#fff",
           border: inCart ? "1.5px solid " + P.tealA : "1px solid " + (soldOut ? "#E4DCCB" : "#E7E0D1"),
         }}>
         <span style={{ width: 4, height: 80, background: cc.bar, opacity: soldOut ? .4 : 1 }} />
-        <span style={{ position: "relative", width: 56, height: 56 }}>
+        <span style={{ position: "relative", width: "100%", aspectRatio: "1" }}>
           <span style={{
-            display: "block", width: 56, height: 56, borderRadius: 12,
+            display: "block", width: "100%", aspectRatio: "1", borderRadius: 14,
             background: it.image_url ? "#E7E0D1" : "linear-gradient(150deg," + cc.bar + "," + cc.ink + ")",
             backgroundImage: it.image_url ? "url(" + it.image_url + ")" : undefined,
             backgroundSize: "cover", backgroundPosition: "center",
@@ -607,20 +607,20 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           )}
         </span>
         <span style={{ minWidth: 0 }}>
-          <span title={it.name} style={{ display: "-webkit-box", WebkitLineClamp: chip ? 2 : 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 14.5, fontWeight: 600, lineHeight: 1.3, letterSpacing: "-.005em", color: soldOut ? "#8A8170" : "#221D17" }}>
+          <span title={it.name} style={{ display: "-webkit-box", WebkitLineClamp: chip ? 2 : 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: "clamp(14.5px,1.05vw,21px)", fontWeight: 600, lineHeight: 1.3, letterSpacing: "-.005em", color: soldOut ? "#8A8170" : "#221D17" }}>
             {it.posName || it.name}
           </span>
           {chip && (
             <span style={{ display: "inline-block", marginTop: 4, fontSize: 10, letterSpacing: ".04em", fontWeight: 700, color: chip.fg, background: chip.bg, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>{chip.text}</span>
           )}
         </span>
-        <span style={{ textAlign: "right", fontSize: 17, fontWeight: 700, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums", color: soldOut ? "#B6AA96" : inCart ? "#3F5A2F" : "#221D17" }}>
+        <span style={{ textAlign: "right", fontSize: "clamp(17px,1.25vw,25px)", fontWeight: 700, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums", color: soldOut ? "#B6AA96" : inCart ? "#3F5A2F" : "#221D17" }}>
           {gbp(it.price)}
         </span>
       </div>
     );
   };
-  const gridCols = "repeat(auto-fill, minmax(290px, 1fr))";
+  const gridCols = "repeat(auto-fill, minmax(clamp(290px, 21vw, 420px), 1fr))";
   const showGroups = sub && sub._merged && Array.isArray(sub.groups) && sub.groups.length > 0 && !search;
 
   return (
@@ -666,7 +666,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           navigation columns and left the order panel empty until someone
           tapped something; this reclaims both.
           The item grid, order panel and modifier sheet below are unchanged. */}
-      <div style={{ display: "grid", gridTemplateColumns: "84px 140px minmax(0,1fr) 330px 104px", flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "clamp(84px,5.5vw,150px) clamp(140px,9vw,240px) minmax(0,1fr) clamp(330px,22vw,520px) clamp(104px,6.5vw,170px)", flex: 1, minHeight: 0 }}>
 
         {/* 1 — MENU RAIL. Icon over label, so six menus fit 84px instead of 300. */}
         <div style={{ background: P.masterBg, padding: "10px 6px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto" }}>
@@ -675,9 +675,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             return (
               <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }}
                 title={m.name}
-                style={{ borderRadius: 10, padding: "11px 3px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
-                <span style={{ display: "flex", height: 24 }}>{menuIcon(m.name, on)}</span>
-                <span style={{ fontSize: 10.5, fontWeight: 700, lineHeight: 1.15, textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.posName || m.name}</span>
+                style={{ borderRadius: 12, padding: "clamp(11px,1.1vw,18px) 4px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
+                <span style={{ display: "flex", height: "clamp(24px,2vw,34px)" }}>{menuIcon(m.name, on)}</span>
+                <span style={{ fontSize: "clamp(10.5px,.8vw,15px)", fontWeight: 700, lineHeight: 1.15, textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.posName || m.name}</span>
               </div>
             );
           })}
@@ -697,9 +697,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               const on = activeSub === i && !search;
               return (
                 <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={s.name}
-                  style={{ borderRadius: 9, padding: "10px 10px", cursor: "pointer", display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder) }}>
+                  style={{ borderRadius: 11, padding: "clamp(10px,1vw,17px) clamp(10px,.8vw,15px)", cursor: "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: "clamp(12.5px,.92vw,17px)", fontWeight: 700, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder) }}>
                   <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.posName || s.name}</span>
-                  <span style={{ fontSize: 10.5, fontWeight: 600, opacity: .6, flexShrink: 0 }}>{(s.items || []).length}</span>
+                  <span style={{ fontSize: "clamp(10.5px,.75vw,14px)", fontWeight: 600, opacity: .6, flexShrink: 0 }}>{(s.items || []).length}</span>
                 </div>
               );
             })}
@@ -874,7 +874,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
              gets its own column. Tapping one opens it in the order panel. */}
         <div style={{ minWidth: 0, background: P.masterBg, display: "flex", flexDirection: "column", minHeight: 0 }}>
           <div style={{ padding: "10px 7px 7px", textAlign: "center", flexShrink: 0 }}>
-            <div style={{ fontSize: 19, fontWeight: 800, color: unpaidOrders.length ? "#E8A87C" : P.masterMuted, lineHeight: 1 }}>{unpaidOrders.length}</div>
+            <div style={{ fontSize: "clamp(19px,1.5vw,30px)", fontWeight: 800, color: unpaidOrders.length ? "#E8A87C" : P.masterMuted, lineHeight: 1 }}>{unpaidOrders.length}</div>
             <div style={{ fontSize: 8.5, letterSpacing: ".08em", color: P.masterMuted, marginTop: 3 }}>UNPAID</div>
             {unpaidOrders.length > 0 && (
               <div style={{ fontSize: 10.5, color: "#E8A87C", fontWeight: 700, marginTop: 3 }}>
@@ -892,13 +892,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   style={{ borderRadius: 9, padding: "8px 5px", cursor: "pointer", textAlign: "center",
                     background: on ? grad : "rgba(255,255,255,.06)",
                     border: "1px solid " + (on ? "transparent" : "rgba(255,255,255,.09)") }}>
-                  <div style={{ fontSize: 11.5, fontWeight: 800, color: on ? "#fff" : "#E8DFD2", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div style={{ fontSize: "clamp(11.5px,.85vw,17px)", fontWeight: 800, color: on ? "#fff" : "#E8DFD2", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no)}
                   </div>
                   <div style={{ fontSize: 9, color: on ? "rgba(255,255,255,.8)" : P.masterMuted, marginTop: 2 }}>
                     {mins < 60 ? mins + "m" : Math.floor(mins / 60) + "h" + (mins % 60) + "m"}
                   </div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: on ? "#fff" : "#E8A87C", marginTop: 3 }}>{gbp(o.total)}</div>
+                  <div style={{ fontSize: "clamp(11px,.85vw,16px)", fontWeight: 700, color: on ? "#fff" : "#E8A87C", marginTop: 3 }}>{gbp(o.total)}</div>
                 </div>
               );
             })}
