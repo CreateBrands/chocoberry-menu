@@ -597,6 +597,14 @@ function PrintersModal({ pin, locations, onClose }) {
     catch (e) { setMsg("Test failed: " + e.message); }
     finally { setBusy(false); }
   };
+  // One writer for every printer switch. PrintersModal talks to the API with
+  // callAdmin and refreshes with load(); there is no `act` in this component.
+  const updatePrinter = async (p, fields) => {
+    setBusy(true); setMsg("");
+    try { await callAdmin(pin, "printer_update", { id: p.id, fields }); await load(); }
+    catch (e) { setMsg(e.message); } finally { setBusy(false); }
+  };
+
   const toggleActive = async (p) => {
     setBusy(true);
     try { await callAdmin(pin, "printer_update", { id: p.id, fields: { active: !p.active } }); await load(); }
@@ -708,13 +716,13 @@ function PrintersModal({ pin, locations, onClose }) {
                 <div>
                   <div style={fieldLab}>Kitchen ticket</div>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => act("printer_update", { id: p.id, fields: { print_ticket: !ticket } })} disabled={busy}
+                    <button onClick={() => updatePrinter(p, { print_ticket: !ticket })} disabled={busy}
                       style={{ ...sel, flex: 1, textAlign: "left", fontWeight: 700, cursor: "pointer",
                         background: ticket ? "rgba(186,117,23,.12)" : T.bg, color: ticket ? "#854F0B" : T.muted }}>
                       {ticket ? "On" : "Off"}
                     </button>
                     {ticket && (
-                      <button onClick={() => act("printer_update", { id: p.id, fields: { auto_ticket: !autoTicket } })} disabled={busy}
+                      <button onClick={() => updatePrinter(p, { auto_ticket: !autoTicket })} disabled={busy}
                         title={autoTicket ? "Prints on every order" : "Only prints when asked"}
                         style={{ ...sel, width: 84, textAlign: "center", fontWeight: 700, cursor: "pointer",
                           background: T.bg, color: autoTicket ? T.accent : T.muted }}>
@@ -729,13 +737,13 @@ function PrintersModal({ pin, locations, onClose }) {
                 <div>
                   <div style={fieldLab}>Full receipt</div>
                   <div style={{ display: "flex", gap: 6 }}>
-                    <button onClick={() => act("printer_update", { id: p.id, fields: { print_receipt: !receipt } })} disabled={busy}
+                    <button onClick={() => updatePrinter(p, { print_receipt: !receipt })} disabled={busy}
                       style={{ ...sel, flex: 1, textAlign: "left", fontWeight: 700, cursor: "pointer",
                         background: receipt ? "rgba(15,110,86,.12)" : T.bg, color: receipt ? "#0F6E56" : T.muted }}>
                       {receipt ? "On" : "Off"}
                     </button>
                     {receipt && (
-                      <button onClick={() => act("printer_update", { id: p.id, fields: { auto_receipt: !autoReceipt } })} disabled={busy}
+                      <button onClick={() => updatePrinter(p, { auto_receipt: !autoReceipt })} disabled={busy}
                         title={autoReceipt ? "Prints on every order" : "Only prints when asked"}
                         style={{ ...sel, width: 84, textAlign: "center", fontWeight: 700, cursor: "pointer",
                           background: T.bg, color: autoReceipt ? T.accent : T.muted }}>
@@ -1283,107 +1291,133 @@ function MenuBands({ state, T, act, money }) {
 // category is the normal case ("all drinks go to the bar"); the per-item
 // override is for the odd exception.
 function PrintRouting({ state, T, act }) {
-  const [q, setQ] = useState("");
-  const [openCat, setOpenCat] = useState(null);
-
-  const items = state.items || [];
+  // Routing is now PRINTER -> CATEGORIES, not item -> station. Each printer
+  // that prints tickets says which parts of the menu it makes. Printers do not
+  // compete: two of them can both cover Shakes and both will print them.
+  const printers = (state.printers || []).filter((p) => p.active);
   const cats = (state.categories || []).filter((c) => c.active !== false);
   const menus = state.menus || [];
   const menuById = new Map(menus.map((m) => [m.id, m]));
-  const printers = (state.printers || []).filter((p) => p.active);
+  const pcRows = state.printerCategories || [];
 
-  // Only STATION printers take routed items. A receipt printer gets the whole
-  // order regardless, so listing it here would imply a choice that has no effect.
-  const stationPrinters = printers.filter((p) => (p.print_role || "station") !== "receipt");
-  const stations = [...new Set(stationPrinters.map((p) => p.station || "kitchen"))];
-  if (!stations.length) stations.push("kitchen");
+  const ticketPrinters = printers.filter((p) => {
+    const legacy = (p.print_role || "station") === "receipt";
+    return p.print_ticket ?? !legacy;
+  });
 
-  const printerFor = (st) => stationPrinters.filter((p) => (p.station || "kitchen") === st).map((p) => p.label).join(", ");
-  const label = (st) => st.charAt(0).toUpperCase() + st.slice(1);
+  const [sel, setSel] = useState(() => (ticketPrinters[0] || {}).sn || null);
+  useEffect(() => {
+    if (sel && ticketPrinters.some((p) => p.sn === sel)) return;
+    if (ticketPrinters[0]) setSel(ticketPrinters[0].sn);
+  }, [ticketPrinters.length]); // eslint-disable-line
 
-  const needle = q.trim().toLowerCase();
-  const shown = cats
-    .map((c) => ({
-      cat: c,
-      menu: (menuById.get(c.menu_id) || {}).name || "",
-      rows: items.filter((it) => it.category_id === c.id && (!needle || it.name.toLowerCase().includes(needle))),
-    }))
-    .filter((g) => g.rows.length || !needle)
-    .sort((a, b) => a.menu.localeCompare(b.menu) || a.cat.name.localeCompare(b.cat.name));
+  const printer = ticketPrinters.find((p) => p.sn === sel);
+  const covered = new Set(pcRows.filter((r) => r.printer_sn === sel).map((r) => String(r.category_id)));
+  const coversAll = covered.size === 0;
 
-  const setCat = (c, station) => act("update_category", { id: c.id, fields: { station } });
-  const setItem = (it, station) => act("update_item", { id: it.id, fields: { station: station || null } });
+  const grouped = [...menus]
+    .map((m) => ({ menu: m, rows: cats.filter((c) => c.menu_id === m.id) }))
+    .filter((g) => g.rows.length);
 
-  const sel = { fontSize: 13, padding: "7px 9px", borderRadius: 9, border: "1px solid " + T.line, background: T.bg, color: T.ink };
+  const save = (ids) => act("set_printer_categories", { printer_sn: sel, category_ids: ids });
+  const toggle = (cid) => {
+    // "Covers everything" is stored as NO rows. The first tick therefore has to
+    // start from every category and remove one, or the printer would silently
+    // drop the rest of the menu.
+    const base = coversAll ? cats.map((c) => String(c.id)) : [...covered];
+    const next = base.includes(String(cid)) ? base.filter((x) => x !== String(cid)) : [...base, String(cid)];
+    save(next.length === cats.length ? [] : next);
+  };
+  const setMenuAll = (g, on) => {
+    const base = coversAll ? cats.map((c) => String(c.id)) : [...covered];
+    const ids = g.rows.map((c) => String(c.id));
+    const next = on ? [...new Set([...base, ...ids])] : base.filter((x) => !ids.includes(x));
+    save(next.length === cats.length ? [] : next);
+  };
+
+  if (!ticketPrinters.length) {
+    return (
+      <div>
+        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 6 }}>Printing</div>
+        <div style={{ fontSize: 14, color: T.muted, maxWidth: 620 }}>
+          No printer is set to print kitchen tickets. Turn on <b>Kitchen ticket</b> for a printer under Printers, then come back here to choose what it makes.
+        </div>
+      </div>
+    );
+  }
+
+  const tab = (p) => {
+    const on = p.sn === sel;
+    const n = new Set(pcRows.filter((r) => r.printer_sn === p.sn).map((r) => r.category_id)).size;
+    return (
+      <span key={p.sn} onClick={() => setSel(p.sn)}
+        style={{ cursor: "pointer", padding: "10px 15px", borderRadius: 11, fontSize: 13.5, fontWeight: on ? 700 : 500,
+          background: on ? T.accent : T.card, color: on ? "#fff" : T.ink, border: "1px solid " + (on ? T.accent : T.line) }}>
+        {p.label || p.sn}
+        <span style={{ fontSize: 11.5, opacity: .8, marginLeft: 7 }}>{n === 0 ? "everything" : n + " categories"}</span>
+      </span>
+    );
+  };
 
   return (
     <div>
       <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, marginBottom: 4 }}>Printing</div>
-      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 16, maxWidth: 760 }}>
-        Which printer makes which item. Set a whole category at once — that covers almost everything. An item can override its category when it needs a different printer.
+      <div style={{ fontSize: 13.5, color: T.muted, marginBottom: 16, maxWidth: 780 }}>
+        Which parts of the menu each printer makes. Printers are independent — tick the same category on two printers and both will print it.
       </div>
 
-      <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: "13px 15px", marginBottom: 14 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".06em", marginBottom: 8 }}>STATIONS AT YOUR STORES</div>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {stations.map((st) => (
-            <span key={st} style={{ fontSize: 12.5, background: T.bg, border: "1px solid " + T.line, borderRadius: 20, padding: "6px 12px", color: T.ink }}>
-              <b>{label(st)}</b>{printerFor(st) ? " · " + printerFor(st) : " · no printer yet"}
-            </span>
-          ))}
-          {printers.some((p) => (p.print_role || "station") === "receipt") && (
-            <span style={{ fontSize: 12.5, color: T.faint, alignSelf: "center" }}>
-              Receipt printers take the whole order and are not routed here.
-            </span>
-          )}
-        </div>
-      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>{ticketPrinters.map(tab)}</div>
 
-      <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search items…"
-        style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "10px 13px", fontSize: 14, background: T.card, color: T.ink, minWidth: 220, marginBottom: 14 }} />
+      {printer && (
+        <>
+          <div style={{ background: coversAll ? "#EAF3DE" : T.card, border: "1px solid " + (coversAll ? "#C0DD97" : T.line), borderRadius: 12, padding: "13px 16px", marginBottom: 14 }}>
+            <div style={{ fontSize: 13.5, color: coversAll ? "#3B6D11" : T.ink, fontWeight: 600 }}>
+              {coversAll
+                ? printer.label + " prints every category"
+                : printer.label + " prints " + covered.size + " of " + cats.length + " categories"}
+            </div>
+            {!coversAll && (
+              <span onClick={() => save([])} style={{ fontSize: 12.5, color: T.accent, cursor: "pointer", fontWeight: 600 }}>Reset to everything</span>
+            )}
+          </div>
 
-      <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
-        {shown.map((g, gi) => {
-          const open = openCat === g.cat.id || !!needle;
-          const catStation = g.cat.station || "kitchen";
-          const overrides = g.rows.filter((it) => it.station).length;
-          return (
-            <Fragment key={g.cat.id}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 15px", borderTop: gi ? "1px solid " + T.line : "none", background: T.bg }}>
-                <span onClick={() => setOpenCat(open && !needle ? null : g.cat.id)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>{g.cat.name}</span>
-                  <span style={{ fontSize: 11.5, color: T.faint, marginLeft: 8 }}>
-                    {g.menu} · {g.rows.length} item{g.rows.length === 1 ? "" : "s"}
-                    {overrides ? " · " + overrides + " overridden" : ""}
-                  </span>
-                </span>
-                <span style={{ fontSize: 11.5, color: T.faint }}>Whole category</span>
-                <select value={catStation} onChange={(e) => setCat(g.cat, e.target.value)} style={sel}>
-                  {stations.map((st) => <option key={st} value={st}>{label(st)}</option>)}
-                </select>
-              </div>
+          <div style={{ background: T.card, border: "1px solid " + T.line, borderRadius: 12, overflow: "hidden" }}>
+            {grouped.map((g, gi) => {
+              const ids = g.rows.map((c) => String(c.id));
+              const allOn = coversAll || ids.every((i) => covered.has(i));
+              return (
+                <Fragment key={g.menu.id}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 15px", background: T.bg, borderTop: gi ? "1px solid " + T.line : "none" }}>
+                    <span style={{ flex: 1, fontSize: 12.5, fontWeight: 700, color: T.ink }}>{g.menu.name}</span>
+                    <span onClick={() => setMenuAll(g, !allOn)} style={{ fontSize: 12, fontWeight: 600, color: T.accent, cursor: "pointer" }}>
+                      {allOn ? "Clear all" : "Select all"}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "12px 15px" }}>
+                    {g.rows.map((c) => {
+                      const on = coversAll || covered.has(String(c.id));
+                      return (
+                        <span key={c.id} onClick={() => toggle(c.id)}
+                          style={{ cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 7, padding: "8px 13px", borderRadius: 10, fontSize: 13.5,
+                            fontWeight: on ? 600 : 400,
+                            background: on ? "#EEF3EA" : T.bg,
+                            color: on ? T.accent : T.muted,
+                            border: "1px solid " + (on ? "#D9E6D2" : T.line) }}>
+                          <span style={{ fontSize: 15 }}>{on ? "☑" : "☐"}</span>{c.name}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </Fragment>
+              );
+            })}
+          </div>
 
-              {open && g.rows.map((it) => (
-                <div key={it.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "9px 15px 9px 30px", borderTop: "1px solid " + T.line }}>
-                  <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, color: T.ink, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{it.name}</span>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: it.station ? T.accent : T.faint, minWidth: 96, textAlign: "right" }}>
-                    {it.station ? "Goes to " + label(it.station) : "Follows category"}
-                  </span>
-                  <select value={it.station || ""} onChange={(e) => setItem(it, e.target.value)} style={sel}>
-                    <option value="">Follow category</option>
-                    {stations.map((st) => <option key={st} value={st}>{label(st)}</option>)}
-                  </select>
-                </div>
-              ))}
-            </Fragment>
-          );
-        })}
-        {shown.length === 0 && <div style={{ padding: 24, textAlign: "center", fontSize: 13.5, color: T.muted }}>Nothing matches.</div>}
-      </div>
-
-      <div style={{ fontSize: 12.5, color: T.muted, marginTop: 12 }}>
-        An item with no printer for its station falls back to the kitchen printer, so nothing is ever silently dropped.
-      </div>
+          <div style={{ fontSize: 12.5, color: T.muted, marginTop: 12 }}>
+            Untick everything you do not want. A printer covering all categories stores no settings at all, so new categories are included automatically.
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1418,7 +1452,7 @@ export default function Admin() {
   const [modEdit, setModEdit] = useState(null);
   const [msg, setMsg] = useState("");
 
-  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [], kdsScreens: res.kdsScreens || [], printers: res.printers || [], bandItems: res.bandItems || [], bandMenus: res.bandMenus || [] });
+  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [], kdsScreens: res.kdsScreens || [], printers: res.printers || [], bandItems: res.bandItems || [], bandMenus: res.bandMenus || [], printerCategories: res.printerCategories || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   // Optimistic availability toggle: flip the switch in the UI instantly, then

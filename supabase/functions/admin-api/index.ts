@@ -114,7 +114,7 @@ Deno.serve(async (req) => {
     switch (action) {
       // ---- READ: everything the admin UI needs in one call ----
       case "load": {
-        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus, modOverrides, bands, bandPrices, bandOptPrices, kdsScreens, printers, bandItems, bandMenus] = await Promise.all([
+        const [cats, items, locs, overrides, settings, menus, modGroups, modOptions, itemMods, tables, locMenus, modOverrides, bands, bandPrices, bandOptPrices, kdsScreens, printers, bandItems, bandMenus, printerCats] = await Promise.all([
           admin.from("menu_categories").select("*").order("sort_order"),
           admin.from("menu_items").select("*").order("sort_order"),
           admin.from("menu_locations").select("id,name,slug,active,brand_id,price_band_id,menu_band_id").order("name"),
@@ -140,6 +140,7 @@ Deno.serve(async (req) => {
           // order above — never inserted mid-array. See the note above.
           admin.from("menu_band_items").select("*"),
           admin.from("menu_band_menus").select("*"),
+          admin.from("printer_categories").select("*"),
         ]);
         for (const r of [cats, items, locs, overrides]) if (r.error) throw r.error;
         // When a store manager is logged in, filter every location-specific
@@ -169,6 +170,7 @@ Deno.serve(async (req) => {
           kdsScreens: only(kdsScreens.data),
           bandItems: bandItems.data || [],
           bandMenus: bandMenus.data || [],
+          printerCategories: printerCats.data || [],
           printers: only(printers.data),
           modifierOverrides: only(modOverrides.data),
           priceBands: bands.data ?? [],
@@ -572,6 +574,24 @@ Deno.serve(async (req) => {
           .insert({ name: String(name).trim(), band_kind: band_kind === "menu" ? "menu" : "price" });
         if (error) throw error;
         return json({ ok: true });
+      }
+
+      // ---- Which categories a printer's TICKET covers ----
+      // Sent as the complete list, so the UI never has to diff. An empty list
+      // means "all categories" — that is the default and the safe state.
+      case "set_printer_categories": {
+        const { printer_sn, category_ids } = data || {};
+        if (!printer_sn) return json({ error: "printer_sn required" }, 400);
+        const ids: string[] = Array.isArray(category_ids) ? category_ids : [];
+        const { error: delErr } = await admin.from("printer_categories")
+          .delete().eq("printer_sn", printer_sn);
+        if (delErr) throw delErr;
+        if (ids.length) {
+          const { error } = await admin.from("printer_categories")
+            .insert(ids.map((c) => ({ printer_sn, category_id: c })));
+          if (error) throw error;
+        }
+        return json({ ok: true, count: ids.length });
       }
 
       // ---- BULK: set availability for MANY items across MANY stores ----
