@@ -628,7 +628,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
       {/* ── Slim header (single-screen: no mode switching) ── */}
       <div style={{ flexShrink: 0, background: P.panel, borderBottom: "1px solid " + P.line, padding: "10px 18px", display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 16, letterSpacing: "-.3px" }}>Chocoberry POS</div>
+        <div style={{ flex: 1, maxWidth: 640, background: P.canvas, border: "1px solid " + P.line, borderRadius: 12, padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
+          <span style={{ fontSize: 20, color: P.muted2 }}>⌕</span>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
+            style={{ flex: 1, border: "none", outline: "none", background: "transparent", padding: "12px 0", fontSize: 16, color: P.ink, fontFamily: "inherit" }} />
+        </div>
         {unpaidCount > 0 && (
           <span style={{ fontSize: 14, color: "#fff", background: "#B23B3B", borderRadius: 20, padding: "5px 12px", fontWeight: 700 }}>
             {unpaidCount} unpaid · £{owedTotal.toFixed(2)}
@@ -667,7 +671,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           navigation columns and left the order panel empty until someone
           tapped something; this reclaims both.
           The item grid, order panel and modifier sheet below are unchanged. */}
-      <div style={{ display: "grid", gridTemplateColumns: "clamp(84px,5.5vw,150px) clamp(140px,9vw,240px) minmax(0,1fr) clamp(330px,22vw,520px) clamp(104px,6.5vw,170px)", flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "clamp(84px,5.5vw,150px) clamp(180px,12vw,300px) minmax(0,1fr) clamp(330px,22vw,520px) clamp(104px,6.5vw,170px)", flex: 1, minHeight: 0 }}>
 
         {/* 1 — MENU RAIL. Icon over label, so six menus fit 84px instead of 300. */}
         <div style={{ background: P.masterBg, padding: "10px 6px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto" }}>
@@ -678,7 +682,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 title={m.name}
                 style={{ borderRadius: 12, padding: "clamp(11px,1.1vw,18px) 4px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
                 <span style={{ display: "flex", height: "clamp(24px,2vw,34px)" }}>{menuIcon(m.name, on)}</span>
-                <span style={{ fontSize: "clamp(10.5px,.8vw,15px)", fontWeight: 700, lineHeight: 1.15, textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.posName || m.name}</span>
+                <span style={{ fontSize: "clamp(11.5px,.9vw,17px)", fontWeight: 800, lineHeight: 1.15, textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.posName || m.name}</span>
               </div>
             );
           })}
@@ -687,18 +691,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         {/* 2 — CATEGORY RAIL. Vertical, because the names are long: a chip row
              wraps to three lines and eats the height it was meant to save. */}
         <div style={{ background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          {master && (
-            <div style={{ padding: "10px 10px 7px", display: "flex", alignItems: "center", gap: 6 }}>
-              <span title={master.name} style={{ flex: 1, minWidth: 0, fontSize: 10.5, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{master.posName || master.name}</span>
-              <span onClick={() => setShowMerge(true)} title="Merge categories" style={{ flexShrink: 0, fontSize: 11, fontWeight: 700, color: P.tealDeep, background: P.chip, border: "1px solid " + P.chipBorder, borderRadius: 7, padding: "3px 6px", cursor: "pointer" }}>⇱</span>
-            </div>
-          )}
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 8px 10px", display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ flex: 1, overflowY: "auto", padding: "10px 9px", display: "flex", flexDirection: "column", gap: 5 }}>
             {subs.map((s, i) => {
               const on = activeSub === i && !search;
               return (
                 <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={s.name}
-                  style={{ borderRadius: 11, padding: "clamp(10px,1vw,17px) clamp(10px,.8vw,15px)", cursor: "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: "clamp(12.5px,.92vw,17px)", fontWeight: 700, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder) }}>
+                  style={{ borderRadius: 11, padding: "clamp(10px,1vw,17px) clamp(10px,.8vw,15px)", cursor: "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: "clamp(14px,1.05vw,20px)", fontWeight: 800, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder) }}>
                   <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.posName || s.name}</span>
                   <span style={{ fontSize: "clamp(10.5px,.75vw,14px)", fontWeight: 600, opacity: .6, flexShrink: 0 }}>{(s.items || []).length}</span>
                 </div>
@@ -706,20 +704,20 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             })}
             {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 12.5, textAlign: "center", marginTop: 16 }}>No categories</div>}
           </div>
+          {master && (
+            <div onClick={() => setShowMerge(true)} title="Merge categories"
+              style={{ flexShrink: 0, margin: "0 9px 10px", padding: "clamp(11px,1vw,16px) 8px", borderRadius: 11, cursor: "pointer", textAlign: "center",
+                background: P.chip, border: "1px solid " + P.chipBorder, color: P.tealDeep,
+                fontSize: "clamp(12.5px,.9vw,16px)", fontWeight: 700 }}>
+              ⇱ Merge
+            </div>
+          )}
         </div>
 
         {/* 3 — ITEM GRID (unchanged inside; it is now a grid cell) */}
         <div style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "16px 20px 0" }}>
-            <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 14, padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 20, color: P.muted2 }}>⌕</span>
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
-                style={{ flex: 1, border: "none", outline: "none", background: "transparent", padding: "14px 0", fontSize: 16, color: P.ink, fontFamily: "inherit" }} />
-            </div>
-          </div>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", padding: "16px 20px 10px" }}>
-            <span style={{ fontSize: 20, fontWeight: 500, letterSpacing: "-.2px" }}>{search ? "Results" : (sub ? sub.name : "")}</span>
-            <span style={{ fontSize: 15.5, color: P.muted2 }}>{shown.length} items</span>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", padding: "14px 20px 8px" }}>
+            <span style={{ fontSize: 15.5, color: P.muted2 }}>{search ? "Results · " : ""}{shown.length} items</span>
           </div>
           {showGroups ? (
             <div style={{ flex: 1, padding: "2px 20px 20px", overflowY: "auto" }}>
