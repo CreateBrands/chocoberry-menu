@@ -274,6 +274,16 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         // shape for a display string we fetch the labels separately and merge
         // by id. Receipts and kitchen tickets keep the full name regardless.
         let posNames = new Map();
+        const posCats = new Map();
+        const posMenus = new Map();
+        try {
+          const [cr, mr] = await Promise.all([
+            fetch(SUPABASE_URL + "/rest/v1/menu_categories?select=id,pos_name&pos_name=not.is.null", { headers: H, cache: "no-store" }),
+            fetch(SUPABASE_URL + "/rest/v1/menu_menus?select=id,pos_name&pos_name=not.is.null", { headers: H, cache: "no-store" }),
+          ]);
+          if (cr.ok) for (const c of await cr.json()) posCats.set(c.id, c.pos_name);
+          if (mr.ok) for (const m of await mr.json()) posMenus.set(m.id, m.pos_name);
+        } catch { /* labels are cosmetic — never block the menu on them */ }
         try {
           const pr = await fetch(SUPABASE_URL + "/rest/v1/menu_items?select=id,pos_name&pos_name=not.is.null",
             { headers: H, cache: "no-store" });
@@ -283,16 +293,16 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const menuMap = new Map();
         for (const row of rows) {
           let mn = menuMap.get(row.menu_id);
-          if (!mn) { mn = { id: row.menu_id, name: row.menu_name, sort: row.menu_sort ?? 0, subMap: new Map() }; menuMap.set(row.menu_id, mn); }
+          if (!mn) { mn = { id: row.menu_id, name: row.menu_name, posName: posMenus.get(row.menu_id) || row.menu_name, sort: row.menu_sort ?? 0, subMap: new Map() }; menuMap.set(row.menu_id, mn); }
           let sc = mn.subMap.get(row.category_id);
-          if (!sc) { sc = { id: row.category_id, name: row.category_name, sort: row.category_sort ?? 0, items: [] }; mn.subMap.set(row.category_id, sc); }
+          if (!sc) { sc = { id: row.category_id, name: row.category_name, posName: posCats.get(row.category_id) || row.category_name, sort: row.category_sort ?? 0, items: [] }; mn.subMap.set(row.category_id, sc); }
           sc.items.push({ id: row.item_id, name: row.item_name,
             // What the button shows. Falls back to the real name.
             posName: posNames.get(row.item_id) || row.item_name,
             price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [], available: row.available !== false });
         }
         const masters = [...menuMap.values()].sort((a, b) => a.sort - b.sort)
-          .map((m) => ({ id: m.id, name: m.name, subs: [...m.subMap.values()].sort((a, b) => a.sort - b.sort) }));
+          .map((m) => ({ id: m.id, name: m.name, posName: m.posName, subs: [...m.subMap.values()].sort((a, b) => a.sort - b.sort) }));
         if (alive) setCats(masters);
       } catch { if (alive) setCats([]); }
     })();
@@ -649,7 +659,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               return (
                 <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} style={{ borderRadius: 12, padding: "14px 15px", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, fontSize: 17, fontWeight: 700, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
                   <span style={{ display: "flex", height: 24 }}>{menuIcon(m.name, on)}</span>
-                  <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.name}</span>
+                  <span title={m.name} style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{m.posName || m.name}</span>
                 </div>
               );
             })}
@@ -663,7 +673,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         {/* COLUMN 2 — subcategories only, full height */}
         <div style={{ width: "clamp(195px, 15vw, 255px)", flexShrink: 0, background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column" }}>
           {master && <div style={{ padding: "14px 15px 9px", display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 15, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }}>{master.name}</span>
+            <span style={{ fontSize: 15, color: "#94a3b8", letterSpacing: ".5px", textTransform: "uppercase", fontWeight: 700, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", flex: 1, minWidth: 0 }} title={master.name}>{master.posName || master.name}</span>
             <span onClick={() => setShowMerge(true)} title="Merge categories" style={{ flexShrink: 0, fontSize: 12, fontWeight: 700, color: P.tealDeep, background: P.chip, border: "1px solid " + P.chipBorder, borderRadius: 8, padding: "4px 8px", cursor: "pointer", textTransform: "none", letterSpacing: 0 }}>⇱ Merge</span>
           </div>}
           <div style={{ flex: 1, overflowY: "auto", padding: "0 13px 12px", display: "flex", flexDirection: "column", gap: 8 }}>
@@ -671,7 +681,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               const on = activeSub === i && !search;
               return (
                 <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} style={{ borderRadius: 12, padding: "16px 15px", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, fontSize: 17, fontWeight: 700, lineHeight: 1.2, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder), boxShadow: on ? "0 4px 12px rgba(13,148,136,.3)" : "none" }}>
-                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{s.name}</span>
+                  <span title={s.name} style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{s.posName || s.name}</span>
                 </div>
               );
             })}
@@ -697,7 +707,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               {sub.groups.map((g, gi) => (
                 <div key={gi} style={{ marginBottom: 18 }}>
                   <div style={{ display: "flex", alignItems: "baseline", gap: 9, margin: "6px 2px 11px" }}>
-                    <span style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-.2px" }}>{g.name}</span>
+                    <span title={g.name} style={{ fontSize: 17, fontWeight: 700, letterSpacing: "-.2px" }}>{g.posName || g.name}</span>
                     <span style={{ fontSize: 13.5, color: P.muted2 }}>{g.items.length}</span>
                     <span style={{ flex: 1, height: 1, background: P.line, marginLeft: 4 }} />
                   </div>

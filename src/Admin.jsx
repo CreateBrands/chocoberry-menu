@@ -141,7 +141,7 @@ function useDragList(ids, onReorder) {
   });
 }
 
-function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSetImage, onRename, drag }) {
+function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSetImage, onRename, onTillName, tillName, drag }) {
   return (
     <div {...drag} style={{ ...drag.style, border: "1px solid " + T.line, borderRadius: 14, overflow: "hidden", background: T.card, cursor: "pointer", position: "relative" }}>
       <div onClick={onClick} style={{ height: 74, background: img || "linear-gradient(160deg,#EAD9C4,#C99E74)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: 8 }}>
@@ -157,6 +157,17 @@ function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSet
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: T.ink }}>{title}</span>
           {onRename && <span onClick={(e) => { e.stopPropagation(); onRename(); }} style={{ fontSize: 12, color: T.muted, cursor: "pointer" }} title="Rename">✎</span>}
+          {onTillName && (
+            <span onClick={(e) => { e.stopPropagation(); onTillName(); }}
+              title={tillName ? "Till button shows: " + tillName : "Set a short name for the POS button"}
+              style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", cursor: "pointer",
+                color: tillName ? T.accent : T.faint,
+                background: tillName ? "#EEF3EA" : "transparent",
+                border: "1px solid " + (tillName ? "#D9E6D2" : T.line),
+                borderRadius: 5, padding: "1px 5px" }}>
+              {tillName ? "TILL: " + tillName : "TILL"}
+            </span>
+          )}
         </div>
         {subtitle && <div style={{ fontSize: 12, color: T.faint, marginTop: 2 }}>{subtitle}</div>}
       </div>
@@ -1620,6 +1631,8 @@ export default function Admin() {
                 active={m.active} onToggle={() => act("update_menu", { id: m.id, fields: { active: !m.active } })}
                 onClick={() => { setMenuId(m.id); setLevel("sections"); }}
                 onRename={() => { const n = window.prompt("Rename menu", m.name); if (n && n !== m.name) act("update_menu", { id: m.id, fields: { name: n } }); }}
+                onTillName={() => { const n = window.prompt("Short name for the POS button only.\nLeave blank to use the full name.", m.pos_name || ""); if (n !== null) act("update_menu", { id: m.id, fields: { pos_name: n.trim() || null } }); }}
+                tillName={m.pos_name}
                 onSetImage={() => setImgTarget({ kind: "menu", id: m.id })}
                 onDelete={() => { if (window.confirm("Delete menu '" + m.name + "'? Its sections must be empty.")) act("delete_menu", { id: m.id }); }} />
             ))}
@@ -1634,6 +1647,8 @@ export default function Admin() {
                 active={c.active} onToggle={() => act("update_category", { id: c.id, fields: { active: !c.active } })}
                 onClick={() => { setCatId(c.id); setLevel("items"); }}
                 onRename={() => { const n = window.prompt("Rename section", c.name); if (n && n !== c.name) act("update_category", { id: c.id, fields: { name: n } }); }}
+                onTillName={() => { const n = window.prompt("Short name for the POS button only.\nLeave blank to use the full name.", c.pos_name || ""); if (n !== null) act("update_category", { id: c.id, fields: { pos_name: n.trim() || null } }); }}
+                tillName={c.pos_name}
                 onSetImage={() => setImgTarget({ kind: "section", id: c.id })}
                 onDelete={() => { if (window.confirm("Delete section '" + c.name + "'? It must have no items.")) act("delete_category", { id: c.id }); }} />
             ))}

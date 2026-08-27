@@ -509,7 +509,7 @@ Deno.serve(async (req) => {
       case "update_category": {
         const { id, fields } = data || {};
         if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "station", "sort_order", "active", "image_url"];
+        const allowed = ["name", "pos_name", "station", "sort_order", "active", "image_url"];
         const patch: any = {};
         for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
         const { error } = await admin.from("menu_categories").update(patch).eq("id", id);
@@ -1121,7 +1121,7 @@ Deno.serve(async (req) => {
       case "update_menu": {
         const { id, fields } = data || {};
         if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "sort_order", "active", "available_from", "available_to", "days_of_week", "pos_menu_id"];
+        const allowed = ["name", "pos_name", "sort_order", "active", "available_from", "available_to", "days_of_week", "pos_menu_id"];
         const patch: any = {};
         for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
         const { error } = await admin.from("menu_menus").update(patch).eq("id", id);
