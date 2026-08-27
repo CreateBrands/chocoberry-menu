@@ -267,13 +267,28 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const body = loc ? { loc } : { loc: null };
         const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/store_menu_full", { method: "POST", headers: H, body: JSON.stringify(body), cache: "no-store" });
         const rows = r.ok ? await r.json() : [];
+
+        // Short till labels, Toast-style. store_menu_full is shared with
+        // place-order and the customer app, so rather than change its return
+        // shape for a display string we fetch the labels separately and merge
+        // by id. Receipts and kitchen tickets keep the full name regardless.
+        let posNames = new Map();
+        try {
+          const pr = await fetch(SUPABASE_URL + "/rest/v1/menu_items?select=id,pos_name&pos_name=not.is.null",
+            { headers: H, cache: "no-store" });
+          if (pr.ok) for (const it of await pr.json()) posNames.set(it.id, it.pos_name);
+        } catch { /* labels are cosmetic — never block the menu on them */ }
+
         const menuMap = new Map();
         for (const row of rows) {
           let mn = menuMap.get(row.menu_id);
           if (!mn) { mn = { id: row.menu_id, name: row.menu_name, sort: row.menu_sort ?? 0, subMap: new Map() }; menuMap.set(row.menu_id, mn); }
           let sc = mn.subMap.get(row.category_id);
           if (!sc) { sc = { id: row.category_id, name: row.category_name, sort: row.category_sort ?? 0, items: [] }; mn.subMap.set(row.category_id, sc); }
-          sc.items.push({ id: row.item_id, name: row.item_name, price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [], available: row.available !== false });
+          sc.items.push({ id: row.item_id, name: row.item_name,
+            // What the button shows. Falls back to the real name.
+            posName: posNames.get(row.item_id) || row.item_name,
+            price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [], available: row.available !== false });
         }
         const masters = [...menuMap.values()].sort((a, b) => a.sort - b.sort)
           .map((m) => ({ id: m.id, name: m.name, subs: [...m.subMap.values()].sort((a, b) => a.sort - b.sort) }));
@@ -544,7 +559,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           <span style={{ position: "absolute", top: 11, right: 11, width: 42, height: 42, borderRadius: 13, background: "rgba(15,18,25,.55)", backdropFilter: "blur(8px)", WebkitBackdropFilter: "blur(8px)", border: "1px solid rgba(255,255,255,.35)", display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 24, fontWeight: 400, lineHeight: 0, paddingBottom: 2 }}>+</span>
         ) : null}
         <div style={{ position: "relative", padding: "12px 14px 14px", color: "#fff", background: "linear-gradient(to top, rgba(12,15,22,.92) 0%, rgba(12,15,22,.78) 60%, rgba(12,15,22,0) 100%)" }}>
-          <div style={{ fontSize: 21, fontWeight: 700, lineHeight: 1.18, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{it.name}</div>
+          <div style={{ fontSize: 21, fontWeight: 700, lineHeight: 1.18, letterSpacing: "-.01em", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }} title={it.name}>{it.posName || it.name}</div>
           <div style={{ fontSize: 16, fontWeight: 600, marginTop: 4, opacity: 0.95, fontVariantNumeric: "tabular-nums" }}>{hasMods ? "from " : ""}{gbp(it.price)}</div>
         </div>
       </div>

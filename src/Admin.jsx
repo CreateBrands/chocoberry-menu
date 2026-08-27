@@ -377,6 +377,7 @@ function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSave
     name: item.name || "", description: item.description || "", price: item.price ?? 0,
     allergensContains: item.allergens_contains || [], allergensMay: item.allergens_may || [],
     image_url: item.image_url || "", published: item.published !== false,
+    pos_name: item.pos_name || "",
   });
   // Which description components are removable (ticked). Defaults to all on first edit.
   const parseComponents = (desc) => String(desc || "").split(/[|,]/).map((s) => s.trim()).filter(Boolean);
@@ -397,6 +398,9 @@ function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSave
         name: f.name, description: f.description, price: Number(f.price),
         allergens_contains: f.allergensContains, allergens_may: f.allergensMay,
         image_url: f.image_url || null, published: f.published,
+        // Blank means "use the full name" — never store an empty string, or
+        // the till would show nothing for that item.
+        pos_name: f.pos_name.trim() || null,
         removables: removables,
       }});
       await callAdmin(pin, "set_item_mod_groups", { item_id: item.id, group_ids: modIds });
@@ -414,6 +418,13 @@ function ItemEditor({ pin, item, groups = [], itemGroupIds = [], onClose, onSave
         </div>
         <div style={lab}>Name</div>
         <input style={inp} value={f.name} onChange={(e) => set("name", e.target.value)} />
+        <div style={lab}>Till name <span style={{ fontWeight: 400, color: T.faint }}>— optional, for the POS button only</span></div>
+        <input style={inp} value={f.pos_name} placeholder={f.name} onChange={(e) => set("pos_name", e.target.value)} />
+        <div style={{ fontSize: 11.5, color: f.name.length > 22 && !f.pos_name.trim() ? "#8a5a2b" : T.faint, marginTop: 4 }}>
+          {f.name.length > 22 && !f.pos_name.trim()
+            ? "This name is " + f.name.length + " characters — it will wrap or clip on a POS button. A shorter till name helps."
+            : "Leave blank to use the full name. Receipts, the customer menu and kitchen tickets always show the full name."}
+        </div>
         <div style={lab}>Description</div>
         <textarea style={{ ...inp, minHeight: 90, resize: "vertical" }} value={f.description} onChange={(e) => set("description", e.target.value)} />
         {descComponents.length > 0 && (

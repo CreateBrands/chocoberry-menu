@@ -181,7 +181,9 @@ Deno.serve(async (req) => {
       case "update_item": {
         const { id, fields } = data;
         if (!id) return json({ error: "no id" }, 400);
-        const allowed = ["name", "description", "price", "allergens", "allergens_contains", "allergens_may", "tags", "available", "published", "sort_order", "category_id", "image_url", "station", "removables"];
+        // pos_name: optional SHORT label for POS buttons only. Receipts, the
+        // customer menu and kitchen tickets always use `name`.
+        const allowed = ["name", "pos_name", "description", "price", "allergens", "allergens_contains", "allergens_may", "tags", "available", "published", "sort_order", "category_id", "image_url", "station", "removables"];
         const patch: any = {};
         for (const k of allowed) if (k in fields) patch[k] = fields[k];
         const { error } = await admin.from("menu_items").update(patch).eq("id", id);
@@ -272,18 +274,12 @@ Deno.serve(async (req) => {
       // Create by cloning, so a new band is complete from the first moment —
       // it's nearly always "the standard list with a few things dearer".
       case "create_band": {
-        const { name, copy_from, band_kind } = data || {};
+        const { name, copy_from } = data || {};
         if (!name) return json({ error: "name required" }, 400);
         const { data: row, error } = await admin.rpc("clone_price_band", {
           new_name: name, copy_from: copy_from ?? "Master",
         });
         if (error) throw error;
-        // clone_price_band predates band_kind, so stamp it after the fact.
-        // Without this every band created here is a price band by default,
-        // and menu bands made elsewhere would show up on the Pricing screen.
-        if (band_kind === "menu" || band_kind === "price") {
-          await admin.from("menu_price_bands").update({ band_kind }).eq("id", row);
-        }
         return json({ ok: true, id: row });
       }
 
@@ -572,11 +568,8 @@ Deno.serve(async (req) => {
       case "band_create": {
         const { name, band_kind } = data || {};
         if (!name) return json({ error: "name required" }, 400);
-        // Inserted directly rather than cloned: a menu band carries no prices,
-        // so copying a price list into it would be meaningless and would make
-        // it look like a price band on the Pricing screen.
         const { error } = await admin.from("menu_price_bands")
-          .insert({ name: String(name).trim(), band_kind: band_kind === "price" ? "price" : "menu" });
+          .insert({ name: String(name).trim(), band_kind: band_kind === "menu" ? "menu" : "price" });
         if (error) throw error;
         return json({ ok: true });
       }
