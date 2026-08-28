@@ -289,27 +289,32 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // Sizes are named steps, not free pixels: easier to hit, impossible to leave
   // in a broken state, and consistent across every till.
   const SIZE = {
-    cat:  { s: { pad: ".8vw",  font: ".85vw", row: "clamp(42px,3.4vw,64px)" },
-            m: { pad: "1.15vw", font: "1.05vw", row: "clamp(52px,4.3vw,82px)" },
-            l: { pad: "1.7vw",  font: "1.35vw", row: "clamp(64px,5.4vw,104px)" } },
+    cat:  { s: { pad: ".8vw",  font: ".85vw", row: "clamp(21px,1.7vw,32px)" },
+            m: { pad: "1.15vw", font: "1.05vw", row: "clamp(26px,2.15vw,41px)" },
+            l: { pad: "1.7vw",  font: "1.35vw", row: "clamp(32px,2.7vw,52px)" } },
     item: { s: { h: "4.6vw", thumb: "3.2vw", font: ".88vw", price: "1vw", col: "16vw" },
             m: { h: "6.2vw", thumb: "4.2vw", font: "1.05vw", price: "1.25vw", col: "21vw" },
             l: { h: "8.2vw", thumb: "5.6vw", font: "1.3vw",  price: "1.5vw",  col: "27vw" } },
   };
   const CS = SIZE.cat[catSize], IS = SIZE.item[itemSize];
+  const CAT_DEF = { w: 1, h: 2 };   // upright rectangle, not a squat box
 
   // Per-tile span, keyed by id. Absent = 1x1, so nothing needs migrating and a
   // new item is a normal tile until someone decides otherwise.
-  const spanOf = (id) => (layout.span || {})[id] || { w: 1, h: 1 };
-  const setSpan = (id, w, h) => saveLayout({ ...layout, span: { ...(layout.span || {}), [id]: { w, h } } });
-  const cycleSpan = (id) => {
+  const spanOf = (id, def) => (layout.span || {})[id] || def || { w: 1, h: 1 };
+  const setSpan = (id, w, h) => setLayout((prev) => {
+    const next = { ...prev, span: { ...(prev.span || {}), [id]: { w, h } } };
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(next)); } catch {}
+    return next;
+  });
+  const cycleSpan = (id, def) => {
     // 1x1 → 2x1 → 2x2 → 1x2 → back. One control, every useful shape.
-    const { w, h } = spanOf(id);
+    const { w, h } = spanOf(id, def);
     const next = w === 1 && h === 1 ? [2, 1] : w === 2 && h === 1 ? [2, 2] : w === 2 && h === 2 ? [1, 2] : [1, 1];
     setSpan(id, next[0], next[1]);
   };
-  const spanStyle = (id) => {
-    const { w, h } = spanOf(id);
+  const spanStyle = (id, def) => {
+    const { w, h } = spanOf(id, def);
     return { gridColumn: "span " + w, gridRow: "span " + h };
   };
 
@@ -698,8 +703,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           )}
         </span>
         {editLayout && (
-          <span onClick={(e) => { e.stopPropagation(); cycleSpan(it.id); }} title="Resize this tile"
-            style={{ position: "absolute", top: 5, right: 5, zIndex: 2, background: P.tealDeep, color: "#fff", borderRadius: 7, padding: "3px 7px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>
+          <span
+            onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); cycleSpan(it.id); }}
+            draggable={false} title="Resize this tile"
+            style={{ position: "absolute", top: 5, right: 5, zIndex: 3, background: P.tealDeep, color: "#fff", borderRadius: 7, padding: "4px 8px", fontSize: 12, fontWeight: 800, cursor: "pointer", touchAction: "none" }}>
             {spanOf(it.id).w}×{spanOf(it.id).h}
           </span>
         )}
@@ -763,7 +770,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder("cat:" + (master ? master.id : ""), arrange(subs, "cat:" + (master ? master.id : "")), dragKey, sc.id); setDragKey(null); }}
                     onClick={() => { if (editLayout) return; setActiveSub(i); setSearch(""); }} title={sc.name}
                     style={{ borderRadius: 10, padding: "clamp(10px," + CS.pad + ",26px) clamp(11px,1vw,18px)", cursor: editLayout ? "grab" : "pointer",
-                      ...spanStyle(sc.id), position: "relative",
+                      ...spanStyle(sc.id, CAT_DEF), position: "relative",
                       display: "flex", alignItems: "center", opacity: dragKey === sc.id ? .45 : 1,
                       fontSize: "clamp(12px," + CS.font + ",24px)", fontWeight: on ? 800 : 700, lineHeight: 1.25, letterSpacing: "-.01em",
                       background: on ? P.masterBg : scc.bg,
@@ -771,9 +778,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                       borderLeft: "5px solid " + (on ? P.masterMuted : scc.bar),
                       boxShadow: on ? "0 4px 12px rgba(15,46,41,.28)" : "none" }}>
                     {editLayout && (
-                      <span onClick={(e) => { e.stopPropagation(); cycleSpan(sc.id); }} title="Resize this tile"
-                        style={{ position: "absolute", top: 3, right: 4, background: P.tealDeep, color: "#fff", borderRadius: 6, padding: "2px 5px", fontSize: 10, fontWeight: 800, cursor: "pointer" }}>
-                        {spanOf(sc.id).w}×{spanOf(sc.id).h}
+                      <span
+                        onPointerDown={(e) => { e.stopPropagation(); e.preventDefault(); cycleSpan(sc.id, CAT_DEF); }}
+                        draggable={false} title="Resize this tile"
+                        style={{ position: "absolute", top: 3, right: 4, zIndex: 3, background: P.tealDeep, color: "#fff", borderRadius: 6, padding: "3px 6px", fontSize: 11, fontWeight: 800, cursor: "pointer", touchAction: "none" }}>
+                        {spanOf(sc.id, CAT_DEF).w}×{spanOf(sc.id, CAT_DEF).h}
                       </span>
                     )}
                     <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
