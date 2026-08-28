@@ -634,7 +634,15 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const grad = "linear-gradient(140deg," + P.tealA + "," + P.tealB + ")";
 
   // One item tile (shared by flat grids and grouped merged views).
-  const renderTile = (it) => {
+  const renderTile = (it, listKey) => {
+    const lk = listKey || ("item:" + (sub ? sub.id : "all"));
+    // Which list this tile was rendered from, so a drop reorders the right one.
+    // Derived from sub rather than showGroups so it does not depend on where
+    // that constant happens to be declared.
+    const gi = listKey ? Number(listKey.split(":").pop()) : NaN;
+    const curList = (!isNaN(gi) && sub && Array.isArray(sub.groups) && sub.groups[gi])
+      ? sub.groups[gi].items
+      : shown;
     const fb = fallbackFor(it.name, it.category || "");
     const hasMods = it.modifiers && it.modifiers.length;
     const cc = catColor(it.category || (master && master.name));
@@ -654,7 +662,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         draggable={editLayout}
         onDragStart={() => setDragKey(it.id)}
         onDragOver={(e) => { if (editLayout) e.preventDefault(); }}
-        onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder("item:" + (sub ? sub.id : "all"), arrange(shown, "item:" + (sub ? sub.id : "all")), dragKey, it.id); setDragKey(null); }}
+        onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder(lk, arrange(curList, lk), dragKey, it.id); setDragKey(null); }}
         onClick={() => { if (editLayout) return; if (!soldOut) addItem(it); }}
         style={{
           display: "grid", gridTemplateColumns: "4px clamp(46px," + IS.thumb + ",118px) minmax(0,1fr) clamp(76px," + IS.price + ",150px)",
@@ -848,8 +856,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     <span style={{ fontSize: 13.5, color: P.muted2 }}>{g.items.length}</span>
                     <span style={{ flex: 1, height: 1, background: P.line, marginLeft: 4 }} />
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "min-content", gap: 10 }}>
-                    {g.items.map(renderTile)}
+                  <div style={{ display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "clamp(72px," + IS.h + ",170px)", gap: 10 }}>
+                    {arrange(g.items, "item:" + (sub ? sub.id : "all") + ":" + gi).map((it) => renderTile(it, "item:" + (sub ? sub.id : "all") + ":" + gi))}
                   </div>
                 </div>
               ))}
@@ -858,7 +866,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "clamp(72px," + IS.h + ",170px)", gap: 10, overflowY: "auto" }}>
               {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
               {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
-              {arrange(shown, "item:" + (sub ? sub.id : "all")).map(renderTile)}
+              {arrange(shown, "item:" + (sub ? sub.id : "all")).map((it) => renderTile(it))}
             </div>
           )}
         </div>
