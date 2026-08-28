@@ -160,6 +160,8 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
   const payingRef = useRef(false);                     // in-flight payment latch
+  const [paying, setPaying] = useState(false);         // local; `busy` is a prop
+  const isBusy = busy || paying;
   const [splitAmt, setSplitAmt] = useState("");        // typed amount for split-by-amount
   const [evenN, setEvenN] = useState(2);               // number of ways for split-evenly
   const [evenGiven, setEvenGiven] = useState(null);    // cash tendered for current even share
@@ -191,13 +193,13 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     // stops it being attempted at all, so staff see nothing rather than an error.
     if (payingRef.current) return { ok: false, duplicate: true };
     payingRef.current = true;
-    setBusy(true);
+    setPaying(true);
     const fn = onTakePayment || onPay;
     let res;
     try {
       res = await fn(o, method, amount, extra || {});
     } finally {
-      setBusy(false);
+      setPaying(false);
       // Short tail so a second tap landing just after the response still misses.
       setTimeout(() => { payingRef.current = false; }, 1200);
     }
@@ -253,7 +255,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
           <div onClick={() => { setMode("cash"); setCashGiven(null); }} style={{ padding: "28px 0", borderRadius: 14, background: "#5E7A4D", color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.cash(22, "#fff")} Cash</div>
-          <div onClick={() => { if (!busy) pay("card", remaining); }} style={{ padding: "28px 0", borderRadius: 14, background: C.paidGreen, color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, opacity: busy ? .6 : 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.card(22, "#fff")} Card</div>
+          <div onClick={() => { if (!isBusy) pay("card", remaining); }} style={{ padding: "28px 0", borderRadius: 14, background: C.paidGreen, color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, opacity: isBusy ? .6 : 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.card(22, "#fff")} Card</div>
         </div>
         <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, margin: "18px 2px 9px" }}>Split the bill</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9 }}>
@@ -296,7 +298,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 10 }}>
           {quick.map((v) => (<div key={v} onClick={() => setCashGiven(v)} style={{ padding: "13px 0", borderRadius: 11, background: given === v ? "#e6ecd9" : "#efeadf", border: given === v ? "1.5px solid #5E7A4D" : "1.5px solid transparent", textAlign: "center", fontWeight: 700, fontSize: 15, color: "#33402f", cursor: "pointer" }}>£{Number(v).toFixed(2).replace(/\.00$/, "")}</div>))}
         </div>
-        <div onClick={() => { if (cashGiven != null && !busy) pay("cash", due, { tendered: given }); }} style={{ padding: "15px 0", borderRadius: 13, background: cashGiven == null ? "#c9ccc0" : "#5E7A4D", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: cashGiven == null ? "default" : "pointer" }}>Confirm cash</div>
+        <div onClick={() => { if (cashGiven != null && !isBusy) pay("cash", due, { tendered: given }); }} style={{ padding: "15px 0", borderRadius: 13, background: cashGiven == null ? "#c9ccc0" : "#5E7A4D", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: cashGiven == null ? "default" : "pointer" }}>Confirm cash</div>
       </div>
     </>);
   }
@@ -324,8 +326,8 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         </div>
         <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, marginBottom: 7 }}>TAKE THIS PART AS</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-          <div onClick={() => { if (valid && !busy) pay("cash", amt, { tendered: amt }); }} style={{ padding: "18px 0", borderRadius: 12, background: valid ? "#5E7A4D" : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: valid ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.cash(18, "#fff")} Cash</div>
-          <div onClick={() => { if (valid && !busy) pay("card", amt); }} style={{ padding: "18px 0", borderRadius: 12, background: valid ? C.paidGreen : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: valid ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.card(18, "#fff")} Card</div>
+          <div onClick={() => { if (valid && !isBusy) pay("cash", amt, { tendered: amt }); }} style={{ padding: "18px 0", borderRadius: 12, background: valid ? "#5E7A4D" : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: valid ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.cash(18, "#fff")} Cash</div>
+          <div onClick={() => { if (valid && !isBusy) pay("card", amt); }} style={{ padding: "18px 0", borderRadius: 12, background: valid ? C.paidGreen : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: valid ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.card(18, "#fff")} Card</div>
         </div>
         <div style={{ fontSize: 11, color: C.sub, marginTop: 12, textAlign: "center" }}>Repeat until the balance reaches £0.</div>
       </div>
@@ -357,8 +359,8 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         </div>
         <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, marginBottom: 7 }}>TAKE ONE SHARE ({money(share)})</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9, marginBottom: 8 }}>
-          <div onClick={() => { if (!busy) pay("cash", share, { tendered: share, note: "even 1/" + evenN }); }} style={{ padding: "16px 0", borderRadius: 12, background: "#5E7A4D", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.cash(17, "#fff")} Cash share</div>
-          <div onClick={() => { if (!busy) pay("card", share, { note: "even 1/" + evenN }); }} style={{ padding: "16px 0", borderRadius: 12, background: C.paidGreen, color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.card(17, "#fff")} Card share</div>
+          <div onClick={() => { if (!isBusy) pay("cash", share, { tendered: share, note: "even 1/" + evenN }); }} style={{ padding: "16px 0", borderRadius: 12, background: "#5E7A4D", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.cash(17, "#fff")} Cash share</div>
+          <div onClick={() => { if (!isBusy) pay("card", share, { note: "even 1/" + evenN }); }} style={{ padding: "16px 0", borderRadius: 12, background: C.paidGreen, color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 5 }}>{Ico.card(17, "#fff")} Card share</div>
         </div>
         <div style={{ fontSize: 11, color: C.sub, textAlign: "center" }}>Tap once per guest — the balance drops each time.</div>
       </div>
@@ -393,8 +395,8 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       <div style={{ padding: "12px 15px", borderTop: "1px solid " + C.line, background: "#faf9f5", flexShrink: 0 }}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}><span style={{ fontWeight: 700, fontSize: 13 }}>Selected</span><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{money(capped)}</span></div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>
-          <div onClick={() => { if (valid && !busy) pay("cash", capped, { tendered: capped, note: "by item" }); }} style={{ padding: "15px 0", borderRadius: 12, background: valid ? "#5E7A4D" : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: valid ? "pointer" : "default" }}>Cash</div>
-          <div onClick={() => { if (valid && !busy) pay("card", capped, { note: "by item" }); }} style={{ padding: "15px 0", borderRadius: 12, background: valid ? C.paidGreen : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: valid ? "pointer" : "default" }}>Card</div>
+          <div onClick={() => { if (valid && !isBusy) pay("cash", capped, { tendered: capped, note: "by item" }); }} style={{ padding: "15px 0", borderRadius: 12, background: valid ? "#5E7A4D" : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: valid ? "pointer" : "default" }}>Cash</div>
+          <div onClick={() => { if (valid && !isBusy) pay("card", capped, { note: "by item" }); }} style={{ padding: "15px 0", borderRadius: 12, background: valid ? C.paidGreen : "#c9ccc0", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 14, cursor: valid ? "pointer" : "default" }}>Card</div>
         </div>
       </div>
     </>);
