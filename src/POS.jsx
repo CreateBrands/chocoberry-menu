@@ -663,7 +663,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           tapped something; this reclaims both.
           The item grid, order panel and modifier sheet below are unchanged. */}
       {/* ── TOP ROW — master menus + search, on one dark bar ────────────── */}
-      <div style={{ flexShrink: 0, background: "linear-gradient(180deg,#22302A,#1A241F)", padding: "9px 12px", display: "flex", gap: 7, alignItems: "center", boxShadow: "0 2px 10px rgba(20,28,24,.16)" }}>
+      <div style={{ flexShrink: 0, background: P.masterBg, padding: "9px 12px", display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, alignItems: "center", boxShadow: "0 2px 10px rgba(15,46,41,.2)" }}>
+        <div style={{ display: "flex", gap: 7, alignItems: "center", minWidth: 0 }}>
         {catList.map((m, i) => {
           const on = activeCat === i;
           return (
@@ -671,39 +672,45 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap",
                 padding: "clamp(11px,.9vw,16px) clamp(16px,1.4vw,26px)", borderRadius: 11,
                 fontSize: "clamp(11.5px,.92vw,17px)", fontWeight: on ? 700 : 600,
-                background: on ? "linear-gradient(140deg,#3E8E75,#2E7D68)" : "rgba(255,255,255,.05)",
-                color: on ? "#fff" : "#93A69E",
-                boxShadow: on ? "0 4px 12px rgba(46,125,104,.4)" : "none" }}>
+                background: on ? grad : "rgba(94,234,212,.09)",
+                color: on ? "#fff" : P.masterMuted,
+                boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
               <span style={{ display: "flex", height: "clamp(15px,1.2vw,22px)" }}>{menuIcon(m.name, on)}</span>
               {m.posName || m.name}
             </div>
           );
         })}
-        <div style={{ flex: 1, minWidth: 120, display: "flex", alignItems: "center", gap: 9, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 11, padding: "0 16px" }}>
-          <span style={{ fontSize: 18, color: "#93A69E" }}>⌕</span>
+        <div style={{ flex: 1, minWidth: 120, display: "flex", alignItems: "center", gap: 9, background: "rgba(94,234,212,.09)", border: "1px solid rgba(94,234,212,.16)", borderRadius: 11, padding: "0 16px" }}>
+          <span style={{ fontSize: 18, color: P.masterMuted }}>⌕</span>
           <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
-            style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "clamp(11px,.9vw,16px) 0", fontSize: "clamp(11.5px,.92vw,17px)", color: "#EAF0EC", fontFamily: "inherit" }} />
-          {search && <span onClick={() => setSearch("")} style={{ fontSize: 18, color: "#93A69E", cursor: "pointer" }}>×</span>}
+            style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "clamp(11px,.9vw,16px) 0", fontSize: "clamp(11.5px,.92vw,17px)", color: "#EAFBF7", fontFamily: "inherit" }} />
+          {search && <span onClick={() => setSearch("")} style={{ fontSize: 18, color: P.masterMuted, cursor: "pointer" }}>×</span>}
+        </div>
+        </div>
+        {/* Right track — aligns with the order card below it. */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, color: P.masterMuted, fontSize: "clamp(11.5px,.9vw,17px)", fontWeight: 600 }}>
+          <span style={{ opacity: .75 }}>London Road</span>
         </div>
       </div>
 
       {/* ── THREE COLUMNS — categories over orders · items · order panel ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "clamp(200px,13vw,320px) minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "clamp(240px,17vw,400px) minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
 
         {/* 1 — CATEGORIES (top) over ORDERS (below) */}
         <div style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 0 }}>
           <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: 8, boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column", minHeight: 0, maxHeight: "52%" }}>
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+            <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gridAutoRows: "min-content", gap: 5, alignContent: "start" }}>
               {subs.map((sc, i) => {
                 const on = activeSub === i && !search;
                 return (
                   <div key={sc.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={sc.name}
-                    style={{ borderRadius: 9, padding: "clamp(11px,.95vw,17px) clamp(13px,.9vw,17px)", cursor: "pointer",
-                      fontSize: "clamp(12px,.95vw,18px)", fontWeight: on ? 700 : 600, lineHeight: 1.25,
-                      background: on ? "linear-gradient(140deg,#3E8E75,#2E7D68)" : "#F6F4ED",
-                      color: on ? "#fff" : "#3E463A",
-                      boxShadow: on ? "0 3px 9px rgba(46,125,104,.3)" : "none",
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    style={{ borderRadius: 10, padding: "clamp(13px,1.1vw,20px) clamp(10px,.75vw,15px)", cursor: "pointer", textAlign: "center",
+                      fontSize: "clamp(13px,1.02vw,19px)", fontWeight: on ? 800 : 700, lineHeight: 1.2,
+                      background: on ? grad : P.chip,
+                      color: on ? "#fff" : P.tealDeep,
+                      border: "1px solid " + (on ? "transparent" : P.chipBorder),
+                      boxShadow: on ? "0 3px 9px rgba(13,148,136,.3)" : "none",
+                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                     {sc.posName || sc.name}
                   </div>
                 );
