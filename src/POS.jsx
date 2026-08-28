@@ -289,15 +289,15 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // Sizes are named steps, not free pixels: easier to hit, impossible to leave
   // in a broken state, and consistent across every till.
   const SIZE = {
-    cat:  { s: { pad: ".8vw",  font: ".85vw", row: "clamp(44px,3.5vw,66px)" },
-            m: { pad: "1.15vw", font: "1.05vw", row: "clamp(54px,4.4vw,84px)" },
-            l: { pad: "1.7vw",  font: "1.35vw", row: "clamp(66px,5.5vw,106px)" } },
+    cat:  { s: { pad: ".7vw",  font: ".72vw", row: "clamp(38px,3vw,56px)" },
+            m: { pad: "1vw",    font: ".88vw", row: "clamp(46px,3.7vw,70px)" },
+            l: { pad: "1.4vw",  font: "1.1vw", row: "clamp(56px,4.6vw,88px)" } },
     item: { s: { h: "4.6vw", thumb: "3.2vw", font: ".88vw", price: "1vw", col: "16vw" },
             m: { h: "6.2vw", thumb: "4.2vw", font: "1.05vw", price: "1.25vw", col: "21vw" },
             l: { h: "8.2vw", thumb: "5.6vw", font: "1.3vw",  price: "1.5vw",  col: "27vw" } },
   };
   const CS = SIZE.cat[catSize], IS = SIZE.item[itemSize];
-  const CAT_DEF = { w: 1, h: 1 };   // one cell = one tile, so the badge is honest
+  const CAT_DEF = { w: 2, h: 1 };   // full width, one per row
 
   // Per-tile span, keyed by id. Absent = 1x1, so nothing needs migrating and a
   // new item is a normal tile until someone decides otherwise.
@@ -780,7 +780,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     style={{ borderRadius: 10, padding: "clamp(10px," + CS.pad + ",26px) clamp(11px,1vw,18px)", cursor: editLayout ? "grab" : "pointer",
                       ...spanStyle(sc.id, CAT_DEF), position: "relative",
                       display: "flex", alignItems: "center", opacity: dragKey === sc.id ? .45 : 1,
-                      fontSize: "calc(clamp(12px," + CS.font + ",24px) * " + Math.min(spanScale(sc.id, CAT_DEF), 1.5) + ")", fontWeight: on ? 800 : 700, lineHeight: 1.25, letterSpacing: "-.01em",
+                      fontSize: "calc(clamp(11px," + CS.font + ",20px) * " + Math.min(spanScale(sc.id, CAT_DEF), 1.35) + ")", fontWeight: on ? 800 : 700, lineHeight: 1.25, letterSpacing: "-.01em",
                       background: on ? P.masterBg : scc.bg,
                       color: on ? "#fff" : scc.ink,
                       borderLeft: "5px solid " + (on ? P.masterMuted : scc.bar),
