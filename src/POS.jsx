@@ -271,6 +271,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const unpaidOrders = (orders || [])
     .filter((o) => o.status !== "cancelled" && !o.paid_method)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+  // Settled orders, newest first, shown under the unpaid ones so staff can
+  // reopen or reprint a recent order without leaving the till screen.
+  const paidOrders = (orders || [])
+    .filter((o) => o.status !== "cancelled" && o.paid_method)
+    .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
   // ---- Load menu (same source as the customer app) ----
   // Three levels: master MENU (Breakfast, Desserts…) → subcategory → items.
@@ -626,21 +631,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
-      {/* ── Slim header (single-screen: no mode switching) ── */}
-      <div style={{ flexShrink: 0, background: P.panel, borderBottom: "1px solid " + P.line, padding: "10px 18px", display: "flex", alignItems: "center", gap: 14 }}>
-        <div style={{ flex: 1, maxWidth: 640, background: P.canvas, border: "1px solid " + P.line, borderRadius: 12, padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ fontSize: 20, color: P.muted2 }}>⌕</span>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
-            style={{ flex: 1, border: "none", outline: "none", background: "transparent", padding: "12px 0", fontSize: 16, color: P.ink, fontFamily: "inherit" }} />
-        </div>
-        {unpaidCount > 0 && (
-          <span style={{ fontSize: 14, color: "#fff", background: "#B23B3B", borderRadius: 20, padding: "5px 12px", fontWeight: 700 }}>
-            {unpaidCount} unpaid · £{owedTotal.toFixed(2)}
-          </span>
-        )}
-        <span style={{ marginLeft: "auto", fontSize: 14, color: P.muted2 }}>London Road</span>
-      </div>
-
       {/* ── Un-ignorable print-failure banner (Oracle-style) ── */}
       {failedPrintOrders.length > 0 && (
         <>
@@ -698,7 +688,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={s.name}
                   style={{ borderRadius: 11, padding: "clamp(10px,1vw,17px) clamp(10px,.8vw,15px)", cursor: "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: "clamp(14px,1.05vw,20px)", fontWeight: 800, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder) }}>
                   <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.posName || s.name}</span>
-                  <span style={{ fontSize: "clamp(10.5px,.75vw,14px)", fontWeight: 600, opacity: .6, flexShrink: 0 }}>{(s.items || []).length}</span>
                 </div>
               );
             })}
@@ -716,8 +705,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
         {/* 3 — ITEM GRID (unchanged inside; it is now a grid cell) */}
         <div style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "flex-end", padding: "14px 20px 8px" }}>
-            <span style={{ fontSize: 15.5, color: P.muted2 }}>{search ? "Results · " : ""}{shown.length} items</span>
+          <div style={{ padding: "12px 20px 8px" }}>
+            <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 20, color: P.muted2 }}>⌕</span>
+              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
+                style={{ flex: 1, border: "none", outline: "none", background: "transparent", padding: "12px 0", fontSize: "clamp(16px,1.1vw,21px)", color: P.ink, fontFamily: "inherit" }} />
+              {search && <span onClick={() => setSearch("")} style={{ fontSize: 19, color: P.muted2, cursor: "pointer" }}>×</span>}
+            </div>
           </div>
           {showGroups ? (
             <div style={{ flex: 1, padding: "2px 20px 20px", overflowY: "auto" }}>
@@ -902,8 +896,27 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               );
             })}
             {unpaidOrders.length === 0 && (
-              <div style={{ fontSize: 9.5, color: P.masterMuted, textAlign: "center", marginTop: 12, lineHeight: 1.4 }}>All paid</div>
+              <div style={{ fontSize: 9.5, color: P.masterMuted, textAlign: "center", margin: "10px 0", lineHeight: 1.4 }}>All paid</div>
             )}
+
+            {paidOrders.length > 0 && (
+              <div style={{ fontSize: 8.5, letterSpacing: ".08em", color: P.masterMuted, textAlign: "center", margin: "10px 0 2px", borderTop: "1px solid rgba(255,255,255,.09)", paddingTop: 9 }}>PAID</div>
+            )}
+            {paidOrders.slice(0, 40).map((o) => {
+              const on = selOrderId === o.id;
+              return (
+                <div key={o.id} onClick={() => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(o.id); }}
+                  title={"Order #" + o.order_no}
+                  style={{ borderRadius: 9, padding: "7px 5px", cursor: "pointer", textAlign: "center", opacity: on ? 1 : .62,
+                    background: on ? grad : "rgba(255,255,255,.04)",
+                    border: "1px solid " + (on ? "transparent" : "rgba(255,255,255,.06)") }}>
+                  <div style={{ fontSize: "clamp(11px,.8vw,16px)", fontWeight: 700, color: on ? "#fff" : "#C9C2B6", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no)}
+                  </div>
+                  <div style={{ fontSize: "clamp(10px,.78vw,15px)", fontWeight: 600, color: on ? "rgba(255,255,255,.85)" : P.masterMuted, marginTop: 2 }}>{gbp(o.total)}</div>
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>
