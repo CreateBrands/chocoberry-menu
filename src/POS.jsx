@@ -663,7 +663,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           tapped something; this reclaims both.
           The item grid, order panel and modifier sheet below are unchanged. */}
       {/* ── THREE COLUMNS — categories over orders · items · order panel ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "clamp(230px,15vw,340px) minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "clamp(230px,15vw,340px) minmax(0,1fr) clamp(300px,20vw,470px) clamp(148px,10vw,215px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
 
         {/* 1 — CATEGORIES (top) over ORDERS (below) */}
         <div style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 0 }}>
@@ -751,13 +751,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               {shown.map(renderTile)}
             </div>
           )}
-
-          {/* Orders — moved under the items, where a horizontal strip suits
-              them: table badge, number and amount read naturally in a row,
-              and the category column gets its full height back. */}
-          <div style={{ flexShrink: 0, marginTop: 9, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(34,39,31,.05)", height: "clamp(150px,17vh,230px)", display: "flex", flexDirection: "column" }}>
-            <OrdersList orders={orders || []} now={now} selId={selOrderId} onSelect={(id) => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(id); }} />
-          </div>
         </div>
 
         {/* 3 — ORDER PANEL */}
@@ -884,6 +877,80 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           )}
         </div>
 
+        {/* 4 — ORDERS, far right. A dark column so it reads as its own zone
+             next to the light cart: unpaid at the top in warm amber with the
+             owed total, settled orders muted beneath. */}
+        <div style={{ minWidth: 0, background: P.masterBg, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(15,46,41,.18)" }}>
+          <div style={{ flexShrink: 0, padding: "clamp(11px,.9vw,16px) clamp(10px,.8vw,15px) clamp(9px,.7vw,13px)", borderBottom: "1px solid rgba(94,234,212,.14)" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
+              <span style={{ fontSize: "clamp(21px,1.7vw,34px)", fontWeight: 800, color: unpaidOrders.length ? "#F0B27A" : P.masterMuted, lineHeight: 1 }}>{unpaidOrders.length}</span>
+              <span style={{ fontSize: "clamp(9.5px,.72vw,13px)", letterSpacing: ".09em", color: P.masterMuted, fontWeight: 700 }}>UNPAID</span>
+            </div>
+            {unpaidOrders.length > 0 && (
+              <div style={{ fontSize: "clamp(13px,1vw,19px)", color: "#F0B27A", fontWeight: 800, marginTop: 4 }}>
+                {gbp(unpaidOrders.reduce((t, o) => t + (Number(o.total) || 0), 0))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ flex: 1, overflowY: "auto", padding: "clamp(8px,.65vw,12px)", display: "flex", flexDirection: "column", gap: 6 }}>
+            {unpaidOrders.map((o) => {
+              const on = selOrderId === o.id;
+              const mins = Math.max(0, Math.round((now - new Date(o.created_at).getTime()) / 60000));
+              const age = mins < 60 ? mins + "m" : Math.floor(mins / 60) + "h " + (mins % 60) + "m";
+              const late = mins >= 75;
+              return (
+                <div key={o.id} onClick={() => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(o.id); }}
+                  title={"Order #" + o.order_no}
+                  style={{ borderRadius: 11, padding: "clamp(9px,.75vw,14px) clamp(9px,.7vw,13px)", cursor: "pointer",
+                    background: on ? grad : "rgba(240,178,122,.11)",
+                    borderLeft: "4px solid " + (on ? P.masterMuted : (late ? "#E0685C" : "#F0B27A")),
+                    boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                    <span style={{ fontSize: "clamp(13px,1.02vw,19px)", fontWeight: 800, color: "#fff", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1, minWidth: 0 }}>
+                      {o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no)}
+                    </span>
+                    <span style={{ fontSize: "clamp(9px,.7vw,13px)", color: on ? "rgba(255,255,255,.75)" : (late ? "#E0685C" : P.masterMuted), fontWeight: 700, whiteSpace: "nowrap" }}>{age}</span>
+                  </div>
+                  <div style={{ display: "flex", alignItems: "baseline", gap: 6, marginTop: 3 }}>
+                    <span style={{ fontSize: "clamp(9.5px,.72vw,13px)", color: on ? "rgba(255,255,255,.6)" : "rgba(94,234,212,.6)", flex: 1 }}>#{o.order_no}</span>
+                    <span style={{ fontSize: "clamp(12px,.95vw,18px)", fontWeight: 800, color: on ? "#fff" : "#F0B27A", fontVariantNumeric: "tabular-nums" }}>{gbp(o.total)}</span>
+                  </div>
+                </div>
+              );
+            })}
+
+            {unpaidOrders.length === 0 && (
+              <div style={{ fontSize: "clamp(11px,.82vw,15px)", color: P.masterMuted, textAlign: "center", padding: "18px 6px", lineHeight: 1.5, opacity: .8 }}>
+                Everything paid
+              </div>
+            )}
+
+            {paidOrders.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 7, margin: "9px 2px 1px" }}>
+                <span style={{ fontSize: "clamp(9px,.68vw,12px)", letterSpacing: ".09em", color: "rgba(94,234,212,.5)", fontWeight: 700 }}>PAID</span>
+                <span style={{ flex: 1, height: 1, background: "rgba(94,234,212,.14)" }} />
+                <span style={{ fontSize: "clamp(9px,.68vw,12px)", color: "rgba(94,234,212,.4)" }}>{paidOrders.length}</span>
+              </div>
+            )}
+            {paidOrders.slice(0, 30).map((o) => {
+              const on = selOrderId === o.id;
+              return (
+                <div key={o.id} onClick={() => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(o.id); }}
+                  title={"Order #" + o.order_no}
+                  style={{ borderRadius: 10, padding: "clamp(8px,.62vw,12px) clamp(9px,.7vw,13px)", cursor: "pointer",
+                    display: "flex", alignItems: "baseline", gap: 6,
+                    background: on ? grad : "rgba(255,255,255,.04)",
+                    borderLeft: "4px solid " + (on ? P.masterMuted : "rgba(94,234,212,.22)") }}>
+                  <span style={{ fontSize: "clamp(11.5px,.88vw,17px)", fontWeight: 700, color: on ? "#fff" : "#BFD6D0", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no)}
+                  </span>
+                  <span style={{ fontSize: "clamp(11px,.85vw,16px)", fontWeight: 700, color: on ? "rgba(255,255,255,.85)" : "rgba(191,214,208,.65)", fontVariantNumeric: "tabular-nums" }}>{gbp(o.total)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       {/* TABLE PICKER SHEET */}
