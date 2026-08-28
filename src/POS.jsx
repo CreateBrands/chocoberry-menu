@@ -297,7 +297,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             l: { h: "8.2vw", thumb: "5.6vw", font: "1.3vw",  price: "1.5vw",  col: "27vw" } },
   };
   const CS = SIZE.cat[catSize], IS = SIZE.item[itemSize];
-  const CAT_DEF = { w: 1, h: 2 };   // upright rectangle, not a squat box
+  const CAT_DEF = { w: 2, h: 2 };   // full-width, double-height by default
 
   // Per-tile span, keyed by id. Absent = 1x1, so nothing needs migrating and a
   // new item is a normal tile until someone decides otherwise.
@@ -312,6 +312,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const { w, h } = spanOf(id, def);
     const next = w === 1 && h === 1 ? [2, 1] : w === 2 && h === 1 ? [2, 2] : w === 2 && h === 2 ? [1, 2] : [1, 1];
     setSpan(id, next[0], next[1]);
+  };
+  // A bigger tile should USE the space: thumbnail, name and price scale with
+  // the span rather than staying at base size and leaving the tile half empty.
+  const spanScale = (id, def) => {
+    const { w, h } = spanOf(id, def);
+    return 1 + (w - 1) * 0.42 + (h - 1) * 0.42;
   };
   const spanStyle = (id, def) => {
     const { w, h } = spanOf(id, def);
@@ -644,6 +650,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     // Which list this tile was rendered from, so a drop reorders the right one.
     // Derived from sub rather than showGroups so it does not depend on where
     // that constant happens to be declared.
+    const k = spanScale(it.id);
+    const tall = spanOf(it.id).h > 1;
     const gi = listKey ? Number(listKey.split(":").pop()) : NaN;
     const curList = (!isNaN(gi) && sub && Array.isArray(sub.groups) && sub.groups[gi])
       ? sub.groups[gi].items
@@ -670,7 +678,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder(lk, arrange(curList, lk), dragKey, it.id); setDragKey(null); }}
         onClick={() => { if (editLayout) return; if (!soldOut) addItem(it); }}
         style={{
-          display: "grid", gridTemplateColumns: "4px clamp(46px," + IS.thumb + ",118px) minmax(0,1fr) clamp(76px," + IS.price + ",150px)",
+          display: "grid", gridTemplateColumns: "4px calc(clamp(46px," + IS.thumb + ",118px) * " + k + ") minmax(0,1fr) calc(clamp(76px," + IS.price + ",150px) * " + Math.min(k, 1.5) + ")",
           alignItems: "center", columnGap: 12,
           ...spanStyle(it.id), height: "100%", boxSizing: "border-box", overflow: "hidden",
           padding: "10px 12px 10px 0", borderRadius: 14, opacity: dragKey === it.id ? .45 : 1, position: "relative",
@@ -695,7 +703,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           )}
         </span>
         <span style={{ minWidth: 0 }}>
-          <span title={it.name} style={{ display: "-webkit-box", WebkitLineClamp: chip ? 2 : 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: "clamp(12.5px," + IS.font + ",26px)", fontWeight: 600, lineHeight: 1.3, letterSpacing: "-.005em", color: soldOut ? "#8A8170" : "#221D17" }}>
+          <span title={it.name} style={{ display: "-webkit-box", WebkitLineClamp: tall ? (chip ? 4 : 5) : (chip ? 2 : 3), WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: "calc(clamp(12.5px," + IS.font + ",26px) * " + k + ")", fontWeight: 600, lineHeight: 1.3, letterSpacing: "-.005em", color: soldOut ? "#8A8170" : "#221D17" }}>
             {it.posName || it.name}
           </span>
           {chip && (
@@ -710,7 +718,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             {spanOf(it.id).w}×{spanOf(it.id).h}
           </span>
         )}
-        <span style={{ textAlign: "right", fontSize: "clamp(14px," + IS.price + ",30px)", fontWeight: 700, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums", color: soldOut ? "#B6AA96" : inCart ? "#3F5A2F" : "#221D17" }}>
+        <span style={{ textAlign: "right", fontSize: "calc(clamp(14px," + IS.price + ",30px) * " + Math.min(k, 1.6) + ")", fontWeight: 700, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums", color: soldOut ? "#B6AA96" : inCart ? "#3F5A2F" : "#221D17" }}>
           {gbp(it.price)}
         </span>
       </div>
@@ -772,7 +780,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     style={{ borderRadius: 10, padding: "clamp(10px," + CS.pad + ",26px) clamp(11px,1vw,18px)", cursor: editLayout ? "grab" : "pointer",
                       ...spanStyle(sc.id, CAT_DEF), position: "relative",
                       display: "flex", alignItems: "center", opacity: dragKey === sc.id ? .45 : 1,
-                      fontSize: "clamp(12px," + CS.font + ",24px)", fontWeight: on ? 800 : 700, lineHeight: 1.25, letterSpacing: "-.01em",
+                      fontSize: "calc(clamp(12px," + CS.font + ",24px) * " + Math.min(spanScale(sc.id, CAT_DEF), 1.5) + ")", fontWeight: on ? 800 : 700, lineHeight: 1.25, letterSpacing: "-.01em",
                       background: on ? P.masterBg : scc.bg,
                       color: on ? "#fff" : scc.ink,
                       borderLeft: "5px solid " + (on ? P.masterMuted : scc.bar),
