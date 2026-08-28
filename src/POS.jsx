@@ -265,6 +265,52 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // print failure during a rush can't be missed. The 2-min sweep will often
   // clear these automatically; staff can also tap to reprint immediately.
   const failedPrintOrders = (orders || []).filter((o) => o.status !== "cancelled" && o.print_failed);
+
+  // ── LAYOUT: tile size + arrangement ───────────────────────────────────────
+  // Stored per device rather than per account: two tills at the same store can
+  // reasonably want different sizes, and it needs no authenticated write path
+  // from the POS. Lifting it to the server later changes nothing here.
+  const LAYOUT_KEY = "cb_pos_layout_v1";
+  const [layout, setLayout] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch { return {}; }
+  });
+  const saveLayout = (next) => {
+    setLayout(next);
+    try { localStorage.setItem(LAYOUT_KEY, JSON.stringify(next)); } catch {}
+  };
+  const catSize = layout.catSize || "m";
+  const itemSize = layout.itemSize || "m";
+  // Editing is an explicit mode. Without it a drag on a touchscreen also reads
+  // as a tap and adds the item to the order — the one thing that must not
+  // happen by accident on a till.
+  const [editLayout, setEditLayout] = useState(false);
+  const [dragKey, setDragKey] = useState(null);
+
+  // Sizes are named steps, not free pixels: easier to hit, impossible to leave
+  // in a broken state, and consistent across every till.
+  const SIZE = {
+    cat:  { s: { pad: ".8vw", font: ".85vw", min: 0 },  m: { pad: "1.15vw", font: "1.05vw", min: 0 },  l: { pad: "1.7vw", font: "1.35vw", min: 0 } },
+    item: { s: { h: "4.6vw", thumb: "3.2vw", font: ".88vw", price: "1vw", col: "16vw" },
+            m: { h: "6.2vw", thumb: "4.2vw", font: "1.05vw", price: "1.25vw", col: "21vw" },
+            l: { h: "8.2vw", thumb: "5.6vw", font: "1.3vw",  price: "1.5vw",  col: "27vw" } },
+  };
+  const CS = SIZE.cat[catSize], IS = SIZE.item[itemSize];
+
+  // Apply a saved arrangement to a list, keeping anything new at the end so a
+  // newly added item never disappears because it is missing from the order.
+  const arrange = (list, key) => {
+    const saved = (layout.order || {})[key];
+    if (!saved || !saved.length) return list;
+    const pos = new Map(saved.map((id, i) => [id, i]));
+    return [...list].sort((a, b) => (pos.has(a.id) ? pos.get(a.id) : 9999) - (pos.has(b.id) ? pos.get(b.id) : 9999));
+  };
+  const reorder = (key, list, fromId, toId) => {
+    const ids = list.map((x) => x.id);
+    const from = ids.indexOf(fromId), to = ids.indexOf(toId);
+    if (from < 0 || to < 0 || from === to) return;
+    ids.splice(to, 0, ids.splice(from, 1)[0]);
+    saveLayout({ ...layout, order: { ...(layout.order || {}), [key]: ids } });
+  };
   // Open tables for the unpaid strip. Paid is decided by paid_method, the same
   // test OrdersList uses — NOT by amount_paid, which stays at zero on orders
   // settled at the counter and made paid orders look outstanding.
@@ -587,13 +633,18 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       ? { text: "BACK 6AM", fg: "#8A5A15", bg: "#F6E9D5" }
       : hasMods ? { text: "OPTIONS", fg: "#8A6A3E", bg: "#FBF2E4" } : null;
     return (
-      <div key={it.id} onClick={() => { if (!soldOut) addItem(it); }}
+      <div key={it.id}
+        draggable={editLayout}
+        onDragStart={() => setDragKey(it.id)}
+        onDragOver={(e) => { if (editLayout) e.preventDefault(); }}
+        onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder("item:" + (sub ? sub.id : "all"), shown, dragKey, it.id); setDragKey(null); }}
+        onClick={() => { if (editLayout) return; if (!soldOut) addItem(it); }}
         style={{
-          display: "grid", gridTemplateColumns: "4px clamp(56px,4.2vw,82px) minmax(0,1fr) clamp(84px,5.5vw,120px)",
+          display: "grid", gridTemplateColumns: "4px clamp(46px," + IS.thumb + ",118px) minmax(0,1fr) clamp(76px," + IS.price + ",150px)",
           alignItems: "center", columnGap: 12,
-          height: "clamp(80px,6.2vw,116px)", boxSizing: "border-box", overflow: "hidden",
-          padding: "10px 12px 10px 0", borderRadius: 14,
-          cursor: soldOut ? "not-allowed" : "pointer",
+          height: "clamp(72px," + IS.h + ",170px)", boxSizing: "border-box", overflow: "hidden",
+          padding: "10px 12px 10px 0", borderRadius: 14, opacity: dragKey === it.id ? .45 : 1,
+          cursor: editLayout ? "grab" : (soldOut ? "not-allowed" : "pointer"),
           background: soldOut ? "#F0EADF" : inCart ? "#F7FAF3" : "#fff",
           border: inCart ? "1.5px solid #5E7A4D" : "1px solid " + (soldOut ? "#E4DCCB" : "#E7E0D1"),
           boxShadow: inCart ? "0 3px 10px rgba(94,122,77,.14)" : (soldOut ? "none" : "0 1px 3px rgba(34,39,31,.05)"),
@@ -614,20 +665,20 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           )}
         </span>
         <span style={{ minWidth: 0 }}>
-          <span title={it.name} style={{ display: "-webkit-box", WebkitLineClamp: chip ? 2 : 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: "clamp(14.5px,1.05vw,21px)", fontWeight: 600, lineHeight: 1.3, letterSpacing: "-.005em", color: soldOut ? "#8A8170" : "#221D17" }}>
+          <span title={it.name} style={{ display: "-webkit-box", WebkitLineClamp: chip ? 2 : 3, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: "clamp(12.5px," + IS.font + ",26px)", fontWeight: 600, lineHeight: 1.3, letterSpacing: "-.005em", color: soldOut ? "#8A8170" : "#221D17" }}>
             {it.posName || it.name}
           </span>
           {chip && (
             <span style={{ display: "inline-block", marginTop: 4, fontSize: 10, letterSpacing: ".04em", fontWeight: 700, color: chip.fg, background: chip.bg, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>{chip.text}</span>
           )}
         </span>
-        <span style={{ textAlign: "right", fontSize: "clamp(17px,1.25vw,25px)", fontWeight: 700, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums", color: soldOut ? "#B6AA96" : inCart ? "#3F5A2F" : "#221D17" }}>
+        <span style={{ textAlign: "right", fontSize: "clamp(14px," + IS.price + ",30px)", fontWeight: 700, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums", color: soldOut ? "#B6AA96" : inCart ? "#3F5A2F" : "#221D17" }}>
           {gbp(it.price)}
         </span>
       </div>
     );
   };
-  const gridCols = "repeat(auto-fill, minmax(clamp(290px, 21vw, 420px), 1fr))";
+  const gridCols = "repeat(auto-fill, minmax(clamp(240px, " + IS.col + ", 520px), 1fr))";
   const showGroups = sub && sub._merged && Array.isArray(sub.groups) && sub.groups.length > 0 && !search;
 
   return (
@@ -669,14 +720,20 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         <div style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 0 }}>
           <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: 8, boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
             <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
-              {subs.map((sc, i) => {
+              {arrange(subs, "cat:" + (master ? master.id : "")).map((sc) => {
+                const i = subs.indexOf(sc);
                 const on = activeSub === i && !search;
                 const scc = catColor(sc.name + " " + (master ? master.name : ""));
                 return (
-                  <div key={sc.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={sc.name}
-                    style={{ borderRadius: 10, padding: "clamp(13px,1.15vw,21px) clamp(13px,1vw,18px)", cursor: "pointer",
-                      display: "flex", alignItems: "center",
-                      fontSize: "clamp(13.5px,1.05vw,20px)", fontWeight: on ? 800 : 700, lineHeight: 1.25, letterSpacing: "-.01em",
+                  <div key={sc.id}
+                    draggable={editLayout}
+                    onDragStart={() => setDragKey(sc.id)}
+                    onDragOver={(e) => { if (editLayout) e.preventDefault(); }}
+                    onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder("cat:" + (master ? master.id : ""), arrange(subs, "cat:" + (master ? master.id : "")), dragKey, sc.id); setDragKey(null); }}
+                    onClick={() => { if (editLayout) return; setActiveSub(i); setSearch(""); }} title={sc.name}
+                    style={{ borderRadius: 10, padding: "clamp(10px," + CS.pad + ",26px) clamp(11px,1vw,18px)", cursor: editLayout ? "grab" : "pointer",
+                      display: "flex", alignItems: "center", opacity: dragKey === sc.id ? .45 : 1,
+                      fontSize: "clamp(12px," + CS.font + ",24px)", fontWeight: on ? 800 : 700, lineHeight: 1.25, letterSpacing: "-.01em",
                       background: on ? P.masterBg : scc.bg,
                       color: on ? "#fff" : scc.ink,
                       borderLeft: "5px solid " + (on ? P.masterMuted : scc.bar),
@@ -698,10 +755,33 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "clamp(12px,1vw,18px) 0", fontSize: "clamp(13px,1vw,18px)", color: P.ink, fontFamily: "inherit" }} />
                 {search && <span onClick={() => setSearch("")} style={{ fontSize: 18, color: P.muted2, cursor: "pointer" }}>×</span>}
               </div>
-              <div onClick={() => setShowMerge(true)} title="Merge categories"
-                style={{ background: P.canvas, border: "1px solid " + P.line, borderRadius: 11, padding: "clamp(11px,.9vw,16px)", fontSize: "clamp(12px,.92vw,17px)", fontWeight: 800, color: P.tealDeep, textAlign: "center", cursor: "pointer" }}>
-                ⇱ Merge categories
+              <div style={{ display: "flex", gap: 6 }}>
+                <div onClick={() => setShowMerge(true)} title="Merge categories"
+                  style={{ flex: 1, background: P.canvas, border: "1px solid " + P.line, borderRadius: 11, padding: "clamp(10px,.85vw,15px)", fontSize: "clamp(11.5px,.88vw,16px)", fontWeight: 800, color: P.tealDeep, textAlign: "center", cursor: "pointer" }}>
+                  ⇱ Merge
+                </div>
+                <div onClick={() => setEditLayout((v) => !v)} title={editLayout ? "Done arranging" : "Resize and rearrange tiles"}
+                  style={{ flex: 1, background: editLayout ? grad : P.canvas, border: "1px solid " + (editLayout ? "transparent" : P.line), borderRadius: 11, padding: "clamp(10px,.85vw,15px)", fontSize: "clamp(11.5px,.88vw,16px)", fontWeight: 800, color: editLayout ? "#fff" : P.tealDeep, textAlign: "center", cursor: "pointer" }}>
+                  {editLayout ? "✓ Done" : "⇕ Layout"}
+                </div>
               </div>
+              {editLayout && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, background: P.canvas, border: "1px solid " + P.line, borderRadius: 11, padding: 8 }}>
+                  {[["Categories", "catSize", catSize], ["Items", "itemSize", itemSize]].map(([label, key, cur]) => (
+                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ flex: 1, fontSize: "clamp(10.5px,.8vw,14px)", fontWeight: 700, color: P.muted }}>{label}</span>
+                      {["s", "m", "l"].map((z) => (
+                        <span key={z} onClick={() => saveLayout({ ...layout, [key]: z })}
+                          style={{ width: 30, textAlign: "center", padding: "6px 0", borderRadius: 8, cursor: "pointer",
+                            fontSize: "clamp(10.5px,.78vw,14px)", fontWeight: 800,
+                            background: cur === z ? P.tealDeep : "#fff", color: cur === z ? "#fff" : P.muted,
+                            border: "1px solid " + (cur === z ? P.tealDeep : P.line) }}>{z.toUpperCase()}</span>
+                      ))}
+                    </div>
+                  ))}
+                  <div style={{ fontSize: "clamp(10px,.74vw,13px)", color: P.muted2, lineHeight: 1.4 }}>Drag tiles to rearrange. Saved on this till.</div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -748,7 +828,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "min-content", gap: 10, overflowY: "auto" }}>
               {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
               {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
-              {shown.map(renderTile)}
+              {arrange(shown, "item:" + (sub ? sub.id : "all")).map(renderTile)}
             </div>
           )}
         </div>
