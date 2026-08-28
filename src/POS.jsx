@@ -662,37 +662,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           navigation columns and left the order panel empty until someone
           tapped something; this reclaims both.
           The item grid, order panel and modifier sheet below are unchanged. */}
-      {/* ── TOP ROW — master menus + search, on one dark bar ────────────── */}
-      <div style={{ flexShrink: 0, background: P.masterBg, padding: "9px 12px", display: "grid", gridTemplateColumns: "minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, alignItems: "center", boxShadow: "0 2px 10px rgba(15,46,41,.2)" }}>
-        <div style={{ display: "flex", gap: 7, alignItems: "center", minWidth: 0 }}>
-        {catList.map((m, i) => {
-          const on = activeCat === i;
-          return (
-            <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} title={m.name}
-              style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap",
-                padding: "clamp(11px,.9vw,16px) clamp(16px,1.4vw,26px)", borderRadius: 11,
-                fontSize: "clamp(11.5px,.92vw,17px)", fontWeight: on ? 700 : 600,
-                background: on ? grad : "rgba(94,234,212,.09)",
-                color: on ? "#fff" : P.masterMuted,
-                boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
-              <span style={{ display: "flex", height: "clamp(15px,1.2vw,22px)" }}>{menuIcon(m.name, on)}</span>
-              {m.posName || m.name}
-            </div>
-          );
-        })}
-        <div style={{ flex: 1, minWidth: 120, display: "flex", alignItems: "center", gap: 9, background: "rgba(94,234,212,.09)", border: "1px solid rgba(94,234,212,.16)", borderRadius: 11, padding: "0 16px" }}>
-          <span style={{ fontSize: 18, color: P.masterMuted }}>⌕</span>
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
-            style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "clamp(11px,.9vw,16px) 0", fontSize: "clamp(11.5px,.92vw,17px)", color: "#EAFBF7", fontFamily: "inherit" }} />
-          {search && <span onClick={() => setSearch("")} style={{ fontSize: 18, color: P.masterMuted, cursor: "pointer" }}>×</span>}
-        </div>
-        </div>
-        {/* Right track — aligns with the order card below it. */}
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", gap: 10, color: P.masterMuted, fontSize: "clamp(11.5px,.9vw,17px)", fontWeight: 600 }}>
-          <span style={{ opacity: .75 }}>London Road</span>
-        </div>
-      </div>
-
       {/* ── THREE COLUMNS — categories over orders · items · order panel ── */}
       <div style={{ display: "grid", gridTemplateColumns: "clamp(230px,15vw,340px) minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
 
@@ -720,9 +689,17 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               })}
               {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 12.5, textAlign: "center", marginTop: 16 }}>No categories</div>}
             </div>
-            <div style={{ marginTop: 7, paddingTop: 8, borderTop: "1px solid " + P.line2, flexShrink: 0 }}>
+            {/* Search sits at the foot of the categories, where the hand
+                already is after choosing one. */}
+            <div style={{ marginTop: 7, paddingTop: 8, borderTop: "1px solid " + P.line2, flexShrink: 0, display: "flex", flexDirection: "column", gap: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 9, background: P.canvas, border: "1px solid " + P.line, borderRadius: 11, padding: "0 13px" }}>
+                <span style={{ fontSize: 18, color: P.muted2 }}>⌕</span>
+                <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search"
+                  style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "clamp(12px,1vw,18px) 0", fontSize: "clamp(13px,1vw,18px)", color: P.ink, fontFamily: "inherit" }} />
+                {search && <span onClick={() => setSearch("")} style={{ fontSize: 18, color: P.muted2, cursor: "pointer" }}>×</span>}
+              </div>
               <div onClick={() => setShowMerge(true)} title="Merge categories"
-                style={{ background: P.canvas, border: "1px solid " + P.line, borderRadius: 11, padding: "clamp(13px,1.05vw,19px)", fontSize: "clamp(13px,1vw,18px)", fontWeight: 800, color: P.tealDeep, textAlign: "center", cursor: "pointer" }}>
+                style={{ background: P.canvas, border: "1px solid " + P.line, borderRadius: 11, padding: "clamp(11px,.9vw,16px)", fontSize: "clamp(12px,.92vw,17px)", fontWeight: 800, color: P.tealDeep, textAlign: "center", cursor: "pointer" }}>
                 ⇱ Merge categories
               </div>
             </div>
@@ -730,8 +707,27 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
         </div>
 
-        {/* 2 — ITEM GRID */}
+        {/* 2 — MASTER MENUS over the ITEM GRID. The menus sit above the items
+             they filter, not across the whole screen, so the category column
+             and the cart both start at the top of the display. */}
         <div style={{ minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+          <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 7, alignItems: "center", marginBottom: 9, boxShadow: "0 2px 10px rgba(15,46,41,.2)", overflowX: "auto" }}>
+            {catList.map((m, i) => {
+              const on = activeCat === i;
+              return (
+                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} title={m.name}
+                  style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0,
+                    padding: "clamp(11px,.9vw,17px) clamp(15px,1.3vw,26px)", borderRadius: 11,
+                    fontSize: "clamp(12px,.95vw,18px)", fontWeight: on ? 800 : 700,
+                    background: on ? grad : "rgba(94,234,212,.09)",
+                    color: on ? "#fff" : P.masterMuted,
+                    boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
+                  <span style={{ display: "flex", height: "clamp(16px,1.25vw,23px)" }}>{menuIcon(m.name, on)}</span>
+                  {m.posName || m.name}
+                </div>
+              );
+            })}
+          </div>
 
           {showGroups ? (
             <div style={{ flex: 1, padding: "2px 20px 20px", overflowY: "auto" }}>
