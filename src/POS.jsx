@@ -289,15 +289,15 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // Sizes are named steps, not free pixels: easier to hit, impossible to leave
   // in a broken state, and consistent across every till.
   const SIZE = {
-    cat:  { s: { pad: ".8vw",  font: ".85vw", row: "clamp(21px,1.7vw,32px)" },
-            m: { pad: "1.15vw", font: "1.05vw", row: "clamp(26px,2.15vw,41px)" },
-            l: { pad: "1.7vw",  font: "1.35vw", row: "clamp(32px,2.7vw,52px)" } },
+    cat:  { s: { pad: ".8vw",  font: ".85vw", row: "clamp(44px,3.5vw,66px)" },
+            m: { pad: "1.15vw", font: "1.05vw", row: "clamp(54px,4.4vw,84px)" },
+            l: { pad: "1.7vw",  font: "1.35vw", row: "clamp(66px,5.5vw,106px)" } },
     item: { s: { h: "4.6vw", thumb: "3.2vw", font: ".88vw", price: "1vw", col: "16vw" },
             m: { h: "6.2vw", thumb: "4.2vw", font: "1.05vw", price: "1.25vw", col: "21vw" },
             l: { h: "8.2vw", thumb: "5.6vw", font: "1.3vw",  price: "1.5vw",  col: "27vw" } },
   };
   const CS = SIZE.cat[catSize], IS = SIZE.item[itemSize];
-  const CAT_DEF = { w: 2, h: 2 };   // full-width, double-height by default
+  const CAT_DEF = { w: 1, h: 1 };   // one cell = one tile, so the badge is honest
 
   // Per-tile span, keyed by id. Absent = 1x1, so nothing needs migrating and a
   // new item is a normal tile until someone decides otherwise.
@@ -688,9 +688,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           boxShadow: inCart ? "0 3px 10px rgba(94,122,77,.14)" : (soldOut ? "none" : "0 1px 3px rgba(34,39,31,.05)"),
         }}>
         <span style={{ width: 4, height: 80, background: cc.bar, opacity: soldOut ? .4 : 1 }} />
-        <span style={{ position: "relative", width: "100%", aspectRatio: "1" }}>
+        <span style={{ position: "relative", width: "100%", height: tall ? "88%" : "auto", aspectRatio: tall ? "auto" : "1", alignSelf: "center" }}>
           <span style={{
-            display: "block", width: "100%", aspectRatio: "1", borderRadius: 14,
+            display: "block", width: "100%", height: "100%", borderRadius: 14,
             background: it.image_url ? "#E7E0D1" : "linear-gradient(150deg," + cc.bar + "," + cc.ink + ")",
             backgroundImage: it.image_url ? "url(" + it.image_url + ")" : undefined,
             backgroundSize: "cover", backgroundPosition: "center",
