@@ -694,24 +694,25 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       </div>
 
       {/* ── THREE COLUMNS — categories over orders · items · order panel ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "clamp(260px,19vw,440px) minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "clamp(230px,15vw,340px) minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
 
         {/* 1 — CATEGORIES (top) over ORDERS (below) */}
         <div style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 0 }}>
-          <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: 8, boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column", minHeight: 0, maxHeight: "62%" }}>
-            <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gridAutoRows: "min-content", gap: 7, alignContent: "start" }}>
+          <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: 8, boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
               {subs.map((sc, i) => {
                 const on = activeSub === i && !search;
+                const scc = catColor(sc.name + " " + (master ? master.name : ""));
                 return (
                   <div key={sc.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={sc.name}
-                    style={{ borderRadius: 13, padding: "clamp(18px,1.6vw,30px) clamp(10px,.8vw,16px)", cursor: "pointer", textAlign: "center",
-                      minHeight: "clamp(62px,5vw,96px)", display: "flex", alignItems: "center", justifyContent: "center",
-                      fontSize: "clamp(14.5px,1.15vw,22px)", fontWeight: 800, lineHeight: 1.2, letterSpacing: "-.01em",
-                      background: on ? "linear-gradient(140deg,#14b8a6,#0b6b63)" : "#fff",
-                      color: on ? "#fff" : "#124F49",
-                      border: on ? "2px solid #0b6b63" : "2px solid #CDE7E3",
-                      boxShadow: on ? "0 5px 16px rgba(13,148,136,.4)" : "0 1px 3px rgba(18,79,73,.07)" }}>
-                    <span style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                    style={{ borderRadius: 10, padding: "clamp(13px,1.15vw,21px) clamp(13px,1vw,18px)", cursor: "pointer",
+                      display: "flex", alignItems: "center",
+                      fontSize: "clamp(13.5px,1.05vw,20px)", fontWeight: on ? 800 : 700, lineHeight: 1.25, letterSpacing: "-.01em",
+                      background: on ? P.masterBg : scc.bg,
+                      color: on ? "#fff" : scc.ink,
+                      borderLeft: "5px solid " + (on ? P.masterMuted : scc.bar),
+                      boxShadow: on ? "0 4px 12px rgba(15,46,41,.28)" : "none" }}>
+                    <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                     {sc.posName || sc.name}
                     </span>
                   </div>
@@ -727,11 +728,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             </div>
           </div>
 
-          {/* Orders — the original list, unchanged: Unpaid/Paid tabs, owed
-              total, and rows with the table badge, order number and age. */}
-          <div style={{ flex: 1, minHeight: 0, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column" }}>
-            <OrdersList orders={orders || []} now={now} selId={selOrderId} onSelect={(id) => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(id); }} />
-          </div>
         </div>
 
         {/* 2 — ITEM GRID */}
@@ -759,6 +755,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               {shown.map(renderTile)}
             </div>
           )}
+
+          {/* Orders — moved under the items, where a horizontal strip suits
+              them: table badge, number and amount read naturally in a row,
+              and the category column gets its full height back. */}
+          <div style={{ flexShrink: 0, marginTop: 9, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(34,39,31,.05)", height: "clamp(150px,17vh,230px)", display: "flex", flexDirection: "column" }}>
+            <OrdersList orders={orders || []} now={now} selId={selOrderId} onSelect={(id) => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(id); }} />
+          </div>
         </div>
 
         {/* 3 — ORDER PANEL */}
