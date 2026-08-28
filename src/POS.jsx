@@ -694,24 +694,26 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       </div>
 
       {/* ── THREE COLUMNS — categories over orders · items · order panel ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "clamp(240px,17vw,400px) minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "clamp(260px,19vw,440px) minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
 
         {/* 1 — CATEGORIES (top) over ORDERS (below) */}
         <div style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 0 }}>
-          <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: 8, boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column", minHeight: 0, maxHeight: "52%" }}>
-            <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gridAutoRows: "min-content", gap: 5, alignContent: "start" }}>
+          <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: 8, boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column", minHeight: 0, maxHeight: "62%" }}>
+            <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gridAutoRows: "min-content", gap: 7, alignContent: "start" }}>
               {subs.map((sc, i) => {
                 const on = activeSub === i && !search;
                 return (
                   <div key={sc.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={sc.name}
-                    style={{ borderRadius: 10, padding: "clamp(13px,1.1vw,20px) clamp(10px,.75vw,15px)", cursor: "pointer", textAlign: "center",
-                      fontSize: "clamp(13px,1.02vw,19px)", fontWeight: on ? 800 : 700, lineHeight: 1.2,
-                      background: on ? grad : P.chip,
-                      color: on ? "#fff" : P.tealDeep,
-                      border: "1px solid " + (on ? "transparent" : P.chipBorder),
-                      boxShadow: on ? "0 3px 9px rgba(13,148,136,.3)" : "none",
-                      display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                    style={{ borderRadius: 13, padding: "clamp(18px,1.6vw,30px) clamp(10px,.8vw,16px)", cursor: "pointer", textAlign: "center",
+                      minHeight: "clamp(62px,5vw,96px)", display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: "clamp(14.5px,1.15vw,22px)", fontWeight: 800, lineHeight: 1.2, letterSpacing: "-.01em",
+                      background: on ? "linear-gradient(140deg,#14b8a6,#0b6b63)" : "#fff",
+                      color: on ? "#fff" : "#124F49",
+                      border: on ? "2px solid #0b6b63" : "2px solid #CDE7E3",
+                      boxShadow: on ? "0 5px 16px rgba(13,148,136,.4)" : "0 1px 3px rgba(18,79,73,.07)" }}>
+                    <span style={{ display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                     {sc.posName || sc.name}
+                    </span>
                   </div>
                 );
               })}
@@ -719,7 +721,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             </div>
             <div style={{ marginTop: 7, paddingTop: 8, borderTop: "1px solid " + P.line2, flexShrink: 0 }}>
               <div onClick={() => setShowMerge(true)} title="Merge categories"
-                style={{ background: P.canvas, border: "1px solid " + P.line, borderRadius: 9, padding: "clamp(10px,.85vw,15px)", fontSize: "clamp(11.5px,.88vw,16px)", fontWeight: 700, color: P.tealDeep, textAlign: "center", cursor: "pointer" }}>
+                style={{ background: P.canvas, border: "1px solid " + P.line, borderRadius: 11, padding: "clamp(13px,1.05vw,19px)", fontSize: "clamp(13px,1vw,18px)", fontWeight: 800, color: P.tealDeep, textAlign: "center", cursor: "pointer" }}>
                 ⇱ Merge categories
               </div>
             </div>
