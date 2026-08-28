@@ -289,12 +289,29 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // Sizes are named steps, not free pixels: easier to hit, impossible to leave
   // in a broken state, and consistent across every till.
   const SIZE = {
-    cat:  { s: { pad: ".8vw", font: ".85vw", min: 0 },  m: { pad: "1.15vw", font: "1.05vw", min: 0 },  l: { pad: "1.7vw", font: "1.35vw", min: 0 } },
+    cat:  { s: { pad: ".8vw",  font: ".85vw", row: "clamp(42px,3.4vw,64px)" },
+            m: { pad: "1.15vw", font: "1.05vw", row: "clamp(52px,4.3vw,82px)" },
+            l: { pad: "1.7vw",  font: "1.35vw", row: "clamp(64px,5.4vw,104px)" } },
     item: { s: { h: "4.6vw", thumb: "3.2vw", font: ".88vw", price: "1vw", col: "16vw" },
             m: { h: "6.2vw", thumb: "4.2vw", font: "1.05vw", price: "1.25vw", col: "21vw" },
             l: { h: "8.2vw", thumb: "5.6vw", font: "1.3vw",  price: "1.5vw",  col: "27vw" } },
   };
   const CS = SIZE.cat[catSize], IS = SIZE.item[itemSize];
+
+  // Per-tile span, keyed by id. Absent = 1x1, so nothing needs migrating and a
+  // new item is a normal tile until someone decides otherwise.
+  const spanOf = (id) => (layout.span || {})[id] || { w: 1, h: 1 };
+  const setSpan = (id, w, h) => saveLayout({ ...layout, span: { ...(layout.span || {}), [id]: { w, h } } });
+  const cycleSpan = (id) => {
+    // 1x1 → 2x1 → 2x2 → 1x2 → back. One control, every useful shape.
+    const { w, h } = spanOf(id);
+    const next = w === 1 && h === 1 ? [2, 1] : w === 2 && h === 1 ? [2, 2] : w === 2 && h === 2 ? [1, 2] : [1, 1];
+    setSpan(id, next[0], next[1]);
+  };
+  const spanStyle = (id) => {
+    const { w, h } = spanOf(id);
+    return { gridColumn: "span " + w, gridRow: "span " + h };
+  };
 
   // Apply a saved arrangement to a list, keeping anything new at the end so a
   // newly added item never disappears because it is missing from the order.
@@ -637,13 +654,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         draggable={editLayout}
         onDragStart={() => setDragKey(it.id)}
         onDragOver={(e) => { if (editLayout) e.preventDefault(); }}
-        onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder("item:" + (sub ? sub.id : "all"), shown, dragKey, it.id); setDragKey(null); }}
+        onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder("item:" + (sub ? sub.id : "all"), arrange(shown, "item:" + (sub ? sub.id : "all")), dragKey, it.id); setDragKey(null); }}
         onClick={() => { if (editLayout) return; if (!soldOut) addItem(it); }}
         style={{
           display: "grid", gridTemplateColumns: "4px clamp(46px," + IS.thumb + ",118px) minmax(0,1fr) clamp(76px," + IS.price + ",150px)",
           alignItems: "center", columnGap: 12,
-          height: "clamp(72px," + IS.h + ",170px)", boxSizing: "border-box", overflow: "hidden",
-          padding: "10px 12px 10px 0", borderRadius: 14, opacity: dragKey === it.id ? .45 : 1,
+          ...spanStyle(it.id), height: "100%", boxSizing: "border-box", overflow: "hidden",
+          padding: "10px 12px 10px 0", borderRadius: 14, opacity: dragKey === it.id ? .45 : 1, position: "relative",
           cursor: editLayout ? "grab" : (soldOut ? "not-allowed" : "pointer"),
           background: soldOut ? "#F0EADF" : inCart ? "#F7FAF3" : "#fff",
           border: inCart ? "1.5px solid #5E7A4D" : "1px solid " + (soldOut ? "#E4DCCB" : "#E7E0D1"),
@@ -672,6 +689,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <span style={{ display: "inline-block", marginTop: 4, fontSize: 10, letterSpacing: ".04em", fontWeight: 700, color: chip.fg, background: chip.bg, borderRadius: 5, padding: "2px 6px", whiteSpace: "nowrap" }}>{chip.text}</span>
           )}
         </span>
+        {editLayout && (
+          <span onClick={(e) => { e.stopPropagation(); cycleSpan(it.id); }} title="Resize this tile"
+            style={{ position: "absolute", top: 5, right: 5, zIndex: 2, background: P.tealDeep, color: "#fff", borderRadius: 7, padding: "3px 7px", fontSize: 11, fontWeight: 800, cursor: "pointer" }}>
+            {spanOf(it.id).w}×{spanOf(it.id).h}
+          </span>
+        )}
         <span style={{ textAlign: "right", fontSize: "clamp(14px," + IS.price + ",30px)", fontWeight: 700, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums", color: soldOut ? "#B6AA96" : inCart ? "#3F5A2F" : "#221D17" }}>
           {gbp(it.price)}
         </span>
@@ -719,7 +742,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         {/* 1 — CATEGORIES (top) over ORDERS (below) */}
         <div style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 0 }}>
           <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: 8, boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
-            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 5 }}>
+            <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gridAutoRows: CS.row, gap: 5, alignContent: "start" }}>
               {arrange(subs, "cat:" + (master ? master.id : "")).map((sc) => {
                 const i = subs.indexOf(sc);
                 const on = activeSub === i && !search;
@@ -732,12 +755,19 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder("cat:" + (master ? master.id : ""), arrange(subs, "cat:" + (master ? master.id : "")), dragKey, sc.id); setDragKey(null); }}
                     onClick={() => { if (editLayout) return; setActiveSub(i); setSearch(""); }} title={sc.name}
                     style={{ borderRadius: 10, padding: "clamp(10px," + CS.pad + ",26px) clamp(11px,1vw,18px)", cursor: editLayout ? "grab" : "pointer",
+                      ...spanStyle(sc.id), position: "relative",
                       display: "flex", alignItems: "center", opacity: dragKey === sc.id ? .45 : 1,
                       fontSize: "clamp(12px," + CS.font + ",24px)", fontWeight: on ? 800 : 700, lineHeight: 1.25, letterSpacing: "-.01em",
                       background: on ? P.masterBg : scc.bg,
                       color: on ? "#fff" : scc.ink,
                       borderLeft: "5px solid " + (on ? P.masterMuted : scc.bar),
                       boxShadow: on ? "0 4px 12px rgba(15,46,41,.28)" : "none" }}>
+                    {editLayout && (
+                      <span onClick={(e) => { e.stopPropagation(); cycleSpan(sc.id); }} title="Resize this tile"
+                        style={{ position: "absolute", top: 3, right: 4, background: P.tealDeep, color: "#fff", borderRadius: 6, padding: "2px 5px", fontSize: 10, fontWeight: 800, cursor: "pointer" }}>
+                        {spanOf(sc.id).w}×{spanOf(sc.id).h}
+                      </span>
+                    )}
                     <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
                     {sc.posName || sc.name}
                     </span>
@@ -779,7 +809,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                       ))}
                     </div>
                   ))}
-                  <div style={{ fontSize: "clamp(10px,.74vw,13px)", color: P.muted2, lineHeight: 1.4 }}>Drag tiles to rearrange. Saved on this till.</div>
+                  <div style={{ fontSize: "clamp(10px,.74vw,13px)", color: P.muted2, lineHeight: 1.4 }}>Drag to rearrange. Tap the badge on a tile to resize it. Saved on this till.</div>
                 </div>
               )}
             </div>
@@ -825,7 +855,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               ))}
             </div>
           ) : (
-            <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "min-content", gap: 10, overflowY: "auto" }}>
+            <div style={{ flex: 1, padding: "2px 20px 20px", display: "grid", gridTemplateColumns: gridCols, gridAutoRows: "clamp(72px," + IS.h + ",170px)", gap: 10, overflowY: "auto" }}>
               {cats === null && <div style={{ color: P.muted2 }}>Loading menu…</div>}
               {cats && shown.length === 0 && <div style={{ color: P.muted2 }}>No items.</div>}
               {arrange(shown, "item:" + (sub ? sub.id : "all")).map(renderTile)}
