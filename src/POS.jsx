@@ -595,7 +595,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           padding: "10px 12px 10px 0", borderRadius: 14,
           cursor: soldOut ? "not-allowed" : "pointer",
           background: soldOut ? "#F0EADF" : inCart ? "#F7FAF3" : "#fff",
-          border: inCart ? "1.5px solid " + P.tealA : "1px solid " + (soldOut ? "#E4DCCB" : "#E7E0D1"),
+          border: inCart ? "1.5px solid #5E7A4D" : "1px solid " + (soldOut ? "#E4DCCB" : "#E7E0D1"),
+          boxShadow: inCart ? "0 3px 10px rgba(94,122,77,.14)" : (soldOut ? "none" : "0 1px 3px rgba(34,39,31,.05)"),
         }}>
         <span style={{ width: 4, height: 80, background: cc.bar, opacity: soldOut ? .4 : 1 }} />
         <span style={{ position: "relative", width: "100%", aspectRatio: "1" }}>
@@ -661,58 +662,72 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           navigation columns and left the order panel empty until someone
           tapped something; this reclaims both.
           The item grid, order panel and modifier sheet below are unchanged. */}
-      <div style={{ display: "grid", gridTemplateColumns: "clamp(84px,5.5vw,150px) clamp(180px,12vw,300px) minmax(0,1fr) clamp(330px,22vw,520px) clamp(104px,6.5vw,170px)", flex: 1, minHeight: 0 }}>
+      {/* ── TOP ROW — master menus + search, on one dark bar ────────────── */}
+      <div style={{ flexShrink: 0, background: "linear-gradient(180deg,#22302A,#1A241F)", padding: "9px 12px", display: "flex", gap: 7, alignItems: "center", boxShadow: "0 2px 10px rgba(20,28,24,.16)" }}>
+        {catList.map((m, i) => {
+          const on = activeCat === i;
+          return (
+            <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} title={m.name}
+              style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap",
+                padding: "clamp(11px,.9vw,16px) clamp(16px,1.4vw,26px)", borderRadius: 11,
+                fontSize: "clamp(11.5px,.92vw,17px)", fontWeight: on ? 700 : 600,
+                background: on ? "linear-gradient(140deg,#3E8E75,#2E7D68)" : "rgba(255,255,255,.05)",
+                color: on ? "#fff" : "#93A69E",
+                boxShadow: on ? "0 4px 12px rgba(46,125,104,.4)" : "none" }}>
+              <span style={{ display: "flex", height: "clamp(15px,1.2vw,22px)" }}>{menuIcon(m.name, on)}</span>
+              {m.posName || m.name}
+            </div>
+          );
+        })}
+        <div style={{ flex: 1, minWidth: 120, display: "flex", alignItems: "center", gap: 9, background: "rgba(255,255,255,.07)", border: "1px solid rgba(255,255,255,.1)", borderRadius: 11, padding: "0 16px" }}>
+          <span style={{ fontSize: 18, color: "#93A69E" }}>⌕</span>
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
+            style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "clamp(11px,.9vw,16px) 0", fontSize: "clamp(11.5px,.92vw,17px)", color: "#EAF0EC", fontFamily: "inherit" }} />
+          {search && <span onClick={() => setSearch("")} style={{ fontSize: 18, color: "#93A69E", cursor: "pointer" }}>×</span>}
+        </div>
+      </div>
 
-        {/* 1 — MENU RAIL. Icon over label, so six menus fit 84px instead of 300. */}
-        <div style={{ background: P.masterBg, padding: "10px 6px", display: "flex", flexDirection: "column", gap: 5, overflowY: "auto" }}>
-          {catList.map((m, i) => {
-            const on = activeCat === i;
-            return (
-              <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }}
-                title={m.name}
-                style={{ borderRadius: 12, padding: "clamp(11px,1.1vw,18px) 4px", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 7, background: on ? grad : "transparent", color: on ? "#fff" : P.masterMuted, boxShadow: on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
-                <span style={{ display: "flex", height: "clamp(24px,2vw,34px)" }}>{menuIcon(m.name, on)}</span>
-                <span style={{ fontSize: "clamp(11.5px,.9vw,17px)", fontWeight: 800, lineHeight: 1.15, textAlign: "center", width: "100%", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{m.posName || m.name}</span>
+      {/* ── THREE COLUMNS — categories over orders · items · order panel ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "clamp(200px,13vw,320px) minmax(0,1fr) clamp(330px,22vw,520px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
+
+        {/* 1 — CATEGORIES (top) over ORDERS (below) */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 0 }}>
+          <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: 8, boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column", minHeight: 0, maxHeight: "52%" }}>
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+              {subs.map((sc, i) => {
+                const on = activeSub === i && !search;
+                return (
+                  <div key={sc.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={sc.name}
+                    style={{ borderRadius: 9, padding: "clamp(11px,.95vw,17px) clamp(13px,.9vw,17px)", cursor: "pointer",
+                      fontSize: "clamp(12px,.95vw,18px)", fontWeight: on ? 700 : 600, lineHeight: 1.25,
+                      background: on ? "linear-gradient(140deg,#3E8E75,#2E7D68)" : "#F6F4ED",
+                      color: on ? "#fff" : "#3E463A",
+                      boxShadow: on ? "0 3px 9px rgba(46,125,104,.3)" : "none",
+                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {sc.posName || sc.name}
+                  </div>
+                );
+              })}
+              {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 12.5, textAlign: "center", marginTop: 16 }}>No categories</div>}
+            </div>
+            <div style={{ marginTop: 7, paddingTop: 8, borderTop: "1px solid " + P.line2, flexShrink: 0 }}>
+              <div onClick={() => setShowMerge(true)} title="Merge categories"
+                style={{ background: P.canvas, border: "1px solid " + P.line, borderRadius: 9, padding: "clamp(10px,.85vw,15px)", fontSize: "clamp(11.5px,.88vw,16px)", fontWeight: 700, color: P.tealDeep, textAlign: "center", cursor: "pointer" }}>
+                ⇱ Merge categories
               </div>
-            );
-          })}
-        </div>
-
-        {/* 2 — CATEGORY RAIL. Vertical, because the names are long: a chip row
-             wraps to three lines and eats the height it was meant to save. */}
-        <div style={{ background: P.panel, borderRight: "1px solid " + P.line, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ flex: 1, overflowY: "auto", padding: "10px 9px", display: "flex", flexDirection: "column", gap: 5 }}>
-            {subs.map((s, i) => {
-              const on = activeSub === i && !search;
-              return (
-                <div key={s.id} onClick={() => { setActiveSub(i); setSearch(""); }} title={s.name}
-                  style={{ borderRadius: 11, padding: "clamp(10px,1vw,17px) clamp(10px,.8vw,15px)", cursor: "pointer", display: "flex", alignItems: "center", gap: 7, fontSize: "clamp(14px,1.05vw,20px)", fontWeight: 800, lineHeight: 1.25, background: on ? grad : P.chip, color: on ? "#fff" : P.tealDeep, border: "1px solid " + (on ? "transparent" : P.chipBorder) }}>
-                  <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{s.posName || s.name}</span>
-                </div>
-              );
-            })}
-            {subs.length === 0 && cats !== null && <div style={{ color: P.muted2, fontSize: 12.5, textAlign: "center", marginTop: 16 }}>No categories</div>}
-          </div>
-          {master && (
-            <div onClick={() => setShowMerge(true)} title="Merge categories"
-              style={{ flexShrink: 0, margin: "0 9px 10px", padding: "clamp(11px,1vw,16px) 8px", borderRadius: 11, cursor: "pointer", textAlign: "center",
-                background: P.chip, border: "1px solid " + P.chipBorder, color: P.tealDeep,
-                fontSize: "clamp(12.5px,.9vw,16px)", fontWeight: 700 }}>
-              ⇱ Merge
-            </div>
-          )}
-        </div>
-
-        {/* 3 — ITEM GRID (unchanged inside; it is now a grid cell) */}
-        <div style={{ minWidth: 0, display: "flex", flexDirection: "column" }}>
-          <div style={{ padding: "12px 20px 8px" }}>
-            <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: "0 16px", display: "flex", alignItems: "center", gap: 10 }}>
-              <span style={{ fontSize: 20, color: P.muted2 }}>⌕</span>
-              <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search the menu"
-                style={{ flex: 1, border: "none", outline: "none", background: "transparent", padding: "12px 0", fontSize: "clamp(16px,1.1vw,21px)", color: P.ink, fontFamily: "inherit" }} />
-              {search && <span onClick={() => setSearch("")} style={{ fontSize: 19, color: P.muted2, cursor: "pointer" }}>×</span>}
             </div>
           </div>
+
+          {/* Orders — the original list, unchanged: Unpaid/Paid tabs, owed
+              total, and rows with the table badge, order number and age. */}
+          <div style={{ flex: 1, minHeight: 0, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column" }}>
+            <OrdersList orders={orders || []} now={now} selId={selOrderId} onSelect={(id) => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(id); }} />
+          </div>
+        </div>
+
+        {/* 2 — ITEM GRID */}
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+
           {showGroups ? (
             <div style={{ flex: 1, padding: "2px 20px 20px", overflowY: "auto" }}>
               {sub.groups.map((g, gi) => (
@@ -737,8 +752,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           )}
         </div>
 
-        {/* 4 — ORDER PANEL (unchanged inside) */}
-        <div style={{ minWidth: 0, background: P.panel, borderLeft: "1px solid " + P.line, display: "flex", flexDirection: "column", boxShadow: "-6px 0 20px rgba(18,21,28,.04)" }}>
+        {/* 3 — ORDER PANEL */}
+        <div style={{ minWidth: 0, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(34,39,31,.05)" }}>
           {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
             <OrderDetailPanel
               printingId={printingId}
@@ -861,64 +876,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           )}
         </div>
 
-        {/* 5 — UNPAID STRIP. The orders list used to sit at the bottom of the
-             left column, below the menus, where it was easy to miss. Open
-             tables are the thing a cafe most needs permanently visible, so it
-             gets its own column. Tapping one opens it in the order panel. */}
-        <div style={{ minWidth: 0, background: P.masterBg, display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <div style={{ padding: "10px 7px 7px", textAlign: "center", flexShrink: 0 }}>
-            <div style={{ fontSize: "clamp(19px,1.5vw,30px)", fontWeight: 800, color: unpaidOrders.length ? "#E8A87C" : P.masterMuted, lineHeight: 1 }}>{unpaidOrders.length}</div>
-            <div style={{ fontSize: 8.5, letterSpacing: ".08em", color: P.masterMuted, marginTop: 3 }}>UNPAID</div>
-            {unpaidOrders.length > 0 && (
-              <div style={{ fontSize: 10.5, color: "#E8A87C", fontWeight: 700, marginTop: 3 }}>
-                {gbp(unpaidOrders.reduce((t, o) => t + (Number(o.total) || 0), 0))}
-              </div>
-            )}
-          </div>
-          <div style={{ flex: 1, overflowY: "auto", padding: "0 6px 8px", display: "flex", flexDirection: "column", gap: 5 }}>
-            {unpaidOrders.map((o) => {
-              const on = selOrderId === o.id;
-              const mins = Math.max(0, Math.round((now - new Date(o.created_at).getTime()) / 60000));
-              return (
-                <div key={o.id} onClick={() => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(o.id); }}
-                  title={"Order #" + o.order_no}
-                  style={{ borderRadius: 9, padding: "8px 5px", cursor: "pointer", textAlign: "center",
-                    background: on ? grad : "rgba(255,255,255,.06)",
-                    border: "1px solid " + (on ? "transparent" : "rgba(255,255,255,.09)") }}>
-                  <div style={{ fontSize: "clamp(11.5px,.85vw,17px)", fontWeight: 800, color: on ? "#fff" : "#E8DFD2", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no)}
-                  </div>
-                  <div style={{ fontSize: 9, color: on ? "rgba(255,255,255,.8)" : P.masterMuted, marginTop: 2 }}>
-                    {mins < 60 ? mins + "m" : Math.floor(mins / 60) + "h" + (mins % 60) + "m"}
-                  </div>
-                  <div style={{ fontSize: "clamp(11px,.85vw,16px)", fontWeight: 700, color: on ? "#fff" : "#E8A87C", marginTop: 3 }}>{gbp(o.total)}</div>
-                </div>
-              );
-            })}
-            {unpaidOrders.length === 0 && (
-              <div style={{ fontSize: 9.5, color: P.masterMuted, textAlign: "center", margin: "10px 0", lineHeight: 1.4 }}>All paid</div>
-            )}
-
-            {paidOrders.length > 0 && (
-              <div style={{ fontSize: 8.5, letterSpacing: ".08em", color: P.masterMuted, textAlign: "center", margin: "10px 0 2px", borderTop: "1px solid rgba(255,255,255,.09)", paddingTop: 9 }}>PAID</div>
-            )}
-            {paidOrders.slice(0, 40).map((o) => {
-              const on = selOrderId === o.id;
-              return (
-                <div key={o.id} onClick={() => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(o.id); }}
-                  title={"Order #" + o.order_no}
-                  style={{ borderRadius: 9, padding: "7px 5px", cursor: "pointer", textAlign: "center", opacity: on ? 1 : .62,
-                    background: on ? grad : "rgba(255,255,255,.04)",
-                    border: "1px solid " + (on ? "transparent" : "rgba(255,255,255,.06)") }}>
-                  <div style={{ fontSize: "clamp(11px,.8vw,16px)", fontWeight: 700, color: on ? "#fff" : "#C9C2B6", lineHeight: 1.1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                    {o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no)}
-                  </div>
-                  <div style={{ fontSize: "clamp(10px,.78vw,15px)", fontWeight: 600, color: on ? "rgba(255,255,255,.85)" : P.masterMuted, marginTop: 2 }}>{gbp(o.total)}</div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
       </div>
 
       {/* TABLE PICKER SHEET */}
