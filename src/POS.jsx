@@ -252,6 +252,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // Without a target sunmi-print falls back to default routing, which sends it
   // to every printer at the location — so every receipt reprint was also
   // spitting a slip out of the kitchen machine mid-service.
+  // Shown for a few seconds after a payment completes, so the sale visibly
+  // ends rather than the panel just disappearing.
+  const [paidBanner, setPaidBanner] = useState(null);
+  useEffect(() => {
+    if (!paidBanner) return;
+    const t = setTimeout(() => setPaidBanner(null), 4000);
+    return () => clearTimeout(t);
+  }, [paidBanner]);
   const [printingId, setPrintingId] = useState(null);
   const [printedAt, setPrintedAt] = useState({});   // order id -> ms of last OK
   const PRINT_COOLDOWN_MS = 8000;
@@ -807,6 +815,25 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           The item grid, order panel and modifier sheet below are unchanged. */}
       <style>{TAP_CSS}</style>
 
+      {/* PAID — the sale is finished. Sits above everything, clears itself. */}
+      {paidBanner && (
+        <div onClick={() => setPaidBanner(null)}
+          style={{ position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)", zIndex: 9999,
+            background: "linear-gradient(140deg,#3E8E75,#2E7D68)", color: "#fff", borderRadius: 14,
+            padding: "14px 26px", boxShadow: "0 10px 30px rgba(15,46,41,.35)", cursor: "pointer",
+            display: "flex", alignItems: "center", gap: 14 }}>
+          <span style={{ fontSize: 26, lineHeight: 1 }}>✓</span>
+          <span>
+            <span style={{ display: "block", fontSize: 17, fontWeight: 800, lineHeight: 1.2 }}>
+              {paidBanner.label} paid — {gbp(paidBanner.total)}
+            </span>
+            <span style={{ display: "block", fontSize: 12.5, opacity: .85, marginTop: 2 }}>
+              {paidBanner.method === "cash" ? "Cash" : paidBanner.method === "card" ? "Card" : "Payment"} taken
+            </span>
+          </span>
+        </div>
+      )}
+
       {/* ── THREE COLUMNS — categories over orders · items · order panel ── */}
       <div style={{ display: "grid", gridTemplateColumns: "clamp(230px,15vw,340px) minmax(0,1fr) clamp(300px,20vw,470px) clamp(148px,10vw,215px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
 
@@ -949,8 +976,26 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               busy={ordersBusy}
               initialMode={selPayNow ? "method" : "detail"}
               onClose={() => { setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); }}
-              onTakePayment={ordTakePayment}
-              onPay={async (o, m) => { const res = await ordPay(o, m); if (res && res.ok && res.fully_paid) { setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); } return res; }}
+              onTakePayment={async (o, method, amount, extra) => {
+                // Split payments came through here unwrapped, so a split that
+                // settled the bill neither confirmed nor closed the panel.
+                const res = await ordTakePayment(o, method, amount, extra);
+                if (res && res.ok && res.fully_paid) {
+                  setPaidBanner({ label: o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no), total: o.total, method });
+                  try { if (navigator.vibrate) navigator.vibrate([12, 40, 12]); } catch { /* no haptics */ }
+                  setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null);
+                }
+                return res;
+              }}
+              onPay={async (o, m) => {
+                const res = await ordPay(o, m);
+                if (res && res.ok && res.fully_paid) {
+                  setPaidBanner({ label: o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no), total: o.total, method: m });
+                  try { if (navigator.vibrate) navigator.vibrate([12, 40, 12]); } catch { /* no haptics */ }
+                  setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null);
+                }
+                return res;
+              }}
               onUnpaid={ordUnpaid}
               onAddItems={(id) => { ordAddItems(id); setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); }}
               onRemoveItem={ordRemoveItem}
