@@ -343,7 +343,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // test OrdersList uses — NOT by amount_paid, which stays at zero on orders
   // settled at the counter and made paid orders look outstanding.
   const unpaidOrders = (orders || [])
-    .filter((o) => o.status !== "cancelled" && !o.paid_method)
+    // 'hold' is a half-started pay-now transaction, not a table owing money.
+    // Counting them put 12 phantom entries and £111 of imaginary debt in this
+    // list and made it disagree with the Orders screen, which excludes them.
+    .filter((o) => o.status !== "cancelled" && o.status !== "hold" && !o.paid_method)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   // Settled orders, newest first, shown under the unpaid ones so staff can
   // reopen or reprint a recent order without leaving the till screen.
