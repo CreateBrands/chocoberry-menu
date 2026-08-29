@@ -65,6 +65,47 @@ const posIco = {
 // Three zones: category rail · item grid · order ticket.
 // Reuses store_menu_full (menu), place-order (print + KDS), admin-api mark_paid.
 // ===========================================================================
+// ── TOUCH FEEDBACK ──────────────────────────────────────────────────────────
+// A till button that does not visibly move gives no sense of having been
+// pressed, so staff double-tap or press harder. Three things fix that:
+//
+//   1. a press state — the tile shrinks and darkens while held, so the finger
+//      sees the button react under it;
+//   2. a short vibration on contact — confirms activation without needing to
+//      watch the screen, which is the point during a rush;
+//   3. removing the browser's 300ms tap delay and its grey flash, which make
+//      a web app feel slower and cheaper than a native till.
+//
+// Feedback fires on POINTER DOWN, not on click: it must land the instant the
+// finger touches, before any work happens.
+const TAP_CSS = `
+.cb-tap {
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+  transition: transform 90ms cubic-bezier(.2,.8,.3,1), filter 90ms ease, box-shadow 90ms ease;
+}
+.cb-tap:active {
+  transform: scale(.965);
+  filter: brightness(.93) saturate(1.05);
+}
+.cb-tap-lift:active {
+  transform: scale(.97) translateY(1px);
+  box-shadow: inset 0 2px 6px rgba(0,0,0,.13);
+}
+@media (prefers-reduced-motion: reduce) {
+  .cb-tap, .cb-tap-lift { transition: none; }
+  .cb-tap:active, .cb-tap-lift:active { transform: none; }
+}
+`;
+
+// 8ms is a tick, not a buzz — enough to feel, short enough to use hundreds of
+// times a shift without becoming irritating. Silently absent on iPad, which
+// does not expose the vibration API to web apps.
+function tapFeedback() {
+  try { if (navigator.vibrate) navigator.vibrate(8); } catch { /* not supported */ }
+}
+
 export default function POS({ loc, storeToken, tablesList = [] }) {
   const [cats, setCats] = useState(null);   // masters: [{id,name,subs:[{id,name,items:[...]}]}]
   const [activeCat, setActiveCat] = useState(0);   // master index
@@ -679,6 +720,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         onDragStart={() => setDragKey(it.id)}
         onDragOver={(e) => { if (editLayout) e.preventDefault(); }}
         onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder(lk, arrange(curList, lk), dragKey, it.id); setDragKey(null); }}
+        className={soldOut ? undefined : "cb-tap cb-tap-lift"}
+        onPointerDown={(editLayout || soldOut) ? undefined : tapFeedback}
         onClick={() => { if (editLayout) return; if (!soldOut) addItem(it); }}
         style={{
           display: "grid", gridTemplateColumns: "4px calc(clamp(46px," + IS.thumb + ",118px) * " + k + ") minmax(0,1fr) calc(clamp(76px," + IS.price + ",150px) * " + Math.min(k, 1.5) + ")",
@@ -762,6 +805,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           navigation columns and left the order panel empty until someone
           tapped something; this reclaims both.
           The item grid, order panel and modifier sheet below are unchanged. */}
+      <style>{TAP_CSS}</style>
+
       {/* ── THREE COLUMNS — categories over orders · items · order panel ── */}
       <div style={{ display: "grid", gridTemplateColumns: "clamp(230px,15vw,340px) minmax(0,1fr) clamp(300px,20vw,470px) clamp(148px,10vw,215px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
 
@@ -779,6 +824,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     onDragStart={() => setDragKey(sc.id)}
                     onDragOver={(e) => { if (editLayout) e.preventDefault(); }}
                     onDrop={(e) => { if (!editLayout) return; e.preventDefault(); reorder("cat:" + (master ? master.id : ""), arrange(subs, "cat:" + (master ? master.id : "")), dragKey, sc.id); setDragKey(null); }}
+                    className="cb-tap"
+                    onPointerDown={editLayout ? undefined : tapFeedback}
                     onClick={() => { if (editLayout) return; setActiveSub(i); setSearch(""); }} title={sc.name}
                     style={{ borderRadius: 10, padding: "clamp(10px," + CS.pad + ",26px) clamp(11px,1vw,18px)", cursor: editLayout ? "grab" : "pointer",
                       ...spanStyle(sc.id, CAT_DEF), position: "relative",
@@ -853,7 +900,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             {catList.map((m, i) => {
               const on = activeCat === i;
               return (
-                <div key={m.id} onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} title={m.name}
+                <div key={m.id} className="cb-tap" onPointerDown={tapFeedback}
+                  onClick={() => { setActiveCat(i); setActiveSub(0); setSearch(""); }} title={m.name}
                   style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0,
                     padding: "clamp(11px,.9vw,17px) clamp(15px,1.3vw,26px)", borderRadius: 11,
                     fontSize: "clamp(12px,.95vw,18px)", fontWeight: on ? 800 : 700,
@@ -1038,7 +1086,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               const age = mins < 60 ? mins + "m" : Math.floor(mins / 60) + "h " + (mins % 60) + "m";
               const late = mins >= 75;
               return (
-                <div key={o.id} onClick={() => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(o.id); }}
+                <div key={o.id} className="cb-tap" onPointerDown={tapFeedback}
+                  onClick={() => { setSelPayNow(false); setPayNowOrder(null); setSelOrderId(o.id); }}
                   title={"Order #" + o.order_no}
                   style={{ borderRadius: 11, padding: "clamp(9px,.75vw,14px) clamp(9px,.7vw,13px)", cursor: "pointer",
                     background: on ? grad : "rgba(240,178,122,.11)",
