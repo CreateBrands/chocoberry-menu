@@ -1364,7 +1364,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
 
 // ============ BAG (data-driven) ============
 
-function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable, appending = false }) {
+function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable, appending = false, orderErr = null, onDismissErr }) {
   const subtotal = lines.reduce((s, l) => s + l.unit * l.qty, 0);
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const setQty = (i, d) => setLines((p) => p.map((l, x) => x === i ? { ...l, qty: Math.max(1, l.qty + d) } : l));
@@ -1372,6 +1372,14 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
 
   return (
     <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
+      {orderErr && (
+        <div onClick={onDismissErr}
+          style={{ flex: "none", margin: "16px 24px 0", background: "#FDECEC", border: "2px solid #D64545", borderRadius: 16, padding: "18px 20px", cursor: "pointer" }}>
+          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 19, color: "#8C2E2E", marginBottom: 6 }}>Order not sent</div>
+          <div style={{ fontSize: 16, lineHeight: 1.45, color: "#7A3232" }}>{orderErr}</div>
+          <div style={{ fontSize: 13, color: "#A55C5C", marginTop: 8 }}>Tap to dismiss</div>
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "24px 28px 18px", flex: "none" }}>
         <div onClick={onBack} style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg></div>
         <div>
@@ -1717,16 +1725,6 @@ export default function App() {
     } catch { setTablePinErr("Wrong PIN."); } finally { setTablePinChecking(false); }
   }
   const orderingOn = settings.ordering_enabled !== "off" && settings.ordering_enabled !== false;
-  // Per-store pause. Read from the SAME settings map that already powers the
-  // global ordering_enabled flag (fetchSettings pulls every key), instead of
-  // relying only on the separate accepting_orders poll — that poll returns
-  // early whenever the store token has not resolved, leaving the tablet
-  // permanently "accepting". Either source saying paused pauses the store.
-  const storeLocId = store && (store.location_id || store.id);
-  const storePausedBySetting = storeLocId
-    ? settings["accepting_orders:" + storeLocId] === "off"
-    : false;
-  const storeAccepting = acceptingOrders && !storePausedBySetting;
   const [sessionOrders, setSessionOrders] = useState(() => {
     try { const raw = localStorage.getItem("still_order_history"); return raw ? JSON.parse(raw) : []; } catch { return []; }
   });   // this tablet's placed orders, persisted across refresh
@@ -1849,11 +1847,18 @@ export default function App() {
       }, ...prev]);
       setScreen("confirm");
     } catch (e) {
-      // Fallback so the demo flow still completes if the function isn't deployed yet.
-      console.warn("place-order failed, using local number:", e.message);
-      setOrderErr(e.message);
-      setOrderNo(formatOrderNo(Math.floor(200 + Math.random() * 800)));
-      setScreen("confirm");
+      // NEVER show a confirmation for an order the server did not accept.
+      // This used to invent a random order number and show the confirm screen
+      // "so the demo flow still completes" — so a dropped request left the
+      // customer believing they had ordered while nothing reached the kitchen.
+      // That is exactly how a table waited an hour for food that was never made.
+      // Keep the basket, stay on this screen, and let them try again.
+      console.error("place-order failed:", e.message);
+      setOrderErr(
+        "Your order did NOT go through — nothing has been sent to the kitchen. " +
+        "Please tap Place order again, or ask a member of staff."
+      );
+      setScreen("bag");
     } finally {
       setPlacing(false);
     }
@@ -1994,12 +1999,12 @@ export default function App() {
               // ask for it again at checkout.
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
-            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => {
-              if (!storeAccepting) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
+            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag orderErr={orderErr} onDismissErr={() => setOrderErr(null)} lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => { setOrderErr(null);
+              if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
               if (orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
-            }} orderingEnabled={orderingOn && storeAccepting} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
+            }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
