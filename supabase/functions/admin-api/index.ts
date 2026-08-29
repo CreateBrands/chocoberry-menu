@@ -217,10 +217,12 @@ Deno.serve(async (req) => {
 
       // ---- CATEGORY: create ----
       case "create_category": {
-        const { brand_id, name, sort_order } = data;
+        // menu_id was accepted from the UI but never written, so every new
+        // section was created detached from its menu and never appeared.
+        const { brand_id, menu_id, name, sort_order } = data;
         if (!name) return json({ error: "name required" }, 400);
         const { data: row, error } = await admin.from("menu_categories")
-          .insert({ brand_id: brand_id ?? null, name, sort_order: sort_order ?? 0, active: true })
+          .insert({ brand_id: brand_id ?? null, menu_id: menu_id ?? null, name, sort_order: sort_order ?? 0, active: true })
           .select("id").single();
         if (error) throw error;
         return json({ ok: true, id: row.id });
