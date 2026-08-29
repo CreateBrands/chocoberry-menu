@@ -43,6 +43,22 @@ Deno.serve(async (req) => {
       return new Response(JSON.stringify({ error: "no items" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
     }
 
+    // SOURCE CHECK — an order must come from a known route:
+    //   tablet_no        an in-store tablet claimed via its QR link
+    //   tablet_no "POS"  the till
+    //   qr_token         a dining-table QR
+    // Anything else is someone who has the menu URL ordering from outside the
+    // shop. Two such orders arrived on 29 Aug totalling £115.90, printed to the
+    // kitchen and were served with no payment taken. Until online ordering is
+    // deliberately opened, refuse them.
+    const hasTablet = tablet_no !== null && tablet_no !== undefined && String(tablet_no).trim() !== "";
+    if (!hasTablet && !qr_token) {
+      console.warn("place-order refused: no tablet_no or qr_token", { order_type, pickup_name, items: items.length });
+      return new Response(JSON.stringify({
+        error: "Orders can only be placed on an in-store tablet or at the counter.",
+      }), { status: 403, headers: { ...cors, "Content-Type": "application/json" } });
+    }
+
     const admin = createClient(
       Deno.env.get("SUPABASE_URL"),
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
@@ -96,63 +112,66 @@ Deno.serve(async (req) => {
 
     // Look up REAL prices for every item id.
     const ids = [...new Set(items.map((l) => l.item_id))];
+    // ── Resolve the price TIER for this location + all item/modifier data.
+    // These lookups are independent of each other, so run them in PARALLEL
+    // instead of sequentially — cuts the order-send latency noticeably. ──
+    const allOptIds = [...new Set(items.flatMap((l) => Array.isArray(l.modifiers) ? l.modifiers : []))]
+      .filter((x) => typeof x === "string" && !x.startsWith("remove:"));
 
-    // ── ONE SOURCE OF TRUTH ──────────────────────────────────────────────
-    // Prices and availability come from store_menu_full — the SAME function
-    // the tablet renders from. Previously this file re-implemented the
-    // override -> band -> base cascade in TypeScript, and the two drifted:
-    // it never looked at menu_band_option_prices or menu_modifier_overrides,
-    // so at Slough a customer saw "Fried Eggs +£2.50" and was charged £3.50.
-    // It also ignored menu_item_overrides.available entirely, so an item
-    // hidden at one store was still accepted by the server.
-    // Resolving from the RPC makes both classes of bug impossible.
-    if (!location_id) {
-      return new Response(JSON.stringify({ error: "no location" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
+    const [itemsRes, locRes, ovsRes, optsRes] = await Promise.all([
+      admin.from("menu_items").select("id, name, price, available").in("id", ids),
+      location_id
+        ? admin.from("menu_locations").select("price_band_id").eq("id", location_id).single()
+        : Promise.resolve({ data: null }),
+      location_id
+        ? admin.from("menu_item_overrides").select("item_id, price").eq("location_id", location_id).in("item_id", ids)
+        : Promise.resolve({ data: [] }),
+      allOptIds.length
+        ? admin.from("menu_modifiers").select("id, name, price_delta, group_id, menu_modifier_groups(name)").in("id", allOptIds)
+        : Promise.resolve({ data: [] }),
+    ]);
+    if (itemsRes.error) throw itemsRes.error;
+    const dbItems = itemsRes.data;
+    const byId = new Map((dbItems ?? []).map((i) => [i.id, i]));
+
+    const locBandId = locRes.data?.price_band_id ?? null;
+    const ovById = new Map();
+    for (const o of ovsRes.data ?? []) if (o.price != null) ovById.set(o.item_id, Number(o.price));
+
+    // band prices depend on the resolved band id (one more short query).
+    const bandById = new Map();
+    if (locBandId) {
+      const { data: bps } = await admin
+        .from("menu_band_prices").select("item_id, price").eq("band_id", locBandId).in("item_id", ids);
+      for (const b of bps ?? []) if (b.price != null) bandById.set(b.item_id, Number(b.price));
     }
-    const { data: menuRows, error: menuErr } = await admin
-      .rpc("store_menu_full", { loc: location_id });
-    if (menuErr) throw menuErr;
+    // effective base = override → band → item.price
+    const effectiveBase = (item) => {
+      if (ovById.has(item.id)) return ovById.get(item.id);
+      if (bandById.has(item.id)) return bandById.get(item.id);
+      return Number(item.price);
+    };
 
-    // item_id -> { name, price, available, options }
-    const byId = new Map();
-    for (const r of menuRows ?? []) {
-      const opts = new Map();
-      for (const g of (r.modifiers ?? [])) {
-        for (const o of (g.options ?? [])) {
-          opts.set(o.id, {
-            name: o.name,
-            price_delta: Number(o.price_delta || 0),
-            group: g.name ?? "",
-          });
-        }
-      }
-      byId.set(r.item_id, {
-        id: r.item_id,
-        name: r.item_name,
-        price: Number(r.price),
-        available: r.available !== false,
-        opts,
-      });
-    }
-
-    // An item the store does not sell is simply ABSENT from the RPC result —
-    // hidden, 86d, unpublished or in a section this store does not carry.
-    // Tell the customer it is unavailable rather than failing generically.
-    for (const id of ids) {
-      const hit = byId.get(id);
-      if (!hit || !hit.available) {
-        return new Response(JSON.stringify({
-          error: "item_unavailable",
-          item_id: id,
-          message: "Sorry, that item is no longer available. Please remove it and try again.",
-        }), { status: 409, headers: { ...cors, "Content-Type": "application/json" } });
-      }
+    // Modifier option prices/names, resolved from the parallel query above.
+    let optById = new Map();
+    {
+      const opts = optsRes.data;
+      const optErr = optsRes.error;
+      if (optErr) throw optErr;
+      optById = new Map((opts ?? []).map((o) => [o.id, {
+        name: o.name,
+        price_delta: Number(o.price_delta || 0),
+        group: o.menu_modifier_groups?.name ?? "",
+      }]));
     }
 
     let subtotal = 0;
     const orderItems = [];
     for (const l of items) {
       const dbi = byId.get(l.item_id);
+      if (!dbi || dbi.available === false) {
+        return new Response(JSON.stringify({ error: `item unavailable: ${l.item_id}` }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
+      }
       const qty = Math.max(1, parseInt(l.qty) || 1);
 
       const modIds = Array.isArray(l.modifiers) ? l.modifiers : [];
@@ -163,7 +182,7 @@ Deno.serve(async (req) => {
           snapshot.push("NO " + mid.slice(7));
           continue;
         }
-        const o = dbi.opts.get(mid);
+        const o = optById.get(mid);
         if (!o) continue;
         modDelta += o.price_delta;
         if (o.group === "Remove" || o.name.toUpperCase().startsWith("NO ")) {
@@ -175,7 +194,7 @@ Deno.serve(async (req) => {
         }
       }
 
-      const unit = dbi.price + modDelta;
+      const unit = effectiveBase(dbi) + modDelta;
       const line_total = unit * qty;
       subtotal += line_total;
       orderItems.push({
