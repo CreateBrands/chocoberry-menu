@@ -724,40 +724,6 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
-      // ---- Add a KDS screen ----
-      // Screens had to be inserted by hand, so people copied an existing link
-      // instead — which gave two screens the same identity and therefore the
-      // same printer and the same bumps. This allocates the next free
-      // screen_key for the location so each one is genuinely independent.
-      case "kds_screen_add": {
-        const { location_id, label } = data || {};
-        if (!location_id) return json({ error: "location_id required" }, 400);
-        const { data: existing, error: exErr } = await admin
-          .from("kds_screens").select("screen_key").eq("location_id", location_id);
-        if (exErr) throw exErr;
-        const used = new Set((existing ?? []).map((r: any) => String(r.screen_key)));
-        let next = 1;
-        while (used.has(String(next))) next++;
-        const { error } = await admin.from("kds_screens").insert({
-          location_id,
-          screen_key: String(next),
-          label: label ? String(label) : "Screen " + next,
-          printer_sn: null,
-        });
-        if (error) throw error;
-        return json({ ok: true, screen_key: String(next) });
-      }
-
-      // ---- Remove a KDS screen ----
-      case "kds_screen_remove": {
-        const { location_id, screen_key } = data || {};
-        if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
-        const { error } = await admin.from("kds_screens")
-          .delete().eq("location_id", location_id).eq("screen_key", String(screen_key));
-        if (error) throw error;
-        return json({ ok: true });
-      }
-
       // ---- Pause/resume customer ordering for ONE location ----
       // The key is built server-side from location_id, so a store login cannot
       // reach any other key in menu_app_settings (the generic set_setting

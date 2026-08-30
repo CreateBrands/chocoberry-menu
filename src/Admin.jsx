@@ -2054,22 +2054,14 @@ export default function Admin() {
                                     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                                       <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: "#eef3ea", border: "1px solid #d9e6d2" }}>Copy link</span>
                                       <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: T.muted, fontWeight: 600, textDecoration: "none", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Open KDS</a>
-                                      {screens.length > 1 && (
-                                        <span onClick={() => { if (window.confirm("Remove " + (k.label || "screen " + k.screen_key) + "? Any device still on its link will stop receiving orders.")) act("kds_screen_remove", { location_id: loc.id, screen_key: k.screen_key }); }}
-                                          style={{ fontSize: 11.5, color: T.danger, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line, marginLeft: "auto" }}>Remove</span>
-                                      )}
                                     </div>
                                   </div>
                                 </div>
                               );
                             })}
                             {!screens.length && (
-                              <div style={{ fontSize: 11.5, color: T.faint }}>No screens registered yet — showing screen 1. Add one to give it its own QR and printer.</div>
+                              <div style={{ fontSize: 11.5, color: T.faint }}>No screens registered for this store yet — showing screen 1. Add rows to kds_screens to give each screen its own QR and printer.</div>
                             )}
-                            <button onClick={() => act("kds_screen_add", { location_id: loc.id, label: "Screen " + (screens.length + 1) })}
-                              style={{ fontSize: 12.5, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 700, marginTop: 6, padding: 8 }}>
-                              + New KDS screen
-                            </button>
                           </div>
                         );
                       })()}
