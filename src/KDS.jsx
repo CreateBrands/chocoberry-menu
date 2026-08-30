@@ -547,10 +547,27 @@ export default function KDS() {
                 <div style={{ background: pal.head, color: pal.headText, padding: F(9) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: F(19), letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 6 }}>
-                      {isRush && <span style={{ fontSize: F(15) }}>{BOLT}</span>}{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}
+                      {isRush && <span style={{ fontSize: F(15) }}>{BOLT}</span>}
+                      {/* A kitchen ticket answers "where does this food go?".
+                          Dine-in is routed by TABLE, takeaway by the fact it
+                          leaves. The order number is a reference, not a
+                          destination, so it moves to the line below. */}
+                      {(o.menu_tables?.label || o.order_type === "dine_in") ? (
+                        o.menu_tables?.label || "DINE IN"
+                      ) : (
+                        <>
+                          <span style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".06em", background: "#0000001a", padding: "2px 8px", borderRadius: 6 }}>
+                            {o.order_type === "collection" ? "COLLECTION" : "TAKEAWAY"}
+                          </span>
+                          {o.pickup_name ? <span>{o.pickup_name}</span> : null}
+                        </>
+                      )}
                       <span style={{ fontSize: F(11), fontWeight: 700, opacity: .75, background: "#0000000f", padding: "1px 7px", borderRadius: 20 }}>{i + 1}</span>
                     </div>
-                    <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>{typeLabel}{o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}</div>
+                    <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>
+                      {(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}
+                      {(o.menu_tables?.label || o.order_type === "dine_in") && o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}
+                    </div>
                     {o.print_failed && <div style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 5, background: "#dc2626", color: "#fff", fontSize: F(11), fontWeight: 800, padding: "2px 8px", borderRadius: 6, letterSpacing: ".02em" }}>⚠ NOT PRINTED</div>}
                   </div>
                   <div style={{ textAlign: "right" }}>
