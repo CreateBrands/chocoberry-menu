@@ -13,8 +13,12 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json" };
 
-const WARN_MIN = 8;
-const LATE_MIN = 15;
+// Age bands for ticket colour. Industry norm is tight — most operators run
+// green under ~5 min, amber to ~8, red beyond. Set these to YOUR speed-of-
+// service standard: if nearly every ticket sits red, the colour stops being a
+// signal and staff learn to ignore it.
+const WARN_MIN = 6;
+const LATE_MIN = 12;
 const POLL_MS = 4000;
 const BUMP_TO = "served";
 const DONE_ITEM = "ready";
@@ -27,7 +31,17 @@ function getParam(k) { try { return new URLSearchParams(window.location.search).
 // orders can each bump their own copy independently — bumping on screen 1 does
 // NOT clear the order from screen 2. Defaults to "main" when no param is given
 // (single-screen setups behave exactly as before).
-function getScreenId() { return getParam("screen") || "main"; }
+// Persisted like loc/station/printer. Previously this read the URL every time,
+// so ANY reload without the full query string (home-screen shortcut, crash
+// recovery, tab reopened) silently reverted the screen to "main" — losing its
+// identity and, with it, its kds_screens printer preference.
+function getScreenId() {
+  try {
+    const url = getParam("screen");
+    if (url) { localStorage.setItem("kds_screen", url); return url; }
+    return localStorage.getItem("kds_screen") || "main";
+  } catch { return getParam("screen") || "main"; }
+}
 // SCREEN IDENTITY. Each physical KDS is tagged with a station (which printer it
 // owns) and an optional human label, set once via URL and then remembered:
 //   ?station=kitchen&name=Hot%20Kitchen     ?station=counter&name=Bar
@@ -55,6 +69,58 @@ export default function KDS() {
   const [station, setStation] = useState("all");
   // This screen's own identity (not the item-filter dropdown above).
   const [myStation] = useState(() => getRemembered("kds_station", "station"));
+  // Designated printer for MANUAL prints from this screen, by serial:
+  //   ?printer=N450263A10230
+  // Serial rather than station, deliberately: both printers share the
+  // "kitchen" station so that AUTOMATIC printing sends the complete order to
+  // both. Targeting by station would therefore hit both on a manual print too.
+  // A serial narrows to exactly one device (sunmi-print gives printer_sn
+  // precedence over station in narrowToTarget).
+  const [myPrinter, setMyPrinter] = useState(() => getRemembered("kds_printer", "printer"));
+  // Orders THIS screen has bumped, from kds_bumps. Kept in the DB rather than
+  // localStorage so it survives a reload and so other screens are unaffected:
+  // bumping here no longer clears the ticket on the other screen.
+  const [myBumps, setMyBumps] = useState(() => new Set());
+  // Load THIS screen's bumps on start and keep them fresh, so a reload (or a
+  // replaced tablet) does not resurrect tickets this screen already cleared.
+  useEffect(() => {
+    if (!loc) return;
+    let alive = true;
+    const load = () => {
+      const since = new Date(Date.now() - 18 * 3600 * 1000).toISOString();
+      fetch(SUPABASE_URL + "/rest/v1/kds_bumps?location_id=eq." + encodeURIComponent(loc)
+            + "&screen_key=eq." + encodeURIComponent(getScreenId())
+            + "&bumped_at=gte." + encodeURIComponent(since)
+            + "&select=order_id", { headers: H, cache: "no-store" })
+        .then((r) => (r.ok ? r.json() : []))
+        .then((rows) => { if (alive) setMyBumps(new Set((rows || []).map((r) => r.order_id))); })
+        .catch(() => {});
+    };
+    load();
+    const t = setInterval(load, 15000);
+    return () => { alive = false; clearInterval(t); };
+  }, [loc]);
+  // The DB is the source of truth for this screen's printer. kds_screens is
+  // keyed (location_id, screen_key) and is managed centrally, so a replaced
+  // tablet or a cleared browser picks its printer back up on load instead of
+  // silently falling back to "every printer". The URL param / localStorage
+  // value above is only the initial seed for a screen not yet registered.
+  useEffect(() => {
+    if (!loc) return;
+    let alive = true;
+    const url = SUPABASE_URL + "/rest/v1/kds_screens?location_id=eq." + encodeURIComponent(loc)
+      + "&screen_key=eq." + encodeURIComponent(getScreenId())
+      + "&select=printer_sn,label,station&limit=1";
+    fetch(url, { headers: H, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        if (!alive || !rows.length) return;
+        const sn = rows[0].printer_sn;
+        if (sn) { setMyPrinter(sn); try { localStorage.setItem("kds_printer", sn); } catch {} }
+      })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [loc]);
   const [myName] = useState(() => getRemembered("kds_name", "name"));
   const [soundOn, setSoundOn] = useState(true);
   const [connected, setConnected] = useState(true);
@@ -215,7 +281,7 @@ export default function KDS() {
           action: "print-order", order_id: o.id, force: true,
           // Target THIS screen's printer. Omitted when the screen has no
           // station set, which preserves the old all-printers behaviour.
-          ...(myStation ? { station: myStation } : {}),
+          ...(myPrinter ? { printer_sn: myPrinter } : myStation ? { station: myStation } : {}),
         }),
       });
       if (!r.ok) throw new Error("http " + r.status);
@@ -227,32 +293,71 @@ export default function KDS() {
   const start = (o) => patchOrder(o.id, { status: "preparing", kds_started_at: new Date().toISOString() });
   const bump = (o) => {
     const prevStatus = o.status;
-    patchOrder(o.id, { status: BUMP_TO, kds_bumped_at: new Date().toISOString() });
+    // Record WHICH screen bumped, so a ticket that vanishes unexpectedly can be
+    // traced. If kds_bumped_at is ever set while kds_bumped_by is null, the
+    // write did not come from this KDS at all — which narrows it immediately.
+    // Record THIS screen's bump, then let the server decide whether every
+    // active screen has now bumped it (only then does it become "served").
+    const who = (myName || ("screen " + getScreenId())) + (myStation ? " / " + myStation : "");
+    setMyBumps((prev) => new Set(prev).add(o.id));
+    (async () => {
+      try {
+        await fetch(SUPABASE_URL + "/rest/v1/kds_bumps", {
+          method: "POST",
+          headers: { ...H, Prefer: "resolution=merge-duplicates,return=minimal" },
+          body: JSON.stringify({
+            order_id: o.id, screen_key: getScreenId(), location_id: loc, bumped_by: who,
+          }),
+        });
+        await fetch(SUPABASE_URL + "/rest/v1/rpc/kds_settle_order", {
+          method: "POST", headers: H, body: JSON.stringify({ p_order_id: o.id }),
+        });
+      } catch {}
+    })();
     if (undo && undo.timer) clearTimeout(undo.timer);
-    const timer = setTimeout(() => setUndo(null), 6000);
+    const timer = setTimeout(() => setUndo(null), 20000);
     setUndo({ order: o, prevStatus, timer });
   };
-  // First tap arms the button ("Tap again"); a second tap within 2.5s actually
-  // bumps. Prevents accidental single touches (brushes, cleaning) on the large
-  // touch targets from completing an order without a deliberate action.
+  // Bump needs TWO deliberate taps. Two guards make that reliable on a
+  // touchscreen:
+  //   MIN_CONFIRM_MS — a single physical tap can emit two click events (touch
+  //     -> click emulation, finger roll, contact bounce). Without a floor, one
+  //     tap arms AND confirms, and the ticket vanishes with nobody having
+  //     pressed twice. Anything faster than a human double-tap is ignored and
+  //     the card simply stays armed.
+  //   ARM_WINDOW_MS — 2.5s was too tight on a busy pass; the card disarmed
+  //     before the second tap landed, so staff learned to tap fast, which made
+  //     the double-fire above more likely.
+  const MIN_CONFIRM_MS = 400;
+  const ARM_WINDOW_MS = 8000;
   const requestBump = (o) => {
     if (armedBump && armedBump.id === o.id) {
+      if (Date.now() - armedBump.at < MIN_CONFIRM_MS) return; // stays armed
       if (armedBump.timer) clearTimeout(armedBump.timer);
       setArmedBump(null);
       bump(o);
       return;
     }
     if (armedBump && armedBump.timer) clearTimeout(armedBump.timer);
-    const timer = setTimeout(() => setArmedBump(null), 2500);
-    setArmedBump({ id: o.id, timer });
+    const timer = setTimeout(() => setArmedBump(null), ARM_WINDOW_MS);
+    setArmedBump({ id: o.id, at: Date.now(), timer });
   };
   const doUndo = () => {
     if (!undo) return;
-    patchOrder(undo.order.id, { status: undo.prevStatus, kds_bumped_at: null });
+    unbumpHere(undo.order);
     if (undo.timer) clearTimeout(undo.timer);
     setUndo(null);
   };
-  const recall = (o) => patchOrder(o.id, { status: "preparing", kds_bumped_at: null });
+  const unbumpHere = async (o) => {
+    setMyBumps((prev) => { const n = new Set(prev); n.delete(o.id); return n; });
+    try {
+      await fetch(SUPABASE_URL + "/rest/v1/rpc/kds_unbump", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ p_order_id: o.id, p_screen_key: getScreenId() }),
+      });
+    } catch {}
+  };
+  const recall = (o) => unbumpHere(o);
   const toggleItem = (o, it) => patchItem(it.id, { item_status: it.item_status === DONE_ITEM ? "preparing" : DONE_ITEM });
   const toggleRush = (o) => setRushIds((prev) => { const n = new Set(prev); n.has(o.id) ? n.delete(o.id) : n.add(o.id); return n; });
 
@@ -282,11 +387,11 @@ export default function KDS() {
   // Active/completed are decided PER SCREEN by this screen's local bump set —
   // not the shared DB status — so each screen is independent. An order is
   // "active" here until THIS screen bumps it; "completed" once it has.
-  let active = orders.filter((o) => o.status !== BUMP_TO).map(filterStation).filter(Boolean);
+  let active = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled").map(filterStation).filter(Boolean);
   active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0));
   // Orders that failed to print — shown as an un-ignorable banner across the KDS.
-  const failedOrders = orders.filter((o) => o.status !== BUMP_TO && o.status !== "cancelled" && o.print_failed);
-  const completed = orders.filter((o) => o.status === BUMP_TO).map(filterStation).filter(Boolean)
+  const failedOrders = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled" && o.print_failed);
+  const completed = orders.filter((o) => myBumps.has(o.id)).map(filterStation).filter(Boolean)
     .sort((a, b) => new Date(b.kds_bumped_at || b.created_at) - new Date(a.kds_bumped_at || a.created_at));
 
   // Orders/payment view: all non-closed orders, split by paid state. Unpaid float
@@ -347,15 +452,15 @@ export default function KDS() {
   const BOLT = "\u26A1", PRINTER = "\uD83D\uDDA8", CHECK = "\u2713", ARROW = "\u21A9", WARN = "\u26A0", DOT = "\u00B7", TIMES = "\u00D7", BELL = "\uD83D\uDD14", BELLOFF = "\uD83D\uDD15", EXPAND = "\u26F6", X = "\u2715";
 
   return (
-    <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "radial-gradient(1200px 600px at 50% -10%, #12151d, #0b0d11)", color: "#f8fafc", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
-      <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes kfailflash{0%,100%{background:#dc2626}50%{background:#8f1414}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#ffffff08}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#2a2f3a;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#353c49}"}</style>
+    <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "#eef0f3", color: "#1f2937", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
+      <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes kfailflash{0%,100%{background:#dc2626}50%{background:#8f1414}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#00000008}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#c3c9d2;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#a8b0bb}"}</style>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "linear-gradient(180deg,#161a23,#0f131a)", borderBottom: "1px solid #20252f", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 4px 16px -8px rgba(0,0,0,.6)" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "#ffffff", borderBottom: "1px solid #d8dce2", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
-          <div style={{ display: "flex", background: "#0c0f16", borderRadius: 10, padding: 3, gap: 2 }}>
+          <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
             {[["kitchen", "Kitchen"], ["orders", "Orders"], ["pos", "POS"]].map(([v, label]) => (
-              <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#9aa3b2" }}>
+              <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#475569" }}>
                 {label}{v === "orders" && unpaidOrders.length ? " " + unpaidOrders.length : ""}
               </div>
             ))}
@@ -363,7 +468,7 @@ export default function KDS() {
           {view === "kitchen" && (
           <div style={{ display: "flex", gap: 6 }}>
             {[["active", "Active"], ["allday", "All-day"], ["completed", "Done"]].map(([t, label]) => (
-              <div key={t} onClick={() => setTab(t)} className="kbtn" style={{ padding: "7px 15px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, background: tab === t ? "#ec4899" : "#20242f", transition: "background .12s" }}>
+              <div key={t} onClick={() => setTab(t)} className="kbtn" style={{ padding: "7px 15px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, background: tab === t ? "#ec4899" : "#ffffff", color: tab === t ? "#ffffff" : "#475569", border: "1px solid #d8dce2", transition: "background .12s" }}>
                 {label}{t === "active" ? " " + active.length : ""}
               </div>
             ))}
@@ -372,33 +477,33 @@ export default function KDS() {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 13 }}>
           <Stat label="Time" value={nowClock} />
-          <Stat label="Working" value={active.length} accent="#fbbf24" />
-          <Stat label="Avg today" value={avgLabel} accent="#60a5fa" />
-          {onTimePct !== null && <Stat label="On-time" value={onTimePct + "%"} accent={onTimePct >= 80 ? "#4ade80" : "#f59e0b"} />}
+          <Stat label="Working" value={active.length} accent="#b45309" />
+          <Stat label="Avg today" value={avgLabel} accent="#1d4ed8" />
+          {onTimePct !== null && <Stat label="On-time" value={onTimePct + "%"} accent={onTimePct >= 80 ? "#15803d" : "#b45309"} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {stations.length > 1 && (
-            <select value={station} onChange={(e) => setStation(e.target.value)} style={{ background: "#20242f", color: "#fff", border: "1px solid #333", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}>
+            <select value={station} onChange={(e) => setStation(e.target.value)} style={{ background: "#ffffff", color: "#1f2937", border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}>
               <option value="all">All stations</option>
               {stations.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           )}
-          <div style={{ display: "flex", background: "#20242f", borderRadius: 8, overflow: "hidden" }}>
+          <div style={{ display: "flex", background: "#e2e5ea", border: "1px solid #d8dce2", borderRadius: 8, overflow: "hidden" }}>
             {Object.keys(SIZES).map((s) => (
-              <div key={s} onClick={() => setSize(s)} className="kbtn" style={{ padding: "6px 9px", cursor: "pointer", fontSize: 12, fontWeight: 700, background: size === s ? "#ec4899" : "transparent" }}>{s}</div>
+              <div key={s} onClick={() => setSize(s)} className="kbtn" style={{ padding: "6px 9px", cursor: "pointer", fontSize: 12, fontWeight: 700, background: size === s ? "#ec4899" : "transparent", color: size === s ? "#ffffff" : "#475569" }}>{s}</div>
             ))}
           </div>
-          <div onClick={() => setSoundOn((v) => !v)} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#20242f", fontSize: 15 }}>{soundOn ? BELL : BELLOFF}</div>
-          <div onClick={goFullscreen} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#20242f", fontSize: 15 }} title="Fullscreen">{fullscreen ? X : EXPAND}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: connected ? "#4ade80" : "#f87171", marginLeft: 2 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "#4ade80" : "#f87171" }} />
+          <div onClick={() => setSoundOn((v) => !v)} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#ffffff", border: "1px solid #d8dce2", fontSize: 15 }}>{soundOn ? BELL : BELLOFF}</div>
+          <div onClick={goFullscreen} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#ffffff", border: "1px solid #d8dce2", fontSize: 15 }} title="Fullscreen">{fullscreen ? X : EXPAND}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: connected ? "#15803d" : "#b91c1c", marginLeft: 2 }}>
+            <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "#16a34a" : "#dc2626" }} />
             {connected ? "Live" : "\u2026"}
           </div>
           {/* ALWAYS shown. Previously this rendered only when ?screen= was
               present, so an unlabelled screen displayed no identity at all —
               exactly the screens most likely to be misconfigured. */}
           <div style={{ fontSize: 12, fontWeight: 800, color: myStation ? "#052e16" : "#cbd5e1", background: myStation ? "#4ade80" : "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }} title={"Screen " + getScreenId() + (myStation ? " \u00B7 prints to " + myStation : " \u00B7 NO STATION SET \u2014 prints to every printer")}>
-            {(myName || ("Screen " + getScreenId())) + (myStation ? " \u00B7 " + myStation : " \u00B7 no station")}
+            {(myName || ("Screen " + getScreenId())) + (myPrinter ? " \u00B7 prints here" : myStation ? " \u00B7 " + myStation : " \u00B7 no printer set")}
           </div>
         </div>
       </div>
@@ -420,52 +525,32 @@ export default function KDS() {
 
       {view === "kitchen" && tab === "active" && (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(268) + "px, 1fr))", gap: F(12), padding: F(16), alignItems: "start" }}>
-          {active.length === 0 && <div style={{ color: "#6b7280", padding: 48, fontSize: 18 }}>No active orders.</div>}
+          {active.length === 0 && <div style={{ color: "#64748b", padding: 48, fontSize: 18 }}>No active orders.</div>}
           {active.map((o, i) => {
             const age = minsSince(o.created_at, now);
             const isRush = rushIds.has(o.id);
             const isLate = age >= LATE_MIN;
             const pal = isRush
-              ? { accent: "#fb7185", tint: "#1c1215", head: "#7f1d2e" }
+              ? { accent: "#e11d48", tint: "#ffffff", head: "#ffe4e6", headText: "#881337", body: "#1f2937", sub: "#9f1239", rule: "#00000014" }
               : isLate
-              ? { accent: "#f87171", tint: "#1a1315", head: "#7f1d1d" }
+              ? { accent: "#dc2626", tint: "#ffffff", head: "#fee2e2", headText: "#7f1d1d", body: "#1f2937", sub: "#991b1b", rule: "#00000014" }
               : age >= WARN_MIN
-              ? { accent: "#fbbf24", tint: "#1a1712", head: "#733f12" }
-              : { accent: "#34d399", tint: "#121a16", head: "#14532d" };
+              ? { accent: "#d97706", tint: "#ffffff", head: "#fef3c7", headText: "#78350f", body: "#1f2937", sub: "#92400e", rule: "#00000014" }
+              : { accent: "#16a34a", tint: "#ffffff", head: "#dcfce7", headText: "#14532d", body: "#1f2937", sub: "#15803d", rule: "#00000014" };
             const items = o.menu_order_items || [];
             const doneCount = items.filter((it) => it.item_status === DONE_ITEM).length;
             const allDone = items.length > 0 && doneCount === items.length;
             const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : "Takeaway");
-            // A kitchen ticket's job is to answer "where does this food go?".
-            // Dine-in is routed by TABLE; takeaway is routed by the fact it
-            // leaves the building. The order number is a reference, not a
-            // destination, so it drops to the second line.
-            const isDineIn = !!o.menu_tables?.label || o.order_type === "dine_in";
-            const headline = o.menu_tables?.label
-              ? o.menu_tables.label
-              : (o.order_type === "collection" ? "COLLECTION" : o.order_type === "dine_in" ? "DINE IN" : "TAKEAWAY");
-            const refCode = (o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "");
             const note = (o.customer_note || "").trim();
             return (
-              <div key={o.id} className={"kcard" + (isRush ? " krush" : "") + (isLate ? " klate" : "")} style={{ background: pal.tint, borderRadius: F(14), overflow: "hidden", boxShadow: "0 1px 0 #ffffff08 inset, 0 6px 20px -8px rgba(0,0,0,.5)", display: "flex", flexDirection: "column", borderLeft: "4px solid " + pal.accent }}>
-                <div style={{ background: pal.head, padding: F(9) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div key={o.id} className={"kcard" + (isRush ? " krush" : "") + (isLate ? " klate" : "")} style={{ background: pal.tint, color: pal.body, borderRadius: F(14), overflow: "hidden", border: "1px solid #d8dce2", borderLeft: "4px solid " + pal.accent, boxShadow: "0 1px 3px rgba(15,23,42,.08)", display: "flex", flexDirection: "column" }}>
+                <div style={{ background: pal.head, color: pal.headText, padding: F(9) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <div>
                     <div style={{ fontWeight: 800, fontSize: F(19), letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 6 }}>
-                      {isRush && <span style={{ fontSize: F(15) }}>{BOLT}</span>}
-                      {!isDineIn && (
-                        <span style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".06em", background: "#00000040", padding: "2px 8px", borderRadius: 6 }}>
-                          {headline}
-                        </span>
-                      )}
-                      {isDineIn && headline}
-                      {/* On a takeaway the NAME is what gets called out, so it
-                          belongs on the headline beside the type. */}
-                      {!isDineIn && o.pickup_name && <span>{o.pickup_name}</span>}
-                      <span style={{ fontSize: F(11), fontWeight: 700, opacity: .55, background: "#00000033", padding: "1px 7px", borderRadius: 20 }}>{i + 1}</span>
+                      {isRush && <span style={{ fontSize: F(15) }}>{BOLT}</span>}{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}
+                      <span style={{ fontSize: F(11), fontWeight: 700, opacity: .75, background: "#0000000f", padding: "1px 7px", borderRadius: 20 }}>{i + 1}</span>
                     </div>
-                    <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>
-                      {refCode}{isDineIn && o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}
-                    </div>
+                    <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>{typeLabel}{o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}</div>
                     {o.print_failed && <div style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 5, background: "#dc2626", color: "#fff", fontSize: F(11), fontWeight: 800, padding: "2px 8px", borderRadius: 6, letterSpacing: ".02em" }}>⚠ NOT PRINTED</div>}
                   </div>
                   <div style={{ textAlign: "right" }}>
@@ -476,7 +561,7 @@ export default function KDS() {
                 <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
                   {groupByCat(items).map(([cat, catItems]) => (
                     <div key={cat} style={{ marginBottom: F(4) }}>
-                      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: "#94a3b8", borderBottom: "1px solid #ffffff1f", paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
+                      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: pal.sub, borderBottom: "1px solid " + pal.rule, paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
                       {catItems.map((it) => {
                         const done = it.item_status === DONE_ITEM;
                         const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
@@ -486,23 +571,23 @@ export default function KDS() {
                               <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
                               <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25, textDecoration: done ? "line-through" : "none" }}>{it.name_snapshot}</span>
                             </div>
-                            {mods.length > 0 && <div style={{ fontSize: F(13), color: "#7dd3fc", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
+                            {mods.length > 0 && <div style={{ fontSize: F(13), color: "#0369a1", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
                           </div>
                         );
                       })}
                     </div>
                   ))}
-                  {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#fecaca", background: "#7f1d1d33", border: "1px solid #7f1d1d", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
+                  {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#7f1d1d", background: "#fee2e2", border: "1px solid #fca5a5", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 2, padding: 2 }}>
-                  <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#fb7185" : "#ffffff0d", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#1a0a0d" : "#fff" }} title="Rush">{BOLT}</div>
+                  <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#e11d48" : "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#ffffff" : "#475569" }} title="Rush">{BOLT}</div>
                   {/* Print slip. Deliberately on the LEFT, far from Bump: Bump is
                       destructive and a mis-tap on a wall screen loses the ticket. */}
-                  <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff0d", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#fff", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
+                  <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#334155", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
                     {printingId === o.id ? "\u2026" : PRINTER}
                   </div>
                   {o.status === "placed" && <div onClick={() => start(o)} className="kbtn" style={{ flex: 1, textAlign: "center", padding: F(11) + "px 0", background: "#ffffff14", borderRadius: 9, fontWeight: 700, fontSize: F(14), cursor: "pointer" }}>Start</div>}
-                  <div onClick={() => requestBump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: (armedBump && armedBump.id === o.id) ? "#f59e0b" : (allDone ? "#34d399" : "#22c55e"), borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: (armedBump && armedBump.id === o.id) ? "#3a2400" : "#052e16", boxShadow: "0 2px 8px -2px " + (allDone ? "#34d39966" : "#22c55e55") }}>{(armedBump && armedBump.id === o.id) ? "Tap again ✓" : (CHECK + " Bump")}</div>
+                  <div onClick={() => requestBump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: (armedBump && armedBump.id === o.id) ? "#b45309" : (allDone ? "#15803d" : "#16a34a"), borderRadius: 9, fontWeight: 800, fontSize: F(15.5), cursor: "pointer", color: "#ffffff", boxShadow: "none" }}>{(armedBump && armedBump.id === o.id) ? "Tap again ✓" : (CHECK + " Bump")}</div>
                 </div>
               </div>
             );
@@ -512,10 +597,10 @@ export default function KDS() {
 
       {view === "kitchen" && tab === "allday" && (
         <div style={{ padding: F(16), maxWidth: 620 }}>
-          <div style={{ fontSize: F(14), color: "#9ca3af", marginBottom: 12 }}>Everything working right now, across all active orders:</div>
-          {alldayRows.length === 0 && <div style={{ color: "#6b7280" }}>Nothing in the queue.</div>}
+          <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Everything working right now, across all active orders:</div>
+          {alldayRows.length === 0 && <div style={{ color: "#64748b" }}>Nothing in the queue.</div>}
           {alldayRows.map(([name, qty]) => (
-            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: F(12) + "px " + F(16) + "px", background: "#161a22", borderRadius: 10, marginBottom: 8, border: "1px solid #262b36" }}>
+            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: F(12) + "px " + F(16) + "px", background: "#ffffff", borderRadius: 10, marginBottom: 8, border: "1px solid #d8dce2" }}>
               <span style={{ fontWeight: 700, fontSize: F(17) }}>{name}</span>
               <span style={{ fontWeight: 800, fontSize: F(23), color: "#fbbf24", fontVariantNumeric: "tabular-nums" }}>{qty}</span>
             </div>
@@ -525,25 +610,61 @@ export default function KDS() {
 
       {view === "kitchen" && tab === "completed" && (
         <div style={{ padding: F(16) }}>
-          <div style={{ fontSize: F(14), color: "#9ca3af", marginBottom: 12 }}>Recently bumped {DOT} tap Recall to bring one back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(244) + "px, 1fr))", gap: F(12) }}>
-            {completed.slice(0, 40).map((o) => (
-              <div key={o.id} style={{ background: "#161a22", borderRadius: 10, border: "1px solid #262b36", overflow: "hidden", opacity: .9 }}>
-                <div style={{ padding: F(8) + "px " + F(12) + "px", background: "#20242f", display: "flex", justifyContent: "space-between" }}>
-                  <span style={{ fontWeight: 700, fontSize: F(15) }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
-                  <span style={{ fontSize: F(12), color: "#9ca3af" }}>{o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : ""}</span>
-                </div>
-                <div style={{ padding: F(8) + "px " + F(12) + "px", fontSize: F(13), color: "#cbd5e1", display: "flex", flexDirection: "column", gap: F(3) }}>
-                  {(o.menu_order_items || []).map((it) => (
-                    <div key={it.id} style={{ display: "flex", gap: F(6), lineHeight: 1.3 }}>
-                      <span style={{ fontWeight: 700, color: "#f472b6", flexShrink: 0, minWidth: F(20) }}>{it.qty}{TIMES}</span>
-                      <span>{it.name_snapshot}</span>
+          <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Recently bumped {DOT} tap Recall to bring one back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(268) + "px, 1fr))", gap: F(12), alignItems: "start" }}>
+            {completed.slice(0, 40).map((o) => {
+              // Identical structure to an ACTIVE ticket — same header, table
+              // label, station groupings, modifiers and note — so the two tabs
+              // read the same. Only the palette is neutral (it is finished) and
+              // the footer is Recall instead of Bump.
+              const pal = { accent: "#64748b", tint: "#ffffff", head: "#e8ebef", headText: "#334155", body: "#1f2937", sub: "#64748b", rule: "#00000014" };
+              const items = o.menu_order_items || [];
+              const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : "Takeaway");
+              const note = (o.customer_note || "").trim();
+              const served = o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
+              return (
+                <div key={o.id} style={{ background: pal.tint, color: pal.body, borderRadius: F(14), overflow: "hidden", border: "1px solid #d8dce2", borderLeft: "4px solid " + pal.accent, boxShadow: "0 1px 3px rgba(15,23,42,.08)", display: "flex", flexDirection: "column" }}>
+                  <div style={{ background: pal.head, color: pal.headText, padding: F(9) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div style={{ fontWeight: 800, fontSize: F(19), letterSpacing: "-.01em" }}>
+                        {(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}
+                      </div>
+                      <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>{typeLabel}{o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}</div>
                     </div>
-                  ))}
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontWeight: 900, fontSize: F(20), fontVariantNumeric: "tabular-nums", color: pal.accent, letterSpacing: "-.02em" }}>{served}</div>
+                      <div style={{ fontSize: F(10), opacity: .7, fontWeight: 600, marginTop: 1 }}>{items.length ? items.length + " items" : ""}</div>
+                    </div>
+                  </div>
+                  <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
+                    {groupByCat(items).map(([cat, catItems]) => (
+                      <div key={cat} style={{ marginBottom: F(4) }}>
+                        <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: pal.sub, borderBottom: "1px solid " + pal.rule, paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
+                        {catItems.map((it) => {
+                          const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
+                          return (
+                            <div key={it.id} style={{ padding: F(6) + "px " + F(6) + "px" }}>
+                              <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
+                                <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
+                                <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25 }}>{it.name_snapshot}</span>
+                              </div>
+                              {mods.length > 0 && <div style={{ fontSize: F(13), color: "#0369a1", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ))}
+                    {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#7f1d1d", background: "#fee2e2", border: "1px solid #fca5a5", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
+                  </div>
+                  <div style={{ display: "flex", gap: 2, padding: 2 }}>
+                    <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#334155", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
+                      {printingId === o.id ? "\u2026" : PRINTER}
+                    </div>
+                    <div onClick={() => recall(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: "#475569", borderRadius: 9, fontWeight: 800, fontSize: F(15.5), cursor: "pointer", color: "#ffffff" }}>{ARROW + " Recall"}</div>
+                  </div>
                 </div>
-                <div onClick={() => recall(o)} className="kbtn" style={{ textAlign: "center", padding: F(8) + "px 0", background: "#1e40af", fontWeight: 700, fontSize: F(13), cursor: "pointer" }}>{ARROW + " Recall"}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -561,7 +682,7 @@ export default function KDS() {
               <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2 }}>GBP {totalUnpaid.toFixed(2)}</div>
               <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 2 }}>{unpaidOrders.length} order{unpaidOrders.length === 1 ? "" : "s"}</div>
             </div>
-            <div style={{ flex: 1, minWidth: 160, background: "linear-gradient(180deg,#121a16,#0d130f)", border: "1px solid #1c3a2a", borderRadius: 12, padding: "12px 16px" }}>
+            <div style={{ flex: 1, minWidth: 160, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px" }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: "#4ade80", letterSpacing: ".04em" }}>TAKEN TODAY</div>
               <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2 }}>GBP {totalTaken.toFixed(2)}</div>
               <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 2 }}>{paidOrders.length} paid</div>
@@ -575,7 +696,7 @@ export default function KDS() {
           </div>
           {/* Order rows */}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
-            {shownOrders.length === 0 && <div style={{ color: "#6b7280", padding: 40, fontSize: 17 }}>No {orderFilter === "all" ? "" : orderFilter} orders.</div>}
+            {shownOrders.length === 0 && <div style={{ color: "#64748b", padding: 40, fontSize: 17 }}>No {orderFilter === "all" ? "" : orderFilter} orders.</div>}
             {shownOrders.map((o) => {
               const paid = isPaid(o);
               const items = o.menu_order_items || [];
@@ -584,7 +705,7 @@ export default function KDS() {
               const waited = Math.floor(minsSince(o.created_at, now));
               return (
                 <div key={o.id} onClick={() => { if (!paid) { setPayFor(o); setPayMethod(null); setPayPin(""); setPayErr(""); } }}
-                  style={{ background: paid ? "linear-gradient(180deg,#121a16,#0e130f)" : "linear-gradient(180deg,#1c1712,#15100a)", border: "1px solid " + (paid ? "#1c3a2a" : "#3a2e17"), borderLeft: "4px solid " + (paid ? "#4ade80" : "#fbbf24"), borderRadius: 12, padding: "12px 14px", cursor: paid ? "default" : "pointer" }}>
+                  style={{ background: "#ffffff", border: "1px solid " + (paid ? "#bbf7d0" : "#fde68a"), borderLeft: "4px solid " + (paid ? "#16a34a" : "#d97706"), borderRadius: 12, padding: "12px 14px", cursor: paid ? "default" : "pointer" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
                     <span style={{ fontWeight: 800, fontSize: 17 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
                     <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: 20, background: paid ? "#14532d" : "#7c5310", color: paid ? "#86efac" : "#fcd34d" }}>{paid ? (o.paid_method === "card" ? "PAID · CARD" : "PAID · CASH") : "UNPAID"}</span>
@@ -625,10 +746,10 @@ export default function KDS() {
               ))}
             </div>
             <input type="text" value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="Or type a reason…"
-              style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: "10px 12px", borderRadius: 10, border: "1px solid #374151", background: "#0f131a", color: "#fff", marginBottom: 12 }} />
+              style={{ width: "100%", boxSizing: "border-box", fontSize: 15, padding: "10px 12px", borderRadius: 10, border: "1px solid #cbd5e1", background: "#ffffff", color: "#1f2937", marginBottom: 12 }} />
             <input type="text" inputMode="numeric" value={voidPin} onChange={(e) => setVoidPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && voidOrder()} placeholder="Staff PIN to confirm"
               autoComplete="off" name="kds-void-nosave" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
-              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #374151", background: "#0f131a", color: "#fff", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
+              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #cbd5e1", background: "#ffffff", color: "#1f2937", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
             {voidErr && <div style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 8 }}>{voidErr}</div>}
             <div onClick={voidOrder} className="kbtn" style={{ textAlign: "center", padding: "13px 0", borderRadius: 30, background: (voidReason.trim() && voidPin) ? "#b4462f" : "#334155", color: "#fff", fontWeight: 800, fontSize: 16, cursor: (voidReason.trim() && voidPin) ? "pointer" : "default", opacity: voidBusy ? .6 : 1 }}>{voidBusy ? "Voiding…" : "Confirm void"}</div>
           </div>
@@ -656,7 +777,7 @@ export default function KDS() {
             <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
               <div onClick={() => { setPayDiscType(payDiscType === "percent" ? null : "percent"); setPayDiscVal(""); }} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 700, background: payDiscType === "percent" ? "#3730a3" : "#20242f" }}>% off</div>
               <div onClick={() => { setPayDiscType(payDiscType === "amount" ? null : "amount"); setPayDiscVal(""); }} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "8px 0", borderRadius: 9, cursor: "pointer", fontSize: 13, fontWeight: 700, background: payDiscType === "amount" ? "#3730a3" : "#20242f" }}>GBP off</div>
-              {payDiscType && <input type="number" value={payDiscVal} onChange={(e) => setPayDiscVal(e.target.value)} placeholder={payDiscType === "percent" ? "%" : "GBP"} style={{ width: 70, textAlign: "center", borderRadius: 9, border: "1px solid #374151", background: "#0f131a", color: "#fff", fontSize: 15 }} />}
+              {payDiscType && <input type="number" value={payDiscVal} onChange={(e) => setPayDiscVal(e.target.value)} placeholder={payDiscType === "percent" ? "%" : "GBP"} style={{ width: 70, textAlign: "center", borderRadius: 9, border: "1px solid #cbd5e1", background: "#ffffff", color: "#1f2937", fontSize: 15 }} />}
             </div>
             {/* Method */}
             <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
@@ -667,7 +788,7 @@ export default function KDS() {
             {/* PIN — required to confirm */}
             <input type="text" inputMode="numeric" value={payPin} onChange={(e) => setPayPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && takePayment()} placeholder="Staff PIN to confirm"
               autoComplete="off" name="kds-code-nosave" data-1p-ignore data-lpignore="true" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
-              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #374151", background: "#0f131a", color: "#fff", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
+              style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #cbd5e1", background: "#ffffff", color: "#1f2937", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
             {payErr && <div style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 8 }}>{payErr}</div>}
             <div onClick={takePayment} className="kbtn" style={{ textAlign: "center", padding: "13px 0", borderRadius: 30, background: (payMethod && payPin) ? "#16a34a" : "#334155", color: "#fff", fontWeight: 800, fontSize: 16, cursor: (payMethod && payPin) ? "pointer" : "default", opacity: payBusy ? .6 : 1 }}>{payBusy ? "Processing…" : "Confirm payment"}</div>
           </div>
@@ -675,7 +796,7 @@ export default function KDS() {
       )}
 
       {undo && (
-        <div style={{ position: "fixed", bottom: 24, left: "50%", animation: "ktoast .2s cubic-bezier(.2,.8,.2,1)", background: "linear-gradient(180deg,#232b39,#1a212c)", border: "1px solid #374151", borderRadius: 14, padding: "12px 14px 12px 18px", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 16px 48px -12px rgba(0,0,0,.7)", zIndex: 50 }}>
+        <div style={{ position: "fixed", bottom: 24, left: "50%", animation: "ktoast .2s cubic-bezier(.2,.8,.2,1)", background: "#ffffff", border: "1px solid #d8dce2", borderRadius: 14, padding: "12px 14px 12px 18px", display: "flex", alignItems: "center", gap: 14, boxShadow: "0 16px 48px -12px rgba(0,0,0,.7)", zIndex: 50 }}>
           <span style={{ fontSize: 14, fontWeight: 500 }}>Bumped <b style={{ fontWeight: 800 }}>{(undo.order.tablet_no ? "T" + undo.order.tablet_no + "-" : "#") + (undo.order.order_no ?? "")}</b></span>
           <div onClick={doUndo} className="kbtn" style={{ background: "#ec4899", padding: "8px 18px", borderRadius: 10, fontWeight: 800, fontSize: 14, cursor: "pointer", color: "#fff", boxShadow: "0 2px 10px -2px #ec489988" }}>Undo</div>
         </div>
@@ -688,7 +809,7 @@ function Stat({ label, value, accent }) {
   return (
     <div style={{ textAlign: "center", lineHeight: 1.1 }}>
       <div style={{ fontWeight: 800, fontSize: 17, color: accent || "#fff", fontVariantNumeric: "tabular-nums" }}>{value}</div>
-      <div style={{ fontSize: 10, color: "#6b7280", textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
+      <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: ".05em" }}>{label}</div>
     </div>
   );
 }
