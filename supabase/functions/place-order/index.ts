@@ -37,11 +37,37 @@ Deno.serve(async (req) => {
       items = [],
       append_to_order_id = null,
       hold = false, // pay-first flow: create on hold (no print/KDS) until paid
+      discount: discount_in = 0, // app only: membership/reward discount already charged for (server-verified upstream)
     } = body;
+
+    // The app says "collection"; the kitchen knows "takeaway". Table orders are dine_in.
+    const orderType = order_type === "collection" ? "takeaway" : order_type;
 
     if (!Array.isArray(items) || items.length === 0) {
       return new Response(JSON.stringify({ error: "no items" }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
     }
+
+    const admin = createClient(
+      Deno.env.get("SUPABASE_URL"),
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+    );
+
+    // CUSTOMER APP — a signed-in customer's JWT (forwarded by the customer-payments
+    // function after payment) is the third accepted route. The anon/service keys are
+    // not customers, so they never unlock this path.
+    let customerId = null;
+    {
+      const auth = req.headers.get("Authorization") || "";
+      const jwt = auth.startsWith("Bearer ") ? auth.slice(7) : "";
+      const anon = Deno.env.get("SUPABASE_ANON_KEY") || "";
+      const svc = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+      if (jwt && jwt !== anon && jwt !== svc) {
+        const asUser = createClient(Deno.env.get("SUPABASE_URL"), anon, { global: { headers: { Authorization: `Bearer ${jwt}` } } });
+        const { data } = await asUser.auth.getUser(jwt);
+        customerId = data?.user?.id ?? null;
+      }
+    }
+    const isApp = !!customerId;
 
     // SOURCE CHECK — an order must come from a known route:
     //   tablet_no        an in-store tablet claimed via its QR link
@@ -52,17 +78,12 @@ Deno.serve(async (req) => {
     // kitchen and were served with no payment taken. Until online ordering is
     // deliberately opened, refuse them.
     const hasTablet = tablet_no !== null && tablet_no !== undefined && String(tablet_no).trim() !== "";
-    if (!hasTablet && !qr_token) {
-      console.warn("place-order refused: no tablet_no or qr_token", { order_type, pickup_name, items: items.length });
+    if (!hasTablet && !qr_token && !isApp) {
+      console.warn("place-order refused: no tablet_no, qr_token or customer", { order_type, pickup_name, items: items.length });
       return new Response(JSON.stringify({
         error: "Orders can only be placed on an in-store tablet or at the counter.",
       }), { status: 403, headers: { ...cors, "Content-Type": "application/json" } });
     }
-
-    const admin = createClient(
-      Deno.env.get("SUPABASE_URL"),
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
-    );
 
     // Resolve table (dine-in) from qr_token, or from an explicit table_id.
     let table_id = table_id_in;
@@ -257,6 +278,7 @@ Deno.serve(async (req) => {
     // display number is safe and never collides. next_order_no() increments a
     // per-day/per-location counter atomically (row lock) — two simultaneous
     // orders can never get the same number.
+    const discount = isApp ? Math.min(subtotal, Math.max(0, Number(discount_in) || 0)) : 0;
     let orderNo: number;
     {
       const { data: seqNo, error: seqErr } = await admin.rpc("next_order_no", { p_location: location_id ?? null });
@@ -277,10 +299,13 @@ Deno.serve(async (req) => {
     const { data: order, error: ordErr } = await admin
       .from("menu_orders")
       .insert({
-        location_id, table_id, order_type,
+        location_id, table_id, order_type: orderType,
         pickup_name, customer_note,
-        tablet_no,
-        subtotal, total: subtotal,
+        tablet_no: isApp ? "APP" : tablet_no,
+        customer_id: customerId,
+        order_channel: isApp ? "app" : (String(tablet_no) === "POS" ? "pos" : (qr_token ? "table_qr" : "tablet")),
+        app_discount: isApp ? discount : null,
+        subtotal, total: Math.max(0, subtotal - discount),
         status: hold ? "hold" : "placed",
         order_no: orderNo,
       })
