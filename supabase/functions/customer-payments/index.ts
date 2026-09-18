@@ -29,7 +29,7 @@ const fail = (message: string, status = 400) => json({ error: message }, status)
 // ---------------------------------------------------------------------
 // Payment provider adapter
 // ---------------------------------------------------------------------
-type Charge = { amount: number; currency: string; method: string; description: string; customerId: string; savedCardToken?: string | null };
+type Charge = { amount: number; currency: string; method: string; description: string; customerId: string; savedCardToken?: string | null; intentId?: string | null; stripeCustomerId?: string | null };
 type ChargeResult = { ok: true; ref: string; cardBrand?: string; last4?: string; token?: string } | { ok: false; error: string };
 interface Provider { name: string; charge(c: Charge): Promise<ChargeResult> }
 
@@ -51,7 +51,32 @@ const teyaProvider: Provider = {
   },
 };
 
-const providerFor = (name: string): Provider => (name === "teya" ? teyaProvider : sandboxProvider);
+const STRIPE_KEY = Deno.env.get("STRIPE_SECRET_KEY") || "";
+async function stripe(path: string, params: Record<string, string> = {}, method = "POST") {
+  const r = await fetch(`https://api.stripe.com/v1/${path}`, { method, headers: { Authorization: `Bearer ${STRIPE_KEY}`, "Content-Type": "application/x-www-form-urlencoded" }, body: method === "POST" ? new URLSearchParams(params) : undefined });
+  const j = await r.json(); if (!r.ok) throw new Error(j.error?.message || "Stripe error"); return j;
+}
+const stripeProvider: Provider = {
+  name: "stripe",
+  async charge(c) {
+    // (a) the client confirmed a PaymentIntent with the Payment Element → verify it; (b) saved card → charge off-session.
+    if (c.intentId) {
+      const pi = await stripe(`payment_intents/${c.intentId}`, {}, "GET");
+      if (pi.status !== "succeeded") return { ok: false, error: `Payment ${pi.status}` };
+      if (Math.round(c.amount * 100) !== pi.amount_received) return { ok: false, error: "Payment amount mismatch" };
+      if (pi.metadata?.customer_id && pi.metadata.customer_id !== c.customerId) return { ok: false, error: "Payment belongs to another customer" };
+      const pm = pi.payment_method ? await stripe(`payment_methods/${pi.payment_method}`, {}, "GET").catch(() => null) : null;
+      return { ok: true, ref: pi.id, cardBrand: pm?.card?.brand, last4: pm?.card?.last4, token: pi.setup_future_usage ? pi.payment_method : undefined };
+    }
+    if (c.savedCardToken && c.stripeCustomerId) {
+      const pi = await stripe("payment_intents", { amount: String(Math.round(c.amount * 100)), currency: c.currency.toLowerCase(), customer: c.stripeCustomerId, payment_method: c.savedCardToken, off_session: "true", confirm: "true", description: c.description, "metadata[customer_id]": c.customerId });
+      if (pi.status !== "succeeded") return { ok: false, error: `Payment ${pi.status}` };
+      return { ok: true, ref: pi.id };
+    }
+    return { ok: false, error: "No payment provided" };
+  },
+};
+const providerFor = (name: string): Provider => (name === "stripe" ? stripeProvider : name === "teya" ? teyaProvider : sandboxProvider);
 
 // ---------------------------------------------------------------------
 Deno.serve(async (req) => {
@@ -80,7 +105,7 @@ Deno.serve(async (req) => {
   const provider = providerFor(features.provider || "sandbox");
   const currency = "GBP";
 
-  const { data: customer } = await admin.from("customers").select("id,name,saved_card,auto_topup").eq("id", user.id).maybeSingle();
+  const { data: customer } = await admin.from("customers").select("id,name,email,saved_card,auto_topup,stripe_customer_id").eq("id", user.id).maybeSingle();
   if (!customer) return fail("No customer profile", 403);
 
   const recordPayment = async (p: { purpose: string; amount: number; method: string; status: string; ref?: string | null; order_id?: string | null; meta?: any }) => {
@@ -101,7 +126,7 @@ Deno.serve(async (req) => {
       if (error) { await admin.from("payments").update({ status: "failed" }).eq("id", id); return { ok: false, error: error.message }; }
       return { ok: true, ref: id, paymentId: id };
     }
-    const r = await provider.charge({ amount, currency, method, description, customerId: user.id, savedCardToken: method === "saved_card" ? customer.saved_card?.provider_token : null });
+    const r = await provider.charge({ amount, currency, method, description, customerId: user.id, savedCardToken: method === "saved_card" ? customer.saved_card?.provider_token : null, intentId: body.payment_intent || null, stripeCustomerId: customer.stripe_customer_id || null });
     const id = await recordPayment({ purpose, amount, method, status: r.ok ? "succeeded" : "failed", ref: r.ok ? r.ref : null, meta: { ...(meta || {}), ...(r.ok ? {} : { error: r.error }) } });
     if (!r.ok) return { ok: false, error: r.error };
     await saveCard(r);
@@ -109,6 +134,20 @@ Deno.serve(async (req) => {
   };
 
   try {
+    // ===================================================================
+    if (body.action === "intent") {
+      // Create a PaymentIntent for the client to confirm with Stripe's Payment Element. The final amount is
+      // re-verified against the intent when the follow-up action (checkout/topup/join/gift) runs.
+      if (provider.name !== "stripe") return json({ ok: true, sandbox: true });
+      const amount = Number(body.amount || 0); if (amount <= 0) return fail("amount required");
+      let cus = customer.stripe_customer_id;
+      if (!cus) { const c = await stripe("customers", { email: customer.email || "", name: customer.name || "", "metadata[customer_id]": user.id }); cus = c.id; await admin.from("customers").update({ stripe_customer_id: cus }).eq("id", user.id); }
+      const params: Record<string, string> = { amount: String(Math.round(amount * 100)), currency: currency.toLowerCase(), customer: cus, "automatic_payment_methods[enabled]": "true", description: body.description || `Chocoberry ${body.purpose || "payment"}`, "metadata[customer_id]": user.id, "metadata[purpose]": body.purpose || "order" };
+      if (body.save_card) params["setup_future_usage"] = "off_session";
+      const pi = await stripe("payment_intents", params);
+      return json({ ok: true, client_secret: pi.client_secret, id: pi.id });
+    }
+
     // ===================================================================
     if (body.action === "checkout") {
       const { location_id, order_type, table_id, pickup_name, lines, method, redeem } = body;
@@ -166,6 +205,12 @@ Deno.serve(async (req) => {
       const memberDiscount = priced.reduce((s: number, l: any) => s + l.discount, 0);
       const total = Math.max(0, +(itemsTotal - memberDiscount - rewardDiscount).toFixed(2));
       const berries = order_type === "delivery" ? 0 : Math.floor(total) * (loyalty.berries_per_pound || 1);
+
+      // Stripe: the client needs an intent for the exact server total before we can charge
+      const m0 = method || "card";
+      if (provider.name === "stripe" && !body.payment_intent && m0 !== "wallet" && m0 !== "saved_card" && total > 0) {
+        return json({ ok: false, needs_payment: true, total, items_total: itemsTotal, member_discount: memberDiscount, reward_discount: rewardDiscount });
+      }
 
       // redeem berries first (rolled back if payment fails)
       if (rewardName) {
