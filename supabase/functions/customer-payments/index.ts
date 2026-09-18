@@ -226,8 +226,9 @@ Deno.serve(async (req) => {
       // create the order through the existing place-order (prints in the kitchen), as the customer
       const placeRes = await fetch(`${SUPABASE_URL}/functions/v1/place-order`, {
         method: "POST", headers: { "Content-Type": "application/json", apikey: ANON_KEY, Authorization: `Bearer ${jwt}` },
-        body: JSON.stringify({ location_id, table_id: table_id || null, order_type: order_type || "collection", pickup_name: pickup_name || customer.name || "App customer",
-          items: priced.map((l: any) => ({ item_id: l.item_id, qty: l.qty, modifiers: l.mods.map((m: any) => ({ group_id: m.group_id, option_id: m.option_id })) })) }),
+        body: JSON.stringify({ location_id, table_id: table_id || null, order_type: order_type === "dine_in" ? "dine_in" : "takeaway", pickup_name: pickup_name || customer.name || "App customer",
+          discount: +(memberDiscount + rewardDiscount).toFixed(2),
+          items: priced.map((l: any) => ({ item_id: l.item_id, qty: l.qty, modifiers: l.mods.map((m: any) => m.option_id) })) }),
       });
       const placed = await placeRes.json().catch(() => ({}));
       if (!placeRes.ok) {
