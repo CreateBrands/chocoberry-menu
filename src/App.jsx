@@ -1200,7 +1200,10 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
       const single = (g.max_select || 1) === 1;
       let next;
       if (single) {
-        next = [optId]; // radio: replace
+        // radio: replace — but tapping the chosen option again clears it,
+        // unless the group is required (must keep one selection)
+        if (cur.includes(optId)) next = g.required ? cur : [];
+        else next = [optId];
       } else {
         if (cur.includes(optId)) next = cur.filter((x) => x !== optId);
         else if (cur.length < (g.max_select || 99)) next = [...cur, optId];
