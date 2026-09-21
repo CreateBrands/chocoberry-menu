@@ -1,0 +1,13 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["REPLACE_TEAMID.uk.co.chocoberry.app"],
+        "components": [
+          { "/": "/", "?": { "store": "*" }, "comment": "Table / store QR links open in the app" },
+          { "/": "/t/*", "comment": "Future short table links" }
+        ]
+      }
+    ]
+  }
+}

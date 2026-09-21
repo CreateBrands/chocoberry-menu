@@ -188,6 +188,42 @@ async function fetchSettings() {
   } catch { return {}; }
 }
 
+// "Get the app" strip for PHONES that scanned a table/store QR in the browser.
+// Never shown on store tablets (they carry ?tablet=N) or when running installed.
+// Links come from menu_app_settings so they can be set from the admin once the
+// store listings exist, with no redeploy:
+//   app_store_url   -> https://apps.apple.com/gb/app/chocoberry/idXXXXXXXXX
+//   play_store_url  -> https://play.google.com/store/apps/details?id=uk.co.chocoberry.app
+// While neither is set the strip stays hidden, so it is safe to ship now.
+function isPhoneBrowser() {
+  try {
+    if (getTabletNumber()) return false;
+    if (window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone) return false;
+    const ua = navigator.userAgent || "";
+    const small = Math.min(window.innerWidth, window.innerHeight) < 600;
+    return small && /iPhone|Android.*Mobile/i.test(ua);
+  } catch { return false; }
+}
+function GetAppBanner({ settings, table }) {
+  const [dismissed, setDismissed] = useState(() => { try { return sessionStorage.getItem("getapp_dismissed") === "1"; } catch { return false; } });
+  const ios = /iPhone|iPad/i.test(navigator.userAgent || "");
+  const url = ios ? settings.app_store_url : settings.play_store_url;
+  if (dismissed || !url || !isPhoneBrowser()) return null;
+  // Carry the current table/store link through so the app can restore the table
+  // after install (Android App Links / iOS Universal Links read it back).
+  const target = url + (ios ? "" : (url.includes("?") ? "&" : "?") + "referrer=" + encodeURIComponent("store=" + (getStoreToken() || "")));
+  return (
+    <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 9998, padding: "10px 12px calc(10px + env(safe-area-inset-bottom))", background: "#8F4123", color: "#F9EDDC", fontFamily: "'Poppins',sans-serif", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -6px 20px rgba(0,0,0,.18)" }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>Order in the Chocoberry app</div>
+        <div style={{ fontSize: 12, opacity: .85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{table ? `Earn Berries on every order at ${table.label}` : "Earn Berries on every order"}</div>
+      </div>
+      <a href={target} target="_blank" rel="noreferrer" style={{ background: "#F9EDDC", color: "#8F4123", fontWeight: 700, fontSize: 13, padding: "9px 14px", borderRadius: 999, textDecoration: "none", whiteSpace: "nowrap" }}>Get the app</a>
+      <button onClick={() => { setDismissed(true); try { sessionStorage.setItem("getapp_dismissed", "1"); } catch {} }} aria-label="Dismiss" style={{ background: "none", border: "none", color: "#F9EDDC", fontSize: 20, lineHeight: 1, padding: "4px 6px", cursor: "pointer" }}>×</button>
+    </div>
+  );
+}
+
 // Renders a free-positioned Welcome layout (array of elements with fixed px positions).
 function WelcomeElements({ layout, w }) {
   const els = (layout || []).filter((e) => e.visible !== false);
@@ -1978,6 +2014,7 @@ export default function App() {
           ● Offline — showing saved menu
         </div>
       )}
+      <GetAppBanner settings={settings} table={table} />
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}
