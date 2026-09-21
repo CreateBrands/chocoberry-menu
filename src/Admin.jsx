@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import MenuOverview from "./MenuOverview";
+import { openTableStickerSheet } from "./tableStickers";
 import PricingManager from "./PricingManager";
 
 // ============================================================
@@ -1994,12 +1995,15 @@ export default function Admin() {
                       {storeTab === "tables" && (
                         <div>
                           <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Dining tables · {diningTables.length}</div>
-                          <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 11 }}>Each has its own QR for the table sticker. Click a name to rename.</div>
+                          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 11 }}>
+                            <div style={{ fontSize: 11.5, color: T.faint }}>Each has its own QR for the table sticker. Click a name to rename, ▦ to preview one.</div>
+                            {diningTables.length > 0 && <button onClick={() => openTableStickerSheet({ storeName: loc.name, tables: diningTables, origin: window.location.origin })} style={{ fontSize: 12.5, fontWeight: 700, color: "#fff", background: T.accent, border: "none", borderRadius: 10, padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap" }}>Print QR stickers</button>}
+                          </div>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                             {diningTables.map((tb) => (
                               <div key={tb.id} style={{ display: "flex", alignItems: "center", gap: 9, background: T.card, border: "1px solid " + T.line, borderRadius: 10, padding: "9px 13px", boxShadow: "0 1px 2px rgba(40,36,25,.03)" }}>
                                 <span onClick={() => { const n = window.prompt("Rename table", tb.label); if (n && n !== tb.label) act("update_table", { id: tb.id, fields: { label: n } }); }} style={{ fontSize: 13, fontWeight: 700, color: T.ink, cursor: "pointer" }} title="Click to rename">{tb.label}</span>
-                                <a href={"https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(window.location.origin + "/?store=" + tb.qr_token)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: T.accent, textDecoration: "none", opacity: .75 }} title="Open QR">▦</a>
+                                <a href={"https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(window.location.origin + "/?store=" + tb.qr_token)} target="_blank" rel="noreferrer" style={{ fontSize: 13, color: T.accent, textDecoration: "none" }} title="Preview this table's QR">▦</a>
                                 <span onClick={() => { if (window.confirm("Delete '" + tb.label + "'?")) act("delete_table", { id: tb.id }); }} style={{ fontSize: 13, color: "#b4462f", cursor: "pointer" }} title="Delete">×</span>
                               </div>
                             ))}
