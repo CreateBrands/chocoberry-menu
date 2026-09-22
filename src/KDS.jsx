@@ -140,6 +140,7 @@ export default function KDS() {
   const [payBusy, setPayBusy] = useState(false);
   const [payErr, setPayErr] = useState("");
   const prevIds = useRef(new Set());
+  const prevCounts = useRef(new Map());
   const audioCtx = useRef(null);
   const scale = SIZES[size] || 1;
 
@@ -181,7 +182,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,modifiers_snapshot,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.asc&limit=200";
       if (loc) url += "&location_id=eq." + loc;
@@ -189,12 +190,21 @@ export default function KDS() {
       if (!r.ok) throw new Error("http " + r.status);
       const data = await r.json();
       setConnected(true);
-      // Beep only for genuinely new orders (not yet served).
+      // Beep for genuinely new orders (not yet served) AND for items appended
+      // to an order this screen already knows about — the append reopens the
+      // ticket server-side, but the id is not new, so track item counts too.
       const activeIds = new Set(data.filter((o) => o.status !== BUMP_TO).map((o) => o.id));
       let isNew = false;
       for (const id of activeIds) if (!prevIds.current.has(id)) { isNew = true; break; }
-      if (isNew && prevIds.current.size > 0) beep();
+      const counts = new Map(data.map((o) => [o.id, (o.menu_order_items || []).length]));
+      const grewIds = [];
+      for (const [id, n] of counts) { const was = prevCounts.current.get(id); if (was != null && n > was) grewIds.push(id); }
+      if ((isNew || grewIds.length) && prevIds.current.size > 0) beep();
       prevIds.current = activeIds;
+      prevCounts.current = counts;
+      // An append clears this screen's bump in kds_bumps; drop it locally too so
+      // the ticket comes back at once instead of on the next 15s bump refresh.
+      if (grewIds.length) setMyBumps((prev) => { const next = new Set(prev); grewIds.forEach((id) => next.delete(id)); return next; });
       setOrders(data);
     } catch { setConnected(false); }
   }, [loc, beep]);
@@ -587,6 +597,7 @@ export default function KDS() {
                             <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
                               <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
                               <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25, textDecoration: done ? "line-through" : "none" }}>{it.name_snapshot}</span>
+                              {(it.added_batch || 0) > 0 && !done && <span style={{ fontSize: F(10), fontWeight: 900, letterSpacing: ".06em", background: "#7c3aed", color: "#fff", padding: "1px 6px", borderRadius: 5 }}>ADDED</span>}
                             </div>
                             {mods.length > 0 && <div style={{ fontSize: F(13), color: "#0369a1", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
                           </div>

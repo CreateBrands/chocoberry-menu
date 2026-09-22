@@ -244,10 +244,19 @@ Deno.serve(async (req) => {
       const { error: liErr } = await admin.from("menu_order_items").insert(lines);
       if (liErr) throw liErr;
 
+      // Reopen the ticket for the kitchen. The KDS hides an order per screen
+      // once that screen has bumped it (kds_bumps), and the shared status may
+      // already be served/ready — so an append would print but never reappear.
+      // Clear the bumps and put the order back to "placed"; lines already done
+      // keep item_status, so the kitchen sees only the new work.
       await admin.from("menu_orders").update({
         subtotal: Number(existing.subtotal || 0) + subtotal,
         total: Number(existing.total || 0) + subtotal,
+        status: "placed",
+        kds_bumped_at: null,
+        items_added_at: new Date().toISOString(),
       }).eq("id", orderId);
+      await admin.from("kds_bumps").delete().eq("order_id", orderId);
 
       // The auto-print webhook only fires on menu_orders INSERT. An append adds
       // menu_order_items to an existing order (no new order row), so we must
