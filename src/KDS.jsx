@@ -19,6 +19,9 @@ const H = { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_
 // signal and staff learn to ignore it.
 const WARN_MIN = 6;
 const LATE_MIN = 12;
+// FLIPDISH-KDS 2026-09-27a: how external (Flipdish / aggregator) orders are labelled
+const CHANNEL_LABEL = { Deliveroo: "DELIVEROO", UberEats: "UBER EATS", JustEat: "JUST EAT", Flipdish: "FLIPDISH", Kiosk: "KIOSK", POS: "POS" };
+const CHANNEL_BG = { Deliveroo: "#00ccbc", UberEats: "#06c167", JustEat: "#ff8000", Flipdish: "#1d4ed8", Kiosk: "#6b7280", POS: "#6b7280" };
 const POLL_MS = 4000;
 const BUMP_TO = "served";
 const DONE_ITEM = "ready";
@@ -182,7 +185,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.desc&limit=500";
       // Only today's trade: a busy day passed 200 open orders and the old
@@ -554,7 +557,7 @@ export default function KDS() {
             const items = o.menu_order_items || [];
             const doneCount = items.filter((it) => it.item_status === DONE_ITEM).length;
             const allDone = items.length > 0 && doneCount === items.length;
-            const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : "Takeaway");
+            const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : o.order_type === "delivery" ? "Delivery" : "Takeaway");
             const note = (o.customer_note || "").trim();
             return (
               <div key={o.id} className={"kcard" + (isRush ? " krush" : "") + (isLate ? " klate" : "")} style={{ background: pal.tint, color: pal.body, borderRadius: F(14), overflow: "hidden", border: "1px solid #d8dce2", borderLeft: "4px solid " + pal.accent, boxShadow: "0 1px 3px rgba(15,23,42,.08)", display: "flex", flexDirection: "column" }}>
@@ -570,10 +573,13 @@ export default function KDS() {
                         o.menu_tables?.label || "DINE IN"
                       ) : (
                         <>
+                          {/* FLIPDISH-KDS 2026-09-27a: aggregator / Flipdish orders carry their channel */}
+                          {o.external_channel && <span style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".04em", background: CHANNEL_BG[o.external_channel] || "#1d4ed8", color: "#fff", padding: "2px 8px", borderRadius: 6 }}>{CHANNEL_LABEL[o.external_channel] || o.external_channel}</span>}
                           <span style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".06em", background: "#0000001a", padding: "2px 8px", borderRadius: 6 }}>
-                            {o.order_type === "collection" ? "COLLECTION" : "TAKEAWAY"}
+                            {o.order_type === "collection" ? "COLLECTION" : o.order_type === "delivery" ? "DELIVERY" : "TAKEAWAY"}
                           </span>
                           {o.pickup_name ? <span>{o.pickup_name}</span> : null}
+                          {o.requested_for && <span style={{ fontSize: F(11), fontWeight: 700, opacity: .8 }}>for {new Date(o.requested_for).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
                         </>
                       )}
                       <span style={{ fontSize: F(11), fontWeight: 700, opacity: .75, background: "#0000000f", padding: "1px 7px", borderRadius: 20 }}>{i + 1}</span>
@@ -651,7 +657,7 @@ export default function KDS() {
               // the footer is Recall instead of Bump.
               const pal = { accent: "#64748b", tint: "#ffffff", head: "#e8ebef", headText: "#334155", body: "#1f2937", sub: "#64748b", rule: "#00000014" };
               const items = o.menu_order_items || [];
-              const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : "Takeaway");
+              const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : o.order_type === "delivery" ? "Delivery" : "Takeaway");
               const note = (o.customer_note || "").trim();
               const served = o.kds_bumped_at ? new Date(o.kds_bumped_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
               return (
