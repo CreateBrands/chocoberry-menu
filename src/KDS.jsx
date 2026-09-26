@@ -184,11 +184,15 @@ export default function KDS() {
     try {
       let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,created_at,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
         + "&status=in.(placed,preparing,ready,served)"
-        + "&closed_at=is.null&order=created_at.asc&limit=200";
+        + "&closed_at=is.null&order=created_at.desc&limit=500";
+      // Only today's trade: a busy day passed 200 open orders and the old
+      // ascending limit silently dropped the NEWEST tickets. Fetch newest-first,
+      // cap generously, and skip orders older than 20h (unclosed days pile up).
+      url += "&created_at=gte." + encodeURIComponent(new Date(Date.now() - 20 * 3600 * 1000).toISOString());
       if (loc) url += "&location_id=eq." + loc;
       const r = await fetch(url, { headers: H, cache: "no-store" });
       if (!r.ok) throw new Error("http " + r.status);
-      const data = await r.json();
+      const data = (await r.json()).reverse(); // back to oldest-first for the ticket rail
       setConnected(true);
       // Beep for genuinely new orders (not yet served) AND for items appended
       // to an order this screen already knows about — the append reopens the
