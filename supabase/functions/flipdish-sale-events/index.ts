@@ -1,4 +1,4 @@
-// flipdish-sale-events — FLIPDISH-KDS 2026-09-27c
+// flipdish-sale-events — FLIPDISH-KDS 2026-10-03a
 //
 // Flipdish org-wide sale webhooks (sale.created.v1, sale.status.updated.v1,
 // sale.accepted.v1) → menu_orders / menu_order_items, so every Flipdish and
@@ -102,15 +102,23 @@ async function logEvent(row: Record<string, unknown>) {
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "GET") return json(200, { ok: true, fn: "flipdish-sale-events", build: "FLIPDISH-KDS 2026-09-27c" });
+  if (req.method === "GET") return json(200, { ok: true, fn: "flipdish-sale-events", build: "FLIPDISH-KDS 2026-10-03a" });
   if (req.method !== "POST") return json(405, { error: "POST only" });
   const raw = await req.text();
 
   let authed = false;
   const sig = req.headers.get(SIG_HEADER);
   if (SECRET && sig) authed = safeEq(await hmacHex(SECRET, raw), sig.replace(/^sha256=/i, "").trim().toLowerCase());
-  if (!authed && SHARED_TOKEN) authed = new URL(req.url).searchParams.get("token") === SHARED_TOKEN || req.headers.get("x-webhook-token") === SHARED_TOKEN;
-  if (!authed) return json(401, { error: "unauthenticated" });
+  // Flipdish's portal sends the "Verify token" as X-Verify-Token; the ?token= query param and
+  // x-webhook-token are kept for manual tests.
+  if (!authed && SHARED_TOKEN) authed = new URL(req.url).searchParams.get("token") === SHARED_TOKEN
+    || req.headers.get("x-webhook-token") === SHARED_TOKEN
+    || req.headers.get("x-verify-token") === SHARED_TOKEN;
+  if (!authed) {
+    try { await sb.from("flipdish_sale_events").insert({ event_id: `unauth:${Date.now()}`, event_type: "unauthenticated", outcome: "rejected",
+      note: `headers: ${[...req.headers.keys()].filter(k => k.startsWith("x-")).join(",")} · query token: ${new URL(req.url).searchParams.has("token") ? "present" : "absent"}` }); } catch {}
+    return json(401, { error: "unauthenticated" });
+  }
 
   let body: any; try { body = JSON.parse(raw); } catch { return json(400, { error: "invalid json" }); }
   const events: any[] = Array.isArray(body) ? body : Array.isArray(body?.events) ? body.events : [body];
