@@ -1,5 +1,17 @@
 -- Teya POSLink integration for the tablet POS.
 
+-- Per-Teya-store machine credentials from POSLink "register ePOS"
+-- (scripts/teya-register.mjs writes the INSERTs). Service-role only.
+create table if not exists teya_credentials (
+  store_id uuid primary key,         -- Teya store UUID
+  store_name text,
+  client_id text not null,
+  client_secret text not null,
+  scopes text,
+  created_at timestamptz not null default now()
+);
+alter table teya_credentials enable row level security;   -- no policies: service role only
+
 -- Which Teya card machine serves which store (and optionally which till).
 -- One row with tablet_no NULL = the store's default terminal; add rows with a
 -- tablet_no when a store has more than one machine. UUIDs come from
@@ -22,6 +34,7 @@ create table if not exists teya_payment_requests (
   payment_request_id text primary key,
   order_id uuid not null references menu_orders(id) on delete cascade,
   terminal_id uuid,
+  store_id uuid,
   tablet_no int,
   amount numeric(10,2) not null,
   status text not null default 'NEW',       -- NEW | IN_PROGRESS | SUCCESSFUL | FAILED | CANCELLING | CANCELLED

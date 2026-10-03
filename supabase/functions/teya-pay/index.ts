@@ -8,11 +8,11 @@
 // bookkeeping as admin-api take_payment — so the order is marked paid even
 // if the POS tab died mid-payment. Teya refs are kept in teya_payment_requests.
 //
-// Secrets: TEYA_CLIENT_ID, TEYA_CLIENT_SECRET (OAuth client-credentials from
-// partner.teya.com → "Create application"), TEYA_ENV = production|staging,
-// TEYA_SCOPES (optional; default below — set to "default_access" if the token
-// call returns invalid_scope).
-// Tables: teya_terminals (location → store/terminal UUIDs), teya_payment_requests.
+// Credentials: POSLink issues machine credentials PER STORE via "register ePOS"
+// (one-time, scripts/teya-register.mjs) → table teya_credentials (service-role
+// only). Secrets: TEYA_ENV = production|staging; TEYA_CLIENT_ID/SECRET only as
+// an optional account-wide fallback; TEYA_SCOPES optional override.
+// Tables: teya_credentials, teya_terminals (location → store/terminal UUIDs), teya_payment_requests.
 // Teya API: POST /poslink/v3/payment-requests, GET (SSE) /poslink/v3/payment-requests/{id},
 //           PATCH /poslink/v2/payment-requests/{id} {status:CANCELLED},
 //           GET /poslink/v1/stores, GET /poslink/v1/stores/{id}/terminals.
@@ -32,24 +32,35 @@ const API = ENV === "staging" ? "https://api.teya.xyz" : "https://api.teya.com";
 const TOKEN_URL = ENV === "staging" ? "https://id.teya.xyz/oauth/v2/oauth-token" : "https://id.teya.com/oauth/v2/oauth-token";
 const SCOPES = Deno.env.get("TEYA_SCOPES") || "payment_requests payment_requests/id stores/id/terminals";
 
-// ---- OAuth client-credentials token, cached per isolate (prod tokens last 15 min) ----
-let tok: { value: string; exp: number } | null = null;
-async function token(): Promise<string> {
-  if (tok && Date.now() < tok.exp - 30_000) return tok.value;
+// ---- OAuth client-credentials token, per Teya store ----
+// POSLink hands out machine credentials per store ("register ePOS", done once
+// with scripts/teya-register.mjs). They live in teya_credentials (service-role
+// only). Tokens are cached per client_id in this isolate (prod: 15 min).
+type Cred = { store_id: string; client_id: string; client_secret: string; scopes: string | null };
+const tokCache = new Map<string, { value: string; exp: number }>();
+async function credFor(admin: any, storeId: string): Promise<Cred> {
+  const { data } = await admin.from("teya_credentials").select("store_id, client_id, client_secret, scopes").eq("store_id", storeId).maybeSingle();
+  if (data) return data as Cred;
+  // Fallback: one global pair in secrets (if Teya ever issues account-wide credentials).
   const id = Deno.env.get("TEYA_CLIENT_ID"), secret = Deno.env.get("TEYA_CLIENT_SECRET");
-  if (!id || !secret) throw new Error("TEYA_CLIENT_ID / TEYA_CLIENT_SECRET not set");
+  if (id && secret) return { store_id: storeId, client_id: id, client_secret: secret, scopes: Deno.env.get("TEYA_SCOPES") || null };
+  throw new Error("No Teya credentials for store " + storeId + " — run scripts/teya-register.mjs");
+}
+async function tokenFor(c: Cred): Promise<string> {
+  const hit = tokCache.get(c.client_id);
+  if (hit && Date.now() < hit.exp - 30_000) return hit.value;
+  const scope = c.scopes || SCOPES;
   const r = await fetch(TOKEN_URL, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ grant_type: "client_credentials", client_id: id, client_secret: secret, scope: SCOPES }),
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: "client_credentials", client_id: c.client_id, client_secret: c.client_secret, ...(scope ? { scope } : {}) }),
   });
   const body = await r.json().catch(() => ({}));
   if (!r.ok || !body.access_token) throw new Error("teya token: " + (body.error_description || body.error || r.status));
-  tok = { value: body.access_token, exp: Date.now() + Math.max(60, Number(body.expires_in || 900)) * 1000 };
-  return tok.value;
+  tokCache.set(c.client_id, { value: body.access_token, exp: Date.now() + Math.max(60, Number(body.expires_in || 900)) * 1000 });
+  return body.access_token;
 }
-async function teya(method: string, path: string, body?: unknown, idem?: string) {
-  const h: Record<string, string> = { Authorization: "Bearer " + await token(), Accept: "application/json" };
+async function teya(c: Cred, method: string, path: string, body?: unknown, idem?: string) {
+  const h: Record<string, string> = { Authorization: "Bearer " + await tokenFor(c), Accept: "application/json" };
   if (body !== undefined) h["Content-Type"] = "application/json";
   if (idem) h["Idempotency-Key"] = idem;
   const r = await fetch(API + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -61,12 +72,12 @@ async function teya(method: string, path: string, body?: unknown, idem?: string)
 
 // Read the SSE status stream until the first "full" snapshot (the stream always
 // opens with one), then close it. Falls back to the last event seen on timeout.
-async function snapshot(paymentRequestId: string, timeoutMs = 8000): Promise<any> {
+async function snapshot(c: Cred, paymentRequestId: string, timeoutMs = 8000): Promise<any> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const r = await fetch(API + "/poslink/v3/payment-requests/" + encodeURIComponent(paymentRequestId), {
-      headers: { Authorization: "Bearer " + await token(), Accept: "text/event-stream" }, signal: ctrl.signal,
+      headers: { Authorization: "Bearer " + await tokenFor(c), Accept: "text/event-stream" }, signal: ctrl.signal,
     });
     if (!r.ok || !r.body) throw new Error("teya stream → " + r.status + " " + (await r.text().catch(() => "")).slice(0, 200));
     const reader = r.body.getReader(); const dec = new TextDecoder();
@@ -128,7 +139,8 @@ Deno.serve(async (req) => {
           .eq("order_id", order_id).in("status", ["NEW", "IN_PROGRESS"]).order("created_at", { ascending: false }).limit(1);
         if (open && open.length) return json({ ok: true, payment_request_id: open[0].payment_request_id, status: open[0].status, amount: open[0].amount, reused: true });
         const idem = crypto.randomUUID();
-        const res = await teya("POST", "/poslink/v3/payment-requests", {
+        const cred = await credFor(admin, term.store_id);
+        const res = await teya(cred, "POST", "/poslink/v3/payment-requests", {
           store_id: term.store_id, terminal_id: term.terminal_id,
           requested_amount: { amount: Math.round(amt * 100), currency: "GBP" },
           transaction_type: "SALE",
@@ -140,7 +152,7 @@ Deno.serve(async (req) => {
         const prId = res?.payment_request_id || res?.id;
         if (!prId) throw new Error("teya: no payment_request_id in response");
         await admin.from("teya_payment_requests").insert({
-          payment_request_id: prId, order_id, terminal_id: term.terminal_id, amount: amt,
+          payment_request_id: prId, order_id, terminal_id: term.terminal_id, store_id: term.store_id, amount: amt,
           status: res.status || "NEW", tablet_no, note, raw: res,
         });
         return json({ ok: true, payment_request_id: prId, status: res.status || "NEW", amount: amt, terminal: term.label || null });
@@ -153,7 +165,7 @@ Deno.serve(async (req) => {
         const { data: row } = await admin.from("teya_payment_requests").select("*").eq("payment_request_id", payment_request_id).single();
         if (!row) return json({ error: "unknown payment request" }, 404);
         if (row.recorded_at) return json({ ok: true, status: "SUCCESSFUL", recorded: true, fully_paid: row.fully_paid, remaining: row.remaining_after });
-        const snap = await snapshot(payment_request_id);
+        const snap = await snapshot(await credFor(admin, row.store_id), payment_request_id);
         const status = String(snap?.status || row.status || "NEW").toUpperCase();
         const reason = snap?.status_reason || null;
         if (status !== row.status || reason !== row.status_reason) {
@@ -195,7 +207,8 @@ Deno.serve(async (req) => {
       case "cancel": {
         const { payment_request_id } = data || {};
         if (!payment_request_id) return json({ error: "payment_request_id required" }, 400);
-        try { await teya("PATCH", "/poslink/v2/payment-requests/" + encodeURIComponent(payment_request_id), { status: "CANCELLED" }, crypto.randomUUID()); }
+        const { data: pr } = await admin.from("teya_payment_requests").select("store_id").eq("payment_request_id", payment_request_id).maybeSingle();
+        try { await teya(await credFor(admin, pr?.store_id), "PATCH", "/poslink/v2/payment-requests/" + encodeURIComponent(payment_request_id), { status: "CANCELLED" }, crypto.randomUUID()); }
         catch (e) { return json({ ok: false, message: String((e as Error).message) }); }
         await admin.from("teya_payment_requests").update({ status: "CANCELLING", updated_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
         return json({ ok: true, status: "CANCELLING" });
@@ -205,21 +218,24 @@ Deno.serve(async (req) => {
       case "terminals": {
         const ADMIN_PIN = Deno.env.get("ADMIN_PIN");
         if (!ADMIN_PIN || pin !== ADMIN_PIN) return json({ error: "unauthorized" }, 401);
-        const stores = await teya("GET", "/poslink/v1/stores");
-        const list = Array.isArray(stores) ? stores : (stores?.stores || stores?.items || []);
+        const { data: creds } = await admin.from("teya_credentials").select("store_id, store_name, client_id, client_secret, scopes");
         const out: any[] = [];
-        for (const s of list) {
-          const sid = s.id || s.store_id;
-          const t = await teya("GET", "/poslink/v1/stores/" + encodeURIComponent(sid) + "/terminals").catch(() => []);
+        for (const c of (creds || []) as any[]) {
+          const t = await teya(c, "GET", "/poslink/v1/stores/" + encodeURIComponent(c.store_id) + "/terminals").catch((e) => ({ error: String(e.message) }));
           const tl = Array.isArray(t) ? t : (t?.terminals || t?.items || []);
-          out.push({ store_id: sid, store_name: s.name || s.store_name || null, terminals: tl.map((x: any) => ({ terminal_id: x.id || x.terminal_id, serial: x.serial_number || x.serial || null, name: x.name || null, status: x.status || null })) });
+          out.push({ store_id: c.store_id, store_name: c.store_name, error: t?.error || null, terminals: tl.map((x: any) => ({ terminal_id: x.id || x.terminal_id, serial: x.serial_number || x.serial || null, name: x.name || null, status: x.status || null })) });
         }
         return json({ ok: true, stores: out });
       }
 
       case "health": {
-        try { await token(); return json({ ok: true, env: ENV, scopes: SCOPES }); }
-        catch (e) { return json({ ok: false, env: ENV, error: String((e as Error).message) }); }
+        const { data: creds } = await admin.from("teya_credentials").select("store_id, store_name, client_id, client_secret, scopes");
+        const results: any[] = [];
+        for (const c of (creds || []) as any[]) {
+          try { await tokenFor(c); results.push({ store: c.store_name || c.store_id, ok: true }); }
+          catch (e) { results.push({ store: c.store_name || c.store_id, ok: false, error: String((e as Error).message) }); }
+        }
+        return json({ ok: results.length > 0 && results.every((r) => r.ok), env: ENV, stores: results, note: results.length ? undefined : "no rows in teya_credentials — run scripts/teya-register.mjs" });
       }
 
       default: return json({ error: "unknown action" }, 400);
