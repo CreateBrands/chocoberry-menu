@@ -646,7 +646,7 @@ export default function KDS() {
                               <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25, textDecoration: done ? "line-through" : "none" }}>{it.name_snapshot}</span>
                               {(it.added_batch || 0) > 0 && !done && <span style={{ fontSize: F(10), fontWeight: 900, letterSpacing: ".06em", background: "#7c3aed", color: "#fff", padding: "1px 6px", borderRadius: 5 }}>ADDED</span>}
                             </div>
-                            {mods.length > 0 && <div style={{ fontSize: F(13), color: "#0369a1", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
+                            {mods.length > 0 && <div style={{ paddingLeft: F(35), marginTop: 2, display: "flex", flexDirection: "column", gap: 1 }}>{mods.map((m, k) => <div key={k} style={{ fontSize: F(13), color: "#0369a1", fontWeight: 600, lineHeight: 1.25 }}>{m}</div>)}</div>}
                           {it.note && <div style={{ marginLeft: F(35), marginTop: 4 }}>{noteBox(it.note, F)}</div>}
                           </div>
                         );
@@ -724,7 +724,7 @@ export default function KDS() {
                                 <span style={{ fontWeight: 900, fontSize: F(15), color: (it.qty || 1) > 1 ? "#92400e" : pal.accent, background: (it.qty || 1) > 1 ? "#fde68a" : "transparent", padding: (it.qty || 1) > 1 ? "0 " + F(6) + "px" : 0, borderRadius: 6, minWidth: F(26), textAlign: "center", fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
                                 <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25 }}>{it.name_snapshot}</span>
                               </div>
-                              {mods.length > 0 && <div style={{ fontSize: F(13), color: "#0369a1", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
+                              {mods.length > 0 && <div style={{ paddingLeft: F(35), marginTop: 2, display: "flex", flexDirection: "column", gap: 1 }}>{mods.map((m, k) => <div key={k} style={{ fontSize: F(13), color: "#0369a1", fontWeight: 600, lineHeight: 1.25 }}>{m}</div>)}</div>}
                             {it.note && <div style={{ marginLeft: F(35), marginTop: 4 }}>{noteBox(it.note, F)}</div>}
                             </div>
                           );
