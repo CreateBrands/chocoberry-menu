@@ -681,7 +681,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       if (!r.ok) throw new Error(resp.message || resp.error || "Send failed");
       if (appendTo) {
         // Added to an existing order — clear the ticket and refresh the strip.
-        setAppendTo(null); setTicket([]); setTable(null); setMsg("Items added to the order.");
+        setAppendTo(null); setTicket([]); setTable(null); setOrderNote(""); setMsg("Items added to the order.");
         loadOrders();
       } else {
         setMsg(thenPay ? "Take payment to send to kitchen" : "Sent — order #" + resp.order_no);
@@ -702,7 +702,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           })),
         };
         // Clear the cart; the order now lives in the strip.
-        setTicket([]); setTable(null); setPlaced(null); setPayMethod(null); setPayPin("");
+        setTicket([]); setTable(null); setOrderNote(""); setPlaced(null); setPayMethod(null); setPayPin("");
         if (thenPay && resp.order_id) {
           setPayNowOrder(localOrder);   // drives the panel immediately
           setSelPayNow(true);
