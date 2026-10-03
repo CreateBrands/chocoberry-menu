@@ -489,7 +489,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   const [pinErr, setPinErr] = useState("");
   const [checking, setChecking] = useState(false);
   // View: "orders" | "items"
-  const [view, setView] = useState("till");
+  const [view, setView] = useState("items"); // Till and List removed from the staff panel (Oct 2026)
   // All-tablets orders from DB
   const [allOrders, setAllOrders] = useState(null);
   const [collapsed, setCollapsed] = useState({}); // tablet_no -> bool
@@ -601,7 +601,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
         body: JSON.stringify({ pin, action: "load", data: {} }),
       });
       if (!r.ok) throw new Error("bad");
-      setUnlocked(true);
+      setUnlocked(true); if (!items) loadItems();
       sessionPinRef.current = pin; // keep the verified PIN for authorized actions this session
       setPin("");                   // clear the input (so the browser can't offer to save it)
       loadAllOrders();
@@ -785,12 +785,6 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
           </div>
         ) : (
           <div>
-            {/* Tabs */}
-            <div style={{ display: "flex", gap: 10, marginBottom: 16, flexShrink: 0 }}>
-              <div onClick={() => setView("till")} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "till" ? "var(--accent)" : "var(--bg3)", color: view === "till" ? "#F7F4EC" : "var(--ink)" }}>Till</div>
-              <div onClick={() => setView("orders")} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "orders" ? "var(--accent)" : "var(--bg3)", color: view === "orders" ? "#F7F4EC" : "var(--ink)" }}>List</div>
-              <div onClick={() => { setView("items"); if (!items) loadItems(); }} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 20, cursor: "pointer", fontWeight: 600, fontSize: 14, background: view === "items" ? "var(--accent)" : "var(--bg3)", color: view === "items" ? "#F7F4EC" : "var(--ink)" }}>Items</div>
-            </div>
 
             {accepting !== null && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderRadius: 12, background: accepting ? "#eaf1e4" : "#f6e4e0", marginBottom: 14, flexShrink: 0 }}>
