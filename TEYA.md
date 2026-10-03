@@ -39,3 +39,19 @@ Stores with no terminal mapped keep the manual Card button as before.
 
 Test on **staging** first (`TEYA_ENV=staging`, staging credentials, a test
 terminal from Teya) before switching the secrets to production.
+
+## Sandbox test checklist (run on a TEST location's POS only)
+1. Health check → `ok:true` for the sandbox store.
+2. Card, full balance → terminal prompts → approve → POS shows "Card taken", order paid,
+   `teya_payment_requests.status = SUCCESSFUL`, one `order_payments` row (note `teya:<id>`).
+3. Card → decline on the terminal → POS message "Card payment failed — …", order still unpaid.
+4. Card → tap Cancel on the POS overlay → terminal aborts, status CANCELLED, no tender booked.
+5. Card → cancel on the terminal itself → same as 4.
+6. Split the bill: £x card + rest cash → two tenders, order marked split.
+7. Terminal switched off / offline → start fails or status_reason TERMINAL_UNREACHABLE → POS message, retry works.
+8. Close the POS tab mid-payment, approve on the terminal, reopen the order → it shows paid
+   (the next `status` call books it; if nobody polls, `select * from teya_payment_requests where recorded_at is null`).
+9. Two taps on Card in quick succession → one terminal request (the second reuses the open one).
+
+Known limits: currency is GBP (Dubai will need AED from the location); refunds through the
+terminal and Teya receipt text are not wired yet.

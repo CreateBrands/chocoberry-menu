@@ -48,6 +48,11 @@ create table if not exists teya_payment_requests (
   updated_at timestamptz not null default now()
 );
 create index if not exists teya_pr_order on teya_payment_requests(order_id, created_at desc);
+-- Safe to re-run: columns added since the first version of this file.
+alter table teya_payment_requests add column if not exists store_id uuid;
+alter table teya_payment_requests add column if not exists status_reason text;
+alter table teya_payment_requests add column if not exists fully_paid boolean;
+alter table teya_payment_requests add column if not exists remaining_after numeric(10,2);
 
 alter table teya_terminals enable row level security;
 alter table teya_payment_requests enable row level security;
