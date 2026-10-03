@@ -237,11 +237,68 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       return { ok: r.ok, ...j };
     } catch { return { ok: false }; } finally { setOrdersBusy(false); }
   }
+  // ---- Teya card machine (POSLink) ----
+  // If this store has a Teya terminal mapped (teya_terminals), "Card" pushes the
+  // amount to the machine and waits for the cardholder instead of trusting a
+  // manual tap. The server books the tender itself on SUCCESSFUL, so a dead
+  // tab mid-payment cannot leave a paid order showing as unpaid.
+  const [teyaTerminal, setTeyaTerminal] = useState(null);
+  useEffect(() => {
+    if (!loc) { setTeyaTerminal(null); return; }
+    fetch(SUPABASE_URL + "/rest/v1/teya_terminals?select=id,label,tablet_no&active=eq.true&location_id=eq." + loc, { headers: H })
+      .then((r) => r.ok ? r.json() : []).then((rows) => setTeyaTerminal((rows || []).length ? rows : null)).catch(() => setTeyaTerminal(null));
+  }, [loc]); // eslint-disable-line
+  const [teyaWait, setTeyaWait] = useState(null); // { amount, label, prId, status, reason }
+  const teyaCancelRef = useRef(false);
+  async function teyaCall(action, dataObj) {
+    const r = await fetch(SUPABASE_URL + "/functions/v1/teya-pay", { method: "POST", headers: H, body: JSON.stringify({ action, data: dataObj }) });
+    const j = await r.json().catch(() => ({}));
+    return { httpOk: r.ok, ...j };
+  }
+  async function teyaTakeCard(o, amount, extra = {}) {
+    setOrdersBusy(true);
+    teyaCancelRef.current = false;
+    let prId = null;
+    try {
+      const start = await teyaCall("start", { order_id: o.id, amount, tablet_no: null, note: extra.note || null });
+      if (!start.httpOk || !start.payment_request_id) {
+        setMsg(start.message || "Could not reach the card machine — take the card manually or try again.");
+        return { ok: false, teya_error: true };
+      }
+      prId = start.payment_request_id;
+      setTeyaWait({ amount: start.amount, label: start.terminal, prId, status: start.status || "NEW" });
+      // Poll until a terminal state. Each status call waits up to ~8s on Teya's
+      // event stream, so this is cheap on the network.
+      for (let i = 0; i < 200; i++) {
+        if (teyaCancelRef.current) { await teyaCall("cancel", { payment_request_id: prId }); setTeyaWait(null); return { ok: false, cancelled: true }; }
+        const st = await teyaCall("status", { payment_request_id: prId });
+        const status = String(st.status || "").toUpperCase();
+        setTeyaWait((w) => w && { ...w, status, reason: st.reason || null });
+        if (status === "SUCCESSFUL") { setTeyaWait(null); await loadOrders(); return { ok: true, ...st }; }
+        if (status === "FAILED" || status === "CANCELLED") {
+          setTeyaWait(null);
+          const why = st.reason ? String(st.reason).replace(/_/g, " ").toLowerCase() : null;
+          setMsg(status === "FAILED" ? ("Card payment failed" + (why ? " — " + why : "") + ". Try again or take another method.") : "Card payment cancelled on the machine.");
+          return { ok: false, [status.toLowerCase()]: true };
+        }
+        await new Promise((res) => setTimeout(res, status === "IN_PROGRESS" ? 800 : 1500));
+      }
+      setTeyaWait(null); setMsg("The card machine did not respond — check it is online, then try again.");
+      return { ok: false, timeout: true };
+    } catch {
+      setTeyaWait(null); setMsg("Lost contact with the card machine — check the order before taking payment again.");
+      return { ok: false };
+    } finally { setOrdersBusy(false); }
+  }
   // Take a (possibly partial) payment. amount defaults to the full balance.
   const ordTakePayment = (o, method, amount, extra = {}) =>
-    ordActionJson("take_payment", { order_id: o.id, method, amount, ...extra });
+    (method === "card" && teyaTerminal)
+      ? teyaTakeCard(o, amount, extra)
+      : ordActionJson("take_payment", { order_id: o.id, method, amount, ...extra });
   // Legacy single-shot pay (full balance) — kept for the simple Cash/Card path.
-  const ordPay = (o, method) => ordActionJson("take_payment", { order_id: o.id, method, amount: Number(o.total || 0) });
+  const ordPay = (o, method) => (method === "card" && teyaTerminal)
+    ? teyaTakeCard(o, Number(o.total || 0))
+    : ordActionJson("take_payment", { order_id: o.id, method, amount: Number(o.total || 0) });
   const ordUnpaid = (o) => ordAction("mark_unpaid", { order_id: o.id });
   const ordRemoveItem = (o, iid) => ordAction("remove_order_item", { order_id: o.id, order_item_id: iid });
   const ordSetQty = (o, iid, qty) => ordAction("set_order_item_qty", { order_id: o.id, order_item_id: iid, qty });
@@ -816,6 +873,20 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       <style>{TAP_CSS}</style>
 
       {/* PAID — the sale is finished. Sits above everything, clears itself. */}
+      {teyaWait && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(20,24,18,.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ width: 420, maxWidth: "90vw", background: "#fff", borderRadius: 20, padding: "30px 28px 24px", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
+            <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".08em", color: "#6b7a60", textTransform: "uppercase" }}>{teyaWait.label ? "Card machine · " + teyaWait.label : "Card machine"}</div>
+            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 800, fontSize: 44, letterSpacing: "-1px", margin: "10px 0 4px", color: "#22271f" }}>£{Number(teyaWait.amount || 0).toFixed(2)}</div>
+            <div style={{ fontSize: 15, color: "#4b5543", minHeight: 22 }}>
+              {teyaWait.status === "IN_PROGRESS" ? "Customer is paying…" : teyaWait.status === "CANCELLING" ? "Cancelling…" : "Ask the customer to tap or insert their card"}
+            </div>
+            <div style={{ margin: "18px auto 22px", width: 54, height: 54, borderRadius: "50%", border: "5px solid #e6ecdd", borderTopColor: "#5E7A4D", animation: "teyaspin 1s linear infinite" }} />
+            <div onClick={() => { teyaCancelRef.current = true; setTeyaWait((w) => w && { ...w, status: "CANCELLING" }); }} style={{ display: "inline-block", padding: "12px 26px", borderRadius: 12, background: "#f3f4ef", color: "#9a3412", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</div>
+            <style>{"@keyframes teyaspin{to{transform:rotate(360deg)}}"}</style>
+          </div>
+        </div>
+      )}
       {paidBanner && (
         <div onClick={() => setPaidBanner(null)}
           style={{ position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)", zIndex: 9999,
