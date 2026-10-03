@@ -21,6 +21,44 @@ const WARN_MIN = 6;
 const LATE_MIN = 12;
 // FLIPDISH-KDS 2026-09-27a: how external (Flipdish / aggregator) orders are labelled
 const CHANNEL_LABEL = { Deliveroo: "DELIVEROO", UberEats: "UBER EATS", JustEat: "JUST EAT", Flipdish: "FLIPDISH", Kiosk: "KIOSK", POS: "POS" };
+// KDS-TYPE 2026-10-03: every card carries a coloured order-type badge so dine-in / takeaway / collection / delivery read at a glance
+const TYPE_BADGE = {
+  dine_in:    { bg: "#1d4ed8", label: "DINE IN",  short: "DINE",    icon: "\uD83C\uDF7D\uFE0F" }, // 🍽️
+  takeaway:   { bg: "#d97706", label: "TAKEAWAY", short: "T/A",   icon: "\uD83E\uDD61" },       // 🥡
+  collection: { bg: "#7c3aed", label: "COLLECTION", short: "COLL", icon: "\uD83D\uDECD\uFE0F" }, // 🛍️
+  delivery:   { bg: "#0f766e", label: "DELIVERY", short: "DELIV",   icon: "\uD83D\uDEF5" },       // 🛵
+};
+const typeKey = (o) => (o.menu_tables?.label || o.order_type === "dine_in") ? "dine_in" : (TYPE_BADGE[o.order_type] ? o.order_type : "takeaway");
+const typeBadge = (o, F) => { const b = TYPE_BADGE[typeKey(o)]; return (
+  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: F(12), fontWeight: 900, letterSpacing: ".08em", background: b.bg, color: "#fff", padding: F(4) + "px " + F(10) + "px", borderRadius: 8, boxShadow: "0 1px 2px rgba(0,0,0,.18)", lineHeight: 1 }}>
+    <span style={{ fontSize: F(13) }}>{b.icon}</span>{b.label}
+  </span>
+); };
+// KDS-MODS 2026-10-03: show the choice, not the price. "Ice Cream: Ice Cream · Full (+£2.50)" → "Ice Cream · Full"
+const cleanMod = (m) => String(m || "").replace(/\s*\(\+?£?-?\d[\d.,]*\)\s*/g, "").replace(/^[^:]{1,40}:\s*/, "").trim();
+const cleanMods = (mods) => { const out = []; for (const m of mods) { const c = cleanMod(m); if (c && !out.includes(c)) out.push(c); } return out; };
+const ALLERGY_RE = /allerg|nut|gluten|coeliac|celiac|dairy|lactose|vegan|halal|sesame|egg|shellfish|soy/i;
+const noteBox = (text, F) => {
+  const allergy = ALLERGY_RE.test(text || "");
+  const st = allergy ? { color: "#fff", background: "#b91c1c", border: "1px solid #991b1b" } : { color: "#7f1d1d", background: "#fee2e2", border: "1px solid #fca5a5" };
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: F(13), fontWeight: 700, padding: F(3) + "px " + F(9) + "px", borderRadius: 7, ...st }}>
+    <span style={{ fontSize: F(9), fontWeight: 900, letterSpacing: ".1em", opacity: .9 }}>{allergy ? "ALLERGY" : "NOTE"}</span>{text}
+  </span>;
+};
+const shade = (hex, k) => { const n = parseInt(hex.slice(1), 16); const r = Math.max(0, Math.min(255, ((n >> 16) & 255) + k)), g = Math.max(0, Math.min(255, ((n >> 8) & 255) + k)), b = Math.max(0, Math.min(255, (n & 255) + k)); return "#" + ((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1); };
+// The type block is set like a piece of signage: each word is justified to the full
+// width of the block (SVG textLength), so the colour panel is filled edge to edge
+// whatever the word length, and the two-word types stack with equal measure.
+// Order-type tile: kitchen shorthand large (DINE / T/A / COLL / DELIV), full word small beneath,
+// on a square colour tile the full height of the header. Set to fill its measure at every size.
+const typeBlock = (o, F) => { const b = TYPE_BADGE[typeKey(o)]; const grad = "linear-gradient(180deg," + shade(b.bg, 18) + " 0%," + b.bg + " 55%," + shade(b.bg, -14) + " 100%)";
+  return (
+    <div style={{ alignSelf: "stretch", width: F(66), flex: "none", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", background: grad, color: "#fff", marginRight: F(12), borderRadius: F(13) + "px 0 0 0", boxShadow: "inset -1px 0 0 rgba(0,0,0,.25), inset 0 1px 0 rgba(255,255,255,.28)", padding: "0 " + F(4) + "px", boxSizing: "border-box" }}>
+      <span style={{ fontSize: b.short.length > 4 ? F(17) : F(21), fontWeight: 900, letterSpacing: b.short.length > 4 ? "-.02em" : "-.01em", lineHeight: 1, textShadow: "0 1px 1px rgba(0,0,0,.28)", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>{b.short}</span>
+      <span style={{ marginTop: F(4), fontSize: F(7.5), fontWeight: 800, letterSpacing: ".12em", lineHeight: 1, whiteSpace: "nowrap", opacity: .92, borderTop: "1px solid rgba(255,255,255,.35)", paddingTop: F(3) }}>{b.label}</span>
+    </div>
+  );
+};
 const CHANNEL_BG = { Deliveroo: "#00ccbc", UberEats: "#06c167", JustEat: "#ff8000", Flipdish: "#1d4ed8", Kiosk: "#6b7280", POS: "#6b7280" };
 const POLL_MS = 4000;
 const BUMP_TO = "served";
@@ -185,7 +223,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.desc&limit=500";
       // Only today's trade: a busy day passed 200 open orders and the old
@@ -561,61 +599,61 @@ export default function KDS() {
             const note = (o.customer_note || "").trim();
             return (
               <div key={o.id} className={"kcard" + (isRush ? " krush" : "") + (isLate ? " klate" : "")} style={{ background: pal.tint, color: pal.body, borderRadius: F(14), overflow: "hidden", border: "1px solid #d8dce2", borderLeft: "4px solid " + pal.accent, boxShadow: "0 1px 3px rgba(15,23,42,.08)", display: "flex", flexDirection: "column" }}>
-                <div style={{ background: pal.head, color: pal.headText, padding: F(9) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <div>
-                    <div style={{ fontWeight: 800, fontSize: F(19), letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 6 }}>
+                <div style={{ background: pal.head, color: pal.headText, padding: "0 " + F(12) + "px 0 0", display: "flex", justifyContent: "space-between", alignItems: "stretch", minHeight: F(64) }}>
+                  {typeBlock(o, F)}
+                  <div style={{ padding: F(8) + "px 0", flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                    <div style={{ fontWeight: 800, fontSize: F(19), letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 7 }}>
                       {isRush && <span style={{ fontSize: F(15) }}>{BOLT}</span>}
                       {/* A kitchen ticket answers "where does this food go?".
                           Dine-in is routed by TABLE, takeaway by the fact it
                           leaves. The order number is a reference, not a
                           destination, so it moves to the line below. */}
                       {(o.menu_tables?.label || o.order_type === "dine_in") ? (
-                        o.menu_tables?.label || "DINE IN"
+                        <span style={{ fontSize: F(24), fontWeight: 900, letterSpacing: "-.02em" }}>{o.menu_tables?.label || "Table"}</span>
                       ) : (
                         <>
                           {/* FLIPDISH-KDS 2026-09-27a: aggregator / Flipdish orders carry their channel */}
                           {o.external_channel && <span style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".04em", background: CHANNEL_BG[o.external_channel] || "#1d4ed8", color: "#fff", padding: "2px 8px", borderRadius: 6 }}>{CHANNEL_LABEL[o.external_channel] || o.external_channel}</span>}
-                          <span style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".06em", background: "#0000001a", padding: "2px 8px", borderRadius: 6 }}>
-                            {o.order_type === "collection" ? "COLLECTION" : o.order_type === "delivery" ? "DELIVERY" : "TAKEAWAY"}
-                          </span>
-                          {o.pickup_name ? <span>{o.pickup_name}</span> : null}
+                          {(o.pickup_name || !o.external_channel) && <span style={{ fontSize: F(22), fontWeight: 900, letterSpacing: "-.02em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{o.pickup_name || "#" + (o.order_no ?? "")}</span>}
                           {o.requested_for && <span style={{ fontSize: F(11), fontWeight: 700, opacity: .8 }}>for {new Date(o.requested_for).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
                         </>
                       )}
-                      <span style={{ fontSize: F(11), fontWeight: 700, opacity: .75, background: "#0000000f", padding: "1px 7px", borderRadius: 20 }}>{i + 1}</span>
+                      <span style={{ fontSize: F(10), fontWeight: 800, opacity: .7, border: "1.5px solid currentColor", padding: "0 6px", borderRadius: 20, lineHeight: 1.6 }}>{i + 1}</span>
                     </div>
-                    <div style={{ fontSize: F(12), opacity: .82, fontWeight: 500, marginTop: 1 }}>
-                      {(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}
+                    <div style={{ fontSize: F(11.5), opacity: .85, fontWeight: 600, marginTop: 2, letterSpacing: ".02em" }}>
+                      {"#" + (o.order_no ?? "") + (o.tablet_no ? "  " + DOT + "  Tablet " + o.tablet_no : "")}
                       {(o.menu_tables?.label || o.order_type === "dine_in") && o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}
                     </div>
                     {o.print_failed && <div style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 5, background: "#dc2626", color: "#fff", fontSize: F(11), fontWeight: 800, padding: "2px 8px", borderRadius: 6, letterSpacing: ".02em" }}>⚠ NOT PRINTED</div>}
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div className="ktime" style={{ fontWeight: 900, fontSize: F(20), fontVariantNumeric: "tabular-nums", color: pal.accent, letterSpacing: "-.02em" }}>{fmtClock(o.created_at, now)}</div>
-                    <div style={{ fontSize: F(10), opacity: .7, fontWeight: 600, marginTop: 1 }}>{items.length ? doneCount + "/" + items.length : ""}{o.status === "preparing" ? " " + DOT + " prep" : ""}</div>
+                  <div style={{ textAlign: "right", flex: "none", marginLeft: 8, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                    <div className="ktime" style={{ fontWeight: 900, fontSize: F(19), fontVariantNumeric: "tabular-nums", color: "#fff", background: pal.accent, letterSpacing: "-.02em", padding: "2px " + F(9) + "px", borderRadius: 8, display: "inline-block", lineHeight: 1.3 }}>{fmtClock(o.created_at, now)}</div>
+                    <div style={{ fontSize: F(10), opacity: .9, fontWeight: 700, marginTop: 3 }}>{items.length ? doneCount + "/" + items.length + " done" : ""}{o.status === "preparing" ? " " + DOT + " prep" : ""}</div>
                   </div>
                 </div>
+                <div style={{ height: 3, background: "#00000012" }}><div style={{ height: "100%", width: (items.length ? Math.round(doneCount / items.length * 100) : 0) + "%", background: pal.accent, transition: "width .25s ease" }} /></div>
                 <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
                   {groupByCat(items).map(([cat, catItems]) => (
                     <div key={cat} style={{ marginBottom: F(4) }}>
-                      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: pal.sub, borderBottom: "1px solid " + pal.rule, paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
+                      <div style={{ fontSize: F(10.5), fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: pal.sub, borderBottom: "1px solid " + pal.rule, paddingBottom: F(3), marginBottom: F(3), marginTop: F(3), display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 3, height: F(10), borderRadius: 2, background: TYPE_BADGE[typeKey(o)].bg, display: "inline-block" }} />{cat}</div>
                       {catItems.map((it) => {
                         const done = it.item_status === DONE_ITEM;
-                        const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
+                        const mods = cleanMods(it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : []);
                         return (
-                          <div key={it.id} className="kitem" onClick={() => toggleItem(o, it)} style={{ padding: F(6) + "px " + F(6) + "px", cursor: "pointer", opacity: done ? .34 : 1 }}>
+                          <div key={it.id} className="kitem" onClick={() => toggleItem(o, it)} style={{ padding: F(7) + "px " + F(6) + "px", cursor: "pointer", opacity: done ? .34 : 1, borderBottom: "1px dashed #00000010" }}>
                             <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
-                              <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
+                              <span style={{ fontWeight: 900, fontSize: F(15), color: (it.qty || 1) > 1 ? "#92400e" : pal.accent, background: (it.qty || 1) > 1 ? "#fde68a" : "transparent", padding: (it.qty || 1) > 1 ? "0 " + F(6) + "px" : 0, borderRadius: 6, minWidth: F(26), textAlign: "center", fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
                               <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25, textDecoration: done ? "line-through" : "none" }}>{it.name_snapshot}</span>
                               {(it.added_batch || 0) > 0 && !done && <span style={{ fontSize: F(10), fontWeight: 900, letterSpacing: ".06em", background: "#7c3aed", color: "#fff", padding: "1px 6px", borderRadius: 5 }}>ADDED</span>}
                             </div>
                             {mods.length > 0 && <div style={{ fontSize: F(13), color: "#0369a1", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
+                          {it.note && <div style={{ marginLeft: F(35), marginTop: 4 }}>{noteBox(it.note, F)}</div>}
                           </div>
                         );
                       })}
                     </div>
                   ))}
-                  {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#7f1d1d", background: "#fee2e2", border: "1px solid #fca5a5", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
+                  {note && <div style={{ marginTop: F(8) }}>{noteBox(note, F)}</div>}
                 </div>
                 <div style={{ display: "flex", gap: 2, padding: 2 }}>
                   <div onClick={() => toggleRush(o)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: isRush ? "#e11d48" : "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: isRush ? "#ffffff" : "#475569" }} title="Rush">{BOLT}</div>
@@ -677,22 +715,23 @@ export default function KDS() {
                   <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
                     {groupByCat(items).map(([cat, catItems]) => (
                       <div key={cat} style={{ marginBottom: F(4) }}>
-                        <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: .8, color: pal.sub, borderBottom: "1px solid " + pal.rule, paddingBottom: F(2), marginBottom: F(3), marginTop: F(2) }}>{cat}</div>
+                        <div style={{ fontSize: F(10.5), fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: pal.sub, borderBottom: "1px solid " + pal.rule, paddingBottom: F(3), marginBottom: F(3), marginTop: F(3), display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 3, height: F(10), borderRadius: 2, background: TYPE_BADGE[typeKey(o)].bg, display: "inline-block" }} />{cat}</div>
                         {catItems.map((it) => {
-                          const mods = it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : [];
+                          const mods = cleanMods(it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : []);
                           return (
                             <div key={it.id} style={{ padding: F(6) + "px " + F(6) + "px" }}>
                               <div style={{ display: "flex", gap: 9, alignItems: "baseline" }}>
-                                <span style={{ fontWeight: 900, fontSize: F(15), color: pal.accent, minWidth: F(26), fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
+                                <span style={{ fontWeight: 900, fontSize: F(15), color: (it.qty || 1) > 1 ? "#92400e" : pal.accent, background: (it.qty || 1) > 1 ? "#fde68a" : "transparent", padding: (it.qty || 1) > 1 ? "0 " + F(6) + "px" : 0, borderRadius: 6, minWidth: F(26), textAlign: "center", fontVariantNumeric: "tabular-nums" }}>{(it.qty || 1) + TIMES}</span>
                                 <span style={{ fontWeight: 700, fontSize: F(15.5), lineHeight: 1.25 }}>{it.name_snapshot}</span>
                               </div>
                               {mods.length > 0 && <div style={{ fontSize: F(13), color: "#0369a1", paddingLeft: F(35), fontWeight: 600, marginTop: 1 }}>{mods.join(" " + DOT + " ")}</div>}
+                            {it.note && <div style={{ marginLeft: F(35), marginTop: 4 }}>{noteBox(it.note, F)}</div>}
                             </div>
                           );
                         })}
                       </div>
                     ))}
-                    {note && <div style={{ marginTop: F(7), fontSize: F(13), color: "#7f1d1d", background: "#fee2e2", border: "1px solid #fca5a5", padding: F(5) + "px " + F(9) + "px", borderRadius: 8, fontWeight: 600 }}>{WARN + "  " + note}</div>}
+                    {note && <div style={{ marginTop: F(8) }}>{noteBox(note, F)}</div>}
                   </div>
                   <div style={{ display: "flex", gap: 2, padding: 2 }}>
                     <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#334155", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
