@@ -176,11 +176,17 @@ Deno.serve(async (req) => {
       const rows: any[] = Array.isArray(data) ? data : [];
       const times: number[] = [];
       for (const o of rows) {
-        const bs = (o.bumps || []).map((b: any) => new Date(b.bumped_at).getTime()).sort((a: number, b: number) => a - b);
-        let doneAt: number | null = null;
-        if (bs.length) { const first = bs[0]; doneAt = first; for (const t of bs) if (t - first <= 30 * 60000) doneAt = t; }
-        else if (o.completed_at) doneAt = new Date(o.completed_at).getTime();
-        if (doneAt != null) times.push((doneAt - new Date(o.created_at).getTime()) / 1000);
+        // Segment: original ticket + one per addition (items_added_log), each timed from its own start.
+        const starts: number[] = [new Date(o.created_at).getTime(), ...((o.items_added_log || []).map((x: string) => new Date(x).getTime()).filter((t: number) => isFinite(t)).sort((a: number, b: number) => a - b))];
+        const all = (o.bumps || []).map((b: any) => new Date(b.bumped_at).getTime()).filter((t: number) => isFinite(t)).sort((a: number, b: number) => a - b);
+        starts.forEach((st, i) => {
+          const end = i + 1 < starts.length ? starts[i + 1] : Infinity;
+          const bs = all.filter((t) => t >= st && t < end);
+          let doneAt: number | null = null;
+          if (bs.length) { const first = bs[0]; doneAt = first; for (const t of bs) if (t - first <= 30 * 60000) doneAt = t; }
+          else if (starts.length === 1 && o.completed_at) doneAt = new Date(o.completed_at).getTime();
+          if (doneAt != null) times.push((doneAt - st) / 1000);
+        });
       }
       if (!times.length) return null;
       const sorted = [...times].sort((a, b) => a - b);

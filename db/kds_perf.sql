@@ -1,3 +1,18 @@
+-- Appended items: when items are added to an order the KDS reopens it and the
+-- live bump rows are cleared. The old rows are kept here so timings stay honest
+-- (original ticket + each addition measured separately).
+create table if not exists kds_bump_log (
+  id bigserial primary key,
+  order_id uuid not null,
+  screen_key text,
+  location_id uuid,
+  bumped_at timestamptz not null,
+  bumped_by text,
+  archived_at timestamptz not null default now()
+);
+create index if not exists kds_bump_log_order on kds_bump_log(order_id);
+alter table menu_orders add column if not exists items_added_log jsonb not null default '[]'::jsonb;
+
 -- Kitchen performance feed for the KDS Performance tab.
 -- Completion = the LAST bump among the screens that actually bumped the order
 -- (kds_bumped_at only exists once every registered screen has bumped, which
@@ -17,6 +32,7 @@ language sql stable security definer set search_path = public as $$
     'created_at', o.created_at,
     'kds_started_at', o.kds_started_at,
     'table_label', t.label,
+    'items_added_log', coalesce(o.items_added_log, '[]'::jsonb),
     'customer_note', o.customer_note,
     'completed_at', coalesce(b.last_bump, o.kds_bumped_at),
     'item_count', coalesce(i.n, 0),
@@ -28,11 +44,16 @@ language sql stable security definer set search_path = public as $$
   left join lateral (
     select max(bumped_at) as last_bump,
            jsonb_agg(jsonb_build_object('screen_key', screen_key, 'bumped_at', bumped_at)) as per_screen
-    from kds_bumps kb where kb.order_id = o.id
+    from (
+      select screen_key, bumped_at from kds_bumps kb where kb.order_id = o.id
+      union all
+      select screen_key, bumped_at from kds_bump_log kl where kl.order_id = o.id
+    ) kb
   ) b on true
   left join lateral (
     select count(*) as n,
            jsonb_agg(jsonb_build_object('name', mi.name_snapshot, 'qty', mi.qty,
+                                        'batch', coalesce(mi.added_batch, 0),
                                         'category', mc.name, 'menu', mm.name,
                                         'mods', mi.modifiers_snapshot, 'note', mi.note,
                                         'status', mi.item_status::text)) as names

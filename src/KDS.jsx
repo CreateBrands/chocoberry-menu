@@ -987,10 +987,28 @@ function PerformanceView({ loc, F, lateMin }) {
     for (const t of bs) if (t - first <= HOUSEKEEPING_GAP) last = t;
     return last;
   };
-  const live = rows.map((o) => ({ ...o, _done: completionOf(o) }));
+  // An order with items added later is several tickets: the original, then one
+  // per addition — each timed from its own start (placed / items added) to the
+  // bumps that followed it, with only the items that belong to that batch.
+  const segmentsOf = (o) => {
+    const starts = [new Date(o.created_at).getTime(), ...((o.items_added_log || []).map((x) => new Date(x).getTime()).filter((t) => isFinite(t)).sort((a, b) => a - b))];
+    if (starts.length === 1) return [{ ...o, _seg: 0, _segStart: starts[0], _done: completionOf(o) }];
+    const allBumps = (o.bumps || []).map((b) => ({ ...b, _t: new Date(b.bumped_at).getTime() })).filter((b) => isFinite(b._t));
+    const items = o.items || [];
+    return starts.map((st, i) => {
+      const end = i + 1 < starts.length ? starts[i + 1] : Infinity;
+      const bumps = allBumps.filter((b) => b._t >= st && b._t < end).map(({ _t, ...b }) => b);
+      const segItems = items.filter((it) => (Number(it.batch) || 0) === i);
+      const seg = { ...o, _seg: i, _segStart: st, created_at: new Date(st).toISOString(), bumps, items: segItems, item_count: segItems.length || (i === 0 ? o.item_count : 0), kds_started_at: i === 0 ? o.kds_started_at : null, order_no_label: "#" + o.order_no + (i ? " +" + i : ""), order_id: o.order_id + ":" + i };
+      seg._done = bumps.length ? completionOf({ ...seg, completed_at: null }) : (i + 1 === starts.length && !bumps.length ? null : null);
+      return seg;
+    });
+  };
+  const live = rows.flatMap(segmentsOf);
   const done = live.filter((o) => o._done != null);
   const open = period === "today" ? live.filter((o) => o._done == null) : [];
   const tt = (o) => (o._done - new Date(o.created_at)) / 1000;
+  const additions = live.filter((o) => o._seg > 0);
   const ts = (o) => o.kds_started_at ? (new Date(o.kds_started_at) - new Date(o.created_at)) / 1000 : null;
   const times = done.map(tt);
   const starts = done.map(ts).filter((x) => x != null);
@@ -1000,7 +1018,7 @@ function PerformanceView({ loc, F, lateMin }) {
   const overNow = waiting.filter((x) => x > T).length;
   const items = live.reduce((t, o) => t + (o.item_count || 0), 0);
   const med = pct(times, 0.5);
-  const pTimes = (prev || []).map((o) => ({ ...o, _done: completionOf(o) })).filter((o) => o._done != null).map(tt);
+  const pTimes = (prev || []).flatMap(segmentsOf).filter((o) => o._done != null).map(tt);
   const pAvg = avg(pTimes), pOn = pTimes.length ? Math.round(pTimes.filter((x) => x <= T).length / pTimes.length * 100) : null;
   const dAvg = pAvg != null && times.length ? avg(times) - pAvg : null;
   const grade = onTimePct == null ? null : onTimePct >= 90 ? "A" : onTimePct >= 80 ? "B" : onTimePct >= 65 ? "C" : "D";
@@ -1010,7 +1028,7 @@ function PerformanceView({ loc, F, lateMin }) {
   // trend: last 14 trading days
   const trendDays = (() => {
     const m = {};
-    for (const o0 of trend || []) { const o = { ...o0, _done: completionOf(o0) }; if (o._done == null) continue; const k = tradingDayStart(new Date(o.created_at)).toDateString(); (m[k] ||= { t: [], d: tradingDayStart(new Date(o.created_at)) }).t.push(tt(o)); }
+    for (const o of (trend || []).flatMap(segmentsOf)) { if (o._done == null) continue; const k = tradingDayStart(new Date(o.created_at)).toDateString(); (m[k] ||= { t: [], d: tradingDayStart(new Date(o.created_at)) }).t.push(tt(o)); }
     const out = []; const t0 = tradingDayStart();
     for (let i = 13; i >= 0; i--) { const d = new Date(t0.getTime() - i * 86400000); const e = m[d.toDateString()]; out.push({ d, n: e ? e.t.length : 0, avg: e ? avg(e.t) : null, on: e ? Math.round(e.t.filter((x) => x <= T).length / e.t.length * 100) : null }); }
     return out;
@@ -1163,6 +1181,8 @@ function PerformanceView({ loc, F, lateMin }) {
     }
     // 6b. category
     if (byCategory.length >= 2) { const worstCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => b.avg - a.avg)[0]; const bestCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => a.avg - b.avg)[0]; if (worstCat && bestCat && worstCat.k !== bestCat.k && worstCat.avg > bestCat.avg * 1.4) push("info", worstCat.k + " is the slow section", "Tickets with " + worstCat.k + " average " + mmss(worstCat.avg) + " (" + worstCat.on + "% on-time) against " + mmss(bestCat.avg) + " for " + bestCat.k + ". That section's prep and station layout are where the minutes are."); }
+    // 6c. additions
+    if (additions.length >= 3) { const ad = additions.filter((o) => o._done != null); const aa = avg(ad.map(tt)); if (aa != null && ad.length >= 3) push(aa > a ? "warn" : "info", additions.length + " tickets were items added to an existing order", "Additions average " + mmss(aa) + " from the moment they were added" + (aa > a ? ", slower than fresh tickets (" + mmss(a) + ") — they're arriving in the middle of a busy screen; the ADDED tag should be the first thing the kitchen clears." : ", quicker than fresh tickets (" + mmss(a) + ").")); }
     // 7. takeaway vs dine-in
     const di = byType.find((r) => r.k === "Dine in"), ta = byType.find((r) => r.k === "Takeaway");
     if (di && ta && di.n >= 4 && ta.n >= 4 && ta.avg > di.avg * 1.2) push("info", "Takeaways are waiting longer than dine-in", "Takeaway " + mmss(ta.avg) + " vs dine-in " + mmss(di.avg) + ". Customers at the counter notice this most — consider calling takeaway tickets first when they're ready to go.");
@@ -1213,7 +1233,7 @@ function PerformanceView({ loc, F, lateMin }) {
     const exportCsv = () => {
       const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"';
       const head = ["order_no", "type", "source", "table", "items", "placed", "started", "completed", "ticket_secs", "on_time", "item_list", "note"];
-      const lines = [head.join(",")].concat(list.map((o) => [o.order_no, typeLabel2[o.order_type] || o.order_type, srcOf(o), o.table_label || "", o.item_count, new Date(o.created_at).toISOString(), o.kds_started_at ? new Date(o.kds_started_at).toISOString() : "", o._done ? new Date(o._done).toISOString() : "", o._done ? Math.round(tt(o)) : "", o._done ? (tt(o) <= T ? "yes" : "no") : "", (o.items || []).map((it) => (it.qty > 1 ? it.qty + "x " : "") + itemName(it)).join("; "), o.customer_note || ""].map(esc).join(",")));
+      const lines = [head.join(",")].concat(list.map((o) => [o.order_no_label || o.order_no, typeLabel2[o.order_type] || o.order_type, srcOf(o), o.table_label || "", o.item_count, new Date(o.created_at).toISOString(), o.kds_started_at ? new Date(o.kds_started_at).toISOString() : "", o._done ? new Date(o._done).toISOString() : "", o._done ? Math.round(tt(o)) : "", o._done ? (tt(o) <= T ? "yes" : "no") : "", (o.items || []).map((it) => (it.qty > 1 ? it.qty + "x " : "") + itemName(it)).join("; "), o.customer_note || ""].map(esc).join(",")));
       const blob = new Blob([lines.join("\n")], { type: "text/csv" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "kitchen-" + cur.title.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".csv"; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     };
     const Chip = ({ on, children, onClick }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: "5px 11px", borderRadius: 8, fontSize: F(12), fontWeight: 800, background: on ? C.ink : C.soft, color: on ? "#fff" : C.muted }}>{children}</span>;
@@ -1323,7 +1343,7 @@ function PerformanceView({ loc, F, lateMin }) {
               const bumpsSorted = (o.bumps || []).slice().sort((a, b) => new Date(a.bumped_at) - new Date(b.bumped_at));
               const late = secs != null && secs > T;
               const steps = [
-                { t: placed, l: "Placed", d: null },
+                { t: placed, l: o._seg > 0 ? "Items added to #" + o.order_no : "Placed", d: null },
                 ...(o.kds_started_at ? [{ t: new Date(o.kds_started_at).getTime(), l: "Started", d: (new Date(o.kds_started_at).getTime() - placed) / 1000 }] : []),
                 ...bumpsSorted.map((b) => { const t = new Date(b.bumped_at).getTime(); const hk = t - new Date(bumpsSorted[0].bumped_at).getTime() > HOUSEKEEPING_GAP; return { t, l: "Bumped · " + scName(b.screen_key), hk, d: (t - placed) / 1000 }; }),
               ];
@@ -1333,7 +1353,7 @@ function PerformanceView({ loc, F, lateMin }) {
                     <span style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: secs == null ? C.warn : late ? C.bad : C.good, flexShrink: 0 }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                        <span style={{ fontWeight: 900, fontFamily: PF, fontSize: F(14) }}>#{o.order_no}</span>
+                        <span style={{ fontWeight: 900, fontFamily: PF, fontSize: F(14) }}>{o.order_no_label || "#" + o.order_no}</span>{o._seg > 0 && <span style={{ fontSize: F(10.5), fontWeight: 800, padding: "1px 6px", borderRadius: 5, background: "#ede9fe", color: "#6d28d9" }}>ADDED ITEMS</span>}
                         <span style={{ fontSize: F(11), fontWeight: 800, padding: "1px 7px", borderRadius: 6, background: C.soft, color: C.muted }}>{(typeLabel2[o.order_type] || o.order_type || "").toUpperCase()}{o.table_label ? " " + o.table_label : ""}</span>
                         <span style={{ fontSize: F(11.5), color: C.muted }}>{srcOf(o)} · {o.item_count} item{o.item_count === 1 ? "" : "s"}</span>
                       </div>
@@ -1477,7 +1497,7 @@ function PerformanceView({ loc, F, lateMin }) {
           <Tile onClick={() => openDrill("All completed tickets", done)} big label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (pAvg != null ? "prev " + mmss(pAvg) : "—") : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs prev " + mmss(pAvg)} />
           <Tile onClick={() => openDrill("All completed tickets", done)} label="TYPICAL (MEDIAN)" value={mmss(med)} sub="half of tickets faster than this" tone={med != null && med > T ? "bad" : "good"} />
           <Tile onClick={() => openDrill("Slowest 10% of tickets", done.filter((o) => tt(o) >= (pct(times, 0.9) || 0)))} label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub={starts.length ? "time to start avg " + mmss(avg(starts)) : "9 in 10 faster than this"} tone={pct(times, 0.9) != null && pct(times, 0.9) > T ? "bad" : undefined} />
-          <Tile onClick={() => openDrill("All tickets", live)} label="TICKETS" value={String(done.length)} sub={items + " items · " + (done.length ? (items / Math.max(1, live.length)).toFixed(1) + " per ticket" : "")} />
+          <Tile onClick={() => openDrill("All tickets", live)} label="TICKETS" value={String(done.length)} sub={items + " items · " + (done.length ? (items / Math.max(1, live.length)).toFixed(1) + " per ticket" : "") + (additions.length ? " · " + additions.length + " added-item tickets" : "")} />
           {period === "today"
             ? <Tile onClick={() => openDrill("Waiting now", open)} label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target · oldest " + mmss(Math.max(0, ...waiting)) : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
             : <Tile onClick={() => openDrill("Late tickets", done.filter((o) => tt(o) > T))} label="LATE TICKETS" value={String(times.length - onTime)} tone={times.length - onTime ? "bad" : "good"} sub={times.length ? Math.round((times.length - onTime) / times.length * 100) + "% of tickets" : ""} />}
@@ -1555,7 +1575,7 @@ function PerformanceView({ loc, F, lateMin }) {
         <Card title="SLOWEST TICKETS">
           {slowest.map((o) => (
             <div key={o.order_id} onClick={() => { openDrill("Ticket #" + o.order_no, [o]); setTimeout(() => setDrillOpen({ [o.order_id]: true }), 0); }} className="kbtn" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5), cursor: "pointer" }}>
-              <span><b>#{o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {o.item_count} items · {new Date(o.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span></span>
+              <span><b>{o.order_no_label || "#" + o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {o.item_count} items · {new Date(o.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span></span>
               <span style={{ fontWeight: 900, fontVariantNumeric: "tabular-nums", fontFamily: PF, color: tt(o) > T ? C.bad : C.ink }}>{mmss(tt(o))}</span>
             </div>
           ))}

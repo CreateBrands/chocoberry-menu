@@ -249,12 +249,21 @@ Deno.serve(async (req) => {
       // already be served/ready — so an append would print but never reappear.
       // Clear the bumps and put the order back to "placed"; lines already done
       // keep item_status, so the kitchen sees only the new work.
+      const addedAt = new Date().toISOString();
+      // Keep the bump history (performance timings) before clearing the live rows.
+      try {
+        const { data: oldBumps } = await admin.from("kds_bumps").select("order_id, screen_key, location_id, bumped_at, bumped_by").eq("order_id", orderId);
+        if (oldBumps && oldBumps.length) await admin.from("kds_bump_log").insert(oldBumps);
+      } catch (e) { console.warn("kds_bump_log archive failed (non-fatal)", e); }
+      const { data: cur } = await admin.from("menu_orders").select("items_added_log").eq("id", orderId).single();
+      const log = Array.isArray(cur?.items_added_log) ? cur.items_added_log : [];
       await admin.from("menu_orders").update({
         subtotal: Number(existing.subtotal || 0) + subtotal,
         total: Number(existing.total || 0) + subtotal,
         status: "placed",
         kds_bumped_at: null,
-        items_added_at: new Date().toISOString(),
+        items_added_at: addedAt,
+        items_added_log: [...log, addedAt],
       }).eq("id", orderId);
       await admin.from("kds_bumps").delete().eq("order_id", orderId);
 
