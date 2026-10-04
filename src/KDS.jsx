@@ -1096,9 +1096,20 @@ function ScreenSetup({ loc, screenKey, current, siblings, onClose, onSaved }) {
   useEffect(() => { fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "menu_catalog" }) }).then((r) => r.json()).then((j) => setCat(j.ok ? j : { menus: [], categories: [], items: [] })).catch(() => setCat({ menus: [], categories: [], items: [] })); }, []);
   const toggle = (kind, id) => setRouting((r) => { const set = new Set(r[kind]); set.has(id) ? set.delete(id) : set.add(id); return { ...r, [kind]: [...set] }; });
   const has = (kind, id) => routing[kind].includes(id);
-  const STATIONS = ["kitchen", "hot kitchen", "cold kitchen", "grill", "desserts", "drinks", "bar", "coffee", "pass"];
+  const STATIONS = [["kitchen", "Kitchen"], ["grill", "Grill"], ["cold kitchen", "Cold"], ["desserts", "Desserts"], ["drinks", "Drinks"], ["coffee", "Coffee"], ["bar", "Bar"], ["pass", "Pass / front"]];
   const PASS = ["pass", "front", "expo", "counter"];
-  const claimedElsewhere = (kind, id) => siblings.filter((s) => s.screen_key !== screenKey && s.routing && (s.routing[kind] || []).includes(id)).map((s) => s.label || "Screen " + s.screen_key);
+  const isPass = PASS.includes(station.trim().toLowerCase());
+  const others = siblings.filter((x) => x.screen_key !== screenKey);
+  const claimedElsewhere = (kind, id) => others.filter((x) => x.routing && (x.routing[kind] || []).includes(id)).map((x) => x.label || "Screen " + x.screen_key);
+  const menus = cat ? cat.menus : [];
+  const cats = cat ? cat.categories : [];
+  const items = cat ? cat.items : [];
+  const nameOf = (kind, id) => (kind === "menus" ? menus : kind === "categories" ? cats : items).find((x) => x.id === id)?.name || "…";
+  const isFood = (m) => /breakfast|dinner|lunch|kids|food|grill|main/i.test(m.name);
+  const isDrink = (m) => /beverage|drink|coffee|tea/i.test(m.name);
+  const isDessert = (m) => /dessert|sweet|cake|ice/i.test(m.name);
+  const preset = (fn) => setRouting({ menus: menus.filter(fn).map((m) => m.id), categories: [], items: [] });
+  const PRESETS = [["Food", "kitchen", isFood], ["Drinks", "drinks", isDrink], ["Desserts", "desserts", isDessert], ["Everything", "", () => false]];
   async function save() {
     setBusy(true); setErr("");
     try {
@@ -1110,75 +1121,91 @@ function ScreenSetup({ loc, screenKey, current, siblings, onClose, onSaved }) {
     } catch (e) { setErr(e.message || "Save failed"); } finally { setBusy(false); }
   }
   const total = routing.menus.length + routing.categories.length + routing.items.length;
-  const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", brand: "#ec4899" };
-  const inp = { padding: "11px 12px", fontSize: 15, fontWeight: 600, border: "1.5px solid " + C.line, borderRadius: 11, outline: "none", width: "100%", boxSizing: "border-box" };
-  const Chip = ({ on, children, onClick, dim }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 13, fontWeight: 700, background: on ? C.ink : C.soft, color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1px solid " + (on ? C.ink : C.line) }}>{children}</span>;
-  const menus = cat ? cat.menus : [];
-  const cats = cat ? cat.categories : [];
-  const items = cat ? cat.items : [];
-  const itemMatches = q.trim() ? items.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 40) : [];
+  const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", brand: "#ec4899", good: "#16a34a" };
+  const inp = { padding: "11px 12px", fontSize: 15, fontWeight: 600, border: "1.5px solid " + C.line, borderRadius: 11, outline: "none", width: "100%", boxSizing: "border-box", background: "#fff" };
+  const Step = ({ n, title, right }) => <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ width: 24, height: 24, borderRadius: "50%", background: C.ink, color: "#fff", fontSize: 12.5, fontWeight: 900, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{n}</span><span style={{ fontSize: 14.5, fontWeight: 900 }}>{title}</span></div>{right && <span style={{ fontSize: 12, color: C.muted }}>{right}</span>}</div>;
+  const Chip = ({ on, children, onClick, dim, small }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: small ? "5px 10px" : "8px 13px", borderRadius: 9, fontSize: small ? 12.5 : 13.5, fontWeight: 700, background: on ? C.ink : "#fff", color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1.5px solid " + (on ? C.ink : C.line), userSelect: "none" }}>{children}</span>;
+  const Switch = ({ on, onClick }) => <span onClick={onClick} style={{ cursor: "pointer", width: 44, height: 26, borderRadius: 13, background: on ? C.good : "#cbd5e1", position: "relative", display: "inline-block", flexShrink: 0, transition: "background .15s" }}><span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} /></span>;
+  const itemMatches = q.trim() ? items.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 30) : [];
+  const summary = total === 0 ? "Everything" : [...routing.menus.map((id) => nameOf("menus", id) + " (all)"), ...routing.categories.map((id) => nameOf("categories", id)), ...routing.items.map((id) => nameOf("items", id))].join(" · ");
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(15,23,42,.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 22, width: 760, maxWidth: "100%", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px rgba(15,23,42,.35)", color: C.ink }}>
-        <div style={{ padding: "20px 24px 12px", borderBottom: "1px solid " + C.line }}>
-          <div style={{ fontSize: 22, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>This screen</div>
-          <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>Screen {screenKey} · {siblings.length} screen{siblings.length === 1 ? "" : "s"} at this store</div>
-        </div>
-        <div style={{ overflowY: "auto", padding: "16px 24px 20px", display: "grid", gap: 18 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-            <label style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>NAME<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Hot Kitchen" style={{ ...inp, marginTop: 6 }} /></label>
-            <label style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>STATION<input value={station} onChange={(e) => setStation(e.target.value)} placeholder="e.g. kitchen, drinks, pass" list="kds-stations" style={{ ...inp, marginTop: 6 }} /><datalist id="kds-stations">{STATIONS.map((x) => <option key={x} value={x} />)}</datalist></label>
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(15,23,42,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#f8fafc", borderRadius: 24, width: 840, maxWidth: "100%", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px rgba(15,23,42,.4)", color: C.ink }}>
+        {/* header */}
+        <div style={{ padding: "18px 24px 14px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 21, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>Set up this screen</div>
+            <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>Screen {screenKey} · {siblings.length} screen{siblings.length === 1 ? "" : "s"} at this store{others.length ? " · " + others.map((x) => (x.label || "Screen " + x.screen_key) + (x.station ? " (" + x.station + ")" : "")).join(", ") : ""}</div>
           </div>
-          <div style={{ fontSize: 12.5, color: C.muted, marginTop: -8, lineHeight: 1.5 }}>
-            Ticket timing counts screens with a production station (kitchen, drinks, desserts…). Name it <b>pass</b>, <b>front</b> or <b>expo</b> if this screen only serves and clears — its bumps then won't count as cooking time.{PASS.includes(station.trim().toLowerCase()) && <span style={{ color: "#b45309", fontWeight: 700 }}> This screen won't count for timing.</span>}
+          <div onClick={onClose} className="kbtn" style={{ cursor: "pointer", width: 36, height: 36, borderRadius: 10, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>✕</div>
+        </div>
+
+        <div style={{ overflowY: "auto", padding: "18px 24px", display: "grid", gap: 16 }}>
+          {/* 1 identity */}
+          <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px" }}>
+            <Step n="1" title="Name and station" right="the station decides whether this screen's bumps count as cooking time" />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 14 }}>
+              <label style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>NAME<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Hot Kitchen" style={{ ...inp, marginTop: 6 }} /></label>
+              <div>
+                <div style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>STATION</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                  {STATIONS.map(([v, l]) => <Chip key={v} small on={station.trim().toLowerCase() === v} onClick={() => setStation(v)}>{l}</Chip>)}
+                  <input value={STATIONS.some(([v]) => v === station.trim().toLowerCase()) ? "" : station} onChange={(e) => setStation(e.target.value)} placeholder="other…" style={{ ...inp, width: 110, padding: "5px 10px", fontSize: 12.5 }} />
+                </div>
+                <div style={{ fontSize: 12, marginTop: 6, color: isPass ? "#b45309" : C.muted }}>{isPass ? "Pass screen — serves and clears only; its bumps won't count as cooking time." : station.trim() ? "Production station — its bumps define when food is done." : "No station — this screen won't count for ticket timing."}</div>
+              </div>
+            </div>
           </div>
 
-          <div>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-              <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>WHAT THIS SCREEN SHOWS</div>
-              <div style={{ fontSize: 12, color: C.muted }}>{total ? total + " selected" : "Nothing selected = everything"}</div>
+          {/* 2 routing */}
+          <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px" }}>
+            <Step n="2" title="What this screen shows" right={total ? total + " selected" : "nothing selected = everything"} />
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+              <span style={{ fontSize: 12, color: C.muted, marginRight: 4 }}>Quick set:</span>
+              {PRESETS.map(([l, st, fn]) => <Chip key={l} small onClick={() => { preset(fn); if (st) setStation(st); }}>{l}</Chip>)}
             </div>
-            <div style={{ fontSize: 12.5, color: C.muted, margin: "4px 0 10px", lineHeight: 1.5 }}>Pick menus, categories or single items. Anything not picked by <i>any</i> screen still shows on every screen, so nothing can fall through.</div>
             {!cat && <div style={{ color: C.muted, fontSize: 13 }}>Loading menu…</div>}
             {cat && menus.map((m) => {
               const mcats = cats.filter((c) => c.menu_id === m.id);
               const menuOn = has("menus", m.id);
+              const picked = mcats.filter((c) => has("categories", c.id)).length;
+              const el = claimedElsewhere("menus", m.id);
               return (
-                <div key={m.id} style={{ border: "1px solid " + C.line, borderRadius: 14, padding: "10px 12px", marginBottom: 8, background: menuOn ? "#f8fafc" : "#fff" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                    <Chip on={menuOn} onClick={() => toggle("menus", m.id)}>{menuOn ? "✓ " : ""}{m.name} <span style={{ opacity: .6, fontWeight: 600 }}>· whole menu</span></Chip>
-                    {claimedElsewhere("menus", m.id).length > 0 && <span style={{ fontSize: 11.5, color: C.muted }}>also on {claimedElsewhere("menus", m.id).join(", ")}</span>}
+                <div key={m.id} style={{ border: "1px solid " + (menuOn || picked ? C.ink : C.line), borderRadius: 14, marginBottom: 8, overflow: "hidden", background: menuOn ? "#f8fafc" : "#fff" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px" }}>
+                    <Switch on={menuOn} onClick={() => { setRouting((r) => ({ ...r, menus: menuOn ? r.menus.filter((x) => x !== m.id) : [...r.menus, m.id], categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) })); }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 900, fontSize: 14.5 }}>{m.name}</div>
+                      <div style={{ fontSize: 12, color: C.muted }}>{menuOn ? "Whole menu on this screen" : picked ? picked + " of " + mcats.length + " categories" : "Off — unless a category below is picked"}{el.length ? " · also on " + el.join(", ") : ""}</div>
+                    </div>
                   </div>
                   {!menuOn && mcats.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                      {mcats.map((c) => { const el = claimedElsewhere("categories", c.id); return <Chip key={c.id} on={has("categories", c.id)} dim={el.length > 0} onClick={() => toggle("categories", c.id)} >{has("categories", c.id) ? "✓ " : ""}{c.name}{el.length ? <span style={{ fontSize: 10.5, marginLeft: 5, opacity: .7 }}>({el.join(", ")})</span> : null}</Chip>; })}
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 14px 12px" }}>
+                      {mcats.map((c) => { const ce = claimedElsewhere("categories", c.id); return <Chip key={c.id} small on={has("categories", c.id)} dim={ce.length > 0} onClick={() => toggle("categories", c.id)}>{has("categories", c.id) ? "✓ " : ""}{c.name}{ce.length ? <span style={{ fontSize: 10.5, marginLeft: 5, opacity: .7 }}>→ {ce.join(", ")}</span> : null}</Chip>; })}
                     </div>
                   )}
                 </div>
               );
             })}
-            {cat && (
-              <div style={{ marginTop: 6 }}>
-                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Add a single item — type to search…" style={inp} />
-                {itemMatches.length > 0 && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                    {itemMatches.map((i) => <Chip key={i.id} on={has("items", i.id)} onClick={() => toggle("items", i.id)}>{has("items", i.id) ? "✓ " : "+ "}{i.name}</Chip>)}
-                  </div>
-                )}
-                {routing.items.length > 0 && (
-                  <div style={{ marginTop: 10 }}>
-                    <div style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".05em", marginBottom: 6 }}>ITEMS ON THIS SCREEN</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{routing.items.map((id) => { const i = items.find((x) => x.id === id); return <Chip key={id} on onClick={() => toggle("items", id)}>{i ? i.name : id} ✕</Chip>; })}</div>
-                  </div>
-                )}
-              </div>
-            )}
+          </div>
+
+          {/* 3 single items */}
+          <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px" }}>
+            <Step n="3" title="Single items (optional)" right="for exceptions — e.g. one dessert the kitchen makes" />
+            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type an item name…" style={inp} />
+            {itemMatches.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>{itemMatches.map((i) => <Chip key={i.id} small on={has("items", i.id)} onClick={() => { toggle("items", i.id); setQ(""); }}>{has("items", i.id) ? "✓ " : "+ "}{i.name}</Chip>)}</div>}
+            {routing.items.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>{routing.items.map((id) => <Chip key={id} small on onClick={() => toggle("items", id)}>{nameOf("items", id)} ✕</Chip>)}</div>}
           </div>
           {err && <div style={{ color: "#b91c1c", fontWeight: 700 }}>{err}</div>}
         </div>
-        <div style={{ padding: "12px 24px 18px", borderTop: "1px solid " + C.line, display: "flex", gap: 10 }}>
-          <div onClick={onClose} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: C.soft, fontWeight: 800, cursor: "pointer" }}>Cancel</div>
-          <div onClick={() => !busy && save()} className="kbtn" style={{ flex: 2, textAlign: "center", padding: "14px 0", borderRadius: 12, background: busy ? "#94a3b8" : C.ink, color: "#fff", fontWeight: 900, cursor: "pointer" }}>{busy ? "Saving…" : "Save this screen"}</div>
+
+        {/* footer */}
+        <div style={{ padding: "12px 24px 16px", background: "#fff", borderTop: "1px solid " + C.line }}>
+          <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b style={{ color: C.ink }}>{label.trim() || "Screen " + screenKey}</b>{station.trim() ? " · " + station.trim() : ""} · shows: {summary}</div>
+          <div style={{ display: "flex", gap: 10 }}>
+            <div onClick={onClose} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: C.soft, fontWeight: 800, cursor: "pointer" }}>Cancel</div>
+            <div onClick={() => !busy && save()} className="kbtn" style={{ flex: 2, textAlign: "center", padding: "14px 0", borderRadius: 12, background: busy ? "#94a3b8" : C.ink, color: "#fff", fontWeight: 900, cursor: "pointer" }}>{busy ? "Saving…" : "Save this screen"}</div>
+          </div>
         </div>
       </div>
     </div>
