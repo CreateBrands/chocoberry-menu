@@ -1075,8 +1075,18 @@ function PerformanceView({ loc, F, lateMin }) {
   const byCategory = grpMulti((o) => (o.items || []).map(itemCat));
   const byMenu = grpMulti((o) => (o.items || []).map(itemMenu));
   // Shifts = dayparts on the 04:00 trading day.
-  const SHIFTS = [["Morning", 4, 12, "04:00–12:00"], ["Afternoon", 12, 17, "12:00–17:00"], ["Evening", 17, 21, "17:00–21:00"], ["Late", 21, 28, "21:00–04:00"]];
-  const shiftOf = (o) => { let h = new Date(o.created_at).getHours(); if (h < 4) h += 24; return (SHIFTS.find(([, a, b]) => h >= a && h < b) || SHIFTS[3])[0]; };
+  // Store shift pattern (hours on the 04:00 trading day; 25 = 01:00 next day).
+  const SHIFTS = [
+    ["Early", 4, 8, "04:00–08:00"],
+    ["8–11", 8, 11, "08:00–11:00"],
+    ["11–2", 11, 14, "11:00–14:00"],
+    ["2–5", 14, 17, "14:00–17:00"],
+    ["5–7", 17, 19, "17:00–19:00"],
+    ["7–9", 19, 21, "19:00–21:00"],
+    ["9–1", 21, 25, "21:00–01:00"],
+    ["After 1am", 25, 28, "01:00–04:00"],
+  ];
+  const shiftOf = (o) => { let h = new Date(o.created_at).getHours(); if (h < 4) h += 24; return (SHIFTS.find(([, a, b]) => h >= a && h < b) || SHIFTS[SHIFTS.length - 1])[0]; };
   const byShift = SHIFTS.map(([k, , , span]) => ({ ...pack(k, done.filter((o) => shiftOf(o) === k)), span })).filter((r) => r.n > 0);
   const shiftCats = (() => {
     const cats = byCategory.slice(0, 14).map((r) => r.k);
@@ -1821,9 +1831,9 @@ function PerformanceView({ loc, F, lateMin }) {
 
       </>)}
       {/* shifts */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 1fr) 2fr", gap: F(14) }}>
-        <Card title="BY SHIFT" right={<span style={{ fontSize: F(11), color: C.muted }}>dayparts on the 04:00 trading day</span>}>
-          <div style={{ display: "grid", gap: 8 }}>
+      <div style={{ display: "grid", gridTemplateColumns: adv ? "minmax(320px, 1fr) 1.4fr" : "1fr", gap: F(14) }}>
+        <Card title="BY SHIFT" right={<span style={{ fontSize: F(11), color: C.muted }}>store shift pattern · tap a shift</span>}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 8 }}>
             {byShift.map((r) => (
               <div key={r.k} onClick={() => openDrill(r.k + " shift (" + r.span + ")", r.rows)} className="kbtn" style={{ cursor: "pointer", borderRadius: 14, padding: "10px 12px", background: r.on >= 80 ? C.goodBg : r.on >= 60 ? C.warnBg : C.badBg }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
