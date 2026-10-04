@@ -888,6 +888,8 @@ function PerformanceView({ loc, F, lateMin }) {
   const [editTarget, setEditTarget] = useState(null);
   const [err, setErr] = useState("");
   const [tick, setTick] = useState(0);
+  const [drill, setDrill] = useState(null); // { title, rows } — drill-down panel
+  const [drillOpen, setDrillOpen] = useState({});
   useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 30000); return () => clearInterval(id); }, []);
 
   const range = (() => {
@@ -902,7 +904,7 @@ function PerformanceView({ loc, F, lateMin }) {
   useEffect(() => {
     if (!loc) return;
     let alive = true;
-    const rpc = (from, to) => fetch(SUPABASE_URL + "/rest/v1/rpc/kds_ticket_times", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: from.toISOString(), p_to: to.toISOString() }), cache: "no-store" }).then((r) => r.ok ? r.json() : Promise.reject(r.status));
+    const rpc = (from, to) => fetch(SUPABASE_URL + "/rest/v1/rpc/kds_ticket_times", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: from.toISOString(), p_to: to.toISOString() }), cache: "no-store" }).then(async (r) => { if (r.ok) return r.json(); let msg = String(r.status); try { const j = await r.json(); msg += " " + (j.message || j.hint || j.details || JSON.stringify(j)).slice(0, 200); } catch {} throw new Error(msg); });
     const t0 = tradingDayStart();
     Promise.all([
       rpc(range.from, range.to),
@@ -914,7 +916,7 @@ function PerformanceView({ loc, F, lateMin }) {
       if (!alive) return;
       setRows(r || []); setPrev(p || []); setTrend(tr || []); setScreens(sc || []); setUpdatedAt(new Date());
       if (tg && tg[0] && Number(tg[0].value) > 0) setTarget(Number(tg[0].value));
-    }).catch((e) => alive && setErr("Could not load performance data (" + e + "). Has db/kds_perf.sql been run?"));
+    }).catch((e) => alive && setErr("Could not load performance data: " + (e && e.message ? e.message : e) + " — if it mentions kds_ticket_times, run db/kds_perf.sql"));
     return () => { alive = false; };
   }, [loc, tick, period]); // eslint-disable-line
 
@@ -1079,8 +1081,6 @@ function PerformanceView({ loc, F, lateMin }) {
   const toneFg = (t) => t === "good" ? C.good : t === "warn" ? C.bad : "#1d4ed8";
 
   // ---- drill-down: any number opens the tickets behind it ----
-  const [drill, setDrill] = useState(null); // { title, rows }
-  const [drillOpen, setDrillOpen] = useState({});
   const openDrill = (title, list) => { if (!list || !list.length) return; setDrill({ title, rows: list }); setDrillOpen({}); };
   const clickable = { cursor: "pointer" };
   const DrillPanel = () => {
