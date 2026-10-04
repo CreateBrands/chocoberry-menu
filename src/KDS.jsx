@@ -928,10 +928,22 @@ function PerformanceView({ loc, F, lateMin }) {
 
   const now = Date.now();
   const T = target * 60;
-  const live = rows;
-  const done = live.filter((o) => o.completed_at);
-  const open = period === "today" ? live.filter((o) => !o.completed_at) : [];
-  const tt = (o) => (new Date(o.completed_at) - new Date(o.created_at)) / 1000;
+  // Completion: the latest bump within 30 min of the FIRST bump on the order.
+  // A screen bumping an old ticket hours later is housekeeping, not cooking,
+  // and must not count — otherwise one stale-clearing screen inflates every day.
+  const HOUSEKEEPING_GAP = 30 * 60 * 1000;
+  const completionOf = (o) => {
+    const bs = (o.bumps || []).map((b) => new Date(b.bumped_at).getTime()).filter((t) => isFinite(t)).sort((a, b) => a - b);
+    if (!bs.length) return o.completed_at ? new Date(o.completed_at).getTime() : null;
+    const first = bs[0];
+    let last = first;
+    for (const t of bs) if (t - first <= HOUSEKEEPING_GAP) last = t;
+    return last;
+  };
+  const live = rows.map((o) => ({ ...o, _done: completionOf(o) }));
+  const done = live.filter((o) => o._done != null);
+  const open = period === "today" ? live.filter((o) => o._done == null) : [];
+  const tt = (o) => (o._done - new Date(o.created_at)) / 1000;
   const ts = (o) => o.kds_started_at ? (new Date(o.kds_started_at) - new Date(o.created_at)) / 1000 : null;
   const times = done.map(tt);
   const starts = done.map(ts).filter((x) => x != null);
@@ -941,7 +953,7 @@ function PerformanceView({ loc, F, lateMin }) {
   const overNow = waiting.filter((x) => x > T).length;
   const items = live.reduce((t, o) => t + (o.item_count || 0), 0);
   const med = pct(times, 0.5);
-  const pTimes = (prev || []).filter((o) => o.completed_at).map(tt);
+  const pTimes = (prev || []).map((o) => ({ ...o, _done: completionOf(o) })).filter((o) => o._done != null).map(tt);
   const pAvg = avg(pTimes), pOn = pTimes.length ? Math.round(pTimes.filter((x) => x <= T).length / pTimes.length * 100) : null;
   const dAvg = pAvg != null && times.length ? avg(times) - pAvg : null;
   const grade = onTimePct == null ? null : onTimePct >= 90 ? "A" : onTimePct >= 80 ? "B" : onTimePct >= 65 ? "C" : "D";
@@ -951,7 +963,7 @@ function PerformanceView({ loc, F, lateMin }) {
   // trend: last 14 trading days
   const trendDays = (() => {
     const m = {};
-    for (const o of trend || []) { if (!o.completed_at) continue; const k = tradingDayStart(new Date(o.created_at)).toDateString(); (m[k] ||= { t: [], d: tradingDayStart(new Date(o.created_at)) }).t.push(tt(o)); }
+    for (const o0 of trend || []) { const o = { ...o0, _done: completionOf(o0) }; if (o._done == null) continue; const k = tradingDayStart(new Date(o.created_at)).toDateString(); (m[k] ||= { t: [], d: tradingDayStart(new Date(o.created_at)) }).t.push(tt(o)); }
     const out = []; const t0 = tradingDayStart();
     for (let i = 13; i >= 0; i--) { const d = new Date(t0.getTime() - i * 86400000); const e = m[d.toDateString()]; out.push({ d, n: e ? e.t.length : 0, avg: e ? avg(e.t) : null, on: e ? Math.round(e.t.filter((x) => x <= T).length / e.t.length * 100) : null }); }
     return out;
@@ -965,7 +977,7 @@ function PerformanceView({ loc, F, lateMin }) {
 
   // by hour
   const byHour = {};
-  for (const o of live) { const h = String(new Date(o.created_at).getHours()).padStart(2, "0"); (byHour[h] ||= { n: 0, t: [], late: 0 }); byHour[h].n++; if (o.completed_at) { const x = tt(o); byHour[h].t.push(x); if (x > T) byHour[h].late++; } }
+  for (const o of live) { const h = String(new Date(o.created_at).getHours()).padStart(2, "0"); (byHour[h] ||= { n: 0, t: [], late: 0 }); byHour[h].n++; if (o._done != null) { const x = tt(o); byHour[h].t.push(x); if (x > T) byHour[h].late++; } }
   const hours = Object.entries(byHour).sort((a, b) => a[0].localeCompare(b[0]));
   const maxN = Math.max(1, ...hours.map(([, v]) => v.n));
   const maxT = Math.min(T * 4, Math.max(T * 1.5, ...hours.map(([, v]) => avg(v.t) || 0)));
@@ -978,7 +990,7 @@ function PerformanceView({ loc, F, lateMin }) {
   const bySource = grp((o) => o.external_channel ? String(o.external_channel) : o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
   const bySize = grp((o) => { const n = o.item_count || 0; return n <= 2 ? "1–2 items" : n <= 5 ? "3–5 items" : n <= 9 ? "6–9 items" : "10+ items"; }).sort((a, b) => a.k.localeCompare(b.k));
   const scName = (k) => { const sc = screens.find((x) => x.screen_key === k); return sc ? (sc.name || sc.station || "Screen " + k) + (sc.station && sc.name ? " · " + sc.station : "") : "Screen " + k; };
-  const byScreen = (() => { const m = {}; for (const o of live) for (const b of (o.bumps || [])) { (m[b.screen_key] ||= []).push((new Date(b.bumped_at) - new Date(o.created_at)) / 1000); } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).filter((r) => r.n >= 3).sort((a, b) => b.n - a.n); })();
+  const byScreen = (() => { const m = {}; for (const o of live) { const first = Math.min(...(o.bumps || []).map((b) => new Date(b.bumped_at).getTime())); for (const b of (o.bumps || [])) { const t = new Date(b.bumped_at).getTime(); if (t - first > HOUSEKEEPING_GAP) continue; (m[b.screen_key] ||= []).push((t - new Date(o.created_at)) / 1000); } } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).filter((r) => r.n >= 3).sort((a, b) => b.n - a.n); })();
   const slowest = [...done].sort((a, b) => tt(b) - tt(a)).slice(0, 7);
 
   const Tile = ({ label, value, sub, tone, big }) => (
@@ -1030,7 +1042,7 @@ function PerformanceView({ loc, F, lateMin }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div>
           <div style={{ fontSize: F(21), fontWeight: 900, fontFamily: PF, letterSpacing: "-.02em" }}>Kitchen performance</div>
-          <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → last screen bumped{period === "today" ? " · live, refreshes every 30s" : ""}</div>
+          <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped (later tidy-up bumps ignored){period === "today" ? " · live, refreshes every 30s" : ""}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Seg value={period} options={[["today", "Today"], ["yesterday", "Yesterday"], ["7d", "7 days"], ["30d", "30 days"]]} onChange={setPeriod} />
