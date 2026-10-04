@@ -204,8 +204,13 @@ Deno.serve(async (req) => {
     const r2 = (o: Record<string, { count: number; amount: number }>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { count: v.count, amount: round2(v.amount) }]));
     const peak = Object.entries(byHour).sort((a, b) => b[1].amount - a[1].amount)[0];
 
-    // ---- previous closure for comparison ----
+    // ---- previous closure + same weekday last week, for comparison ----
     const { data: prev } = await admin.from("till_closures").select("closed_at, total_taken, order_count, cash_variance").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
+    const anchor = new Date((first || new Date().toISOString()));
+    const lw0 = new Date(anchor.getTime() - 8 * 86400000).toISOString(), lw1 = new Date(anchor.getTime() - 6 * 86400000).toISOString();
+    const { data: lwRows } = await admin.from("till_closures").select("closed_at, total_taken, order_count").eq("location_id", location_id).gte("closed_at", lw0).lte("closed_at", lw1).order("closed_at", { ascending: false }).limit(3);
+    const target = anchor.getTime() - 7 * 86400000;
+    const lastWeek = (lwRows || []).sort((a: any, b: any) => Math.abs(new Date(a.closed_at).getTime() - target) - Math.abs(new Date(b.closed_at).getTime() - target))[0] || null;
 
     return {
       ids: orders.map((o: any) => o.id),
@@ -225,6 +230,7 @@ Deno.serve(async (req) => {
         later_count: laterRows.filter((o: any) => o.status !== "cancelled").length,
         before_cutoff_count: (allRows || []).filter((o: any) => o.created_at < cutoff && o.status !== "cancelled").length,
         previous: prev ? { closed_at: prev.closed_at, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance } : null,
+        last_week: lastWeek ? { closed_at: lastWeek.closed_at, total: Number(lastWeek.total_taken || 0), orders: lastWeek.order_count } : null,
       },
     };
   }

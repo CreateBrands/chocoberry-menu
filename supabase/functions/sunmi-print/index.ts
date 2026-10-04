@@ -971,7 +971,12 @@ Deno.serve(async (req) => {
         if (s.previous && s.previous.total != null) {
           const d = Number(s.total || 0) - Number(s.previous.total || 0);
           r.leftRight("Previous close", money(s.previous.total), W);
-          r.leftRight("Change", (d < 0 ? "-" : "+") + money(Math.abs(d)), W);
+          r.leftRight("  change", (d < 0 ? "-" : "+") + money(Math.abs(d)), W);
+        }
+        if (s.last_week && s.last_week.total != null) {
+          const d = Number(s.total || 0) - Number(s.last_week.total || 0);
+          r.leftRight("Same day last week", money(s.last_week.total), W);
+          r.leftRight("  change", (d < 0 ? "-" : "+") + money(Math.abs(d)), W);
         }
         if (s.closed_by) r.leftRight("Closed by", String(s.closed_by).slice(0, 24), W);
         if (s.note) r.line("Note: " + String(s.note).slice(0, 90));
