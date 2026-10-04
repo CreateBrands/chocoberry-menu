@@ -254,7 +254,18 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     let mode = "trading_day";
     // Nothing before the cutoff (or we're before 4am) → close everything up to now.
     if (!sm || !sm.before_cutoff_count) { mode = "all"; sm = await loadCloseTillSummary("all"); }
-    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, err: sm ? "" : "Could not load today's totals" });
+    const prevFloat = sm && sm.previous && sm.previous.float_amount != null ? String(Number(sm.previous.float_amount).toFixed(2)) : "";
+    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, float: c.float || prevFloat, err: sm ? "" : "Could not load today's totals" });
+  }
+  // Look the PIN up as it's typed so the sheet can greet the closer by name.
+  const staffLookupTimer = useRef(null);
+  function lookupStaffPin(pin) {
+    if (staffLookupTimer.current) clearTimeout(staffLookupTimer.current);
+    if (!pin || pin.length < 4) { setCloseTill((c) => c && { ...c, staff: null }); return; }
+    staffLookupTimer.current = setTimeout(async () => {
+      const r = await ordActionJson("staff_lookup", { pin, location_id: loc });
+      setCloseTill((c) => c && c.pin === pin ? { ...c, staff: r.ok ? { name: r.name } : { unknown: true, reason: r.reason } } : c);
+    }, 350);
   }
   async function reprintClosure() {
     const c = closeTill; if (!c || !c.result || !c.result.closure_id) return;
@@ -275,10 +286,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const c = { ...closeTill, ...overrides };
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, action: "close_day", data: {
-        location_id: loc, mode: c.mode, cash_counted: c.counted === "" ? null : Number(c.counted), float_amount: c.float === "" ? null : Number(c.float), closed_by: c.by.trim() || null, note: c.note.trim() || null,
+        location_id: loc, mode: c.mode, staff_pin: c.pin, cash_counted: c.counted === "" ? null : Number(c.counted), float_amount: c.float === "" ? null : Number(c.float), note: c.note.trim() || null,
       } }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error === "unauthorized" ? "Wrong PIN" : (j.message || j.error || "Close failed"));
+      if (!r.ok) throw new Error(j.error === "unauthorized" ? "PIN not recognised" : (j.message || j.error || "Close failed"));
       setCloseTill((x) => x && { ...x, busy: false, step: "done", result: j });
       await loadOrders();
       setSelOrderId(null); setPayNowOrder(null);
@@ -1353,20 +1364,27 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const stage = closeTill.step === "done" ? 3 : closeTill.stage;
         const canLeaveCash = true;
         const varianceNeedsNote = variance != null && Math.abs(variance) >= VARIANCE_NOTE_FROM && !closeTill.note.trim();
-        const signoffOk = closeTill.by.trim().length >= 2 && closeTill.pin.length >= 4 && !varianceNeedsNote;
+        const closer = closeTill.staff && closeTill.staff.name ? closeTill.staff.name : null;
+        const signoffOk = closeTill.pin.length >= 4 && !varianceNeedsNote;
         const Btn = ({ children, onClick, primary, disabled, grow }) => (
           <div onClick={() => !disabled && onClick && onClick()} style={{ flex: grow || 1, textAlign: "center", padding: "15px 0", borderRadius: 13, fontWeight: 800, fontSize: 15.5, cursor: disabled ? "default" : "pointer", background: primary ? (disabled ? "#b9bfb3" : C.ink) : C.soft, color: primary ? "#fff" : C.ink, transition: "background .15s", userSelect: "none" }}>{children}</div>
         );
         return (
           <div onClick={() => !closeTill.busy && setCloseTill(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.58)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, width: 760, maxWidth: "100%", height: "min(92vh, 860px)", display: "flex", flexDirection: "column", boxShadow: "0 30px 80px rgba(18,21,28,.35)", overflow: "hidden", fontFamily: "inherit" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, width: 760, maxWidth: "100%", height: "min(92vh, 820px)", display: "flex", flexDirection: "column", boxShadow: "0 30px 80px rgba(18,21,28,.35)", overflow: "hidden", fontFamily: "inherit" }}>
               {/* header */}
               <div style={{ padding: "20px 26px 0" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
                   <div>
                     <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: "-.02em", fontFamily: F }}>{closeTill.step === "done" ? "Till closed" : "Close till"}</div>
                     <div style={{ fontSize: 13.5, color: C.muted, marginTop: 2 }}>
-                      {sm && sm.first_order ? fmtD(sm.first_order) + " · " + fmtT(sm.first_order) + " – " + fmtT(sm.last_order) + (sm.mode === "trading_day" ? " · trading day to 04:00" : "") : "Closing report"}
+                      {sm && sm.first_order ? (() => {
+                        const a = new Date(sm.first_order), b = new Date(sm.last_order || sm.first_order);
+                        const sameDay = a.toDateString() === b.toDateString();
+                        const short = (d) => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+                        return sameDay ? fmtD(sm.first_order) + " · " + fmtT(sm.first_order) + " – " + fmtT(sm.last_order)
+                          : short(a) + " " + fmtT(sm.first_order) + " – " + short(b) + " " + fmtT(sm.last_order);
+                      })() + (sm.mode === "trading_day" ? " · trading day to 04:00" : "") : "Closing report"}
                     </div>
                   </div>
                   {closeTill.step === "summary" && sm && sm.later_count > 0 && stage === 0 && (
@@ -1551,19 +1569,21 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                         </div>
                         <div style={{ fontSize: 12.5, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>The Z-report prints on this store's printer and the close is saved for head office. {sm.mode === "trading_day" && sm.later_count > 0 ? sm.later_count + " orders since 4:00 stay open." : ""}</div>
                       </Section>
-                      <Section title="SIGN OFF">
-                        <input value={closeTill.by} onChange={(e) => setCloseTill((c) => ({ ...c, by: e.target.value }))} placeholder="Your name" style={input({ fontWeight: 600, fontSize: 16 })} />
+                      <Section title="NOTE">
                         <textarea value={closeTill.note} onChange={(e) => setCloseTill((c) => ({ ...c, note: e.target.value }))} placeholder={varianceNeedsNote ? "Required: explain the cash variance" : "Note (optional — petty cash taken, reason for variance…)"} rows={3} style={input({ marginTop: 10, fontWeight: 500, fontSize: 14, fontFamily: "inherit", resize: "none", borderColor: varianceNeedsNote ? C.warn : C.line })} />
                       </Section>
                     </div>
                     <div>
-                      <Section title="MANAGER PIN" style={{ marginTop: 4 }}>
+                      <Section title="YOUR STAFF PIN" style={{ marginTop: 4 }}>
+                        <div style={{ textAlign: "center", minHeight: 24, marginBottom: 6, fontSize: 14.5, fontWeight: 700, color: closer ? C.good : closeTill.staff?.unknown ? C.warn : C.muted }}>
+                          {closer ? "✓ " + closer : closeTill.staff?.unknown ? (closeTill.staff.reason === "not_this_store" ? "That PIN isn't assigned to this store" : "PIN not recognised — a manager PIN also works") : closeTill.pin.length >= 4 ? "Checking…" : "Enter the PIN you use for the staff app"}
+                        </div>
                         <div style={{ display: "flex", justifyContent: "center", gap: 10, margin: "6px 0 14px" }}>
                           {[0, 1, 2, 3, 4, 5].map((i) => <span key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < closeTill.pin.length ? (closeTill.err === "Wrong PIN" ? C.bad : C.ink) : C.line, transition: "background .12s", display: i < 4 || closeTill.pin.length > 4 ? "block" : "none" }} />)}
                         </div>
                         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
                           {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "C"].map((k) => (
-                            <div key={k} onClick={() => setCloseTill((c) => ({ ...c, err: "", pin: k === "C" ? "" : k === "⌫" ? c.pin.slice(0, -1) : (c.pin + k).slice(0, 8) }))}
+                            <div key={k} onClick={() => { const next = k === "C" ? "" : k === "⌫" ? closeTill.pin.slice(0, -1) : (closeTill.pin + k).slice(0, 8); setCloseTill((c) => ({ ...c, err: "", pin: next, staff: next.length < 4 ? null : c.staff })); lookupStaffPin(next); }}
                               style={{ textAlign: "center", padding: "15px 0", borderRadius: 13, background: k === "C" || k === "⌫" ? C.soft : "#fff", border: "1.5px solid " + C.line, fontSize: 21, fontWeight: 700, fontFamily: F, cursor: "pointer", userSelect: "none", color: k === "C" ? C.bad : C.ink }}>{k}</div>
                           ))}
                         </div>
@@ -1581,7 +1601,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                       <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 14, background: "#eef7ea", border: "1px solid #cfe3c4", borderRadius: 16, padding: "14px 18px" }}>
                         <span style={{ width: 40, height: 40, borderRadius: "50%", background: C.good, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 20, flexShrink: 0 }}>✓</span>
                         <div style={{ fontSize: 14.5, lineHeight: 1.5 }}>
-                          <b>{r.closed_orders} order{r.closed_orders === 1 ? "" : "s"} archived</b> and the close saved{closeTill.by ? " by " + closeTill.by : ""}. Z-report {r.printed ? "printed on the store printer." : r.printed === false ? <span style={{ color: C.warn }}>could not print — check the printer, then tap Print again.</span> : "not sent."}
+                          <b>{r.closed_orders} order{r.closed_orders === 1 ? "" : "s"} archived</b> and the close saved{closer ? " by " + closer : ""}. Z-report {r.printed ? "printed on the store printer." : r.printed === false ? <span style={{ color: C.warn }}>could not print — check the printer, then tap Print again.</span> : "not sent."}
                         </div>
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
@@ -1619,7 +1639,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 {closeTill.step === "summary" && stage === 2 && (<>
                   <Btn onClick={() => !closeTill.busy && setCloseTill((c) => ({ ...c, stage: 1, err: "" }))}>← Back</Btn>
                   <Btn primary grow={2} disabled={closeTill.busy || !signoffOk} onClick={() => confirmCloseTill({ counted: countedVal == null ? "" : String(countedVal) })}>
-                    {closeTill.busy ? "Closing…" : !closeTill.by.trim() ? "Enter your name" : varianceNeedsNote ? "Add a note for the variance" : closeTill.pin.length < 4 ? "Enter manager PIN" : "Close till & print Z-report"}
+                    {closeTill.busy ? "Closing…" : varianceNeedsNote ? "Add a note for the variance" : closeTill.pin.length < 4 ? "Enter your PIN" : closer ? "Close till as " + closer.split(" ")[0] : "Close till & print Z-report"}
                   </Btn>
                 </>)}
                 {closeTill.step === "done" && (<>

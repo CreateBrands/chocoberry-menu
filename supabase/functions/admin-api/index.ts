@@ -42,6 +42,35 @@ Deno.serve(async (req) => {
     Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
   );
 
+  // ── Staff PIN (ops_team) ─────────────────────────────────────────────────
+  // The employee app signs people in with a personal PIN on their ops_team
+  // record. The POS uses the same PIN so any team member can close the till
+  // and the closure is recorded against them. Scoped to their own store.
+  async function staffForPin(pinIn: unknown, location_id: string | null) {
+    const pinStr = String(pinIn || "").trim();
+    if (pinStr.length < 4 || !location_id) return null;
+    const { data: locRow } = await admin.from("menu_locations").select("store_id, name").eq("id", location_id).maybeSingle();
+    const storeId = locRow?.store_id || null;
+    const { data: rows } = await admin.from("ops_team").select("*").eq("pin", pinStr).limit(5);
+    const active = (rows || []).filter((m: any) => !m.archived_at && !["left", "archived", "inactive", "terminated"].includes(String(m.status || "").toLowerCase()));
+    if (!active.length) return null;
+    const inStore = storeId ? active.filter((m: any) => Array.isArray(m.store_ids) ? m.store_ids.includes(storeId) : String(m.store_ids || "").includes(storeId)) : [];
+    const m = inStore[0] || null;
+    if (!m) return { ok: false, reason: "not_this_store" };
+    const name = m.name || [m.first_name, m.last_name].filter(Boolean).join(" ") || m.full_name || m.email || "Team member";
+    return { ok: true, id: m.id, name: String(name).trim(), role: m.role || null };
+  }
+  if (action === "staff_lookup") {
+    const r = await staffForPin(data?.pin, data?.location_id);
+    if (!r) return json({ ok: false, reason: "unknown" });
+    return json(r.ok ? { ok: true, name: r.name } : { ok: false, reason: r.reason });
+  }
+  let staffCloser: { id: string; name: string } | null = null;
+  if (action === "close_day" && data?.staff_pin && !(pin && pin === ADMIN_PIN)) {
+    const r = await staffForPin(data.staff_pin, data.location_id);
+    if (r && r.ok) staffCloser = { id: r.id, name: r.name };
+  }
+
   // ── Resolve the PIN to a SCOPE ──────────────────────────────────────────
   //   master  → the env ADMIN_PIN; can see and change everything.
   //   store   → a row in store_pins; can ONLY touch its own location_id.
@@ -56,6 +85,7 @@ Deno.serve(async (req) => {
       .select("location_id, active").eq("pin", pin).eq("active", true).maybeSingle();
     if (sp?.location_id) { scope = "store"; scopeLocationId = sp.location_id as string; }
   }
+  if (staffCloser) { scope = "store"; scopeLocationId = data.location_id; }
   if (!isPosCall && !scope) return json({ error: "unauthorized" }, 401);
 
   // Actions a store-scoped manager is allowed to use (their own store only).
@@ -205,7 +235,7 @@ Deno.serve(async (req) => {
     const peak = Object.entries(byHour).sort((a, b) => b[1].amount - a[1].amount)[0];
 
     // ---- previous closure + same weekday last week, for comparison ----
-    const { data: prev } = await admin.from("till_closures").select("closed_at, total_taken, order_count, cash_variance").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
+    const { data: prev } = await admin.from("till_closures").select("closed_at, total_taken, order_count, cash_variance, float_amount").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
     const anchor = new Date((first || new Date().toISOString()));
     const lw0 = new Date(anchor.getTime() - 8 * 86400000).toISOString(), lw1 = new Date(anchor.getTime() - 6 * 86400000).toISOString();
     const { data: lwRows } = await admin.from("till_closures").select("closed_at, total_taken, order_count").eq("location_id", location_id).gte("closed_at", lw0).lte("closed_at", lw1).order("closed_at", { ascending: false }).limit(3);
@@ -229,7 +259,7 @@ Deno.serve(async (req) => {
         mode, cutoff,
         later_count: laterRows.filter((o: any) => o.status !== "cancelled").length,
         before_cutoff_count: (allRows || []).filter((o: any) => o.created_at < cutoff && o.status !== "cancelled").length,
-        previous: prev ? { closed_at: prev.closed_at, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance } : null,
+        previous: prev ? { closed_at: prev.closed_at, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance, float_amount: prev.float_amount } : null,
         last_week: lastWeek ? { closed_at: lastWeek.closed_at, total: Number(lastWeek.total_taken || 0), orders: lastWeek.order_count } : null,
       },
     };
@@ -1174,7 +1204,8 @@ Deno.serve(async (req) => {
 
       // ---- TILL: close the day — snapshot totals, then archive open orders ----
       case "close_day": {
-        const { location_id, cash_counted = null, float_amount = null, closed_by = null, note = null, mode } = data || {};
+        const { location_id, cash_counted = null, float_amount = null, note = null, mode } = data || {};
+        const closed_by = staffCloser ? staffCloser.name : (data?.closed_by || (scope === "master" ? "Admin" : "Manager"));
         if (!location_id) return json({ error: "location_id required" }, 400);
         const { ids, summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
         if (!ids.length) return json({ error: "nothing_to_close", message: "No orders to close for that period." }, 409);
@@ -1194,6 +1225,7 @@ Deno.serve(async (req) => {
           other_total: summary.other, cancelled_count: summary.cancelled_count,
           period_end: mode === "trading_day" ? summary.cutoff : now,
           report: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, closed_by, note },
+          closed_by_member_id: staffCloser ? staffCloser.id : null,
         }).select("id").single();
         if (cErr) throw cErr;
         if (ids.length) {
