@@ -1612,13 +1612,14 @@ function PerformanceView({ loc, F, lateMin }) {
           <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(15), color: toneColor(gradeTone) }}>{grade ? "Grade " + grade : "No tickets yet"}</div>
           <div style={{ fontSize: F(12), color: C.muted, textAlign: "center" }}>{onTime} of {times.length} within {target} min{pOn != null ? " · prev " + pOn + "%" : ""}</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: F(10) }}>
+        <div style={{ display: "grid", gridTemplateColumns: adv ? "repeat(auto-fit, minmax(150px, 1fr))" : "repeat(4, 1fr)", gap: F(10) }}>
           {!adv && <>
             <Tile onClick={() => openDrill("All completed tickets", done)} big label="TYPICAL TICKET" value={mmss(med)} tone="dark" sub={pAvg != null ? "last time " + mmss(pct(pTimes, 0.5)) : "half of tickets faster than this"} />
             <Tile onClick={() => openDrill("All tickets", live)} label="TICKETS" value={String(done.length)} sub={items + " items"} />
             {period === "today"
               ? <Tile onClick={() => openDrill("Waiting now", open)} label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target" : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
               : <Tile onClick={() => openDrill("Late tickets", done.filter((o) => tt(o) > T))} label="LATE TICKETS" value={String(times.length - onTime)} tone={times.length - onTime ? "bad" : "good"} sub={times.length ? Math.round((times.length - onTime) / times.length * 100) + "% of tickets" : ""} />}
+            <Tile onClick={() => peak && openDrill(peak[0] + ":00 – " + peak[0] + ":59", peak[1].rows)} label="BUSIEST HOUR" value={peak ? peak[0] + ":00" : "—"} sub={peak ? peak[1].n + " orders · avg " + mmss(avg(peak[1].t)) : ""} tone={peak && avg(peak[1].t) > T ? "bad" : undefined} />
           </>}
           {adv && <>
           <Tile onClick={() => openDrill("All completed tickets", done)} big label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (pAvg != null ? "prev " + mmss(pAvg) : "—") : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs prev " + mmss(pAvg)} />
@@ -1680,8 +1681,15 @@ function PerformanceView({ loc, F, lateMin }) {
                 <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(24), color: streak.cur >= 5 ? C.good : C.ink }}>{streak.cur}<span style={{ fontSize: F(12), color: C.muted, fontWeight: 600 }}> now · best {streak.best}</span></div>
               </div>
               <div style={{ background: needForGoal === 0 ? C.goodBg : C.soft, borderRadius: 12, padding: "10px 12px" }}>
-                <div style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>TO REACH {GOAL}%</div>
-                <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(24), color: needForGoal === 0 ? C.good : C.ink }}>{needForGoal == null ? "—" : needForGoal === 0 ? "On it ✓" : needForGoal <= 50 ? needForGoal : "50+"}<span style={{ fontSize: F(12), color: C.muted, fontWeight: 600 }}>{needForGoal ? " on-time in a row" : ""}</span></div>
+                <div style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>GOAL {GOAL}% ON-TIME</div>
+                {needForGoal == null ? <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(24), color: C.muted }}>—</div>
+                  : needForGoal === 0 ? <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(24), color: C.good }}>On it ✓</div>
+                  : needForGoal <= 20 ? <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(24) }}>{needForGoal}<span style={{ fontSize: F(12), color: C.muted, fontWeight: 600 }}> on-time in a row</span></div>
+                  : <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(24), color: C.ink }}>{onTimePct}%<span style={{ fontSize: F(12), color: C.muted, fontWeight: 600 }}> · next 10 on time → {Math.round((onTime + 10) / (times.length + 10) * 100)}%</span></div>}
+                <div style={{ height: 6, background: "#e2e8f0", borderRadius: 3, marginTop: 8, position: "relative" }}>
+                  <div style={{ width: Math.min(100, onTimePct || 0) + "%", height: "100%", borderRadius: 3, background: onTimePct >= GOAL ? C.good : onTimePct >= 60 ? C.warn : C.bad }} />
+                  <div style={{ position: "absolute", left: GOAL + "%", top: -3, width: 2, height: 12, background: C.ink }} />
+                </div>
               </div>
             </div>
             {fastest && <div style={{ marginTop: 10, fontSize: F(12), color: C.muted }}>Fastest: <b style={{ color: C.good }}>{mmss(tt(fastest))}</b> ({fastest.order_no_label || "#" + fastest.order_no}, {(fastest.items || []).slice(0, 2).map(itemName).join(", ") || fastest.item_count + " items"})</div>}
@@ -1742,7 +1750,7 @@ function PerformanceView({ loc, F, lateMin }) {
       </>)}
       {/* by hour + slowest */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: F(14) }}>
-        <Card title="BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>{peak ? "busiest " + peak[0] + ":00 (" + peak[1].n + ")" : ""}{worst ? " · slowest " + worst[0] + ":00 (" + mmss(avg(worst[1].t)) + ")" : ""}{staffing ? " · 👤 = staff clocked in" : ""}</span>}>
+        {adv && <Card title="BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>{peak ? "busiest " + peak[0] + ":00 (" + peak[1].n + ")" : ""}{worst ? " · slowest " + worst[0] + ":00 (" + mmss(avg(worst[1].t)) + ")" : ""}{staffing ? " · 👤 = staff clocked in" : ""}</span>}>
           <div style={{ position: "relative", height: F(staffing ? 162 : 150) }}>
             <div style={{ position: "absolute", left: 0, right: 0, bottom: F(staffing ? 30 : 18), height: F(120), borderBottom: "1px solid " + C.line }}>
               <div style={{ position: "absolute", left: 0, right: 0, bottom: (T / maxT) * 100 + "%", borderTop: "1.5px dashed " + C.warn, opacity: .7 }} />
@@ -1761,11 +1769,11 @@ function PerformanceView({ loc, F, lateMin }) {
               {!hours.length && <div style={{ color: C.muted, fontSize: F(13) }}>No orders in this period</div>}
             </div>
           </div>
-        </Card>
-        <Card title="SLOWEST TICKETS">
-          {slowest.map((o) => (
+        </Card>}
+        <Card title={adv ? "SLOWEST TICKETS" : "SLOWEST REAL TICKETS"} right={!adv && done.filter((o) => tt(o) > 3600).length ? <span onClick={() => openDrill("Over an hour (forgotten bumps?)", done.filter((o) => tt(o) > 3600))} className="kbtn" style={{ cursor: "pointer", fontSize: F(11), color: C.warn, fontWeight: 800 }}>{done.filter((o) => tt(o) > 3600).length} over an hour — forgotten bumps? ›</span> : null}>
+          {(adv ? slowest : [...done].filter((o) => tt(o) <= 3600).sort((a, b) => tt(b) - tt(a)).slice(0, 7)).map((o) => (
             <div key={o.order_id} onClick={() => { openDrill("Ticket #" + o.order_no, [o]); setTimeout(() => setDrillOpen({ [o.order_id]: true }), 0); }} className="kbtn" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5), cursor: "pointer" }}>
-              <span><b>{o.order_no_label || "#" + o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {o.item_count} items · {new Date(o.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span></span>
+              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginRight: 10 }}><b>{o.order_no_label || "#" + o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {new Date(o.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}{!adv && (o.items || []).length ? " · " + (o.items || []).slice(0, 3).map(itemName).join(", ") + ((o.items || []).length > 3 ? " +" + ((o.items || []).length - 3) : "") : " · " + o.item_count + " items"}</span></span>
               <span style={{ fontWeight: 900, fontVariantNumeric: "tabular-nums", fontFamily: PF, color: tt(o) > T ? C.bad : C.ink }}>{mmss(tt(o))}</span>
             </div>
           ))}
@@ -1837,7 +1845,7 @@ function PerformanceView({ loc, F, lateMin }) {
             {byShift.map((r) => (
               <div key={r.k} onClick={() => openDrill(r.k + " shift (" + r.span + ")", r.rows)} className="kbtn" style={{ cursor: "pointer", borderRadius: 14, padding: "10px 12px", background: r.on >= 80 ? C.goodBg : r.on >= 60 ? C.warnBg : C.badBg }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                  <span><b style={{ fontFamily: PF, fontSize: F(14) }}>{r.k}</b> <span style={{ fontSize: F(11), color: C.muted }}>{r.span}</span></span>
+                  <span><b style={{ fontFamily: PF, fontSize: F(14) }}>{byShift.filter((x) => x.n >= 5).sort((a, b) => b.on - a.on)[0]?.k === r.k && byShift.length > 1 ? "★ " : ""}{r.k}</b> <span style={{ fontSize: F(11), color: C.muted }}>{r.span}</span></span>
                   <span style={{ fontWeight: 900, fontFamily: PF, fontSize: F(18), color: r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on}%</span>
                 </div>
                 <div style={{ display: "flex", gap: 14, fontSize: F(12), color: C.muted, marginTop: 4 }}>
