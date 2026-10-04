@@ -1379,6 +1379,7 @@ function PerformanceView({ loc, F, lateMin }) {
   const [drillOpen, setDrillOpen] = useState({});
   const [staff, setStaff] = useState(null); // punches in the period (null = not available)
   const [svc, setSvc] = useState([]); // service_log rows in the period
+  const [fbFor, setFbFor] = useState(null); // ticket row → feedback sheet from the Service view
   const [view2, setView2] = useState("kitchen"); // kitchen | service
   useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 30000); return () => clearInterval(id); }, []);
 
@@ -1716,9 +1717,10 @@ function PerformanceView({ loc, F, lateMin }) {
     // kitchen tickets over 2x target with no feedback logged → unknown outcomes
     const silentSlow = done.filter((o) => tt(o) > T * 2 && !rows.some((r) => r.order_id === (o.order_id || "").split(":")[0])).length;
     // serve time: kitchen done → on the table (pass-screen Served tap)
+    const followUp = done.filter((o) => tt(o) > T * 2 && !rows.some((r) => r.order_id === (o.order_id || "").split(":")[0])).sort((a, b) => tt(b) - tt(a));
     const serveTimes = done.filter((o) => o.served_at && o._done).map((o) => (new Date(o.served_at).getTime() - o._done) / 1000).filter((x) => x >= 0 && x < 3600);
     const serveAvg = avg(serveTimes);
-    return { rows, issues, positives, rated, avgRating, per100, resolvedRate, compValue, byCategory, byTag, byItem, byTable, byStaff, byHour, byShift, byAction, ticketOf, slowIssues, silentSlow, serveTimes, serveAvg };
+    return { rows, issues, positives, rated, avgRating, per100, resolvedRate, compValue, byCategory, byTag, byItem, byTable, byStaff, byHour, byShift, byAction, ticketOf, slowIssues, silentSlow, serveTimes, serveAvg, followUp };
   })();
 
   // ---- weekday pattern (7d / 30d) ----
@@ -2044,6 +2046,7 @@ function PerformanceView({ loc, F, lateMin }) {
       </div>
     );
   };
+  const asOrder = (o) => ({ id: (o.order_id || "").split(":")[0], order_no: o.order_no, order_type: o.order_type, created_at: o.created_at, kds_bumped_at: o._done ? new Date(o._done).toISOString() : null, served_at: o.served_at, menu_tables: o.table_label ? { label: o.table_label } : null, menu_order_items: (o.items || []).map((it) => ({ name_snapshot: itemName(it) })) });
   const openServiceDrill = (title, list) => { if (!list || !list.length) return; setDrill({ stack: [{ title, rows: [], service: list }], view: "service", filter: "all", sort: "slowest" }); };
 
   const Tile = ({ label, value, sub, tone, big, onClick }) => (
@@ -2093,7 +2096,7 @@ function PerformanceView({ loc, F, lateMin }) {
       {/* header row (sticky) */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, position: "sticky", top: -F(16), zIndex: 5, background: "#f8fafc", margin: "0 " + -F(16) + "px", padding: F(10) + "px " + F(16) + "px", boxShadow: "0 6px 12px -8px rgba(15,23,42,.18)" }}>
         <div>
-          <div style={{ fontSize: F(21), fontWeight: 900, fontFamily: PF, letterSpacing: "-.02em" }}>Kitchen performance</div>
+          <div style={{ fontSize: F(21), fontWeight: 900, fontFamily: PF, letterSpacing: "-.02em" }}>{view2 === "service" ? "Service performance" : "Kitchen performance"}</div>
           <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped on a production screen (pass screens and tidy-ups ignored){period === "today" ? " · live, refreshes every 30s" : ""}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -2133,7 +2136,7 @@ function PerformanceView({ loc, F, lateMin }) {
 
       {view2 === "service" && (<>
         <div style={{ fontSize: F(14), color: C.ink, background: "#fff", border: "1px solid " + C.line, borderRadius: 14, padding: F(12) + "px " + F(16) + "px", lineHeight: 1.5 }}>
-          <b>{range.label}:</b> {service.rows.length} feedback entr{service.rows.length === 1 ? "y" : "ies"} on {done.length} tickets — <b style={{ color: service.issues.length ? C.bad : C.good }}>{service.issues.length} issue{service.issues.length === 1 ? "" : "s"}</b>{service.per100 != null ? " (" + service.per100.toFixed(1) + " per 100 tickets)" : ""}, {service.positives.length} positive{service.positives.length === 1 ? "" : "s"}.{service.avgRating != null ? " Average guest mood " + service.avgRating.toFixed(1) + " / 5." : ""}{service.resolvedRate != null ? " " + service.resolvedRate + "% of issues ended with the guest leaving happy." : ""}{service.compValue ? " £" + service.compValue.toFixed(2) + " given back in comps and discounts." : ""}
+          <b>{range.label}:</b> {service.rows.length === 0 ? "nothing logged yet on " + done.length + " tickets." : service.rows.length + " feedback entr" + (service.rows.length === 1 ? "y" : "ies") + " on " + done.length + " tickets — "}{service.rows.length > 0 && <><b style={{ color: service.issues.length ? C.bad : C.good }}>{service.issues.length} issue{service.issues.length === 1 ? "" : "s"}</b>{service.per100 != null ? " (" + service.per100.toFixed(1) + " per 100 tickets)" : ""}, {service.positives.length} positive{service.positives.length === 1 ? "" : "s"}.{service.avgRating != null ? " Average guest mood " + service.avgRating.toFixed(1) + " / 5." : ""}{service.resolvedRate != null ? " " + service.resolvedRate + "% of issues ended with the guest leaving happy." : ""}{service.compValue ? " £" + service.compValue.toFixed(2) + " given back in comps and discounts." : ""}</>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: F(10) }}>
           <Tile onClick={() => openServiceDrill("All issues", service.issues)} big label="ISSUES" value={String(service.issues.length)} tone={service.issues.length ? "bad" : "good"} sub={service.per100 != null ? service.per100.toFixed(1) + " per 100 tickets" : ""} />
@@ -2143,7 +2146,31 @@ function PerformanceView({ loc, F, lateMin }) {
           <Tile onClick={() => openDrill("Served tickets", done.filter((o) => o.served_at))} label="SERVE TIME" value={service.serveAvg != null ? mmss(service.serveAvg) : "—"} tone={service.serveAvg == null ? undefined : service.serveAvg <= 180 ? "good" : service.serveAvg <= 360 ? "warn" : "bad"} sub={service.serveTimes.length ? "kitchen done → table · " + service.serveTimes.length + " tapped" : "needs the Served tap on a pass screen"} />
           <Tile onClick={() => openServiceDrill("High severity", service.issues.filter((r) => r.severity === "high"))} label="HIGH SEVERITY" value={String(service.issues.filter((r) => r.severity === "high").length)} tone={service.issues.some((r) => r.severity === "high") ? "bad" : undefined} sub={"£" + service.compValue.toFixed(0) + " comps / discounts"} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(14) }}>
+        {service.rows.length === 0 && (
+          <Card title="GETTING STARTED">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: F(14) }}>
+              {[["1", "Tap 🙂 on an order", "On the POS, every order's panel has a Feedback button; on the KDS, every finished ticket on the Done tab has one."], ["2", "Twenty seconds", "A mood face, what happened (if anything), which dish, what was done about it, your PIN. Positives count too — compliments, regulars, occasions."], ["3", "It lands here", "Every entry is tied to its ticket: items, kitchen time, who was on. Issues roll up by category, dish, table, shift and hour so patterns show."]].map(([n, t, b]) => (
+                <div key={n} style={{ background: C.soft, borderRadius: 14, padding: F(12) + "px " + F(14) + "px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}><span style={{ width: 22, height: 22, borderRadius: "50%", background: C.ink, color: "#fff", fontSize: F(11.5), fontWeight: 900, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{n}</span><b style={{ fontSize: F(13.5) }}>{t}</b></div>
+                  <div style={{ fontSize: F(12.5), color: C.muted, lineHeight: 1.45 }}>{b}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+        {service.followUp.length > 0 && (
+          <Card title="FOLLOW UP" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets over double the target with no feedback — how did the guest take it?</span>}>
+            {service.followUp.slice(0, 10).map((o) => (
+              <div key={o.order_id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 10, alignItems: "center", padding: "8px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5) }}>
+                <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>{o.order_no_label || "#" + o.order_no}</b>{o.table_label ? " · " + o.table_label : ""} <span style={{ color: C.muted }}>· {new Date(o.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · {(o.items || []).slice(0, 3).map(itemName).join(", ")}{(o.items || []).length > 3 ? " +" + ((o.items || []).length - 3) : ""}</span></span>
+                <span style={{ fontWeight: 900, fontFamily: PF, color: C.bad }}>{mmss(tt(o))}</span>
+                <span onClick={() => setFbFor(asOrder(o))} className="kbtn" style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 9, background: C.ink, color: "#fff", fontWeight: 800, fontSize: F(12.5) }}>🙂 Log</span>
+              </div>
+            ))}
+            {service.followUp.length > 10 && <div style={{ fontSize: F(12), color: C.muted, marginTop: 6 }}>+{service.followUp.length - 10} more</div>}
+          </Card>
+        )}
+        {service.rows.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(14) }}>
           {[["BY CATEGORY", service.byCategory], ["BY ISSUE", service.byTag], ["BY ITEM", service.byItem], ["BY TABLE", service.byTable], ["BY SHIFT", service.byShift], ["BY HOUR", service.byHour], ["RECOVERY ACTION", service.byAction], ["LOGGED BY", service.byStaff]].map(([title, rs]) => (
             <Card key={title} title={title} right={<span style={{ fontSize: F(11), color: C.muted }}>tap for the entries</span>}>
               {rs.length ? rs.slice(0, 10).map((r) => (
@@ -2156,12 +2183,11 @@ function PerformanceView({ loc, F, lateMin }) {
               )) : <div style={{ fontSize: F(13), color: C.muted }}>No issues logged</div>}
             </Card>
           ))}
-        </div>
-        <Card title="LATEST ENTRIES" right={<span style={{ fontSize: F(11), color: C.muted }}>tap to trace back to the ticket</span>}>
+        </div>}
+        {service.rows.length > 0 && <Card title="LATEST ENTRIES" right={<span style={{ fontSize: F(11), color: C.muted }}>tap to trace back to the ticket</span>}>
           {service.rows.slice(0, 30).map((r) => <ServiceRow key={r.id} r={r} />)}
-          {!service.rows.length && <div style={{ fontSize: F(13), color: C.muted }}>Nothing logged yet. Servers log from the 🙂 button on an order (POS) or a finished ticket (KDS Done tab).</div>}
-        </Card>
-        {service.silentSlow > 0 && <div style={{ fontSize: F(12.5), color: C.muted }}>{service.silentSlow} ticket{service.silentSlow === 1 ? "" : "s"} ran over double the target with no feedback logged — outcomes unknown.</div>}
+        </Card>}
+        {fbFor && <ServiceFeedback order={fbFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="kds" onClose={() => setFbFor(null)} onSaved={() => setTick((t) => t + 1)} />}
       </>)}
 
       {view2 === "kitchen" && !adv && times.length > 0 && (
