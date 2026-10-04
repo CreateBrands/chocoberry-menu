@@ -1402,6 +1402,20 @@ function PerformanceView({ loc, F, lateMin }) {
   const [staff, setStaff] = useState(null); // punches in the period (null = not available)
   const [svc, setSvc] = useState([]); // service_log rows in the period
   const [fbFor, setFbFor] = useState(null); // ticket row → feedback sheet from the Service view
+  const [fuAll, setFuAll] = useState(false);
+  const [quickDone, setQuickDone] = useState({});
+  async function quickLogPerf(o, rating) {
+    let rem = null; try { const j = JSON.parse(sessionStorage.getItem("svc_pin") || "null"); if (j && Date.now() - j.t < 15 * 60000) rem = j; } catch {}
+    const ord = asOrder(o);
+    if (!rem) { setFbFor({ ...ord, _prefillRating: rating }); return; }
+    setQuickDone((m) => ({ ...m, [ord.id]: rating }));
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "service_log_add", data: { location_id: loc, order_id: ord.id, staff_pin: rem.pin, rating, tags: rating <= 2 ? ["slow_food"] : [], item_names: [], source: "kds", ticket_secs: Math.round(tt(o)) } }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error();
+      setTimeout(() => setTick((t) => t + 1), 800);
+    } catch { setQuickDone((m) => { const n = { ...m }; delete n[ord.id]; return n; }); setFbFor({ ...ord, _prefillRating: rating }); }
+  }
   const [view2, setView2] = useState("kitchen"); // kitchen | service
   useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 30000); return () => clearInterval(id); }, []);
 
@@ -1738,11 +1752,13 @@ function PerformanceView({ loc, F, lateMin }) {
     const slowIssues = issues.filter((r) => r.ticket_secs != null && r.ticket_secs > T).length;
     // kitchen tickets over 2x target with no feedback logged → unknown outcomes
     const silentSlow = done.filter((o) => tt(o) > T * 2 && !rows.some((r) => r.order_id === (o.order_id || "").split(":")[0])).length;
+    const moodDist = [1, 2, 3, 4, 5].map((v) => ({ v, n: rated.filter((r) => r.rating === v).length, rows: rated.filter((r) => r.rating === v) }));
+    const byDay = (() => { if (period === "today" || period === "yesterday") return []; const m = {}; for (const o of done) { const k = tradingDayStart(new Date(o.created_at)); const kk = k.toDateString(); (m[kk] ||= { d: k, tickets: 0, issues: 0, pos: 0, rated: [] }).tickets++; } for (const r of rows) { const kk = tradingDayStart(new Date(r.created_at)).toDateString(); const e = (m[kk] ||= { d: tradingDayStart(new Date(r.created_at)), tickets: 0, issues: 0, pos: 0, rated: [] }); if (isIssue(r)) e.issues++; else if (positives.includes(r)) e.pos++; if (r.rating != null) e.rated.push(r.rating); } return Object.values(m).sort((a, b) => a.d - b.d).map((e) => ({ ...e, per100: e.tickets ? e.issues / e.tickets * 100 : 0, mood: e.rated.length ? avg(e.rated) : null })); })();
     // serve time: kitchen done → on the table (pass-screen Served tap)
     const followUp = done.filter((o) => tt(o) > T * 2 && !rows.some((r) => r.order_id === (o.order_id || "").split(":")[0])).sort((a, b) => tt(b) - tt(a));
     const serveTimes = done.filter((o) => o.served_at && o._done).map((o) => (new Date(o.served_at).getTime() - o._done) / 1000).filter((x) => x >= 0 && x < 3600);
     const serveAvg = avg(serveTimes);
-    return { rows, issues, positives, rated, avgRating, per100, resolvedRate, compValue, byCategory, byTag, byItem, byTable, byStaff, byHour, byShift, byAction, ticketOf, slowIssues, silentSlow, serveTimes, serveAvg, followUp };
+    return { rows, issues, positives, rated, avgRating, per100, resolvedRate, compValue, byCategory, byTag, byItem, byTable, byStaff, byHour, byShift, byAction, ticketOf, slowIssues, silentSlow, serveTimes, serveAvg, followUp, moodDist, byDay };
   })();
 
   // ---- weekday pattern (7d / 30d) ----
@@ -1811,7 +1827,7 @@ function PerformanceView({ loc, F, lateMin }) {
     const recent = trendDays.slice(-4).filter((d) => d.avg != null), earlier = trendDays.slice(0, 10).filter((d) => d.avg != null);
     if (recent.length >= 3 && earlier.length >= 4) { const ra = avg(recent.map((d) => d.avg)), ea = avg(earlier.map((d) => d.avg)); if (ra < ea * 0.85) push("good", "Getting faster", "Last few days average " + mmss(ra) + " against " + mmss(ea) + " earlier in the fortnight — keep whatever changed."); else if (ra > ea * 1.15) push("warn", "Getting slower", "Last few days average " + mmss(ra) + " against " + mmss(ea) + " earlier in the fortnight. Worth asking what changed: menu, staffing, equipment."); }
     if (!out.length) push("good", "Nothing stands out", "Ticket times are consistent across sizes, hours and load. Pushing the baseline pace is the lever now.");
-    return out.slice(0, 6);
+    return out.slice(0, 9);
   })();
   const toneBg = (t) => t === "good" ? C.goodBg : t === "warn" ? C.badBg : "#eff6ff";
   const toneFg = (t) => t === "good" ? C.good : t === "warn" ? C.bad : "#1d4ed8";
@@ -2119,7 +2135,7 @@ function PerformanceView({ loc, F, lateMin }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, position: "sticky", top: -F(16), zIndex: 5, background: "#f8fafc", margin: "0 " + -F(16) + "px", padding: F(10) + "px " + F(16) + "px", boxShadow: "0 6px 12px -8px rgba(15,23,42,.18)" }}>
         <div>
           <div style={{ fontSize: F(21), fontWeight: 900, fontFamily: PF, letterSpacing: "-.02em" }}>{view2 === "service" ? "Service performance" : "Kitchen performance"}</div>
-          <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped on a production screen (pass screens and tidy-ups ignored){period === "today" ? " · live, refreshes every 30s" : ""}</div>
+          <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{view2 === "service" ? range.label + " · what the floor logged against each ticket · tap anything to trace back to the order" : range.label + " · trading days run 04:00–04:00 · ticket time = placed → bumped on a production screen (pass screens and tidy-ups ignored)" + (period === "today" ? " · live, refreshes every 30s" : "")}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {updatedAt && <span style={{ fontSize: F(11), color: C.muted }}>updated {updatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
@@ -2162,7 +2178,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: F(10) }}>
           <Tile onClick={() => openServiceDrill("All issues", service.issues)} big label="ISSUES" value={String(service.issues.length)} tone={service.issues.length ? "bad" : "good"} sub={service.per100 != null ? service.per100.toFixed(1) + " per 100 tickets" : ""} />
-          <Tile label="GUEST MOOD" value={service.avgRating != null ? service.avgRating.toFixed(1) : "—"} tone={service.avgRating == null ? undefined : service.avgRating >= 4 ? "good" : service.avgRating >= 3 ? "warn" : "bad"} sub={service.rated.length + " rated"} />
+          <Tile label="GUEST MOOD" value={service.avgRating != null ? service.avgRating.toFixed(1) + " / 5" : "—"} tone={service.avgRating == null ? undefined : service.avgRating >= 4 ? "good" : service.avgRating >= 3 ? "warn" : "bad"} sub={service.rated.length + " rated"} />
           <Tile onClick={() => openServiceDrill("Unresolved issues", service.issues.filter((r) => r.resolved === false))} label="LEFT HAPPY" value={service.resolvedRate != null ? service.resolvedRate + "%" : "—"} tone={service.resolvedRate == null ? undefined : service.resolvedRate >= 80 ? "good" : service.resolvedRate >= 60 ? "warn" : "bad"} sub={service.issues.filter((r) => r.resolved === false).length + " left unhappy"} />
           <Tile onClick={() => openServiceDrill("Positives", service.positives)} label="POSITIVES" value={String(service.positives.length)} tone="good" sub="compliments, regulars, occasions" />
           <Tile onClick={() => openDrill("Served tickets", done.filter((o) => o.served_at))} label="SERVE TIME" value={service.serveAvg != null ? mmss(service.serveAvg) : "—"} tone={service.serveAvg == null ? undefined : service.serveAvg <= 180 ? "good" : service.serveAvg <= 360 ? "warn" : "bad"} sub={service.serveTimes.length ? "kitchen done → table · " + service.serveTimes.length + " tapped" : "needs the Served tap on a pass screen"} />
@@ -2182,14 +2198,60 @@ function PerformanceView({ loc, F, lateMin }) {
         )}
         {service.followUp.length > 0 && (
           <Card title="FOLLOW UP" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets over double the target with no feedback — how did the guest take it?</span>}>
-            {service.followUp.slice(0, 10).map((o) => (
-              <div key={o.order_id} style={{ display: "grid", gridTemplateColumns: "1fr auto auto", gap: 10, alignItems: "center", padding: "8px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5) }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 70px auto auto", gap: 10, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em", padding: "0 0 4px" }}><span>TICKET</span><span style={{ textAlign: "right" }}>KITCHEN</span><span style={{ textAlign: "center" }}>HOW DID THEY LEAVE?</span><span /></div>
+            {(fuAll ? service.followUp : service.followUp.slice(0, 8)).map((o) => { const id = (o.order_id || "").split(":")[0]; const qd = quickDone[id]; return (
+              <div key={o.order_id} style={{ display: "grid", gridTemplateColumns: "1fr 70px auto auto", gap: 10, alignItems: "center", padding: "7px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5), opacity: qd ? .55 : 1 }}>
                 <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>{o.order_no_label || "#" + o.order_no}</b>{o.table_label ? " · " + o.table_label : ""} <span style={{ color: C.muted }}>· {new Date(o.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · {(o.items || []).slice(0, 3).map(itemName).join(", ")}{(o.items || []).length > 3 ? " +" + ((o.items || []).length - 3) : ""}</span></span>
-                <span style={{ fontWeight: 900, fontFamily: PF, color: C.bad }}>{mmss(tt(o))}</span>
-                <span onClick={() => setFbFor(asOrder(o))} className="kbtn" style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 9, background: C.ink, color: "#fff", fontWeight: 800, fontSize: F(12.5) }}>🙂 Log</span>
+                <span style={{ textAlign: "right", fontWeight: 900, fontFamily: PF, color: C.bad }}>{mmss(tt(o))}</span>
+                <span style={{ display: "flex", gap: 4 }}>
+                  {qd ? <span style={{ fontSize: F(13), fontWeight: 800, color: C.good, padding: "4px 10px" }}>Logged {["", "😠", "🙁", "😐", "🙂", "😄"][qd]}</span> : [[1, "😠"], [2, "🙁"], [3, "😐"], [4, "🙂"], [5, "😄"]].map(([v, f]) => <span key={v} onClick={() => quickLogPerf(o, v)} className="kbtn" title="One tap · uses your remembered PIN" style={{ cursor: "pointer", fontSize: F(18), width: F(38), height: F(34), display: "inline-flex", alignItems: "center", justifyContent: "center", borderRadius: 9, background: C.soft }}>{f}</span>)}
+                </span>
+                <span onClick={() => setFbFor(asOrder(o))} className="kbtn" style={{ cursor: "pointer", padding: "6px 12px", borderRadius: 9, background: "#fff", border: "1px solid " + C.line, fontWeight: 800, fontSize: F(12.5) }}>Details ›</span>
               </div>
-            ))}
-            {service.followUp.length > 10 && <div style={{ fontSize: F(12), color: C.muted, marginTop: 6 }}>+{service.followUp.length - 10} more</div>}
+            ); })}
+            {service.followUp.length > 8 && <div onClick={() => setFuAll((a) => !a)} className="kbtn" style={{ cursor: "pointer", textAlign: "center", fontSize: F(12.5), fontWeight: 800, color: C.muted, marginTop: 8 }}>{fuAll ? "Show fewer" : "Show all " + service.followUp.length}</div>}
+          </Card>
+        )}
+        {service.rows.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: service.byDay.length ? "1fr 1.4fr" : "1fr", gap: F(14) }}>
+            <Card title="GUEST MOOD" right={<span style={{ fontSize: F(11), color: C.muted }}>{service.rated.length} rated · tap a face</span>}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: F(120) }}>
+                {service.moodDist.map((m) => { const max = Math.max(1, ...service.moodDist.map((x) => x.n)); const col = m.v <= 2 ? C.bad : m.v === 3 ? C.warn : C.good; return (
+                  <div key={m.v} onClick={() => openServiceDrill(["", "Upset", "Unhappy", "OK", "Happy", "Delighted"][m.v] + " guests", m.rows)} className="kbtn" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", cursor: m.n ? "pointer" : "default" }}>
+                    <div style={{ fontSize: F(12), fontWeight: 900, fontFamily: PF, color: col }}>{m.n || ""}</div>
+                    <div style={{ width: "70%", height: (m.n / max * 70) + "%", minHeight: m.n ? 4 : 0, background: col, borderRadius: "6px 6px 0 0", opacity: .85 }} />
+                    <div style={{ fontSize: F(22), marginTop: 4 }}>{["", "😠", "🙁", "😐", "🙂", "😄"][m.v]}</div>
+                  </div>
+                ); })}
+              </div>
+              {service.avgRating != null && <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 8 }}>Average <b style={{ color: C.ink }}>{service.avgRating.toFixed(1)} / 5</b> · {Math.round(service.rated.filter((r) => r.rating >= 4).length / service.rated.length * 100)}% left happy or delighted</div>}
+            </Card>
+            {service.byDay.length > 0 && (
+              <Card title="DAY BY DAY" right={<span style={{ fontSize: F(11), color: C.muted }}>bars = issues per 100 tickets · face = average mood</span>}>
+                <div style={{ display: "flex", gap: 6, alignItems: "flex-end", height: F(120) }}>
+                  {service.byDay.map((d) => { const max = Math.max(1, ...service.byDay.map((x) => x.per100)); return (
+                    <div key={d.d.toDateString()} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }}>
+                      <div style={{ fontSize: F(11), fontWeight: 900, fontFamily: PF, color: d.issues ? C.bad : C.muted }}>{d.issues ? d.per100.toFixed(0) : ""}</div>
+                      <div style={{ width: "70%", height: (d.per100 / max * 60) + "%", minHeight: d.issues ? 4 : 0, background: "#fca5a5", borderRadius: "6px 6px 0 0" }} />
+                      <div style={{ fontSize: F(14), marginTop: 3 }}>{d.mood == null ? "·" : ["", "😠", "🙁", "😐", "🙂", "😄"][Math.round(d.mood)]}</div>
+                      <div style={{ fontSize: F(10), color: C.muted }}>{d.d.toLocaleDateString("en-GB", { weekday: "short" }).charAt(0)}{service.byDay.length <= 8 ? d.d.getDate() : ""}</div>
+                    </div>
+                  ); })}
+                </div>
+              </Card>
+            )}
+          </div>
+        )}
+        {service.rows.length > 0 && insights.filter((x) => /logged by the floor|happy guest|no feedback logged/.test(x.title)).length > 0 && (
+          <Card title="WHAT TO DO">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(10) }}>
+              {insights.filter((x) => /logged by the floor|happy guest|no feedback logged/.test(x.title)).map((x, i) => (
+                <div key={i} style={{ background: toneBg(x.tone), borderRadius: 14, padding: F(12) + "px " + F(14) + "px" }}>
+                  <div style={{ fontSize: F(13.5), fontWeight: 800, color: toneFg(x.tone), fontFamily: PF }}>{x.title}</div>
+                  <div style={{ fontSize: F(12.5), color: C.ink, marginTop: 4, lineHeight: 1.45 }}>{x.body}</div>
+                </div>
+              ))}
+            </div>
           </Card>
         )}
         {service.rows.length > 0 && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(14) }}>
@@ -2209,7 +2271,7 @@ function PerformanceView({ loc, F, lateMin }) {
         {service.rows.length > 0 && <Card title="LATEST ENTRIES" right={<span style={{ fontSize: F(11), color: C.muted }}>tap to trace back to the ticket</span>}>
           {service.rows.slice(0, 30).map((r) => <ServiceRow key={r.id} r={r} />)}
         </Card>}
-        {fbFor && <ServiceFeedback order={fbFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="kds" onClose={() => setFbFor(null)} onSaved={() => setTick((t) => t + 1)} />}
+        {fbFor && <ServiceFeedback order={fbFor} prefill={fbFor._prefillRating ? { rating: fbFor._prefillRating } : null} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="kds" onClose={() => setFbFor(null)} onSaved={() => setTimeout(() => setTick((t) => t + 1), 600)} />}
       </>)}
 
       {view2 === "kitchen" && !adv && times.length > 0 && (
@@ -2273,7 +2335,7 @@ function PerformanceView({ loc, F, lateMin }) {
       {/* insights */}
       <Card title={adv ? "WHAT THE NUMBERS SAY" : "WHAT TO DO"} right={<span style={{ fontSize: F(11), color: C.muted }}>{adv ? "findings and what to try · recalculated with the data" : "the three things that matter most right now"}</span>}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(" + Math.min(3, Math.max(1, (adv ? insights : insights.slice(0, 3)).length)) + ", 1fr)", gap: F(10) }}>
-          {(adv ? insights : insights.slice(0, 3)).map((x, i) => (
+          {(adv ? insights.slice(0, 6) : insights.slice(0, 3)).map((x, i) => (
             <div key={i} style={{ background: toneBg(x.tone), borderRadius: 14, padding: F(12) + "px " + F(14) + "px" }}>
               <div style={{ fontSize: F(13.5), fontWeight: 800, color: toneFg(x.tone), fontFamily: PF }}>{x.title}</div>
               <div style={{ fontSize: F(12.5), color: C.ink, marginTop: 4, lineHeight: 1.45 }}>{x.body}</div>
