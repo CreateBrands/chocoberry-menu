@@ -484,12 +484,30 @@ export default function KDS() {
   const totalUnpaid = unpaidOrders.reduce((s, o) => s + Number(o.total || 0), 0);
   const totalTaken = paidOrders.reduce((s, o) => s + Number(o.paid_amount != null ? o.paid_amount : o.total || 0), 0);
 
+  // All-day production board: everything still to make across active tickets,
+  // grouped by menu section, with variants, oldest wait and which tickets.
   const allday = {};
   for (const o of active) for (const it of (o.menu_order_items || [])) {
     if (it.item_status === DONE_ITEM) continue;
-    allday[it.name_snapshot] = (allday[it.name_snapshot] || 0) + (it.qty || 1);
+    const name = it.name_snapshot;
+    const cat = catOf(it);
+    const mods = cleanMods(it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : []);
+    const variant = mods.join(", ") || "";
+    const age = (now - new Date(o.created_at)) / 60000;
+    const row = (allday[name] ||= { name, cat, qty: 0, variants: {}, oldest: 0, late: 0, tickets: [], notes: [] });
+    row.qty += it.qty || 1;
+    row.variants[variant] = (row.variants[variant] || 0) + (it.qty || 1);
+    row.oldest = Math.max(row.oldest, age);
+    if (age >= LATE_MIN) row.late += it.qty || 1;
+    const lbl = o.menu_tables?.label || (o.order_type === "takeaway" ? "T/A" : "") || "";
+    if (!row.tickets.some((t) => t.id === o.id)) row.tickets.push({ id: o.id, no: o.order_no, lbl, age });
+    if (it.note) row.notes.push(it.note);
   }
-  const alldayRows = Object.entries(allday).sort((a, b) => b[1] - a[1]);
+  const alldayRows = Object.values(allday).sort((a, b) => b.late - a.late || b.qty - a.qty || b.oldest - a.oldest);
+  const alldayByCat = (() => { const m = {}; for (const r of alldayRows) (m[r.cat] ||= []).push(r); return Object.entries(m).sort((a, b) => b[1].reduce((t, r) => t + r.qty, 0) - a[1].reduce((t, r) => t + r.qty, 0)); })();
+  const alldayTotal = alldayRows.reduce((t, r) => t + r.qty, 0);
+  const alldayLate = alldayRows.reduce((t, r) => t + r.late, 0);
+  const [alldayFocus, setAlldayFocus] = useState(null);
 
   // Header stats: how fast THIS screen cleared its tickets today (its own bump
   // times), not the all-screens settle that rarely completes.
@@ -702,15 +720,51 @@ export default function KDS() {
       )}
 
       {view === "kitchen" && tab === "allday" && (
-        <div style={{ padding: F(16), maxWidth: 620 }}>
-          <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Everything working right now, across all active orders:</div>
-          {alldayRows.length === 0 && <div style={{ color: "#64748b" }}>Nothing in the queue.</div>}
-          {alldayRows.map(([name, qty]) => (
-            <div key={name} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: F(12) + "px " + F(16) + "px", background: "#ffffff", borderRadius: 10, marginBottom: 8, border: "1px solid #d8dce2" }}>
-              <span style={{ fontWeight: 700, fontSize: F(17) }}>{name}</span>
-              <span style={{ fontWeight: 800, fontSize: F(23), color: "#fbbf24", fontVariantNumeric: "tabular-nums" }}>{qty}</span>
+        <div style={{ padding: F(16) }}>
+          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: F(12) }}>
+            <div style={{ fontSize: F(14), color: "#64748b" }}>
+              <b style={{ color: "#0f172a", fontSize: F(18) }}>{alldayTotal}</b> to make across <b style={{ color: "#0f172a" }}>{active.length}</b> ticket{active.length === 1 ? "" : "s"}
+              {alldayLate > 0 && <span style={{ color: "#b91c1c", fontWeight: 800 }}> · {alldayLate} on tickets already over {LATE_MIN} min</span>}
             </div>
-          ))}
+            <div style={{ fontSize: F(12), color: "#64748b" }}>red = on a late ticket · tap an item to spotlight it</div>
+          </div>
+          {alldayRows.length === 0 && <div style={{ color: "#64748b", padding: 30, textAlign: "center", fontSize: F(16) }}>Nothing in the queue — kitchen clear.</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(320) + "px, 1fr))", gap: F(14), alignItems: "start" }}>
+            {alldayByCat.map(([cat, rows]) => (
+              <div key={cat} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: F(10) + "px " + F(14) + "px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0" }}>
+                  <span style={{ fontSize: F(12), fontWeight: 900, letterSpacing: ".08em", color: "#334155" }}>{cat}</span>
+                  <span style={{ fontSize: F(13), fontWeight: 800, color: "#64748b" }}>{rows.reduce((t, r) => t + r.qty, 0)}</span>
+                </div>
+                {rows.map((r) => {
+                  const on = alldayFocus === r.name;
+                  const variants = Object.entries(r.variants).sort((a, b) => b[1] - a[1]);
+                  return (
+                    <div key={r.name} onClick={() => setAlldayFocus(on ? null : r.name)} className="kbtn" style={{ padding: F(10) + "px " + F(14) + "px", borderTop: "1px solid #f1f5f9", cursor: "pointer", background: on ? "#fefce8" : r.late ? "#fff5f5" : "#fff", borderLeft: "4px solid " + (on ? "#f59e0b" : r.late ? "#dc2626" : "transparent") }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+                        <span style={{ fontWeight: 800, fontSize: F(17), minWidth: 0 }}>{r.name}</span>
+                        <span style={{ display: "flex", alignItems: "baseline", gap: 8, flexShrink: 0 }}>
+                          {r.oldest > 0 && <span style={{ fontSize: F(12), fontWeight: 800, color: r.oldest >= LATE_MIN ? "#dc2626" : "#64748b" }}>{Math.floor(r.oldest)}m</span>}
+                          <span style={{ fontWeight: 900, fontSize: F(26), color: r.late ? "#dc2626" : "#f59e0b", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{r.qty}</span>
+                        </span>
+                      </div>
+                      {(variants.length > 1 || (variants.length === 1 && variants[0][0])) && (
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
+                          {variants.map(([v, n]) => <span key={v} style={{ fontSize: F(12), fontWeight: 700, padding: "2px 8px", borderRadius: 7, background: "#f1f5f9", color: "#334155" }}>{n}× {v || "plain"}</span>)}
+                        </div>
+                      )}
+                      {r.notes.length > 0 && <div style={{ marginTop: 5, fontSize: F(12), color: "#b45309", fontWeight: 700 }}>⚠ {[...new Set(r.notes)].join(" · ")}</div>}
+                      {on && (
+                        <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 5 }}>
+                          {r.tickets.sort((a, b) => b.age - a.age).map((t) => <span key={t.id} style={{ fontSize: F(12), fontWeight: 800, padding: "3px 9px", borderRadius: 7, background: t.age >= LATE_MIN ? "#fee2e2" : "#e2e8f0", color: t.age >= LATE_MIN ? "#b91c1c" : "#334155" }}>{t.lbl ? t.lbl + " · " : ""}#{t.no} · {Math.floor(t.age)}m</span>)}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
