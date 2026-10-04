@@ -16,12 +16,15 @@ language sql stable security definer set search_path = public as $$
     'status', o.status,
     'created_at', o.created_at,
     'kds_started_at', o.kds_started_at,
+    'table_label', t.label,
+    'customer_note', o.customer_note,
     'completed_at', coalesce(b.last_bump, o.kds_bumped_at),
     'item_count', coalesce(i.n, 0),
     'items', coalesce(i.names, '[]'::jsonb),
     'bumps', coalesce(b.per_screen, '[]'::jsonb)
   ) order by o.created_at), '[]'::jsonb)
   from menu_orders o
+  left join menu_tables t on t.id = o.table_id
   left join lateral (
     select max(bumped_at) as last_bump,
            jsonb_agg(jsonb_build_object('screen_key', screen_key, 'bumped_at', bumped_at)) as per_screen
@@ -30,7 +33,9 @@ language sql stable security definer set search_path = public as $$
   left join lateral (
     select count(*) as n,
            jsonb_agg(jsonb_build_object('name', mi.name_snapshot, 'qty', mi.qty,
-                                        'category', mc.name, 'menu', mm.name)) as names
+                                        'category', mc.name, 'menu', mm.name,
+                                        'mods', mi.modifiers_snapshot, 'note', mi.note,
+                                        'status', mi.item_status::text)) as names
     from menu_order_items mi
     left join menu_items it on it.id = mi.item_id
     left join menu_categories mc on mc.id = it.category_id
