@@ -109,7 +109,7 @@ export default function KDS() {
   const [tab, setTab] = useState("active");
   const [station, setStation] = useState("all");
   // This screen's own identity (not the item-filter dropdown above).
-  const [myStation] = useState(() => getRemembered("kds_station", "station"));
+  const [myStationSeed] = useState(() => getRemembered("kds_station", "station"));
   // Designated printer for MANUAL prints from this screen, by serial:
   //   ?printer=N450263A10230
   // Serial rather than station, deliberately: both printers share the
@@ -164,7 +164,22 @@ export default function KDS() {
       .catch(() => {});
     return () => { alive = false; };
   }, [loc]);
-  const [myName] = useState(() => getRemembered("kds_name", "name"));
+  const [myNameSeed] = useState(() => getRemembered("kds_name", "name"));
+  const [allScreens, setAllScreens] = useState([]); // every screen at this store: screen_key,label,station,routing
+  const [screensTick, setScreensTick] = useState(0);
+  useEffect(() => {
+    if (!loc) return;
+    let alive = true;
+    const load = () => fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,label,station,routing,printer_sn&location_id=eq." + encodeURIComponent(loc), { headers: H, cache: "no-store" })
+      .then((r) => r.ok ? r.json() : []).then((rows) => { if (alive) setAllScreens(rows || []); }).catch(() => {});
+    load();
+    const id = setInterval(load, 60000);
+    return () => { alive = false; clearInterval(id); };
+  }, [loc, screensTick]);
+  const mySettings = allScreens.find((x) => x.screen_key === getScreenId()) || null;
+  const myName = (mySettings && mySettings.label) || myNameSeed;
+  const [setupOpen, setSetupOpen] = useState(false);
+  const myStation = (mySettings && mySettings.station) || myStationSeed;
   const [soundOn, setSoundOn] = useState(true);
   const [connected, setConnected] = useState(true);
   const [size, setSize] = useState(() => localStorage.getItem("kds_size") || "M");
@@ -439,9 +454,21 @@ export default function KDS() {
     }
     return order.map((c) => [c, groups[c]]);
   };
+  // ---- Routing: which lines belong on THIS screen ----
+  // A line shows on every screen that claims its item, category or menu; a line
+  // nobody claims shows on every screen. A screen with nothing claimed is a catch-all.
+  const routingOf = (sc) => { const r = sc && sc.routing && typeof sc.routing === "object" ? sc.routing : null; return r ? { menus: new Set(r.menus || []), categories: new Set(r.categories || []), items: new Set(r.items || []) } : null; };
+  const screenRoutes = allScreens.map((sc) => ({ key: sc.screen_key, r: routingOf(sc) }));
+  const claims = (r, it) => { if (!r) return false; const mi = it.menu_items || {}; const catId = mi.category_id || mi.menu_categories?.id; const menuId = mi.menu_categories?.menu_id || mi.menu_categories?.menu_menus?.id; return (it.item_id && r.items.has(String(it.item_id))) || (catId && r.categories.has(String(catId))) || (menuId && r.menus.has(String(menuId))); };
+  const lineOnThisScreen = (it) => {
+    const me = screenRoutes.find((x) => x.key === getScreenId());
+    const claimedBy = screenRoutes.filter((x) => claims(x.r, it));
+    if (!claimedBy.length) return true;                 // unclaimed → everyone
+    return claimedBy.some((x) => x.key === getScreenId());
+  };
   const filterStation = (o) => {
-    if (station === "all") return o;
-    const items = (o.menu_order_items || []).filter((it) => stationOf(it) === station);
+    let items = (o.menu_order_items || []).filter(lineOnThisScreen);
+    if (station !== "all") items = items.filter((it) => stationOf(it) === station);
     return items.length ? { ...o, menu_order_items: items } : null;
   };
 
@@ -639,7 +666,7 @@ export default function KDS() {
           {onTimePct !== null && <Stat label="On-time" value={onTimePct + "%"} accent={onTimePct >= 80 ? "#15803d" : "#b45309"} />}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {stations.length > 1 && (
+          {false && stations.length > 1 && (
             <select value={station} onChange={(e) => setStation(e.target.value)} style={{ background: "#ffffff", color: "#1f2937", border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}>
               <option value="all">All stations</option>
               {stations.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -659,8 +686,8 @@ export default function KDS() {
           {/* ALWAYS shown. Previously this rendered only when ?screen= was
               present, so an unlabelled screen displayed no identity at all —
               exactly the screens most likely to be misconfigured. */}
-          <div style={{ fontSize: 12, fontWeight: 800, color: myStation ? "#052e16" : "#cbd5e1", background: myStation ? "#4ade80" : "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }} title={"Screen " + getScreenId() + (myStation ? " \u00B7 prints to " + myStation : " \u00B7 NO STATION SET \u2014 prints to every printer")}>
-            {(myName || ("Screen " + getScreenId())) + (myPrinter ? " \u00B7 prints here" : myStation ? " \u00B7 " + myStation : " \u00B7 no printer set")}
+          <div onClick={() => setSetupOpen(true)} className="kbtn" style={{ cursor: "pointer", fontSize: 12, fontWeight: 800, color: myStation ? "#052e16" : "#cbd5e1", background: myStation ? "#4ade80" : "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }} title="Tap to set this screen's name, station and what it shows">
+            {(myName || ("Screen " + getScreenId())) + (myStation ? " \u00B7 " + myStation : " \u00B7 no station") + (mySettings && mySettings.routing ? " \u00B7 filtered" : "")} ⚙
           </div>
         </div>
       </div>
@@ -949,6 +976,7 @@ export default function KDS() {
       )}
 
       {view === "perf" && <PerformanceView loc={loc} F={F} lateMin={LATE_MIN} />}
+      {setupOpen && <ScreenSetup loc={loc} screenKey={getScreenId()} current={mySettings} siblings={allScreens} onClose={() => setSetupOpen(false)} onSaved={() => setScreensTick((t) => t + 1)} />}
 
       {view === "pos" && (
         <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables} />
@@ -1052,6 +1080,111 @@ const avg = (arr) => arr.length ? arr.reduce((t, x) => t + x, 0) / arr.length : 
 
 // Breakdown table used by the Performance tab. Module-level so its own state
 // (show all / sort) survives the view's 30s refreshes.
+// ============================================================================
+// SCREEN SETUP — set on the KDS itself: name, station, printer, and what this
+// screen shows (menus / categories / items). Saved to kds_screens so every
+// screen at the store sees the routing.
+// ============================================================================
+function ScreenSetup({ loc, screenKey, current, siblings, onClose, onSaved }) {
+  const [label, setLabel] = useState(current?.label || "");
+  const [station, setStation] = useState(current?.station || "");
+  const [routing, setRouting] = useState(() => ({ menus: [...(current?.routing?.menus || [])], categories: [...(current?.routing?.categories || [])], items: [...(current?.routing?.items || [])] }));
+  const [cat, setCat] = useState(null);
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => { fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "menu_catalog" }) }).then((r) => r.json()).then((j) => setCat(j.ok ? j : { menus: [], categories: [], items: [] })).catch(() => setCat({ menus: [], categories: [], items: [] })); }, []);
+  const toggle = (kind, id) => setRouting((r) => { const set = new Set(r[kind]); set.has(id) ? set.delete(id) : set.add(id); return { ...r, [kind]: [...set] }; });
+  const has = (kind, id) => routing[kind].includes(id);
+  const STATIONS = ["kitchen", "hot kitchen", "cold kitchen", "grill", "desserts", "drinks", "bar", "coffee", "pass"];
+  const PASS = ["pass", "front", "expo", "counter"];
+  const claimedElsewhere = (kind, id) => siblings.filter((s) => s.screen_key !== screenKey && s.routing && (s.routing[kind] || []).includes(id)).map((s) => s.label || "Screen " + s.screen_key);
+  async function save() {
+    setBusy(true); setErr("");
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "kds_screen_self", data: { location_id: loc, screen_key: screenKey, label: label.trim(), station: station.trim(), routing } }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || "Save failed");
+      try { if (label.trim()) localStorage.setItem("kds_name", label.trim()); if (station.trim()) localStorage.setItem("kds_station", station.trim()); } catch {}
+      onSaved(); onClose();
+    } catch (e) { setErr(e.message || "Save failed"); } finally { setBusy(false); }
+  }
+  const total = routing.menus.length + routing.categories.length + routing.items.length;
+  const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", brand: "#ec4899" };
+  const inp = { padding: "11px 12px", fontSize: 15, fontWeight: 600, border: "1.5px solid " + C.line, borderRadius: 11, outline: "none", width: "100%", boxSizing: "border-box" };
+  const Chip = ({ on, children, onClick, dim }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 13, fontWeight: 700, background: on ? C.ink : C.soft, color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1px solid " + (on ? C.ink : C.line) }}>{children}</span>;
+  const menus = cat ? cat.menus : [];
+  const cats = cat ? cat.categories : [];
+  const items = cat ? cat.items : [];
+  const itemMatches = q.trim() ? items.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 40) : [];
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(15,23,42,.5)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 22, width: 760, maxWidth: "100%", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px rgba(15,23,42,.35)", color: C.ink }}>
+        <div style={{ padding: "20px 24px 12px", borderBottom: "1px solid " + C.line }}>
+          <div style={{ fontSize: 22, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>This screen</div>
+          <div style={{ fontSize: 13, color: C.muted, marginTop: 2 }}>Screen {screenKey} · {siblings.length} screen{siblings.length === 1 ? "" : "s"} at this store</div>
+        </div>
+        <div style={{ overflowY: "auto", padding: "16px 24px 20px", display: "grid", gap: 18 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+            <label style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>NAME<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Hot Kitchen" style={{ ...inp, marginTop: 6 }} /></label>
+            <label style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>STATION<input value={station} onChange={(e) => setStation(e.target.value)} placeholder="e.g. kitchen, drinks, pass" list="kds-stations" style={{ ...inp, marginTop: 6 }} /><datalist id="kds-stations">{STATIONS.map((x) => <option key={x} value={x} />)}</datalist></label>
+          </div>
+          <div style={{ fontSize: 12.5, color: C.muted, marginTop: -8, lineHeight: 1.5 }}>
+            Ticket timing counts screens with a production station (kitchen, drinks, desserts…). Name it <b>pass</b>, <b>front</b> or <b>expo</b> if this screen only serves and clears — its bumps then won't count as cooking time.{PASS.includes(station.trim().toLowerCase()) && <span style={{ color: "#b45309", fontWeight: 700 }}> This screen won't count for timing.</span>}
+          </div>
+
+          <div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+              <div style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>WHAT THIS SCREEN SHOWS</div>
+              <div style={{ fontSize: 12, color: C.muted }}>{total ? total + " selected" : "Nothing selected = everything"}</div>
+            </div>
+            <div style={{ fontSize: 12.5, color: C.muted, margin: "4px 0 10px", lineHeight: 1.5 }}>Pick menus, categories or single items. Anything not picked by <i>any</i> screen still shows on every screen, so nothing can fall through.</div>
+            {!cat && <div style={{ color: C.muted, fontSize: 13 }}>Loading menu…</div>}
+            {cat && menus.map((m) => {
+              const mcats = cats.filter((c) => c.menu_id === m.id);
+              const menuOn = has("menus", m.id);
+              return (
+                <div key={m.id} style={{ border: "1px solid " + C.line, borderRadius: 14, padding: "10px 12px", marginBottom: 8, background: menuOn ? "#f8fafc" : "#fff" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <Chip on={menuOn} onClick={() => toggle("menus", m.id)}>{menuOn ? "✓ " : ""}{m.name} <span style={{ opacity: .6, fontWeight: 600 }}>· whole menu</span></Chip>
+                    {claimedElsewhere("menus", m.id).length > 0 && <span style={{ fontSize: 11.5, color: C.muted }}>also on {claimedElsewhere("menus", m.id).join(", ")}</span>}
+                  </div>
+                  {!menuOn && mcats.length > 0 && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                      {mcats.map((c) => { const el = claimedElsewhere("categories", c.id); return <Chip key={c.id} on={has("categories", c.id)} dim={el.length > 0} onClick={() => toggle("categories", c.id)} >{has("categories", c.id) ? "✓ " : ""}{c.name}{el.length ? <span style={{ fontSize: 10.5, marginLeft: 5, opacity: .7 }}>({el.join(", ")})</span> : null}</Chip>; })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {cat && (
+              <div style={{ marginTop: 6 }}>
+                <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Add a single item — type to search…" style={inp} />
+                {itemMatches.length > 0 && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {itemMatches.map((i) => <Chip key={i.id} on={has("items", i.id)} onClick={() => toggle("items", i.id)}>{has("items", i.id) ? "✓ " : "+ "}{i.name}</Chip>)}
+                  </div>
+                )}
+                {routing.items.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".05em", marginBottom: 6 }}>ITEMS ON THIS SCREEN</div>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>{routing.items.map((id) => { const i = items.find((x) => x.id === id); return <Chip key={id} on onClick={() => toggle("items", id)}>{i ? i.name : id} ✕</Chip>; })}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {err && <div style={{ color: "#b91c1c", fontWeight: 700 }}>{err}</div>}
+        </div>
+        <div style={{ padding: "12px 24px 18px", borderTop: "1px solid " + C.line, display: "flex", gap: 10 }}>
+          <div onClick={onClose} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: C.soft, fontWeight: 800, cursor: "pointer" }}>Cancel</div>
+          <div onClick={() => !busy && save()} className="kbtn" style={{ flex: 2, textAlign: "center", padding: "14px 0", borderRadius: 12, background: busy ? "#94a3b8" : C.ink, color: "#fff", fontWeight: 900, cursor: "pointer" }}>{busy ? "Saving…" : "Save this screen"}</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function PerfTable({ rows: rs, label, limit, sortable, C, F, PF, T, onRow }) {
   const [all, setAll] = useState(false);
   const [sortBy, setSortBy] = useState("n");
@@ -1158,7 +1291,8 @@ function PerformanceView({ loc, F, lateMin }) {
   // Production screens = kds_screens rows with a station (kitchen, bar…). Pass /
   // front screens have no station and only tidy tickets away, so their bumps
   // never define when the food was finished.
-  const productionKeys = new Set(screens.filter((x) => x.station && String(x.station).trim()).map((x) => x.screen_key));
+  const PASS_STATIONS = ["pass", "front", "expo", "counter"];
+  const productionKeys = new Set(screens.filter((x) => x.station && String(x.station).trim() && !PASS_STATIONS.includes(String(x.station).trim().toLowerCase())).map((x) => x.screen_key));
   const isProduction = (k) => productionKeys.size === 0 || productionKeys.has(k);
   const completionOf = (o) => {
     const all = (o.bumps || []).map((b) => ({ t: new Date(b.bumped_at).getTime(), k: b.screen_key })).filter((b) => isFinite(b.t)).sort((a, b) => a.t - b.t);

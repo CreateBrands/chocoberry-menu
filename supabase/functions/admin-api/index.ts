@@ -36,6 +36,7 @@ Deno.serve(async (req) => {
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag",
     "set_kds_target", "print_kitchen_summary",
+    "kds_screen_self", "menu_catalog",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
 
@@ -1226,6 +1227,30 @@ Deno.serve(async (req) => {
         const targetMin = Number(tgtRow?.value) > 0 ? Number(tgtRow!.value) : 12;
         if (summary.oldest) (summary as any).kitchen = await kitchenStats(location_id, summary.oldest, mode === "trading_day" ? summary.cutoff : new Date().toISOString(), targetMin);
         return json({ ok: true, summary });
+      }
+
+      // ---- KDS: a screen names itself, picks its station and what it shows ----
+      case "kds_screen_self": {
+        const { location_id, screen_key, label, station, routing } = data || {};
+        if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
+        const clean = (arr: unknown) => Array.isArray(arr) ? arr.map((x) => String(x)).filter(Boolean).slice(0, 500) : [];
+        const r = routing && typeof routing === "object" ? { menus: clean((routing as any).menus), categories: clean((routing as any).categories), items: clean((routing as any).items) } : null;
+        const row: Record<string, unknown> = { location_id, screen_key: String(screen_key), updated_at: new Date().toISOString() };
+        if (label !== undefined) row.label = label ? String(label).slice(0, 40) : null;
+        if (station !== undefined) row.station = station ? String(station).trim().toLowerCase().slice(0, 30) : null;
+        if (routing !== undefined) row.routing = r && (r.menus.length || r.categories.length || r.items.length) ? r : null;
+        const { error } = await admin.from("kds_screens").upsert(row, { onConflict: "location_id,screen_key" });
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      // ---- KDS: menu structure for the routing picker ----
+      case "menu_catalog": {
+        const [{ data: menus }, { data: cats }, { data: items }] = await Promise.all([
+          admin.from("menu_menus").select("id, name, sort_order").order("sort_order", { ascending: true }),
+          admin.from("menu_categories").select("id, name, menu_id, sort_order").order("sort_order", { ascending: true }),
+          admin.from("menu_items").select("*").order("name", { ascending: true }),
+        ]);
+        return json({ ok: true, menus: menus || [], categories: cats || [], items: (items || []).filter((i: any) => i.active !== false && i.is_active !== false).map((i: any) => ({ id: i.id, name: i.name, category_id: i.category_id })) });
       }
 
       // ---- KDS: print the performance summary on the kitchen printer ----
