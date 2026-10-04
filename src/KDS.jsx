@@ -520,6 +520,33 @@ export default function KDS() {
   // Plating: tickets with everything made except one or two lines — call them.
   const nearlyReady = active.map((o) => { const lines = (o.menu_order_items || []); const left = lines.filter((it) => it.item_status !== DONE_ITEM); return { o, total: lines.length, left }; }).filter((x) => x.total >= 2 && x.left.length > 0 && x.left.length <= 2 && x.left.length < x.total).sort((a, b) => new Date(a.o.created_at) - new Date(b.o.created_at)).slice(0, 6);
   const [alldayBusy, setAlldayBusy] = useState(null);
+  const [prepHist, setPrepHist] = useState(null);
+  useEffect(() => {
+    if (!loc) return;
+    let alive = true;
+    const load = async () => {
+      try {
+        const t0 = new Date(); t0.setHours(4, 0, 0, 0); if (new Date().getHours() < 4) t0.setDate(t0.getDate() - 1);
+        const from = new Date(t0.getTime() - 21 * 86400000);
+        const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/kds_ticket_times", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: from.toISOString(), p_to: t0.toISOString() }), cache: "no-store" });
+        if (alive && r.ok) setPrepHist(await r.json());
+      } catch {}
+    };
+    load();
+    const id = setInterval(load, 15 * 60000);
+    return () => { alive = false; clearInterval(id); };
+  }, [loc]); // eslint-disable-line
+  // What usually sells in the coming hour on this weekday (last 3 weeks), to prep ahead.
+  const prepAhead = (() => {
+    if (!prepHist) return null;
+    const nowD = new Date(); const wd = nowD.getDay(); const nh = (nowD.getHours() + 1) % 24;
+    const perDay = {}; const counts = {};
+    for (const o of prepHist) { const d = new Date(o.created_at); if (d.getDay() !== wd || d.getHours() !== nh) continue; const dk = d.toDateString(); perDay[dk] = true; for (const it of (o.items || [])) { const n = typeof it === "string" ? it : it.name; if (!n) continue; const cat = (it && it.menu) ? String(it.menu).toUpperCase() : "OTHER"; (counts[n] ||= { n, cat, q: 0 }); counts[n].q += Number((it && it.qty) || 1); } }
+    const days = Object.keys(perDay).length; if (!days) return null;
+    return { hour: String(nh).padStart(2, "0"), days, items: Object.values(counts).map((x) => ({ ...x, per: x.q / days })).filter((x) => x.per >= 1.5 && (!alldayCat || x.cat === alldayCat)).sort((a, b) => b.per - a.per).slice(0, 8) };
+  })();
+  // Made today so far, per item (from completed tickets on this screen's day).
+  const madeToday = (() => { const m = {}; for (const o of completed) for (const it of (o.menu_order_items || [])) m[it.name_snapshot] = (m[it.name_snapshot] || 0) + (it.qty || 1); return m; })();
   async function markAllMade(r) {
     setAlldayBusy(r.name);
     for (const id of r.lineIds) await patchItem(id, { item_status: DONE_ITEM });
@@ -752,7 +779,7 @@ export default function KDS() {
           </div>
           {alldayRows.length === 0 && <div style={{ color: "#64748b", padding: 40, textAlign: "center", fontSize: F(18) }}>Nothing in the queue — kitchen clear ✓</div>}
           {alldayRows.length > 0 && (
-            <div style={{ display: "grid", gridTemplateColumns: nearlyReady.length ? "1.4fr 1fr" : "1fr", gap: F(14), marginBottom: F(14) }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1.4fr" + (nearlyReady.length ? " 1fr" : "") + (prepAhead && prepAhead.items.length ? " 1fr" : ""), gap: F(14), marginBottom: F(14) }}>
               <div style={{ background: "#0f172a", color: "#fff", borderRadius: 16, padding: F(12) + "px " + F(16) + "px" }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><span style={{ fontSize: F(12), fontWeight: 900, letterSpacing: ".1em", color: "#fbbf24" }}>FIRE NOW</span><span style={{ fontSize: F(11.5), color: "#94a3b8" }}>oldest ticket first · tap to spotlight</span></div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -768,6 +795,14 @@ export default function KDS() {
                   })}
                 </div>
               </div>
+              {prepAhead && prepAhead.items.length > 0 && (
+                <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: F(12) + "px " + F(16) + "px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><span style={{ fontSize: F(12), fontWeight: 900, letterSpacing: ".1em", color: "#2563eb" }}>PREP AHEAD · {prepAhead.hour}:00</span><span style={{ fontSize: F(11.5), color: "#64748b" }}>usual for this hour, last {prepAhead.days} {new Date().toLocaleDateString("en-GB", { weekday: "long" })}s</span></div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    {prepAhead.items.map((x) => <span key={x.n} style={{ fontSize: F(13), fontWeight: 800, padding: "5px 10px", borderRadius: 9, background: "#eff6ff", color: "#1e3a8a" }}>~{Math.round(x.per)}× {x.n}</span>)}
+                  </div>
+                </div>
+              )}
               {nearlyReady.length > 0 && (
                 <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: F(12) + "px " + F(16) + "px" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><span style={{ fontSize: F(12), fontWeight: 900, letterSpacing: ".1em", color: "#16a34a" }}>NEARLY READY</span><span style={{ fontSize: F(11.5), color: "#64748b" }}>tickets waiting on one or two items</span></div>
@@ -803,7 +838,7 @@ export default function KDS() {
                   return (
                     <div key={r.name} onClick={() => setAlldayFocus(on ? null : r.name)} className="kbtn" style={{ padding: F(12) + "px " + F(16) + "px", borderTop: "1px solid #f1f5f9", cursor: "pointer", background: on ? "#fffbeb" : state === "late" ? "#fef2f2" : "#fff", borderLeft: "5px solid " + (on ? "#f59e0b" : col) }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                        <span style={{ fontWeight: 800, fontSize: F(19), minWidth: 0, lineHeight: 1.15 }}>{r.name}{r.newest <= 1.5 && <span style={{ fontSize: F(10.5), fontWeight: 900, letterSpacing: ".06em", background: "#7c3aed", color: "#fff", padding: "2px 7px", borderRadius: 6, marginLeft: 8, verticalAlign: "middle" }}>NEW</span>}{made > 0 && <span style={{ fontSize: F(11.5), color: "#94a3b8", fontWeight: 700, marginLeft: 8 }}>{made} made</span>}</span>
+                        <span style={{ fontWeight: 800, fontSize: F(19), minWidth: 0, lineHeight: 1.15 }}>{r.name}{r.newest <= 1.5 && <span style={{ fontSize: F(10.5), fontWeight: 900, letterSpacing: ".06em", background: "#7c3aed", color: "#fff", padding: "2px 7px", borderRadius: 6, marginLeft: 8, verticalAlign: "middle" }}>NEW</span>}{made > 0 && <span style={{ fontSize: F(11.5), color: "#94a3b8", fontWeight: 700, marginLeft: 8 }}>{made} made</span>}{madeToday[r.name] > 0 && <span style={{ fontSize: F(11.5), color: "#94a3b8", fontWeight: 600, marginLeft: 8 }}>· {madeToday[r.name]} today</span>}</span>
                         <span style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                           {r.oldest > 0 && <span style={{ fontSize: F(12.5), fontWeight: 800, padding: "3px 8px", borderRadius: 7, background: state === "late" ? "#fee2e2" : state === "warn" ? "#fef3c7" : "#f1f5f9", color: col }}>{Math.floor(r.oldest)}m</span>}
                           <span style={{ fontWeight: 900, fontSize: F(32), color: col, fontVariantNumeric: "tabular-nums", lineHeight: 1, fontFamily: "'Poppins',sans-serif", minWidth: F(28), textAlign: "right" }}>{r.qty}</span>
