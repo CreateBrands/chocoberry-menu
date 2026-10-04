@@ -878,6 +878,38 @@ const mmss = (secs) => {
 const pct = (arr, q) => { if (!arr.length) return null; const a = [...arr].sort((x, y) => x - y); const i = Math.min(a.length - 1, Math.floor(q * (a.length - 1))); return a[i]; };
 const avg = (arr) => arr.length ? arr.reduce((t, x) => t + x, 0) / arr.length : null;
 
+// Breakdown table used by the Performance tab. Module-level so its own state
+// (show all / sort) survives the view's 30s refreshes.
+function PerfTable({ rows: rs, label, limit, sortable, C, F, PF, T, onRow }) {
+  const [all, setAll] = useState(false);
+  const [sortBy, setSortBy] = useState("n");
+  const sorted = sortable ? [...rs].sort((a, b) => sortBy === "n" ? b.n - a.n : sortBy === "slow" ? (b.avg || 0) - (a.avg || 0) : a.on - b.on) : rs;
+  const shown = limit && !all ? sorted.slice(0, limit) : sorted;
+  const maxAvg = Math.max(1, ...rs.map((r) => r.avg || 0));
+  return (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 76px 64px 54px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px", alignItems: "center" }}>
+        <span>{label}{sortable && <span style={{ marginLeft: 8, fontWeight: 600, letterSpacing: 0 }}>{[["n", "most tickets"], ["slow", "slowest"], ["on", "worst on-time"]].map(([k, l]) => <span key={k} onClick={() => setSortBy(k)} style={{ cursor: "pointer", marginRight: 6, color: sortBy === k ? C.ink : "#a3aab0", textDecoration: sortBy === k ? "underline" : "none" }}>{l}</span>)}</span>}</span>
+        <span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>P90</span><span style={{ textAlign: "right" }}>ON-TIME</span>
+      </div>
+      {shown.map((r) => (
+        <div key={r.k} onClick={() => onRow(label.charAt(0) + label.slice(1).toLowerCase() + ": " + r.k, r.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "1fr 40px 76px 64px 54px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center", cursor: r.rows ? "pointer" : "default" }}>
+          <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k}</span>
+          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{r.n}</span>
+          <span style={{ position: "relative", textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, fontFamily: PF, color: r.avg != null && r.avg > T ? C.bad : C.ink }}>
+            <span style={{ position: "absolute", left: 0, right: 0, bottom: -3, height: 3, borderRadius: 2, background: C.soft }}><span style={{ display: "block", height: "100%", width: ((r.avg || 0) / maxAvg) * 100 + "%", borderRadius: 2, background: r.avg != null && r.avg > T ? "#fca5a5" : "#86efac" }} /></span>
+            {mmss(r.avg)}
+          </span>
+          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{mmss(r.p90)}</span>
+          <span style={{ textAlign: "right" }}><span style={{ display: "inline-block", minWidth: 42, textAlign: "center", padding: "2px 6px", borderRadius: 6, fontWeight: 800, fontSize: F(12), background: r.on >= 80 ? C.goodBg : r.on >= 60 ? C.warnBg : C.badBg, color: r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on}%</span></span>
+        </div>
+      ))}
+      {limit && rs.length > limit && <div onClick={() => setAll((a) => !a)} className="kbtn" style={{ cursor: "pointer", textAlign: "center", padding: "8px 0 2px", fontSize: F(12), fontWeight: 800, color: C.muted }}>{all ? "Show fewer" : "Show all " + rs.length}</div>}
+      {!rs.length && <div style={{ fontSize: F(13), color: C.muted, padding: "8px 0" }}>No completed tickets</div>}
+    </div>
+  );
+}
+
 function PerformanceView({ loc, F, lateMin }) {
   const [period, setPeriod] = useState("today");   // today | yesterday | 7d | 30d
   const [rows, setRows] = useState(null);           // orders in period
@@ -1014,7 +1046,9 @@ function PerformanceView({ loc, F, lateMin }) {
 
   // ---- load vs speed: how many tickets were already open when each was placed ----
   const loadBuckets = (() => {
-    const ev = live.map((o) => ({ c: new Date(o.created_at).getTime(), d: o._done })).sort((a, b) => a.c - b.c);
+    // A ticket nobody ever bumped is treated as open for 90 min, not forever —
+    // otherwise every later ticket looks like it joined a huge queue.
+    const ev = live.map((o) => ({ c: new Date(o.created_at).getTime(), d: o._done == null ? new Date(o.created_at).getTime() + 90 * 60000 : o._done })).sort((a, b) => a.c - b.c);
     const out = { "1–2 open": [], "3–4 open": [], "5–7 open": [], "8+ open": [] };
     for (const o of done) {
       const c = new Date(o.created_at).getTime();
@@ -1024,7 +1058,7 @@ function PerformanceView({ loc, F, lateMin }) {
     }
     return Object.entries(out).map(([k, v]) => pack(k, v)).filter((r) => r.n > 0);
   })();
-  const maxOpen = (() => { const ev = live.map((o) => ({ c: new Date(o.created_at).getTime(), d: o._done })); let m = 0, at = null; for (const o of live) { const c = new Date(o.created_at).getTime(); const n = ev.filter((e) => e.c <= c && (e.d == null || e.d > c)).length; if (n > m) { m = n; at = c; } } return { n: m, at }; })();
+  const maxOpen = (() => { const ev = live.map((o) => ({ c: new Date(o.created_at).getTime(), d: o._done == null ? new Date(o.created_at).getTime() + 90 * 60000 : o._done })); let m = 0, at = null; for (const o of live) { const c = new Date(o.created_at).getTime(); const n = ev.filter((e) => e.c <= c && (e.d == null || e.d > c)).length; if (n > m) { m = n; at = c; } } return { n: m, at }; })();
 
   // ---- items that slow tickets down (tickets containing the item vs the rest) ----
   const itemImpact = (() => {
@@ -1254,21 +1288,7 @@ function PerformanceView({ loc, F, lateMin }) {
       {children}
     </div>
   );
-  const Table = ({ rows: rs, label }) => (
-    <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px 54px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px" }}><span>{label}</span><span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>P90</span><span style={{ textAlign: "right" }}>ON-TIME</span></div>
-      {rs.map((r) => (
-        <div key={r.k} onClick={() => openDrill(label.charAt(0) + label.slice(1).toLowerCase() + ": " + r.k, r.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px 54px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center", cursor: r.rows ? "pointer" : "default" }}>
-          <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k}</span>
-          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{r.n}</span>
-          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, fontFamily: PF, color: r.avg != null && r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</span>
-          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{mmss(r.p90)}</span>
-          <span style={{ textAlign: "right" }}><span style={{ display: "inline-block", minWidth: 42, textAlign: "center", padding: "2px 6px", borderRadius: 6, fontWeight: 800, fontSize: F(12), background: r.on >= 80 ? C.goodBg : r.on >= 60 ? C.warnBg : C.badBg, color: r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on}%</span></span>
-        </div>
-      ))}
-      {!rs.length && <div style={{ fontSize: F(13), color: C.muted, padding: "8px 0" }}>No completed tickets</div>}
-    </div>
-  );
+  const tp = { C, F, PF, T, onRow: (title, rows) => openDrill(title, rows) };
   const Ring = ({ value, size, stroke, color }) => {
     const r = (size - stroke) / 2, c = 2 * Math.PI * r, v = value == null ? 0 : Math.max(0, Math.min(100, value));
     return (
@@ -1286,8 +1306,8 @@ function PerformanceView({ loc, F, lateMin }) {
 
   return (
     <div style={{ padding: F(16), display: "grid", gap: F(14) }}>
-      {/* header row */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+      {/* header row (sticky) */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, position: "sticky", top: 0, zIndex: 5, background: "#f8fafc", margin: -F(16) + "px " + -F(16) + "px 0", padding: F(12) + "px " + F(16) + "px" }}>
         <div>
           <div style={{ fontSize: F(21), fontWeight: 900, fontFamily: PF, letterSpacing: "-.02em" }}>Kitchen performance</div>
           <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped (later tidy-up bumps ignored){period === "today" ? " · live, refreshes every 30s" : ""}</div>
@@ -1429,12 +1449,12 @@ function PerformanceView({ loc, F, lateMin }) {
 
       <div style={{ display: "grid", gridTemplateColumns: byWeekday.length ? "1fr 1fr 1fr" : "1fr 1fr", gap: F(14) }}>
         <Card title="LOAD VS SPEED" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets already open when placed{maxOpen.n ? " · peak " + maxOpen.n : ""}</span>}>
-          <Table rows={loadBuckets} label="QUEUE" />
+          <PerfTable {...tp} rows={loadBuckets} label="QUEUE" />
         </Card>
         <Card title="ITEMS THAT SLOW TICKETS" right={<span style={{ fontSize: F(11), color: C.muted }}>vs overall avg · min 4 tickets</span>}>
           {slowItems.length ? slowItems.map((x) => (
             <div key={x.k} onClick={() => openDrill("Tickets with " + x.k, x.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center", cursor: "pointer" }}>
-              <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.k}</span>
+              <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.k}{x.rows && x.rows[0] && (() => { const it = (x.rows[0].items || []).find((i) => itemName(i) === x.k); return it ? <span style={{ color: C.muted, fontWeight: 500, fontSize: F(11.5) }}> · {itemCat(it)}</span> : null; })()}</span>
               <span style={{ textAlign: "right", color: C.muted, fontVariantNumeric: "tabular-nums" }}>{x.n}</span>
               <span style={{ textAlign: "right", fontWeight: 800, fontFamily: PF, fontVariantNumeric: "tabular-nums" }}>{mmss(x.avg)}</span>
               <span style={{ textAlign: "right", fontWeight: 800, color: C.bad, fontVariantNumeric: "tabular-nums" }}>+{mmss(x.delta)}</span>
@@ -1442,19 +1462,19 @@ function PerformanceView({ loc, F, lateMin }) {
           )) : <div style={{ fontSize: F(13), color: C.muted }}>{done.length < 8 ? "Needs more completed tickets" : "No item adds more than 2 min over the average"}</div>}
           {fastItems.length > 0 && <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>Quickest: {fastItems.map((x) => x.k + " (" + mmss(x.delta) + ")").join(", ")}</div>}
         </Card>
-        {byWeekday.length > 0 && <Card title="BY WEEKDAY"><Table rows={byWeekday} label="DAY" /></Card>}
+        {byWeekday.length > 0 && <Card title="BY WEEKDAY"><PerfTable {...tp} rows={byWeekday} label="DAY" /></Card>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: F(14) }}>
-        <Card title="BY CATEGORY" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets containing an item from the category · tap a row for the tickets</span>}>{done.length && !done.some((o) => (o.items || []).length) ? <div style={{ fontSize: F(13), color: C.warn }}>Item data isn't coming through — run the latest db/kds_perf.sql in Supabase.</div> : <Table rows={byCategory} label="CATEGORY" />}</Card>
-        <Card title="BY MENU"><Table rows={byMenu} label="MENU" /></Card>
+        <Card title="BY CATEGORY" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets containing an item from the category · tap a row for the tickets</span>}>{done.length && !done.some((o) => (o.items || []).length) ? <div style={{ fontSize: F(13), color: C.warn }}>Item data isn't coming through — run the latest db/kds_perf.sql in Supabase.</div> : <PerfTable {...tp} rows={byCategory} label="CATEGORY" limit={12} sortable />}</Card>
+        <Card title="BY MENU"><PerfTable {...tp} rows={byMenu} label="MENU" sortable /></Card>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: F(14) }}>
-        <Card title="BY SCREEN"><Table rows={byScreen} label="SCREEN" /></Card>
-        <Card title="BY ORDER TYPE"><Table rows={byType} label="TYPE" /></Card>
-        <Card title="BY SOURCE"><Table rows={bySource} label="SOURCE" /></Card>
-        <Card title="BY TICKET SIZE"><Table rows={bySize} label="SIZE" /></Card>
+        <Card title="BY SCREEN"><PerfTable {...tp} rows={byScreen} label="SCREEN" /></Card>
+        <Card title="BY ORDER TYPE"><PerfTable {...tp} rows={byType} label="TYPE" /></Card>
+        <Card title="BY SOURCE"><PerfTable {...tp} rows={bySource} label="SOURCE" /></Card>
+        <Card title="BY TICKET SIZE"><PerfTable {...tp} rows={bySize} label="SIZE" /></Card>
       </div>
       <DrillPanel />
     </div>
