@@ -105,3 +105,6 @@ language sql stable security definer set search_path = public as $$
 $$;
 grant execute on function public.kds_staffing(uuid, timestamptz, timestamptz) to anon, authenticated;
 notify pgrst, 'reload schema';
+
+-- Live KDS: a new round on an already-served ticket starts its own clock.
+alter table menu_orders add column if not exists round_restarted boolean not null default false;

@@ -225,7 +225,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.desc&limit=500";
       // Only today's trade: a busy day passed 200 open orders and the old
@@ -448,8 +448,21 @@ export default function KDS() {
   // Active/completed are decided PER SCREEN by this screen's local bump set —
   // not the shared DB status — so each screen is independent. An order is
   // "active" here until THIS screen bumps it; "completed" once it has.
+  // A ticket reopened by a new round is timed from that round, not the original
+  // order — provided the earlier rounds are finished (ticked or previously bumped).
+  const roundOf = (o) => { const log = Array.isArray(o.items_added_log) ? o.items_added_log.length : (o.items_added_at ? 1 : 0); return log; };
+  const clockStart = (o) => {
+    const r = roundOf(o);
+    if (!r || !o.items_added_at) return o.created_at;
+    const lines = o.menu_order_items || [];
+    const earlier = lines.filter((it) => (Number(it.added_batch) || 0) < r);
+    const earlierDone = earlier.length > 0 && earlier.every((it) => it.item_status === DONE_ITEM);
+    // round_restarted is set by place-order when the ticket had already been
+    // bumped before the new round arrived — i.e. the earlier rounds were served.
+    return (o.round_restarted || earlierDone) ? o.items_added_at : o.created_at;
+  };
   let active = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled").map(filterStation).filter(Boolean);
-  active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0));
+  active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0) || new Date(clockStart(a)) - new Date(clockStart(b)));
   // Orders that failed to print — shown as an un-ignorable banner across the KDS.
   const failedOrders = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled" && o.print_failed);
   const [retryingPrint, setRetryingPrint] = useState(false);
@@ -494,7 +507,7 @@ export default function KDS() {
     const cat = catOf(it);
     const mods = cleanMods(it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : []);
     const variant = mods.join(", ") || "";
-    const age = (now - new Date(o.created_at)) / 60000;
+    const age = (now - new Date(clockStart(o))) / 60000;
     const row = (allday[name] ||= { name, cat, qty: 0, variants: {}, oldest: 0, late: 0, tickets: [], notes: [], lineIds: [], newest: Infinity });
     row.qty += it.qty || 1;
     row.lineIds.push(it.id);
@@ -674,7 +687,8 @@ export default function KDS() {
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(268) + "px, 1fr))", gap: F(12), padding: F(16), alignItems: "start" }}>
           {active.length === 0 && <div style={{ color: "#64748b", padding: 48, fontSize: 18 }}>No active orders.</div>}
           {active.map((o, i) => {
-            const age = minsSince(o.created_at, now);
+            const age = minsSince(clockStart(o), now);
+            const round = roundOf(o);
             const isRush = rushIds.has(o.id);
             const isLate = age >= LATE_MIN;
             const pal = isRush
@@ -713,13 +727,13 @@ export default function KDS() {
                       <span style={{ fontSize: F(10), fontWeight: 800, opacity: .7, border: "1.5px solid currentColor", padding: "0 6px", borderRadius: 20, lineHeight: 1.6 }}>{i + 1}</span>
                     </div>
                     <div style={{ fontSize: F(11.5), opacity: .85, fontWeight: 600, marginTop: 2, letterSpacing: ".02em" }}>
-                      {"#" + (o.order_no ?? "") + (o.tablet_no ? "  " + DOT + "  Tablet " + o.tablet_no : "")}
+                      {"#" + (o.order_no ?? "") + (o.tablet_no ? "  " + DOT + "  Tablet " + o.tablet_no : "")}{round > 0 && <span style={{ marginLeft: 8, fontSize: F(10.5), fontWeight: 900, letterSpacing: ".06em", background: "#7c3aed", color: "#fff", padding: "2px 7px", borderRadius: 6, verticalAlign: "middle" }}>ROUND {round + 1}</span>}
                       {(o.menu_tables?.label || o.order_type === "dine_in") && o.pickup_name ? " " + DOT + " " + o.pickup_name : ""}
                     </div>
                     {o.print_failed && <div style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 5, background: "#dc2626", color: "#fff", fontSize: F(11), fontWeight: 800, padding: "2px 8px", borderRadius: 6, letterSpacing: ".02em" }}>⚠ NOT PRINTED</div>}
                   </div>
                   <div style={{ textAlign: "right", flex: "none", marginLeft: 8, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                    <div className="ktime" style={{ fontWeight: 900, fontSize: F(19), fontVariantNumeric: "tabular-nums", color: "#fff", background: pal.accent, letterSpacing: "-.02em", padding: "2px " + F(9) + "px", borderRadius: 8, display: "inline-block", lineHeight: 1.3 }}>{fmtClock(o.created_at, now)}</div>
+                    <div className="ktime" style={{ fontWeight: 900, fontSize: F(19), fontVariantNumeric: "tabular-nums", color: "#fff", background: pal.accent, letterSpacing: "-.02em", padding: "2px " + F(9) + "px", borderRadius: 8, display: "inline-block", lineHeight: 1.3 }}>{fmtClock(clockStart(o), now)}</div>
                     <div style={{ fontSize: F(10), opacity: .9, fontWeight: 700, marginTop: 3 }}>{items.length ? doneCount + "/" + items.length + " done" : ""}{o.status === "preparing" ? " " + DOT + " prep" : ""}</div>
                   </div>
                 </div>
@@ -808,7 +822,7 @@ export default function KDS() {
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><span style={{ fontSize: F(12), fontWeight: 900, letterSpacing: ".1em", color: "#16a34a" }}>NEARLY READY</span><span style={{ fontSize: F(11.5), color: "#64748b" }}>tickets waiting on one or two items</span></div>
                   <div style={{ display: "grid", gap: 6 }}>
                     {nearlyReady.map(({ o, total, left }) => {
-                      const age = (now - new Date(o.created_at)) / 60000;
+                      const age = (now - new Date(clockStart(o))) / 60000;
                       const lbl = o.menu_tables?.label || (o.order_type === "takeaway" ? "T/A" : "");
                       return (
                         <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: F(13.5), padding: "6px 0", borderTop: "1px solid #f1f5f9" }}>

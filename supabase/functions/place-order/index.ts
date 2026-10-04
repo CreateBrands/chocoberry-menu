@@ -257,6 +257,10 @@ Deno.serve(async (req) => {
       } catch (e) { console.warn("kds_bump_log archive failed (non-fatal)", e); }
       const { data: cur } = await admin.from("menu_orders").select("items_added_log").eq("id", orderId).single();
       const log = Array.isArray(cur?.items_added_log) ? cur.items_added_log : [];
+      // Had the kitchen already cleared this ticket on at least one screen? Then the
+      // new round starts its own clock on the KDS (round_restarted).
+      let hadBumps = false;
+      try { const { count } = await admin.from("kds_bump_log").select("id", { count: "exact", head: true }).eq("order_id", orderId).gte("archived_at", new Date(Date.now() - 60000).toISOString()); hadBumps = (count || 0) > 0; } catch {}
       await admin.from("menu_orders").update({
         subtotal: Number(existing.subtotal || 0) + subtotal,
         total: Number(existing.total || 0) + subtotal,
@@ -264,6 +268,7 @@ Deno.serve(async (req) => {
         kds_bumped_at: null,
         items_added_at: addedAt,
         items_added_log: [...log, addedAt],
+        round_restarted: hadBumps,
       }).eq("id", orderId);
       await admin.from("kds_bumps").delete().eq("order_id", orderId);
 
