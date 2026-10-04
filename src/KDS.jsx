@@ -1040,15 +1040,6 @@ function PerformanceView({ loc, F, lateMin }) {
   const yesterdayDay = trendDays[trendDays.length - 2];
   const bestDay = trendDays.slice(0, -1).filter((d) => d.n >= 10).sort((a, b) => b.on - a.on)[0] || null;
 
-  // ---- staff-facing: recent tickets, streaks, hour lights, target tracker ----
-  const byDone = [...done].sort((a, b) => a._done - b._done);
-  const last10 = byDone.slice(-10);
-  const streak = (() => { let cur = 0, best = 0; for (const o of byDone) { if (tt(o) <= T) { cur++; best = Math.max(best, cur); } else cur = 0; } return { cur, best }; })();
-  const GOAL = 80;
-  const needForGoal = (() => { if (!times.length) return null; const n = times.length, k = onTime; if (k / n * 100 >= GOAL) return 0; // need x more all on time: (k+x)/(n+x) >= GOAL
-    const x = Math.ceil((GOAL * n - 100 * k) / (100 - GOAL)); return x; })();
-  const hourLights = hours.map(([h, v]) => ({ h, n: v.n, done: v.t.length, on: v.t.length ? Math.round(v.t.filter((x) => x <= T).length / v.t.length * 100) : null, avg: avg(v.t), rows: v.rows }));
-  const fastest = byDone.length ? [...done].sort((a, b) => tt(a) - tt(b))[0] : null;
   // Cap the scale at 4x target so one forgotten ticket doesn't flatten the chart.
   const trendMax = Math.min(T * 4, Math.max(T * 1.5, ...trendDays.map((x) => x.avg || 0)));
 
@@ -1064,6 +1055,15 @@ function PerformanceView({ loc, F, lateMin }) {
   const maxT = Math.min(T * 4, Math.max(T * 1.5, ...hours.map(([, v]) => avg(v.t) || 0)));
   const peak = hours.slice().sort((a, b) => b[1].n - a[1].n)[0];
   const worst = hours.filter(([, v]) => v.t.length >= 3).sort((a, b) => (avg(b[1].t) || 0) - (avg(a[1].t) || 0))[0];
+  // ---- staff-facing: recent tickets, streaks, hour lights, target tracker ----
+  const byDone = [...done].sort((a, b) => a._done - b._done);
+  const last10 = byDone.slice(-10);
+  const streak = (() => { let cur = 0, best = 0; for (const o of byDone) { if (tt(o) <= T) { cur++; best = Math.max(best, cur); } else cur = 0; } return { cur, best }; })();
+  const GOAL = 80;
+  const needForGoal = (() => { if (!times.length) return null; const n = times.length, k = onTime; if (k / n * 100 >= GOAL) return 0; // need x more all on time: (k+x)/(n+x) >= GOAL
+    const x = Math.ceil((GOAL * n - 100 * k) / (100 - GOAL)); return x; })();
+  const hourLights = hours.map(([h, v]) => ({ h, n: v.n, done: v.t.length, on: v.t.length ? Math.round(v.t.filter((x) => x <= T).length / v.t.length * 100) : null, avg: avg(v.t), rows: v.rows }));
+  const fastest = byDone.length ? [...done].sort((a, b) => tt(a) - tt(b))[0] : null;
 
   const typeLabel = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
   const pack = (k, list) => { const v = list.map(tt); return { k, n: v.length, avg: avg(v), p90: pct(v, 0.9), on: v.length ? Math.round(v.filter((x) => x <= T).length / v.length * 100) : 0, rows: list }; };
