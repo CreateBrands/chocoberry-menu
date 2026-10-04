@@ -118,7 +118,7 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
 
   // sizes scale with the screen: a 10" POS tablet and a 32" wall screen both work
   const fs = (min, vw, max) => "clamp(" + min + "px, " + vw + "vw, " + max + "px)";
-  const T = { h1: fs(22, 1.6, 34), h2: fs(14, .9, 18), body: fs(15, 1.05, 22), chip: fs(16, 1.15, 24), face: "min(11vw, 30vh)", key: fs(22, 1.6, 34), btn: fs(16, 1.2, 24) };
+  const T = { h1: fs(22, 1.6, 34), h2: fs(14, .9, 18), body: fs(15, 1.05, 22), chip: fs(16, 1.15, 24), face: "min(8.5vw, 24vh)", key: fs(22, 1.6, 34), btn: fs(16, 1.2, 24) };
   useEffect(() => { const h = (e) => { if (stage !== "mood" && stage !== "choose") return; const n = Number(e.key); if (n >= 1 && n <= 5) { setRating(n); setStage("choose"); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [stage]);
   // mood → sensible defaults for severity, so an upset guest isn't logged as "minor" by accident
   useEffect(() => { if (rating === 1) setSeverity("high"); else if (rating === 2) setSeverity("medium"); else if (rating >= 3) setSeverity("low"); }, [rating]);
@@ -165,7 +165,7 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
           <div style={{ display: "flex", flexDirection: "column", gap: 6, color: "#fff" }}>
             <Row k="Mood" v={rating ? <span><span style={{ fontSize: "1.3em" }}>{moodMeta(rating)[1]}</span> {moodMeta(rating)[2]}</span> : <span style={{ color: "#64748b", fontWeight: 500 }}>—</span>} />
             <Row k="Flags" v={tags.size ? [...tags].map((k) => TAGS.find((t) => t.k === k)?.l).join(", ") : (stage === "pin" || stage === "flag") ? <span style={{ color: "#86efac" }}>{stage === "pin" && !tags.size ? "All good" : "—"}</span> : <span style={{ color: "#64748b", fontWeight: 500 }}>—</span>} />
-            {itemSel.size > 0 && <Row k="Items" v={[...itemSel].join(", ")} />}
+            <Row k="About" v={itemSel.size ? [...itemSel].join(", ") : <span style={{ color: "#94a3b8", fontWeight: 500 }}>whole order</span>} />
             {hasIssue && <Row k="Action" v={(ACTIONS.find((a) => a[0] === action)?.[1] || "") + (actionValue ? " £" + actionValue : "") + (resolved != null ? " · left " + (resolved ? "happy" : "unhappy") : "") + " · " + severity} />}
             {note.trim() && <Row k="Note" v={<span style={{ fontWeight: 500, color: "#cbd5e1" }}>“{note.trim()}”</span>} />}
             {staff && !staff.unknown && <Row k="By" v={staff.name} />}
@@ -197,15 +197,15 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
         </div>
 
         {/* content */}
-        <div className="svc-stage" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: pad, display: "flex", flexDirection: "column", WebkitOverflowScrolling: "touch" }}>
+        <div className="svc-stage" style={{ flex: 1, minHeight: 0, overflowY: "auto", overflowX: "hidden", padding: pad, display: "flex", flexDirection: "column", WebkitOverflowScrolling: "touch" }}>
           {(stage === "mood" || stage === "choose") && (
             <>
               <div style={{ fontSize: T.h1, fontWeight: 900, fontFamily: "'Poppins',sans-serif", marginBottom: fs(12, 1, 24) }}>How did the guest leave?</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: fs(10, 1, 22), flex: stage === "mood" ? 1 : "0 0 auto", minHeight: stage === "mood" ? 0 : undefined, maxHeight: stage === "mood" ? "62vh" : undefined }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0, 1fr))", gap: fs(10, 1, 22), flex: stage === "mood" ? 1 : "0 0 auto", minHeight: stage === "mood" ? 0 : undefined, maxHeight: stage === "mood" ? "62vh" : undefined, minWidth: 0 }}>
                 {MOODS.map(([v, face, l]) => {
                   const on = rating === v; const col = v <= 2 ? C.bad : v === 3 ? C.warn : C.good; const bg = v <= 2 ? "#fee2e2" : v === 3 ? "#fef3c7" : "#dcfce7";
                   return (
-                    <div key={v} onClick={() => { setRating(v); setStage("choose"); }} className={"svc-tap" + (on ? " svc-on" : "")} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: fs(8, .8, 18), padding: stage === "mood" ? fs(18, 2, 40) + " 0" : fs(14, 1.2, 24) + " 0", borderRadius: fs(16, 1.4, 28), cursor: "pointer", background: on ? bg : "#fff", border: "3px solid " + (on ? col : "transparent"), boxShadow: on ? "0 14px 36px rgba(15,23,42,.14)" : "0 1px 3px rgba(15,23,42,.06)", transform: on ? "scale(1.03)" : "none", position: "relative" }}>
+                    <div key={v} onClick={() => { setRating(v); setStage("choose"); }} className={"svc-tap" + (on ? " svc-on" : "")} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: fs(8, .8, 18), padding: stage === "mood" ? fs(18, 2, 40) + " 0" : fs(14, 1.2, 24) + " 0", borderRadius: fs(16, 1.4, 28), cursor: "pointer", minWidth: 0, overflow: "hidden", background: on ? bg : "#fff", border: "3px solid " + (on ? col : "transparent"), boxShadow: on ? "0 14px 36px rgba(15,23,42,.14)" : "0 1px 3px rgba(15,23,42,.06)", transform: on ? "scale(1.03)" : "none", position: "relative" }}>
                       <div style={{ fontSize: stage === "mood" ? T.face : fs(36, 3, 64), lineHeight: 1, filter: rating && !on ? "grayscale(.6) opacity(.55)" : "none", transition: "filter .15s" }}>{face}</div>
                       <div style={{ fontSize: T.body, fontWeight: 800, color: on ? C.ink : C.muted }}>{l}</div>
                       {stage === "mood" && <span style={{ position: "absolute", top: 10, left: 12, fontSize: T.h2, fontWeight: 800, color: "#cbd5e1" }}>{v}</span>}
@@ -239,6 +239,18 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
                 <div style={{ fontSize: T.h1, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>What happened?</div>
                 <div style={{ fontSize: T.body, color: C.muted }}>{tags.size ? tags.size + " selected" : "tap everything that applies"}</div>
               </div>
+              {items.length > 0 && (
+                <div style={{ background: "#fff", border: "2px solid " + (itemSel.size ? C.ink : C.line), borderRadius: fs(14, 1.2, 24), padding: fs(12, 1, 22), marginBottom: fs(10, .9, 20), transition: "border-color .15s" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: fs(8, .7, 14), gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ fontSize: T.h2, fontWeight: 900, letterSpacing: ".08em", color: C.muted }}>🍽 WHAT IS THIS ABOUT?</span>
+                    <span style={{ fontSize: T.body, color: C.muted }}>{itemSel.size ? itemSel.size + " item" + (itemSel.size === 1 ? "" : "s") + " picked" : "tap the dish or drink · or leave as whole order"}</span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: fs(6, .6, 12) }}>
+                    <Tag on={itemSel.size === 0} onClick={() => setItemSel(new Set())}>Whole order</Tag>
+                    {(o.menu_order_items || []).map((it, i) => { const n = it.name_snapshot; if (!n) return null; return <Tag key={i} on={itemSel.has(n)} onClick={() => setItemSel((x) => { const y = new Set(x); y.has(n) ? y.delete(n) : y.add(n); return y; })}>{it.qty > 1 ? it.qty + "× " : ""}{n}</Tag>; })}
+                  </div>
+                </div>
+              )}
               {suggested.length > 0 && !suggested.every((k) => tags.has(k)) && (
                 <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: fs(10, .9, 20), padding: fs(10, .8, 18), borderRadius: 14, background: "#fff7ed", border: "1px solid #fed7aa" }}>
                   <span style={{ fontSize: T.body, fontWeight: 800, color: C.warn }}>The kitchen clock says:</span>
@@ -259,13 +271,7 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
                 ))}
               </div>
               {tags.size > 0 && (
-                <div style={{ marginTop: fs(14, 1.2, 28), display: "grid", gridTemplateColumns: hasIssue ? "1fr 1fr" : "1fr", gap: fs(10, .9, 20) }}>
-                  {items.length > 0 && (
-                    <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: fs(14, 1.2, 24), padding: fs(12, 1, 22) }}>
-                      <div style={{ fontSize: T.h2, fontWeight: 900, letterSpacing: ".08em", color: C.muted, marginBottom: fs(8, .7, 14) }}>WHICH ITEMS <span style={{ fontWeight: 600, letterSpacing: 0 }}>· optional</span></div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: fs(6, .6, 12) }}>{[...new Set(items)].map((n) => <Tag key={n} on={itemSel.has(n)} onClick={() => setItemSel((s) => { const x = new Set(s); x.has(n) ? x.delete(n) : x.add(n); return x; })}>{n}</Tag>)}</div>
-                    </div>
-                  )}
+                <div style={{ marginTop: fs(14, 1.2, 28), display: "grid", gridTemplateColumns: "1fr", gap: fs(10, .9, 20) }}>
                   {hasIssue && (
                     <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: fs(14, 1.2, 24), padding: fs(12, 1, 22) }}>
                       <div style={{ fontSize: T.h2, fontWeight: 900, letterSpacing: ".08em", color: C.muted, marginBottom: fs(8, .7, 14) }}>WHAT WAS DONE</div>
