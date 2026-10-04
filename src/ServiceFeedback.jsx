@@ -65,6 +65,13 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
   const lookupTimer = useRef(null);
+  const [existing, setExisting] = useState([]);
+  const remembered = (() => { try { const j = JSON.parse(sessionStorage.getItem("svc_pin") || "null"); return j && Date.now() - j.t < 15 * 60000 ? j : null; } catch { return null; } })();
+  useEffect(() => {
+    if (remembered && !pin) { setPin(remembered.pin); setStaff({ name: remembered.name }); }
+    if (o.id) fetch(supabaseUrl + "/rest/v1/service_log?select=id,rating,tags,logged_by,created_at&order_id=eq." + o.id + "&order=created_at.desc", { headers }).then((r) => r.ok ? r.json() : []).then((rows) => setExisting(rows || [])).catch(() => {});
+  }, []); // eslint-disable-line
+  const suggested = (() => { const out = []; const b = o.kds_bumped_at || o.served_at; const secs = b ? (new Date(b) - new Date(o.created_at)) / 1000 : null; if (secs != null && secs > 15 * 60) out.push("slow_food"); return out; })();
 
   const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", good: "#16a34a", warn: "#b45309", bad: "#b91c1c", brand: "#ec4899" };
   const hasIssue = [...tags].some((k) => { const t = TAGS.find((x) => x.k === k); return t && t.c !== "positive"; });
@@ -92,12 +99,13 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || "Could not save");
       setDone(true);
+      try { sessionStorage.setItem("svc_pin", JSON.stringify({ pin, name: j.logged_by || (staff && staff.name) || "", t: Date.now() })); } catch {}
       if (onSaved) onSaved(j);
       setTimeout(onClose, 900);
     } catch (e) { setErr(e.message || "Could not save"); } finally { setBusy(false); }
   }
 
-  const [stage, setStage] = useState("mood"); // mood → (allgood | flag) → pin
+  const [stage, setStage] = useState(prefill && prefill.rating ? "choose" : "mood"); // mood → (allgood | flag) → pin
   const Chip = ({ on, children, onClick, tone, small }) => (
     <span onClick={onClick} style={{ cursor: "pointer", padding: small ? "8px 13px" : "10px 15px", borderRadius: 11, fontSize: small ? 13.5 : 14.5, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : C.ink, border: "1.5px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap", lineHeight: 1.2 }}>{children}</span>
   );
@@ -138,6 +146,11 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
           </div>
           <span onClick={onClose} style={{ cursor: "pointer", width: 36, height: 36, borderRadius: 10, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flexShrink: 0 }}>✕</span>
         </div>
+        {existing.length > 0 && (
+          <div style={{ margin: "10px 22px 0", padding: "8px 12px", borderRadius: 10, background: "#eff6ff", color: "#1e3a8a", fontSize: 12.5, fontWeight: 700 }}>
+            Already logged {existing.length === 1 ? "once" : existing.length + " times"} — last by {existing[0].logged_by || "staff"} at {new Date(existing[0].created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}{existing[0].rating ? " (" + ["", "😠", "🙁", "😐", "🙂", "😄"][existing[0].rating] + ")" : ""}. Adding another entry is fine for a new round or a later issue.
+          </div>
+        )}
         {/* progress */}
         <div style={{ display: "flex", gap: 6, padding: "10px 22px 0" }}>
           {[["mood", "Mood"], ["flag", "What happened"], ["pin", "Your PIN"]].map(([k, l], i) => { const on = stage === k || (stage === "choose" && k === "mood") || (k === "mood" && rating) || (k === "flag" && (tags.size || stage === "pin")) || (k === "pin" && pin.length >= 4); return <span key={k} style={{ flex: 1, textAlign: "center", fontSize: 11.5, fontWeight: 800, color: on ? C.ink : "#94a3b8", borderBottom: "3px solid " + (on ? C.ink : C.line), paddingBottom: 6 }}>{i + 1} · {l}</span>; })}
@@ -173,6 +186,12 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
 
           {flagged && (
             <>
+              {suggested.length > 0 && !suggested.every((k) => tags.has(k)) && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 12, padding: "8px 12px", borderRadius: 12, background: "#fff7ed" }}>
+                  <span style={{ fontSize: 12.5, fontWeight: 800, color: C.warn }}>Suggested from the kitchen clock:</span>
+                  {suggested.filter((k) => !tags.has(k)).map((k) => <Chip key={k} small tone={C.warn} onClick={() => setTags((s) => new Set(s).add(k))}>+ {TAGS.find((t) => t.k === k)?.l}</Chip>)}
+                </div>
+              )}
               <Sec title="WHAT HAPPENED" right={tags.size ? tags.size + " selected" : "tap all that apply"}>
                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: 10 }}>
                   {groups.map(([c, list]) => (
@@ -228,7 +247,7 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
                   <div onClick={() => setStage(tags.size ? "flag" : "choose")} style={{ marginTop: 8, fontSize: 12.5, fontWeight: 800, color: C.muted, cursor: "pointer" }}>‹ Change something</div>
                 </Sec>
               </div>
-              <Sec title="YOUR PIN" right={staff ? (staff.unknown ? <span style={{ color: C.bad }}>not recognised</span> : <span style={{ color: C.good, fontWeight: 800 }}>{staff.name}</span>) : "as in the staff app"}>
+              <Sec title="YOUR PIN" right={staff ? (staff.unknown ? <span style={{ color: C.bad }}>not recognised</span> : <span style={{ color: C.good, fontWeight: 800 }}>{staff.name}{remembered && pin === remembered.pin ? <span onClick={() => { setPin(""); setStaff(null); }} style={{ marginLeft: 8, color: C.muted, cursor: "pointer", fontWeight: 700 }}>not you?</span> : null}</span>) : "as in the staff app"}>
                 <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: ".4em", textAlign: "center", padding: "6px 0 10px", minHeight: 42, color: staff && staff.unknown ? C.bad : C.ink }}>{pin ? "•".repeat(pin.length) : <span style={{ color: "#cbd5e1" }}>••••</span>}</div>
                 <PinPad />
               </Sec>

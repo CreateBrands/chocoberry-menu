@@ -952,7 +952,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
         </div>
       )}
-      {feedbackFor && <ServiceFeedback order={feedbackFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="pos" onClose={() => setFeedbackFor(null)} />}
+      {feedbackFor && <ServiceFeedback order={feedbackFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="pos" onClose={() => setFeedbackFor(null)} onSaved={(j) => setMsg("Feedback logged for #" + feedbackFor.order_no + (j && j.logged_by ? " as " + j.logged_by : ""))} />}
       {paidBanner && (
         <div onClick={() => setPaidBanner(null)}
           style={{ position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)", zIndex: 9999,

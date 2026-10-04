@@ -182,6 +182,22 @@ export default function KDS() {
   const [setupOpen, setSetupOpen] = useState(false);
   const [feedbackFor, setFeedbackFor] = useState(null);
   const [servedIds, setServedIds] = useState(() => new Set());
+  const [toast, setToast] = useState(null);
+  const [quickLogged, setQuickLogged] = useState({}); // order id -> rating
+  const showToast = (t) => { setToast(t); setTimeout(() => setToast(null), 2200); };
+  // One-tap mood from a finished ticket, using the PIN remembered by the sheet (15 min).
+  async function quickMood(o, rating) {
+    let rem = null; try { const j = JSON.parse(sessionStorage.getItem("svc_pin") || "null"); if (j && Date.now() - j.t < 15 * 60000) rem = j; } catch {}
+    if (!rem) { setFeedbackFor({ ...o, _prefillRating: rating }); return; }
+    setQuickLogged((m) => ({ ...m, [o.id]: rating }));
+    try {
+      const b = o.kds_bumped_at || o.served_at; const secs = b ? Math.round((new Date(b) - new Date(o.created_at)) / 1000) : null;
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "service_log_add", data: { location_id: loc, order_id: o.id, staff_pin: rem.pin, rating, tags: [], source: "kds", ticket_secs: secs } }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok || !j.ok) throw new Error(j.error || "failed");
+      showToast("Logged " + ["", "😠", "🙁", "😐", "🙂", "😄"][rating] + " for #" + o.order_no + " as " + (j.logged_by || rem.name));
+    } catch { setQuickLogged((m) => { const n = { ...m }; delete n[o.id]; return n; }); setFeedbackFor({ ...o, _prefillRating: rating }); }
+  }
   async function markServed(o) {
     setServedIds((p) => new Set(p).add(o.id));
     try { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "mark_served", data: { order_id: o.id } }) }); } catch {}
@@ -969,6 +985,11 @@ export default function KDS() {
                     ))}
                     {note && <div style={{ marginTop: F(8) }}>{noteBox(note, F)}</div>}
                   </div>
+                  {!quickLogged[o.id] && (
+                    <div style={{ display: "flex", gap: 3, padding: "0 4px 2px", justifyContent: "space-between" }}>
+                      {[[1, "😠"], [2, "🙁"], [3, "😐"], [4, "🙂"], [5, "😄"]].map(([v, f]) => <span key={v} onClick={() => quickMood(o, v)} className="kbtn" title="One-tap: how did the guest leave?" style={{ flex: 1, textAlign: "center", fontSize: F(17), padding: F(4) + "px 0", borderRadius: 8, background: "rgba(255,255,255,.7)", cursor: "pointer" }}>{f}</span>)}
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 2, padding: 2 }}>
                     <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#334155", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
                       {printingId === o.id ? "\u2026" : PRINTER}
@@ -977,7 +998,7 @@ export default function KDS() {
                     {!myStation || !["pass", "front", "expo", "counter"].includes(String(myStation).toLowerCase()) ? null : (
                       <div onClick={() => !(o.served_at || servedIds.has(o.id)) && markServed(o)} className="kbtn" style={{ flex: 1.2, textAlign: "center", padding: F(11) + "px 0", background: (o.served_at || servedIds.has(o.id)) ? "#dcfce7" : "#16a34a", color: (o.served_at || servedIds.has(o.id)) ? "#166534" : "#fff", borderRadius: 9, fontWeight: 800, fontSize: F(14), cursor: "pointer" }}>{(o.served_at || servedIds.has(o.id)) ? "Served ✓" : "Served"}</div>
                     )}
-                    <div onClick={() => setFeedbackFor(o)} className="kbtn" title="Log how this table went" style={{ width: F(52), textAlign: "center", padding: F(11) + "px 0", background: "#fff", border: "1px solid #94a3b8", borderRadius: 9, fontSize: F(18), cursor: "pointer" }}>🙂</div>
+                    <div onClick={() => setFeedbackFor(o)} className="kbtn" title="Log how this table went" style={{ width: F(52), textAlign: "center", padding: F(11) + "px 0", background: quickLogged[o.id] ? "#dcfce7" : "#fff", border: "1px solid #94a3b8", borderRadius: 9, fontSize: F(18), cursor: "pointer" }}>{quickLogged[o.id] ? ["", "😠", "🙁", "😐", "🙂", "😄"][quickLogged[o.id]] : "🙂"}</div>
                   </div>
                 </div>
               );
@@ -987,7 +1008,8 @@ export default function KDS() {
       )}
 
       {view === "perf" && <PerformanceView loc={loc} F={F} lateMin={LATE_MIN} />}
-      {feedbackFor && <ServiceFeedback order={feedbackFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="kds" onClose={() => setFeedbackFor(null)} />}
+      {feedbackFor && <ServiceFeedback order={feedbackFor} prefill={feedbackFor._prefillRating ? { rating: feedbackFor._prefillRating } : null} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="kds" onClose={() => setFeedbackFor(null)} onSaved={(j) => { setQuickLogged((m) => ({ ...m, [feedbackFor.id]: feedbackFor._prefillRating || 3 })); showToast("Feedback logged for #" + feedbackFor.order_no + (j && j.logged_by ? " as " + j.logged_by : "")); }} />}
+      {toast && <div style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 95, background: "#0f172a", color: "#fff", padding: "11px 18px", borderRadius: 12, fontWeight: 800, fontSize: 14, boxShadow: "0 10px 30px rgba(0,0,0,.3)" }}>{toast}</div>}
       {setupOpen && <ScreenSetup loc={loc} screenKey={getScreenId()} current={mySettings} siblings={allScreens} orders={orders.filter((o) => o.status !== "cancelled")} onClose={() => setSetupOpen(false)} onSaved={(sn) => { setScreensTick((t) => t + 1); if (sn !== undefined) { setMyPrinter(sn || null); try { sn ? localStorage.setItem("kds_printer", sn) : localStorage.removeItem("kds_printer"); } catch {} } }} />}
 
       {view === "pos" && (
