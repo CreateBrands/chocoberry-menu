@@ -982,12 +982,12 @@ function PerformanceView({ loc, F, lateMin }) {
   const trendMax = Math.min(T * 4, Math.max(T * 1.5, ...trendDays.map((x) => x.avg || 0)));
 
   // distribution
-  const buckets = [["< 5", 0, 300], ["5–10", 300, 600], ["10–15", 600, 900], ["15–20", 900, 1200], ["20–30", 1200, 1800], ["30+", 1800, Infinity]].map(([l, a, b]) => ({ l, n: times.filter((x) => x >= a && x < b).length, late: a >= T }));
+  const buckets = [["< 5", 0, 300], ["5–10", 300, 600], ["10–15", 600, 900], ["15–20", 900, 1200], ["20–30", 1200, 1800], ["30+", 1800, Infinity]].map(([l, a, b]) => { const rs = done.filter((o) => tt(o) >= a && tt(o) < b); return { l, n: rs.length, late: a >= T, rows: rs }; });
   const bMax = Math.max(1, ...buckets.map((b) => b.n));
 
   // by hour
   const byHour = {};
-  for (const o of live) { const h = String(new Date(o.created_at).getHours()).padStart(2, "0"); (byHour[h] ||= { n: 0, t: [], late: 0 }); byHour[h].n++; if (o._done != null) { const x = tt(o); byHour[h].t.push(x); if (x > T) byHour[h].late++; } }
+  for (const o of live) { const h = String(new Date(o.created_at).getHours()).padStart(2, "0"); (byHour[h] ||= { n: 0, t: [], late: 0, rows: [] }); byHour[h].n++; byHour[h].rows.push(o); if (o._done != null) { const x = tt(o); byHour[h].t.push(x); if (x > T) byHour[h].late++; } }
   const hours = Object.entries(byHour).sort((a, b) => a[0].localeCompare(b[0]));
   const maxN = Math.max(1, ...hours.map(([, v]) => v.n));
   const maxT = Math.min(T * 4, Math.max(T * 1.5, ...hours.map(([, v]) => avg(v.t) || 0)));
@@ -995,12 +995,19 @@ function PerformanceView({ loc, F, lateMin }) {
   const worst = hours.filter(([, v]) => v.t.length >= 3).sort((a, b) => (avg(b[1].t) || 0) - (avg(a[1].t) || 0))[0];
 
   const typeLabel = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
-  const grp = (key) => { const m = {}; for (const o of done) { const k = key(o); (m[k] ||= []).push(tt(o)); } return Object.entries(m).map(([k, v]) => ({ k, n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).sort((a, b) => b.n - a.n); };
+  const pack = (k, list) => { const v = list.map(tt); return { k, n: v.length, avg: avg(v), p90: pct(v, 0.9), on: v.length ? Math.round(v.filter((x) => x <= T).length / v.length * 100) : 0, rows: list }; };
+  const grp = (key) => { const m = {}; for (const o of done) { const k = key(o); (m[k] ||= []).push(o); } return Object.entries(m).map(([k, v]) => pack(k, v)).sort((a, b) => b.n - a.n); };
+  const grpMulti = (keys) => { const m = {}; for (const o of done) for (const k of new Set(keys(o))) (m[k] ||= []).push(o); return Object.entries(m).map(([k, v]) => pack(k, v)).sort((a, b) => b.n - a.n); };
+  const itemName = (it) => typeof it === "string" ? it : (it && it.name) || "";
+  const itemCat = (it) => (it && typeof it === "object" && it.category) || "Other";
+  const itemMenu = (it) => (it && typeof it === "object" && it.menu) || "Other";
+  const byCategory = grpMulti((o) => (o.items || []).map(itemCat));
+  const byMenu = grpMulti((o) => (o.items || []).map(itemMenu));
   const byType = grp((o) => typeLabel[o.order_type] || o.order_type || "Other");
   const bySource = grp((o) => o.external_channel ? String(o.external_channel) : o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
   const bySize = grp((o) => { const n = o.item_count || 0; return n <= 2 ? "1–2 items" : n <= 5 ? "3–5 items" : n <= 9 ? "6–9 items" : "10+ items"; }).sort((a, b) => a.k.localeCompare(b.k));
   const scName = (k) => { const sc = screens.find((x) => x.screen_key === k); return sc ? (sc.name || sc.station || "Screen " + k) + (sc.station && sc.name ? " · " + sc.station : "") : "Screen " + k; };
-  const byScreen = (() => { const m = {}; for (const o of live) { const first = Math.min(...(o.bumps || []).map((b) => new Date(b.bumped_at).getTime())); for (const b of (o.bumps || [])) { const t = new Date(b.bumped_at).getTime(); if (t - first > HOUSEKEEPING_GAP) continue; (m[b.screen_key] ||= []).push((t - new Date(o.created_at)) / 1000); } } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).filter((r) => r.n >= 3).sort((a, b) => b.n - a.n); })();
+  const byScreen = (() => { const m = {}; const rowsBy = {}; for (const o of live) { const first = Math.min(...(o.bumps || []).map((b) => new Date(b.bumped_at).getTime())); for (const b of (o.bumps || [])) { const t = new Date(b.bumped_at).getTime(); if (t - first > HOUSEKEEPING_GAP) continue; (m[b.screen_key] ||= []).push((t - new Date(o.created_at)) / 1000); (rowsBy[b.screen_key] ||= []).push(o); } } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100), rows: rowsBy[k] })).filter((r) => r.n >= 3).sort((a, b) => b.n - a.n); })();
   const slowest = [...done].sort((a, b) => tt(b) - tt(a)).slice(0, 7);
 
   // ---- load vs speed: how many tickets were already open when each was placed ----
@@ -1011,9 +1018,9 @@ function PerformanceView({ loc, F, lateMin }) {
       const c = new Date(o.created_at).getTime();
       const openAt = ev.filter((e) => e.c <= c && (e.d == null || e.d > c)).length; // includes itself
       const k = openAt <= 2 ? "1–2 open" : openAt <= 4 ? "3–4 open" : openAt <= 7 ? "5–7 open" : "8+ open";
-      out[k].push(tt(o));
+      out[k].push(o);
     }
-    return Object.entries(out).map(([k, v]) => ({ k, n: v.length, avg: avg(v), p90: pct(v, 0.9), on: v.length ? Math.round(v.filter((x) => x <= T).length / v.length * 100) : 0 })).filter((r) => r.n > 0);
+    return Object.entries(out).map(([k, v]) => pack(k, v)).filter((r) => r.n > 0);
   })();
   const maxOpen = (() => { const ev = live.map((o) => ({ c: new Date(o.created_at).getTime(), d: o._done })); let m = 0, at = null; for (const o of live) { const c = new Date(o.created_at).getTime(); const n = ev.filter((e) => e.c <= c && (e.d == null || e.d > c)).length; if (n > m) { m = n; at = c; } } return { n: m, at }; })();
 
@@ -1022,14 +1029,14 @@ function PerformanceView({ loc, F, lateMin }) {
     if (done.length < 8) return [];
     const overall = avg(times);
     const m = {};
-    for (const o of done) for (const name of new Set(o.items || [])) (m[name] ||= []).push(tt(o));
-    return Object.entries(m).filter(([, v]) => v.length >= 4).map(([k, v]) => ({ k, n: v.length, avg: avg(v), delta: avg(v) - overall })).sort((a, b) => b.delta - a.delta);
+    for (const o of done) for (const name of new Set((o.items || []).map(itemName).filter(Boolean))) (m[name] ||= []).push(o);
+    return Object.entries(m).filter(([, v]) => v.length >= 4).map(([k, v]) => ({ k, n: v.length, avg: avg(v.map(tt)), delta: avg(v.map(tt)) - overall, rows: v })).sort((a, b) => b.delta - a.delta);
   })();
   const slowItems = itemImpact.filter((x) => x.delta > 120).slice(0, 6);
   const fastItems = itemImpact.filter((x) => x.delta < -120).slice(-4).reverse();
 
   // ---- weekday pattern (7d / 30d) ----
-  const byWeekday = (() => { if (period === "today" || period === "yesterday") return []; const m = {}; for (const o of done) { const k = tradingDayStart(new Date(o.created_at)).toLocaleDateString("en-GB", { weekday: "short" }); (m[k] ||= []).push(tt(o)); } const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; return order.filter((k) => m[k]).map((k) => ({ k, n: m[k].length, avg: avg(m[k]), p90: pct(m[k], 0.9), on: Math.round(m[k].filter((x) => x <= T).length / m[k].length * 100) })); })();
+  const byWeekday = (() => { if (period === "today" || period === "yesterday") return []; const m = {}; for (const o of done) { const k = tradingDayStart(new Date(o.created_at)).toLocaleDateString("en-GB", { weekday: "short" }); (m[k] ||= []).push(o); } const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; return order.filter((k) => m[k]).map((k) => pack(k, m[k])); })();
 
   // ---- insights: plain-English findings + what to try ----
   const insights = (() => {
@@ -1055,6 +1062,8 @@ function PerformanceView({ loc, F, lateMin }) {
     else if (worst && peak && worst[0] === peak[0]) push("info", "The rush is the slow point", "The busiest hour (" + peak[0] + ":00, " + peak[1].n + " orders) is also the slowest at " + mmss(avg(peak[1].t)) + ". Pre-prep the top sellers before " + peak[0] + ":00 and hold the simplest items ready.");
     // 6. items
     if (slowItems.length) push("warn", "Items that drag tickets", slowItems.slice(0, 3).map((x) => x.k + " (+" + mmss(x.delta) + ")").join(", ") + " — tickets containing these run well over the average. Check prep, portioning, or whether they're built to order when they could be part-prepped.");
+    // 6b. category
+    if (byCategory.length >= 2) { const worstCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => b.avg - a.avg)[0]; const bestCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => a.avg - b.avg)[0]; if (worstCat && bestCat && worstCat.k !== bestCat.k && worstCat.avg > bestCat.avg * 1.4) push("info", worstCat.k + " is the slow section", "Tickets with " + worstCat.k + " average " + mmss(worstCat.avg) + " (" + worstCat.on + "% on-time) against " + mmss(bestCat.avg) + " for " + bestCat.k + ". That section's prep and station layout are where the minutes are."); }
     // 7. takeaway vs dine-in
     const di = byType.find((r) => r.k === "Dine in"), ta = byType.find((r) => r.k === "Takeaway");
     if (di && ta && di.n >= 4 && ta.n >= 4 && ta.avg > di.avg * 1.2) push("info", "Takeaways are waiting longer than dine-in", "Takeaway " + mmss(ta.avg) + " vs dine-in " + mmss(di.avg) + ". Customers at the counter notice this most — consider calling takeaway tickets first when they're ready to go.");
@@ -1069,9 +1078,63 @@ function PerformanceView({ loc, F, lateMin }) {
   const toneBg = (t) => t === "good" ? C.goodBg : t === "warn" ? C.badBg : "#eff6ff";
   const toneFg = (t) => t === "good" ? C.good : t === "warn" ? C.bad : "#1d4ed8";
 
-  const Tile = ({ label, value, sub, tone, big }) => (
-    <div style={{ background: tone === "dark" ? C.ink : "#fff", color: tone === "dark" ? "#fff" : C.ink, border: tone === "dark" ? "none" : "1px solid " + C.line, borderRadius: 18, padding: F(14) + "px " + F(16) + "px", minWidth: 0 }}>
-      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".09em", opacity: .65 }}>{label}</div>
+  // ---- drill-down: any number opens the tickets behind it ----
+  const [drill, setDrill] = useState(null); // { title, rows }
+  const [drillOpen, setDrillOpen] = useState({});
+  const openDrill = (title, list) => { if (!list || !list.length) return; setDrill({ title, rows: list }); setDrillOpen({}); };
+  const clickable = { cursor: "pointer" };
+  const DrillPanel = () => {
+    if (!drill) return null;
+    const list = [...drill.rows].sort((a, b) => (b._done == null ? Infinity : tt(b)) - (a._done == null ? Infinity : tt(a)));
+    const doneList = list.filter((o) => o._done != null);
+    const dt = doneList.map(tt);
+    const fmt = (iso) => new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+    const fmtD = (iso) => new Date(iso).toLocaleDateString("en-GB", { weekday: "short", day: "numeric" });
+    const multiDay = period === "7d" || period === "30d";
+    return (
+      <div onClick={() => setDrill(null)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,.35)" }}>
+        <div onClick={(e) => e.stopPropagation()} style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "min(560px, 92vw)", background: "#fff", boxShadow: "-12px 0 40px rgba(0,0,0,.25)", display: "flex", flexDirection: "column" }}>
+          <div style={{ padding: F(16) + "px " + F(18) + "px", borderBottom: "1px solid " + C.line }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+              <div>
+                <div style={{ fontSize: F(17), fontWeight: 900, fontFamily: PF }}>{drill.title}</div>
+                <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 3 }}>{list.length} ticket{list.length === 1 ? "" : "s"}{dt.length ? " · avg " + mmss(avg(dt)) + " · median " + mmss(pct(dt, 0.5)) + " · " + Math.round(dt.filter((x) => x <= T).length / dt.length * 100) + "% on-time" : ""}</div>
+              </div>
+              <div onClick={() => setDrill(null)} className="kbtn" style={{ cursor: "pointer", width: 34, height: 34, borderRadius: 9, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>✕</div>
+            </div>
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", padding: "4px " + F(18) + "px " + F(18) + "px" }}>
+            {list.slice(0, 250).map((o) => {
+              const open = !!drillOpen[o.order_id];
+              const secs = o._done == null ? null : tt(o);
+              const typeLabel2 = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
+              return (
+                <div key={o.order_id} style={{ borderBottom: "1px solid " + C.line }}>
+                  <div onClick={() => setDrillOpen((d) => ({ ...d, [o.order_id]: !open }))} style={{ display: "grid", gridTemplateColumns: "70px 1fr auto", gap: 10, alignItems: "center", padding: "9px 0", cursor: "pointer" }}>
+                    <span style={{ fontWeight: 900, fontFamily: PF }}>#{o.order_no}</span>
+                    <span style={{ fontSize: F(12.5), color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{typeLabel2[o.order_type] || o.order_type} · {o.item_count} items · {multiDay ? fmtD(o.created_at) + " " : ""}{fmt(o.created_at)}{o._done ? " → " + fmt(new Date(o._done).toISOString()) : " · still open"}</span>
+                    <span style={{ fontWeight: 900, fontFamily: PF, fontVariantNumeric: "tabular-nums", color: secs == null ? C.warn : secs > T ? C.bad : C.good }}>{secs == null ? "open" : mmss(secs)}</span>
+                  </div>
+                  {open && (
+                    <div style={{ padding: "0 0 10px 70px", fontSize: F(12.5) }}>
+                      {(o.items || []).map((it, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}><span>{(it.qty > 1 ? it.qty + "× " : "") + itemName(it)}</span><span style={{ color: C.muted }}>{itemCat(it)}</span></div>)}
+                      {(o.bumps || []).length > 0 && <div style={{ marginTop: 6, color: C.muted }}>Bumped: {(o.bumps || []).slice().sort((a, b) => new Date(a.bumped_at) - new Date(b.bumped_at)).map((b) => scName(b.screen_key) + " " + fmt(b.bumped_at)).join(" · ")}</div>}
+                      {o.kds_started_at && <div style={{ color: C.muted }}>Started {fmt(o.kds_started_at)}</div>}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+            {list.length > 250 && <div style={{ padding: 12, color: C.muted, fontSize: F(12) }}>Showing the slowest 250 of {list.length}.</div>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const Tile = ({ label, value, sub, tone, big, onClick }) => (
+    <div onClick={onClick} className={onClick ? "kbtn" : undefined} style={{ background: tone === "dark" ? C.ink : "#fff", color: tone === "dark" ? "#fff" : C.ink, border: tone === "dark" ? "none" : "1px solid " + C.line, borderRadius: 18, padding: F(14) + "px " + F(16) + "px", minWidth: 0, cursor: onClick ? "pointer" : "default" }}>
+      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".09em", opacity: .65 }}>{label}{onClick && <span style={{ float: "right", opacity: .5 }}>›</span>}</div>
       <div style={{ fontSize: F(big ? 34 : 28), fontWeight: 900, letterSpacing: "-.025em", marginTop: 2, fontVariantNumeric: "tabular-nums", fontFamily: PF, color: tone === "dark" ? "#fff" : toneColor(tone) }}>{value}</div>
       {sub && <div style={{ fontSize: F(12), marginTop: 4, opacity: .75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
     </div>
@@ -1086,7 +1149,7 @@ function PerformanceView({ loc, F, lateMin }) {
     <div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px 54px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px" }}><span>{label}</span><span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>P90</span><span style={{ textAlign: "right" }}>ON-TIME</span></div>
       {rs.map((r) => (
-        <div key={r.k} style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px 54px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center" }}>
+        <div key={r.k} onClick={() => openDrill(label.charAt(0) + label.slice(1).toLowerCase() + ": " + r.k, r.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px 54px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center", cursor: r.rows ? "pointer" : "default" }}>
           <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k}</span>
           <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{r.n}</span>
           <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, fontFamily: PF, color: r.avg != null && r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</span>
@@ -1154,7 +1217,7 @@ function PerformanceView({ loc, F, lateMin }) {
 
       {/* hero: grade ring + tiles */}
       <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", gap: F(14) }}>
-        <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 18, padding: F(16), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <div onClick={() => openDrill("Late tickets (over " + target + " min)", done.filter((o) => tt(o) > T))} className="kbtn" style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 18, padding: F(16), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer" }}>
           <div style={{ position: "relative", width: F(130), height: F(130) }}>
             <Ring value={onTimePct} size={F(130)} stroke={F(12)} color={toneColor(gradeTone)} />
             <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
@@ -1166,13 +1229,13 @@ function PerformanceView({ loc, F, lateMin }) {
           <div style={{ fontSize: F(12), color: C.muted, textAlign: "center" }}>{onTime} of {times.length} within {target} min{pOn != null ? " · prev " + pOn + "%" : ""}</div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: F(10) }}>
-          <Tile big label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (pAvg != null ? "prev " + mmss(pAvg) : "—") : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs prev " + mmss(pAvg)} />
-          <Tile label="TYPICAL (MEDIAN)" value={mmss(med)} sub="half of tickets faster than this" tone={med != null && med > T ? "bad" : "good"} />
-          <Tile label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub={starts.length ? "time to start avg " + mmss(avg(starts)) : "9 in 10 faster than this"} tone={pct(times, 0.9) != null && pct(times, 0.9) > T ? "bad" : undefined} />
-          <Tile label="TICKETS" value={String(done.length)} sub={items + " items · " + (done.length ? (items / Math.max(1, live.length)).toFixed(1) + " per ticket" : "")} />
+          <Tile onClick={() => openDrill("All completed tickets", done)} big label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (pAvg != null ? "prev " + mmss(pAvg) : "—") : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs prev " + mmss(pAvg)} />
+          <Tile onClick={() => openDrill("All completed tickets", done)} label="TYPICAL (MEDIAN)" value={mmss(med)} sub="half of tickets faster than this" tone={med != null && med > T ? "bad" : "good"} />
+          <Tile onClick={() => openDrill("Slowest 10% of tickets", done.filter((o) => tt(o) >= (pct(times, 0.9) || 0)))} label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub={starts.length ? "time to start avg " + mmss(avg(starts)) : "9 in 10 faster than this"} tone={pct(times, 0.9) != null && pct(times, 0.9) > T ? "bad" : undefined} />
+          <Tile onClick={() => openDrill("All tickets", live)} label="TICKETS" value={String(done.length)} sub={items + " items · " + (done.length ? (items / Math.max(1, live.length)).toFixed(1) + " per ticket" : "")} />
           {period === "today"
-            ? <Tile label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target · oldest " + mmss(Math.max(0, ...waiting)) : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
-            : <Tile label="LATE TICKETS" value={String(times.length - onTime)} tone={times.length - onTime ? "bad" : "good"} sub={times.length ? Math.round((times.length - onTime) / times.length * 100) + "% of tickets" : ""} />}
+            ? <Tile onClick={() => openDrill("Waiting now", open)} label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target · oldest " + mmss(Math.max(0, ...waiting)) : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
+            : <Tile onClick={() => openDrill("Late tickets", done.filter((o) => tt(o) > T))} label="LATE TICKETS" value={String(times.length - onTime)} tone={times.length - onTime ? "bad" : "good"} sub={times.length ? Math.round((times.length - onTime) / times.length * 100) + "% of tickets" : ""} />}
         </div>
       </div>
 
@@ -1213,7 +1276,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </Card>
         <Card title="TICKET TIME SPREAD" right={<span style={{ fontSize: F(11), color: C.muted }}>minutes</span>}>
           {buckets.map((b) => (
-            <div key={b.l} style={{ display: "grid", gridTemplateColumns: "54px 1fr 44px", gap: 10, alignItems: "center", padding: "5px 0" }}>
+            <div key={b.l} onClick={() => openDrill("Tickets " + b.l + " min", b.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "54px 1fr 44px", gap: 10, alignItems: "center", padding: "5px 0", cursor: b.n ? "pointer" : "default" }}>
               <span style={{ fontSize: F(13), fontWeight: 700, color: b.late ? C.bad : C.ink, fontVariantNumeric: "tabular-nums" }}>{b.l}</span>
               <div style={{ height: F(12), background: C.soft, borderRadius: 6, overflow: "hidden" }}><div style={{ width: (b.n / bMax) * 100 + "%", height: "100%", background: b.late ? "#fca5a5" : "#86efac", borderRadius: 6, transition: "width .4s" }} /></div>
               <span style={{ fontSize: F(13), fontWeight: 800, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{b.n}</span>
@@ -1233,7 +1296,7 @@ function PerformanceView({ loc, F, lateMin }) {
               {hours.map(([h, v]) => {
                 const a = avg(v.t);
                 return (
-                  <div key={h} style={{ flex: 1, position: "relative", height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", minWidth: 0 }} title={h + ":00 · " + v.n + " tickets · avg " + mmss(a) + (v.late ? " · " + v.late + " late" : "")}>
+                  <div key={h} onClick={() => openDrill(h + ":00 – " + h + ":59", v.rows)} className="kbtn" style={{ flex: 1, position: "relative", height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", minWidth: 0, cursor: "pointer" }} title={h + ":00 · " + v.n + " tickets · avg " + mmss(a) + (v.late ? " · " + v.late + " late" : "")}>
                     {a != null && <div style={{ position: "absolute", bottom: (Math.min(a, maxT) / maxT) * F(120) - 4, width: 10, height: 10, borderRadius: "50%", background: a > T ? C.bad : C.ink, border: "2px solid #fff", zIndex: 2 }} />}
                     <div style={{ width: "70%", height: (v.n / maxN) * F(110), background: v.late ? "#fecaca" : "#cbd5e1", borderRadius: 4 }} />
                     <span style={{ position: "absolute", bottom: 0, fontSize: F(10), color: C.muted }}>{h}</span>
@@ -1246,7 +1309,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </Card>
         <Card title="SLOWEST TICKETS">
           {slowest.map((o) => (
-            <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5) }}>
+            <div key={o.order_id} onClick={() => { openDrill("Ticket #" + o.order_no, [o]); setDrillOpen({ [o.order_id]: true }); }} className="kbtn" style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5), cursor: "pointer" }}>
               <span><b>#{o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {o.item_count} items · {new Date(o.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span></span>
               <span style={{ fontWeight: 900, fontVariantNumeric: "tabular-nums", fontFamily: PF, color: tt(o) > T ? C.bad : C.ink }}>{mmss(tt(o))}</span>
             </div>
@@ -1261,7 +1324,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </Card>
         <Card title="ITEMS THAT SLOW TICKETS" right={<span style={{ fontSize: F(11), color: C.muted }}>vs overall avg · min 4 tickets</span>}>
           {slowItems.length ? slowItems.map((x) => (
-            <div key={x.k} style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center" }}>
+            <div key={x.k} onClick={() => openDrill("Tickets with " + x.k, x.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center", cursor: "pointer" }}>
               <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.k}</span>
               <span style={{ textAlign: "right", color: C.muted, fontVariantNumeric: "tabular-nums" }}>{x.n}</span>
               <span style={{ textAlign: "right", fontWeight: 800, fontFamily: PF, fontVariantNumeric: "tabular-nums" }}>{mmss(x.avg)}</span>
@@ -1273,12 +1336,18 @@ function PerformanceView({ loc, F, lateMin }) {
         {byWeekday.length > 0 && <Card title="BY WEEKDAY"><Table rows={byWeekday} label="DAY" /></Card>}
       </div>
 
+      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: F(14) }}>
+        <Card title="BY CATEGORY" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets containing an item from the category · tap a row for the tickets</span>}><Table rows={byCategory} label="CATEGORY" /></Card>
+        <Card title="BY MENU"><Table rows={byMenu} label="MENU" /></Card>
+      </div>
+
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: F(14) }}>
         <Card title="BY SCREEN"><Table rows={byScreen} label="SCREEN" /></Card>
         <Card title="BY ORDER TYPE"><Table rows={byType} label="TYPE" /></Card>
         <Card title="BY SOURCE"><Table rows={bySource} label="SOURCE" /></Card>
         <Card title="BY TICKET SIZE"><Table rows={bySize} label="SIZE" /></Card>
       </div>
+      <DrillPanel />
     </div>
   );
 }

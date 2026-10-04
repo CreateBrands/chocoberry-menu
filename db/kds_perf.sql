@@ -28,8 +28,14 @@ language sql stable security definer set search_path = public as $$
     from kds_bumps kb where kb.order_id = o.id
   ) b on true
   left join lateral (
-    select count(*) as n, jsonb_agg(mi.name_snapshot) as names
-    from menu_order_items mi where mi.order_id = o.id and coalesce(mi.item_status::text, '') <> 'voided'
+    select count(*) as n,
+           jsonb_agg(jsonb_build_object('name', mi.name_snapshot, 'qty', mi.qty,
+                                        'category', mc.name, 'menu', mm.name)) as names
+    from menu_order_items mi
+    left join menu_items it on it.id = mi.item_id
+    left join menu_categories mc on mc.id = it.category_id
+    left join menu_menus mm on mm.id = mc.menu_id
+    where mi.order_id = o.id and coalesce(mi.item_status::text, '') <> 'voided'
   ) i on true
   where o.location_id = p_location
     and o.created_at >= p_from and o.created_at < p_to
