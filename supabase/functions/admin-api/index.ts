@@ -36,7 +36,7 @@ Deno.serve(async (req) => {
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag",
     "set_kds_target", "print_kitchen_summary",
-    "kds_screen_self", "menu_catalog",
+    "kds_screen_self", "menu_catalog", "printers_list",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
 
@@ -1231,7 +1231,7 @@ Deno.serve(async (req) => {
 
       // ---- KDS: a screen names itself, picks its station and what it shows ----
       case "kds_screen_self": {
-        const { location_id, screen_key, label, station, routing } = data || {};
+        const { location_id, screen_key, label, station, routing, printer_sn } = data || {};
         if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
         const clean = (arr: unknown) => Array.isArray(arr) ? arr.map((x) => String(x)).filter(Boolean).slice(0, 500) : [];
         const r = routing && typeof routing === "object" ? { menus: clean((routing as any).menus), categories: clean((routing as any).categories), items: clean((routing as any).items) } : null;
@@ -1239,9 +1239,17 @@ Deno.serve(async (req) => {
         if (label !== undefined) row.label = label ? String(label).slice(0, 40) : null;
         if (station !== undefined) row.station = station ? String(station).trim().toLowerCase().slice(0, 30) : null;
         if (routing !== undefined) row.routing = r && (r.menus.length || r.categories.length || r.items.length) ? r : null;
+        if (printer_sn !== undefined) row.printer_sn = printer_sn ? String(printer_sn) : null;
         const { error } = await admin.from("kds_screens").upsert(row, { onConflict: "location_id,screen_key" });
         if (error) throw error;
         return json({ ok: true });
+      }
+      // ---- KDS: printers at this store (for the screen setup) ----
+      case "printers_list": {
+        const { location_id } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const { data: rows } = await admin.from("printers").select("*").eq("location_id", location_id).eq("active", true);
+        return json({ ok: true, printers: (rows || []).map((p: any) => ({ sn: p.sn, name: p.name || p.label || null, station: p.station || null, online: p.online ?? null })) });
       }
       // ---- KDS: menu structure for the routing picker ----
       case "menu_catalog": {

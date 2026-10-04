@@ -976,7 +976,7 @@ export default function KDS() {
       )}
 
       {view === "perf" && <PerformanceView loc={loc} F={F} lateMin={LATE_MIN} />}
-      {setupOpen && <ScreenSetup loc={loc} screenKey={getScreenId()} current={mySettings} siblings={allScreens} onClose={() => setSetupOpen(false)} onSaved={() => setScreensTick((t) => t + 1)} />}
+      {setupOpen && <ScreenSetup loc={loc} screenKey={getScreenId()} current={mySettings} siblings={allScreens} orders={orders.filter((o) => o.status !== "cancelled")} onClose={() => setSetupOpen(false)} onSaved={(sn) => { setScreensTick((t) => t + 1); if (sn !== undefined) { setMyPrinter(sn || null); try { sn ? localStorage.setItem("kds_printer", sn) : localStorage.removeItem("kds_printer"); } catch {} } }} />}
 
       {view === "pos" && (
         <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables} />
@@ -1085,15 +1085,21 @@ const avg = (arr) => arr.length ? arr.reduce((t, x) => t + x, 0) / arr.length : 
 // screen shows (menus / categories / items). Saved to kds_screens so every
 // screen at the store sees the routing.
 // ============================================================================
-function ScreenSetup({ loc, screenKey, current, siblings, onClose, onSaved }) {
+function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSaved }) {
   const [label, setLabel] = useState(current?.label || "");
   const [station, setStation] = useState(current?.station || "");
+  const [printer, setPrinter] = useState(current?.printer_sn || "");
   const [routing, setRouting] = useState(() => ({ menus: [...(current?.routing?.menus || [])], categories: [...(current?.routing?.categories || [])], items: [...(current?.routing?.items || [])] }));
   const [cat, setCat] = useState(null);
+  const [printers, setPrinters] = useState(null);
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  useEffect(() => { fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "menu_catalog" }) }).then((r) => r.json()).then((j) => setCat(j.ok ? j : { menus: [], categories: [], items: [] })).catch(() => setCat({ menus: [], categories: [], items: [] })); }, []);
+  const [tab, setTab] = useState("setup"); // setup | store
+  useEffect(() => {
+    fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "menu_catalog" }) }).then((r) => r.json()).then((j) => setCat(j.ok ? j : { menus: [], categories: [], items: [] })).catch(() => setCat({ menus: [], categories: [], items: [] }));
+    fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "printers_list", data: { location_id: loc } }) }).then((r) => r.json()).then((j) => setPrinters(j.ok ? j.printers : [])).catch(() => setPrinters([]));
+  }, [loc]);
   const toggle = (kind, id) => setRouting((r) => { const set = new Set(r[kind]); set.has(id) ? set.delete(id) : set.add(id); return { ...r, [kind]: [...set] }; });
   const has = (kind, id) => routing[kind].includes(id);
   const STATIONS = [["kitchen", "Kitchen"], ["grill", "Grill"], ["cold kitchen", "Cold"], ["desserts", "Desserts"], ["drinks", "Drinks"], ["coffee", "Coffee"], ["bar", "Bar"], ["pass", "Pass / front"]];
@@ -1110,59 +1116,97 @@ function ScreenSetup({ loc, screenKey, current, siblings, onClose, onSaved }) {
   const isDessert = (m) => /dessert|sweet|cake|ice/i.test(m.name);
   const preset = (fn) => setRouting({ menus: menus.filter(fn).map((m) => m.id), categories: [], items: [] });
   const PRESETS = [["Food", "kitchen", isFood], ["Drinks", "drinks", isDrink], ["Desserts", "desserts", isDessert], ["Everything", "", () => false]];
+  const copyFrom = (sc) => { setRouting({ menus: [...(sc.routing?.menus || [])], categories: [...(sc.routing?.categories || [])], items: [...(sc.routing?.items || [])] }); if (sc.station) setStation(sc.station); };
+
+  // ---- live preview: with the draft routing, what would this screen show right now? ----
+  const draftScreens = [...others.map((x) => ({ key: x.screen_key, r: x.routing || null })), { key: screenKey, r: (routing.menus.length || routing.categories.length || routing.items.length) ? routing : null }];
+  const claims = (r, it) => { if (!r) return false; const mi = it.menu_items || {}; const catId = mi.category_id || mi.menu_categories?.id; const menuId = mi.menu_categories?.menu_id || mi.menu_categories?.menu_menus?.id; return (it.item_id && (r.items || []).includes(String(it.item_id))) || (catId && (r.categories || []).includes(String(catId))) || (menuId && (r.menus || []).includes(String(menuId))); };
+  const lineHere = (it) => { const by = draftScreens.filter((x) => claims(x.r, it)); return !by.length || by.some((x) => x.key === screenKey); };
+  const preview = (orders || []).map((o) => { const lines = o.menu_order_items || []; const mine = lines.filter(lineHere); return { o, total: lines.length, mine }; });
+  const showing = preview.filter((p) => p.mine.length);
+
+  // ---- store coverage: menu × screen ----
+  const coverage = menus.map((m) => {
+    const mcats = cats.filter((c) => c.menu_id === m.id);
+    const per = draftScreens.map((sc) => { const r = sc.r; if (!r) return { key: sc.key, level: "none" }; if ((r.menus || []).includes(m.id)) return { key: sc.key, level: "all" }; const n = mcats.filter((c) => (r.categories || []).includes(c.id)).length; return { key: sc.key, level: n ? "part" : "none", n, of: mcats.length }; });
+    const anyone = per.some((p) => p.level !== "none");
+    return { m, per, anyone };
+  });
+  const screenName = (key) => key === screenKey ? (label.trim() || current?.label || "This screen") : (others.find((x) => x.screen_key === key)?.label || "Screen " + key);
+
   async function save() {
     setBusy(true); setErr("");
     try {
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "kds_screen_self", data: { location_id: loc, screen_key: screenKey, label: label.trim(), station: station.trim(), routing } }) });
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "kds_screen_self", data: { location_id: loc, screen_key: screenKey, label: label.trim(), station: station.trim(), routing, printer_sn: printer || null } }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || "Save failed");
       try { if (label.trim()) localStorage.setItem("kds_name", label.trim()); if (station.trim()) localStorage.setItem("kds_station", station.trim()); } catch {}
-      onSaved(); onClose();
+      onSaved(printer || ""); onClose();
     } catch (e) { setErr(e.message || "Save failed"); } finally { setBusy(false); }
   }
   const total = routing.menus.length + routing.categories.length + routing.items.length;
-  const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", brand: "#ec4899", good: "#16a34a" };
+  const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", brand: "#ec4899", good: "#16a34a", warn: "#b45309" };
   const inp = { padding: "11px 12px", fontSize: 15, fontWeight: 600, border: "1.5px solid " + C.line, borderRadius: 11, outline: "none", width: "100%", boxSizing: "border-box", background: "#fff" };
-  const Step = ({ n, title, right }) => <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ width: 24, height: 24, borderRadius: "50%", background: C.ink, color: "#fff", fontSize: 12.5, fontWeight: 900, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{n}</span><span style={{ fontSize: 14.5, fontWeight: 900 }}>{title}</span></div>{right && <span style={{ fontSize: 12, color: C.muted }}>{right}</span>}</div>;
-  const Chip = ({ on, children, onClick, dim, small }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: small ? "5px 10px" : "8px 13px", borderRadius: 9, fontSize: small ? 12.5 : 13.5, fontWeight: 700, background: on ? C.ink : "#fff", color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1.5px solid " + (on ? C.ink : C.line), userSelect: "none" }}>{children}</span>;
+  const Step = ({ n, title, right }) => <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 10 }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ width: 24, height: 24, borderRadius: "50%", background: C.ink, color: "#fff", fontSize: 12.5, fontWeight: 900, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</span><span style={{ fontSize: 14.5, fontWeight: 900 }}>{title}</span></div>{right && <span style={{ fontSize: 12, color: C.muted, textAlign: "right" }}>{right}</span>}</div>;
+  const Chip = ({ on, children, onClick, dim, small, tone }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: small ? "5px 10px" : "8px 13px", borderRadius: 9, fontSize: small ? 12.5 : 13.5, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1.5px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap" }}>{children}</span>;
   const Switch = ({ on, onClick }) => <span onClick={onClick} style={{ cursor: "pointer", width: 44, height: 26, borderRadius: 13, background: on ? C.good : "#cbd5e1", position: "relative", display: "inline-block", flexShrink: 0, transition: "background .15s" }}><span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} /></span>;
+  const Card = ({ children }) => <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px" }}>{children}</div>;
   const itemMatches = q.trim() ? items.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 30) : [];
   const summary = total === 0 ? "Everything" : [...routing.menus.map((id) => nameOf("menus", id) + " (all)"), ...routing.categories.map((id) => nameOf("categories", id)), ...routing.items.map((id) => nameOf("items", id))].join(" · ");
+  const dupStation = station.trim() && others.some((x) => (x.station || "").toLowerCase() === station.trim().toLowerCase());
+  const uncovered = coverage.filter((c) => !c.anyone).map((c) => c.m.name);
+  const Tab = ({ v, children }) => <span onClick={() => setTab(v)} className="kbtn" style={{ cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontSize: 13, fontWeight: 800, background: tab === v ? C.ink : "transparent", color: tab === v ? "#fff" : C.muted }}>{children}</span>;
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(15,23,42,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#f8fafc", borderRadius: 24, width: 840, maxWidth: "100%", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px rgba(15,23,42,.4)", color: C.ink }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#f8fafc", borderRadius: 24, width: 900, maxWidth: "100%", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px rgba(15,23,42,.4)", color: C.ink }}>
         {/* header */}
-        <div style={{ padding: "18px 24px 14px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+        <div style={{ padding: "16px 24px 12px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 21, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>Set up this screen</div>
-            <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>Screen {screenKey} · {siblings.length} screen{siblings.length === 1 ? "" : "s"} at this store{others.length ? " · " + others.map((x) => (x.label || "Screen " + x.screen_key) + (x.station ? " (" + x.station + ")" : "")).join(", ") : ""}</div>
+            <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>Screen {screenKey} · {siblings.length} screen{siblings.length === 1 ? "" : "s"} at this store</div>
+          </div>
+          <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 11, padding: 3 }}>
+            <Tab v="setup">This screen</Tab>
+            <Tab v="store">Store overview</Tab>
           </div>
           <div onClick={onClose} className="kbtn" style={{ cursor: "pointer", width: 36, height: 36, borderRadius: 10, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>✕</div>
         </div>
 
-        <div style={{ overflowY: "auto", padding: "18px 24px", display: "grid", gap: 16 }}>
-          {/* 1 identity */}
-          <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px" }}>
+        {tab === "setup" && (
+        <div style={{ overflowY: "auto", padding: "16px 24px", display: "grid", gap: 14 }}>
+          <Card>
             <Step n="1" title="Name and station" right="the station decides whether this screen's bumps count as cooking time" />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 14 }}>
               <label style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>NAME<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Hot Kitchen" style={{ ...inp, marginTop: 6 }} /></label>
               <div>
                 <div style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>STATION</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
                   {STATIONS.map(([v, l]) => <Chip key={v} small on={station.trim().toLowerCase() === v} onClick={() => setStation(v)}>{l}</Chip>)}
-                  <input value={STATIONS.some(([v]) => v === station.trim().toLowerCase()) ? "" : station} onChange={(e) => setStation(e.target.value)} placeholder="other…" style={{ ...inp, width: 110, padding: "5px 10px", fontSize: 12.5 }} />
+                  <input value={STATIONS.some(([v]) => v === station.trim().toLowerCase()) ? "" : station} onChange={(e) => setStation(e.target.value)} placeholder="other…" style={{ ...inp, width: 100, padding: "5px 10px", fontSize: 12.5 }} />
                 </div>
-                <div style={{ fontSize: 12, marginTop: 6, color: isPass ? "#b45309" : C.muted }}>{isPass ? "Pass screen — serves and clears only; its bumps won't count as cooking time." : station.trim() ? "Production station — its bumps define when food is done." : "No station — this screen won't count for ticket timing."}</div>
+                <div style={{ fontSize: 12, marginTop: 6, color: isPass ? C.warn : C.muted }}>{isPass ? "Pass screen — serves and clears only; its bumps won't count as cooking time." : station.trim() ? "Production station — its bumps define when food is done." : "No station — this screen won't count for ticket timing."}{dupStation && <span style={{ color: C.warn }}> · another screen already uses this station — fine if they share a line, otherwise give each its own.</span>}</div>
               </div>
             </div>
-          </div>
+          </Card>
 
-          {/* 2 routing */}
-          <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px" }}>
-            <Step n="2" title="What this screen shows" right={total ? total + " selected" : "nothing selected = everything"} />
+          <Card>
+            <Step n="2" title="Printer" right="where this screen's manual prints come out" />
+            {printers === null && <div style={{ fontSize: 13, color: C.muted }}>Loading printers…</div>}
+            {printers && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <Chip small on={!printer} onClick={() => setPrinter("")}>Every printer at the store</Chip>
+                {printers.map((p) => <Chip key={p.sn} small on={printer === p.sn} onClick={() => setPrinter(p.sn)}>{p.name || p.station || "Printer"} <span style={{ opacity: .6, fontWeight: 600 }}>· …{String(p.sn).slice(-4)}</span>{p.online === false ? <span style={{ color: printer === p.sn ? "#fecaca" : "#b91c1c", marginLeft: 6, fontSize: 11 }}>offline</span> : null}</Chip>)}
+                {!printers.length && <span style={{ fontSize: 12.5, color: C.muted }}>No printers registered for this store.</span>}
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <Step n="3" title="What this screen shows" right={total ? total + " selected" : "nothing selected = everything"} />
             <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontSize: 12, color: C.muted, marginRight: 4 }}>Quick set:</span>
+              <span style={{ fontSize: 12, color: C.muted, marginRight: 2 }}>Quick set:</span>
               {PRESETS.map(([l, st, fn]) => <Chip key={l} small onClick={() => { preset(fn); if (st) setStation(st); }}>{l}</Chip>)}
+              {others.filter((x) => x.routing).length > 0 && <><span style={{ width: 1, height: 18, background: C.line, margin: "0 4px" }} /><span style={{ fontSize: 12, color: C.muted }}>Copy from:</span>{others.filter((x) => x.routing).map((x) => <Chip key={x.screen_key} small onClick={() => copyFrom(x)}>{x.label || "Screen " + x.screen_key}</Chip>)}</>}
             </div>
             {!cat && <div style={{ color: C.muted, fontSize: 13 }}>Loading menu…</div>}
             {cat && menus.map((m) => {
@@ -1171,7 +1215,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, onClose, onSaved }) {
               const picked = mcats.filter((c) => has("categories", c.id)).length;
               const el = claimedElsewhere("menus", m.id);
               return (
-                <div key={m.id} style={{ border: "1px solid " + (menuOn || picked ? C.ink : C.line), borderRadius: 14, marginBottom: 8, overflow: "hidden", background: menuOn ? "#f8fafc" : "#fff" }}>
+                <div key={m.id} style={{ border: "1.5px solid " + (menuOn || picked ? C.ink : C.line), borderRadius: 14, marginBottom: 8, overflow: "hidden", background: menuOn ? "#f8fafc" : "#fff" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px" }}>
                     <Switch on={menuOn} onClick={() => { setRouting((r) => ({ ...r, menus: menuOn ? r.menus.filter((x) => x !== m.id) : [...r.menus, m.id], categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) })); }} />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -1187,21 +1231,66 @@ function ScreenSetup({ loc, screenKey, current, siblings, onClose, onSaved }) {
                 </div>
               );
             })}
-          </div>
+          </Card>
 
-          {/* 3 single items */}
-          <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px" }}>
-            <Step n="3" title="Single items (optional)" right="for exceptions — e.g. one dessert the kitchen makes" />
+          <Card>
+            <Step n="4" title="Single items (optional)" right="exceptions — e.g. one dessert the kitchen makes" />
             <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type an item name…" style={inp} />
             {itemMatches.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>{itemMatches.map((i) => <Chip key={i.id} small on={has("items", i.id)} onClick={() => { toggle("items", i.id); setQ(""); }}>{has("items", i.id) ? "✓ " : "+ "}{i.name}</Chip>)}</div>}
             {routing.items.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>{routing.items.map((id) => <Chip key={id} small on onClick={() => toggle("items", id)}>{nameOf("items", id)} ✕</Chip>)}</div>}
-          </div>
+          </Card>
+
+          <Card>
+            <Step n="5" title="Preview with live tickets" right={preview.length ? showing.length + " of " + preview.length + " open tickets would show here" : "no open tickets to preview"} />
+            {preview.length > 0 && (
+              <div style={{ display: "grid", gap: 6 }}>
+                {preview.slice(0, 8).map(({ o, total: t, mine }) => (
+                  <div key={o.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "6px 0", borderTop: "1px solid " + C.soft, color: mine.length ? C.ink : "#94a3b8" }}>
+                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>#{o.order_no}</b>{o.menu_tables?.label ? " · " + o.menu_tables.label : ""} · {mine.length ? mine.map((it) => it.name_snapshot).join(", ") : "nothing from this ticket"}</span>
+                    <span style={{ flexShrink: 0, fontWeight: 800, color: mine.length === t ? C.good : mine.length ? C.warn : "#94a3b8" }}>{mine.length}/{t} lines</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
           {err && <div style={{ color: "#b91c1c", fontWeight: 700 }}>{err}</div>}
         </div>
+        )}
+
+        {tab === "store" && (
+        <div style={{ overflowY: "auto", padding: "16px 24px", display: "grid", gap: 14 }}>
+          <Card>
+            <div style={{ fontSize: 14.5, fontWeight: 900, marginBottom: 4 }}>Who shows what (including your unsaved changes)</div>
+            <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 12 }}>● whole menu · ◐ some categories · — not on this screen. A menu nobody claims shows on every screen.</div>
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1.4fr) repeat(" + draftScreens.length + ", minmax(110px, 1fr))", gap: 6, fontSize: 13, minWidth: 420 }}>
+                <span />
+                {draftScreens.map((sc) => <span key={sc.key} style={{ fontSize: 11.5, fontWeight: 900, color: sc.key === screenKey ? C.ink : C.muted, textAlign: "center", letterSpacing: ".04em", padding: "4px 0", borderBottom: "2px solid " + (sc.key === screenKey ? C.ink : C.line) }}>{screenName(sc.key).toUpperCase()}{sc.key === screenKey ? " ✎" : ""}</span>)}
+                {coverage.map(({ m, per, anyone }) => (
+                  <React.Fragment key={m.id}>
+                    <span style={{ fontWeight: 800, padding: "8px 0", borderTop: "1px solid " + C.soft }}>{m.name}{!anyone && <span style={{ fontSize: 10.5, marginLeft: 6, color: C.muted, fontWeight: 600 }}>→ all screens</span>}</span>
+                    {per.map((p) => <span key={p.key} style={{ textAlign: "center", padding: "8px 0", borderTop: "1px solid " + C.soft, fontWeight: 800, color: p.level === "all" ? C.good : p.level === "part" ? C.warn : !anyone ? "#94a3b8" : "#cbd5e1" }}>{p.level === "all" ? "●" : p.level === "part" ? "◐ " + p.n + "/" + p.of : !anyone ? "all" : "—"}</span>)}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          </Card>
+          <Card>
+            <div style={{ fontSize: 14.5, fontWeight: 900, marginBottom: 8 }}>Screens</div>
+            {draftScreens.map((sc) => { const src = sc.key === screenKey ? { label: label.trim() || current?.label, station: station.trim(), printer_sn: printer } : others.find((x) => x.screen_key === sc.key); const st = (src?.station || "").toLowerCase(); return (
+              <div key={sc.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 0", borderTop: "1px solid " + C.soft, fontSize: 13 }}>
+                <span><b>{screenName(sc.key)}</b> <span style={{ color: C.muted }}>· screen {sc.key}</span></span>
+                <span style={{ color: C.muted }}>{st ? (PASS.includes(st) ? "pass screen · no timing" : st + " · counts for timing") : "no station · no timing"}{src?.printer_sn ? " · printer …" + String(src.printer_sn).slice(-4) : " · all printers"}</span>
+              </div>
+            ); })}
+            {uncovered.length > 0 && <div style={{ marginTop: 10, fontSize: 12.5, color: C.muted }}>Not claimed by any screen (so shown everywhere): {uncovered.join(", ")}.</div>}
+          </Card>
+        </div>
+        )}
 
         {/* footer */}
         <div style={{ padding: "12px 24px 16px", background: "#fff", borderTop: "1px solid " + C.line }}>
-          <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b style={{ color: C.ink }}>{label.trim() || "Screen " + screenKey}</b>{station.trim() ? " · " + station.trim() : ""} · shows: {summary}</div>
+          <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b style={{ color: C.ink }}>{label.trim() || "Screen " + screenKey}</b>{station.trim() ? " · " + station.trim() : ""}{printer ? " · printer …" + String(printer).slice(-4) : ""} · shows: {summary}</div>
           <div style={{ display: "flex", gap: 10 }}>
             <div onClick={onClose} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: C.soft, fontWeight: 800, cursor: "pointer" }}>Cancel</div>
             <div onClick={() => !busy && save()} className="kbtn" style={{ flex: 2, textAlign: "center", padding: "14px 0", borderRadius: 12, background: busy ? "#94a3b8" : C.ink, color: "#fff", fontWeight: 900, cursor: "pointer" }}>{busy ? "Saving…" : "Save this screen"}</div>
