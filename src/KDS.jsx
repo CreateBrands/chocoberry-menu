@@ -1040,7 +1040,7 @@ function PerformanceView({ loc, F, lateMin }) {
   const byType = grp((o) => typeLabel[o.order_type] || o.order_type || "Other");
   const bySource = grp((o) => o.external_channel ? String(o.external_channel) : o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
   const bySize = grp((o) => { const n = o.item_count || 0; return n <= 2 ? "1–2 items" : n <= 5 ? "3–5 items" : n <= 9 ? "6–9 items" : "10+ items"; }).sort((a, b) => a.k.localeCompare(b.k));
-  const scName = (k) => { const sc = screens.find((x) => x.screen_key === k); return sc ? (sc.label || sc.station || "Screen " + k) + (sc.station && sc.label ? " · " + sc.station : "") : "Screen " + k; };
+  const scName = (k) => { const sc = screens.find((x) => x.screen_key === k); if (!sc) return "Screen " + k; const label = sc.label || sc.station || "Screen " + k; const st = sc.station || ""; return st && sc.label && !label.toLowerCase().includes(st.toLowerCase()) ? label + " · " + st : label; };
   const byScreen = (() => { const m = {}; const rowsBy = {}; for (const o of live) { const first = Math.min(...(o.bumps || []).map((b) => new Date(b.bumped_at).getTime())); for (const b of (o.bumps || [])) { const t = new Date(b.bumped_at).getTime(); if (t - first > HOUSEKEEPING_GAP) continue; (m[b.screen_key] ||= []).push((t - new Date(o.created_at)) / 1000); (rowsBy[b.screen_key] ||= []).push(o); } } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100), rows: rowsBy[k] })).filter((r) => r.n >= 3).sort((a, b) => b.n - a.n); })();
   const slowest = [...done].sort((a, b) => tt(b) - tt(a)).slice(0, 7);
 
@@ -1191,76 +1191,128 @@ function PerformanceView({ loc, F, lateMin }) {
                 {[["tickets", "Tickets"], ["breakdown", "Breakdown"], ["items", "Items"]].map(([v, l]) => <Chip key={v} on={drill.view === v} onClick={() => setDrill((d) => ({ ...d, view: v }))}>{l}</Chip>)}
               </div>
               {drill.view === "tickets" && (
-                <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
-                  {[["all", "All"], ["late", "Late"], ["ontime", "On time"], ...(period === "today" ? [["open", "Open"]] : [])].map(([v, l]) => <Chip key={v} on={drill.filter === v} onClick={() => setDrill((d) => ({ ...d, filter: v }))}>{l}</Chip>)}
+                <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+                  {[["all", "All", base.length], ["late", "Late", doneList.filter((o) => tt(o) > T).length], ["ontime", "On time", doneList.filter((o) => tt(o) <= T).length], ...(period === "today" ? [["open", "Open", base.filter((o) => o._done == null).length]] : [])].map(([v, l, n]) => <Chip key={v} on={drill.filter === v} onClick={() => setDrill((d) => ({ ...d, filter: v }))}>{l} <span style={{ opacity: .6 }}>{n}</span></Chip>)}
                   <span style={{ width: 1, height: 18, background: C.line, margin: "0 4px" }} />
                   {[["slowest", "Slowest"], ["newest", "Newest"], ["number", "#"]].map(([v, l]) => <Chip key={v} on={drill.sort === v} onClick={() => setDrill((d) => ({ ...d, sort: v }))}>{l}</Chip>)}
                 </div>
               )}
+              {drill.view === "items" && (
+                <input value={drill.q || ""} onChange={(e) => setDrill((d) => ({ ...d, q: e.target.value }))} placeholder="Search items…" style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid " + C.line, fontSize: F(12.5), outline: "none", width: 180 }} />
+              )}
             </div>
           </div>
           <div style={{ flex: 1, overflowY: "auto", padding: "4px " + F(18) + "px " + F(18) + "px" }}>
+
+            {/* ---------- BREAKDOWN ---------- */}
             {drill.view === "breakdown" && (
-              <div style={{ paddingTop: 10 }}>
-                {Object.entries(bd).map(([k, rs]) => rs.length > 1 ? <MiniTable key={k} rows={rs} label={k} /> : null)}
+              <div style={{ paddingTop: 12, display: "grid", gap: 14 }}>
+                {Object.entries(bd).map(([k, rs]) => {
+                  if (rs.length < 2) return null;
+                  const maxAvg = Math.max(1, ...rs.map((r) => r.avg || 0));
+                  return (
+                    <div key={k} style={{ background: C.soft, borderRadius: 14, padding: "10px 12px" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".06em", marginBottom: 6 }}><span>{k.toUpperCase()}</span><span>AVG · ON-TIME</span></div>
+                      {rs.map((r) => (
+                        <div key={r.k} onClick={() => pushDrill(k + ": " + r.k, r.rows)} className="kbtn" style={{ cursor: "pointer", padding: "6px 0", borderTop: "1px solid #e5e9ef" }}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: F(13), gap: 8 }}>
+                            <span style={{ fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k} <span style={{ color: C.muted, fontWeight: 500 }}>· {r.n}</span></span>
+                            <span style={{ whiteSpace: "nowrap" }}><b style={{ fontFamily: PF, color: r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</b> <span style={{ display: "inline-block", minWidth: 36, textAlign: "center", marginLeft: 6, padding: "1px 5px", borderRadius: 5, fontSize: F(11), fontWeight: 800, background: r.on >= 80 ? C.goodBg : r.on >= 60 ? C.warnBg : C.badBg, color: r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on}%</span></span>
+                          </div>
+                          <div style={{ height: 4, background: "#e5e9ef", borderRadius: 2, marginTop: 4 }}><div style={{ width: ((r.avg || 0) / maxAvg) * 100 + "%", height: "100%", borderRadius: 2, background: r.avg > T ? "#fca5a5" : "#86efac" }} /></div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
                 <div style={{ fontSize: F(11.5), color: C.muted }}>Tap any row to narrow these tickets further.</div>
               </div>
             )}
-            {drill.view === "items" && (
-              <div style={{ paddingTop: 10 }}>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 44px 44px 64px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em", padding: "0 0 4px" }}><span>ITEM</span><span style={{ textAlign: "right" }}>QTY</span><span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>AVG TKT</span></div>
-                {itemRows.slice(0, 60).map((r) => (
-                  <div key={r.k} onClick={() => pushDrill("With " + r.k, r.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "1fr 44px 44px 64px", gap: 6, fontSize: F(13), padding: "6px 0", borderTop: "1px solid " + C.line, alignItems: "center", cursor: "pointer" }}>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>{r.k}</b> <span style={{ color: C.muted, fontSize: F(11.5) }}>{r.cat}</span></span>
-                    <span style={{ textAlign: "right", fontWeight: 800 }}>{r.qty}</span>
-                    <span style={{ textAlign: "right", color: C.muted }}>{r.n}</span>
-                    <span style={{ textAlign: "right", fontWeight: 800, fontFamily: PF, color: r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</span>
-                  </div>
-                ))}
-                {!itemRows.length && <div style={{ fontSize: F(12.5), color: C.muted }}>No item data for these tickets.</div>}
-              </div>
-            )}
+
+            {/* ---------- ITEMS ---------- */}
+            {drill.view === "items" && (() => {
+              const q = (drill.q || "").trim().toLowerCase();
+              const rows = itemRows.filter((r) => !q || r.k.toLowerCase().includes(q) || (r.cat || "").toLowerCase().includes(q));
+              const overall = avg(dt);
+              return (
+                <div style={{ paddingTop: 10 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 40px 72px 64px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em", padding: "0 0 4px" }}><span>ITEM</span><span style={{ textAlign: "right" }}>QTY</span><span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>AVG TKT</span><span style={{ textAlign: "right" }}>VS ALL</span></div>
+                  {rows.slice(0, 80).map((r) => { const d = overall == null ? null : r.avg - overall; return (
+                    <div key={r.k} onClick={() => pushDrill("With " + r.k, r.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "1fr 40px 40px 72px 64px", gap: 6, fontSize: F(13), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center", cursor: "pointer" }}>
+                      <span style={{ minWidth: 0 }}><div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k}</div><div style={{ color: C.muted, fontSize: F(11) }}>{r.cat}</div></span>
+                      <span style={{ textAlign: "right", fontWeight: 800 }}>{r.qty}</span>
+                      <span style={{ textAlign: "right", color: C.muted }}>{r.n}</span>
+                      <span style={{ textAlign: "right", fontWeight: 800, fontFamily: PF, color: r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</span>
+                      <span style={{ textAlign: "right", fontWeight: 800, fontSize: F(12), color: d == null ? C.muted : d > 60 ? C.bad : d < -60 ? C.good : C.muted }}>{d == null ? "" : (d >= 0 ? "+" : "−") + mmss(Math.abs(d))}</span>
+                    </div>
+                  ); })}
+                  {!rows.length && <div style={{ fontSize: F(12.5), color: C.muted, padding: "12px 0" }}>{itemRows.length ? "No items match." : "No item data for these tickets."}</div>}
+                </div>
+              );
+            })()}
+
+            {/* ---------- TICKETS ---------- */}
             {drill.view === "tickets" && list.slice(0, 250).map((o) => {
               const open = !!drillOpen[o.order_id];
               const secs = o._done == null ? null : tt(o);
               const placed = new Date(o.created_at).getTime();
               const bumpsSorted = (o.bumps || []).slice().sort((a, b) => new Date(a.bumped_at) - new Date(b.bumped_at));
+              const late = secs != null && secs > T;
+              const steps = [
+                { t: placed, l: "Placed", d: null },
+                ...(o.kds_started_at ? [{ t: new Date(o.kds_started_at).getTime(), l: "Started", d: (new Date(o.kds_started_at).getTime() - placed) / 1000 }] : []),
+                ...bumpsSorted.map((b) => { const t = new Date(b.bumped_at).getTime(); const hk = t - new Date(bumpsSorted[0].bumped_at).getTime() > HOUSEKEEPING_GAP; return { t, l: "Bumped · " + scName(b.screen_key), hk, d: (t - placed) / 1000 }; }),
+              ];
               return (
                 <div key={o.order_id} style={{ borderBottom: "1px solid " + C.line }}>
-                  <div onClick={() => setDrillOpen((d) => ({ ...d, [o.order_id]: !open }))} style={{ display: "grid", gridTemplateColumns: "64px 1fr auto", gap: 10, alignItems: "center", padding: "9px 0", cursor: "pointer" }}>
-                    <span style={{ fontWeight: 900, fontFamily: PF }}>#{o.order_no}</span>
-                    <span style={{ fontSize: F(12.5), color: C.muted, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{typeLabel2[o.order_type] || o.order_type}{o.table_label ? " " + o.table_label : ""} · {srcOf(o)} · {o.item_count} items · {multiDay ? fmtD(o.created_at) + " " : ""}{fmt(o.created_at)}{o._done ? " → " + fmt(new Date(o._done).toISOString()) : " · still open"}</span>
-                    <span style={{ fontWeight: 900, fontFamily: PF, fontVariantNumeric: "tabular-nums", color: secs == null ? C.warn : secs > T ? C.bad : C.good }}>{secs == null ? mmss((Date.now() - placed) / 1000) + " open" : mmss(secs)}</span>
+                  <div onClick={() => setDrillOpen((d) => ({ ...d, [o.order_id]: !open }))} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 0", cursor: "pointer" }}>
+                    <span style={{ width: 4, alignSelf: "stretch", borderRadius: 2, background: secs == null ? C.warn : late ? C.bad : C.good, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 900, fontFamily: PF, fontSize: F(14) }}>#{o.order_no}</span>
+                        <span style={{ fontSize: F(11), fontWeight: 800, padding: "1px 7px", borderRadius: 6, background: C.soft, color: C.muted }}>{(typeLabel2[o.order_type] || o.order_type || "").toUpperCase()}{o.table_label ? " " + o.table_label : ""}</span>
+                        <span style={{ fontSize: F(11.5), color: C.muted }}>{srcOf(o)} · {o.item_count} item{o.item_count === 1 ? "" : "s"}</span>
+                      </div>
+                      <div style={{ fontSize: F(12), color: C.muted, marginTop: 2, fontVariantNumeric: "tabular-nums" }}>{multiDay ? fmtD(o.created_at) + " " : ""}{fmt(o.created_at)}{o._done ? " → " + fmt(new Date(o._done).toISOString()) : " · still open"}{o.customer_note ? " · 📝" : ""}</div>
+                    </div>
+                    <span style={{ fontWeight: 900, fontFamily: PF, fontVariantNumeric: "tabular-nums", fontSize: F(15), color: secs == null ? C.warn : late ? C.bad : C.good, whiteSpace: "nowrap" }}>{secs == null ? mmss((Date.now() - placed) / 1000) : mmss(secs)}</span>
+                    <span style={{ color: C.muted, fontSize: F(12), transform: open ? "rotate(90deg)" : "none", transition: "transform .15s" }}>›</span>
                   </div>
                   {open && (
-                    <div style={{ padding: "0 0 12px 64px", fontSize: F(12.5), display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                      <div>
-                        <div style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em", marginBottom: 4 }}>ITEMS</div>
-                        {(o.items || []).map((it, i) => (
-                          <div key={i} style={{ padding: "3px 0", borderTop: i ? "1px solid " + C.soft : "none" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}><span style={{ textDecoration: it.status === "voided" ? "line-through" : "none" }}>{(it.qty > 1 ? it.qty + "× " : "") + itemName(it)}</span><span style={{ color: C.muted, whiteSpace: "nowrap" }}>{itemCat(it)}</span></div>
-                            {it.mods && <div style={{ color: C.muted, fontSize: F(11.5) }}>{Array.isArray(it.mods) ? it.mods.map((m) => (m && typeof m === "object") ? (m.name || m.label || m.option || JSON.stringify(m)) : String(m)).join(", ") : typeof it.mods === "object" ? Object.values(it.mods).flat().map((m) => (m && typeof m === "object") ? (m.name || m.label || "") : String(m)).filter(Boolean).join(", ") : String(it.mods)}</div>}
-                            {it.note && <div style={{ color: C.warn, fontSize: F(11.5) }}>Note: {it.note}</div>}
-                          </div>
-                        ))}
-                        {!(o.items || []).length && <div style={{ color: C.muted }}>No item data</div>}
-                        {o.customer_note && <div style={{ marginTop: 6, color: C.warn }}>Order note: {o.customer_note}</div>}
+                    <div style={{ padding: "0 0 14px 14px", display: "flex", flexWrap: "wrap", gap: 16 }}>
+                      <div style={{ flex: "1 1 240px", minWidth: 0 }}>
+                        <div style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".06em", marginBottom: 6 }}>ITEMS</div>
+                        {(o.items || []).map((it, i) => {
+                          const mods = it.mods == null ? "" : Array.isArray(it.mods) ? it.mods.map((m) => (m && typeof m === "object") ? (m.name || m.label || m.option || "") : String(m)).filter(Boolean).join(", ") : typeof it.mods === "object" ? Object.values(it.mods).flat().map((m) => (m && typeof m === "object") ? (m.name || m.label || "") : String(m)).filter(Boolean).join(", ") : String(it.mods);
+                          return (
+                            <div key={i} style={{ padding: "5px 0", borderTop: i ? "1px solid " + C.soft : "none", fontSize: F(12.5) }}>
+                              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
+                                <span style={{ fontWeight: 700, textDecoration: it.status === "voided" ? "line-through" : "none" }}>{it.qty > 1 && <span style={{ color: C.muted }}>{it.qty}× </span>}{itemName(it)}</span>
+                                <span style={{ fontSize: F(10.5), fontWeight: 800, padding: "1px 6px", borderRadius: 5, background: C.soft, color: C.muted, whiteSpace: "nowrap" }}>{itemCat(it)}</span>
+                              </div>
+                              {mods && <div style={{ color: C.muted, fontSize: F(11.5), marginTop: 1 }}>{mods}</div>}
+                              {it.note && <div style={{ color: C.warn, fontSize: F(11.5) }}>Note: {it.note}</div>}
+                            </div>
+                          );
+                        })}
+                        {!(o.items || []).length && <div style={{ color: C.muted, fontSize: F(12.5) }}>No item data</div>}
+                        {o.customer_note && <div style={{ marginTop: 8, fontSize: F(12), color: C.warn, background: "#fff7ed", borderRadius: 8, padding: "6px 8px" }}>📝 {o.customer_note}</div>}
                       </div>
-                      <div>
-                        <div style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em", marginBottom: 4 }}>TIMELINE</div>
-                        {[
-                          { t: placed, l: "Placed", d: null },
-                          ...(o.kds_started_at ? [{ t: new Date(o.kds_started_at).getTime(), l: "Started", d: (new Date(o.kds_started_at).getTime() - placed) / 1000 }] : []),
-                          ...bumpsSorted.map((b) => { const t = new Date(b.bumped_at).getTime(); const hk = t - new Date(bumpsSorted[0].bumped_at).getTime() > HOUSEKEEPING_GAP; return { t, l: "Bumped · " + scName(b.screen_key) + (hk ? " (tidy-up, ignored)" : ""), d: (t - placed) / 1000, hk }; }),
-                        ].map((e, i) => (
-                          <div key={i} style={{ display: "grid", gridTemplateColumns: "64px 1fr auto", gap: 8, padding: "3px 0", color: e.hk ? C.muted : C.ink }}>
-                            <span style={{ fontVariantNumeric: "tabular-nums", color: C.muted }}>{fmtS(e.t)}</span>
-                            <span>{e.l}</span>
-                            <span style={{ fontWeight: 800, fontFamily: PF, color: e.d == null ? C.muted : e.hk ? C.muted : e.d > T ? C.bad : C.good }}>{e.d == null ? "" : "+" + mmss(e.d)}</span>
-                          </div>
-                        ))}
-                        {!bumpsSorted.length && o._done && <div style={{ color: C.muted }}>Completed {fmtS(o._done)} (all screens)</div>}
-                        {!bumpsSorted.length && !o._done && <div style={{ color: C.warn }}>Not bumped yet</div>}
+                      <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                        <div style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".06em", marginBottom: 6 }}>TIMELINE</div>
+                        <div style={{ position: "relative", paddingLeft: 14 }}>
+                          <div style={{ position: "absolute", left: 4, top: 6, bottom: 6, width: 2, background: C.line }} />
+                          {steps.map((e, i) => (
+                            <div key={i} style={{ position: "relative", display: "flex", justifyContent: "space-between", gap: 8, padding: "4px 0", fontSize: F(12.5), color: e.hk ? C.muted : C.ink }}>
+                              <span style={{ position: "absolute", left: -14, top: 9, width: 10, height: 10, borderRadius: "50%", background: e.d == null ? C.muted : e.hk ? "#cbd5e1" : e.d > T ? C.bad : C.good, border: "2px solid #fff" }} />
+                              <span style={{ minWidth: 0 }}><span style={{ color: C.muted, fontVariantNumeric: "tabular-nums", marginRight: 6 }}>{fmtS(e.t)}</span>{e.l}{e.hk && <span style={{ color: C.muted }}> (tidy-up, ignored)</span>}</span>
+                              <span style={{ fontWeight: 800, fontFamily: PF, whiteSpace: "nowrap", color: e.d == null ? C.muted : e.hk ? C.muted : e.d > T ? C.bad : C.good }}>{e.d == null ? "" : "+" + mmss(e.d)}</span>
+                            </div>
+                          ))}
+                          {!bumpsSorted.length && o._done && <div style={{ fontSize: F(12), color: C.muted }}>Completed {fmtS(o._done)} (all screens)</div>}
+                          {!bumpsSorted.length && !o._done && <div style={{ fontSize: F(12), color: C.warn }}>Not bumped yet</div>}
+                        </div>
+                        {steps.length > 2 && steps[1].d != null && <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>{o.kds_started_at ? "Waited " + mmss(steps[1].d) + " before Start" : "First screen cleared it at +" + mmss(steps[1].d) + (steps.length > 2 ? ", last at +" + mmss(steps.filter((x) => !x.hk).slice(-1)[0].d) : "")}</div>}
                       </div>
                     </div>
                   )}
