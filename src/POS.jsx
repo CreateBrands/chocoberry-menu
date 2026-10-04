@@ -242,20 +242,34 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // PIN, then admin-api close_day archives the open orders, writes
   // till_closures and prints the Z-report on this store's printer.
   const [closeTill, setCloseTill] = useState(null); // null | { step: "summary"|"done", summary, counted, float, pin, by, note, busy, err, result }
+  // Trading day ends 04:00: after 4am the default is to close up to 4am only,
+  // so this morning's orders stay open; before 4am (end of night) close all.
+  async function loadCloseTillSummary(mode) {
+    const r = await ordActionJson("day_summary", { location_id: loc, mode });
+    return r.summary || null;
+  }
   async function openCloseTill() {
-    setCloseTill({ step: "summary", summary: null, counted: "", float: "", pin: "", by: "", note: "", busy: true, err: "" });
-    const r = await ordActionJson("day_summary", { location_id: loc });
-    setCloseTill((c) => c && { ...c, busy: false, summary: r.summary || null, err: r.summary ? "" : (r.error || "Could not load today's totals") });
+    setCloseTill({ step: "summary", mode: "all", summary: null, counted: "", float: "", pin: "", by: "", note: "", busy: true, err: "" });
+    let sm = await loadCloseTillSummary("trading_day");
+    let mode = "trading_day";
+    // Nothing before the cutoff (or we're before 4am) → close everything up to now.
+    if (!sm || !sm.before_cutoff_count) { mode = "all"; sm = await loadCloseTillSummary("all"); }
+    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, err: sm ? "" : "Could not load today's totals" });
+  }
+  async function switchCloseTillMode(mode) {
+    setCloseTill((c) => c && { ...c, busy: true, err: "" });
+    const sm = await loadCloseTillSummary(mode);
+    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, err: sm ? "" : "Could not load totals" });
   }
   async function confirmCloseTill() {
     setCloseTill((c) => c && { ...c, busy: true, err: "" });
     const c = closeTill;
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, action: "close_day", data: {
-        location_id: loc, cash_counted: c.counted === "" ? null : Number(c.counted), float_amount: c.float === "" ? null : Number(c.float), closed_by: c.by.trim() || null, note: c.note.trim() || null,
+        location_id: loc, mode: c.mode, cash_counted: c.counted === "" ? null : Number(c.counted), float_amount: c.float === "" ? null : Number(c.float), closed_by: c.by.trim() || null, note: c.note.trim() || null,
       } }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error === "unauthorized" ? "Wrong PIN" : (j.error || "Close failed"));
+      if (!r.ok) throw new Error(j.error === "unauthorized" ? "Wrong PIN" : (j.message || j.error || "Close failed"));
       setCloseTill((x) => x && { ...x, busy: false, step: "done", result: j });
       await loadOrders();
       setSelOrderId(null); setPayNowOrder(null);
@@ -1300,7 +1314,19 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               return (
                 <>
                   <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.02em" }}>Close till</div>
-                  <div style={{ fontSize: 13.5, color: "#6b7a60", marginTop: 3 }}>Archives today's orders, records the cash count and prints the Z-report.</div>
+                  <div style={{ fontSize: 13.5, color: "#6b7a60", marginTop: 3 }}>Archives the trading day's orders, records the cash count and prints the Z-report.</div>
+                  {sm && (sm.later_count > 0 || closeTill.mode === "trading_day") && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                      {[["trading_day", "Up to 4:00 today"], ["all", "Everything up to now"]].map(([m, label]) => {
+                        const on = closeTill.mode === m;
+                        const disabled = m === "trading_day" && !sm.before_cutoff_count && closeTill.mode !== "trading_day";
+                        return <div key={m} onClick={() => !closeTill.busy && !disabled && m !== closeTill.mode && switchCloseTillMode(m)} style={{ flex: 1, textAlign: "center", padding: "10px 8px", borderRadius: 11, fontSize: 13.5, fontWeight: 700, cursor: disabled ? "default" : "pointer", background: on ? "#22271f" : "#f3f4ef", color: on ? "#fff" : disabled ? "#b5bbb0" : "#22271f" }}>{label}</div>;
+                      })}
+                    </div>
+                  )}
+                  {sm && closeTill.mode === "trading_day" && sm.later_count > 0 && (
+                    <div style={{ marginTop: 8, fontSize: 12.5, color: "#6b7a60" }}>{sm.later_count} order{sm.later_count === 1 ? "" : "s"} placed since 4:00 stay open for today.</div>
+                  )}
                   {closeTill.busy && !sm && <div style={{ padding: "30px 0", textAlign: "center", color: "#6b7a60" }}>Loading today's totals…</div>}
                   {sm && (
                     <>

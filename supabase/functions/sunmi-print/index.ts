@@ -914,7 +914,9 @@ Deno.serve(async (req) => {
         r.align(1).size(1, 1).bold(true).line("END OF DAY").bold(false).size(0, 0);
         if (storeName) r.line(storeName);
         r.line("Z-REPORT").feed(1);
-        r.align(0).line(when).divider("-").feed(1);
+        r.align(0).line(when);
+        if (s.mode === "trading_day" && s.cutoff) r.line("Trading day to " + new Date(s.cutoff).toLocaleString("en-GB", { timeZone: "Europe/London" }));
+        r.divider("-").feed(1);
         r.size(0, 1).leftRight("TOTAL TAKEN", money(s.total), W).size(0, 0);
         r.divider("-");
         r.leftRight("Cash", money(s.cash), W);

@@ -117,14 +117,36 @@ Deno.serve(async (req) => {
   // Tenders come from order_payments so split bills, part-payments and the
   // Teya card machine all count correctly; an order is "unpaid" by its balance.
   const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
-  async function dayTotals(location_id: string) {
-    const { data: rows, error } = await admin
+  // Trading day ends at 04:00 Europe/London. Returns the most recent 04:00 as
+  // an ISO instant (today's if it's past 4am, otherwise yesterday's).
+  const TRADING_DAY_END_HOUR = 4;
+  function tzOffsetMinutes(ms: number, tz: string) {
+    const f = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    const p: Record<string, number> = {};
+    for (const x of f.formatToParts(new Date(ms))) if (x.type !== "literal") p[x.type] = Number(x.value);
+    return (Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - ms) / 60000;
+  }
+  function tradingDayCutoff(): string {
+    const now = Date.now();
+    const off = tzOffsetMinutes(now, "Europe/London");
+    const local = new Date(now + off * 60000); // London wall clock, expressed in UTC fields
+    let y = local.getUTCFullYear(), m = local.getUTCMonth(), d = local.getUTCDate();
+    if (local.getUTCHours() < TRADING_DAY_END_HOUR) { const prev = new Date(Date.UTC(y, m, d - 1)); y = prev.getUTCFullYear(); m = prev.getUTCMonth(); d = prev.getUTCDate(); }
+    const wall = Date.UTC(y, m, d, TRADING_DAY_END_HOUR);
+    return new Date(wall - tzOffsetMinutes(wall, "Europe/London") * 60000).toISOString();
+  }
+  // mode "trading_day": only orders created before the last 04:00; "all": every open order.
+  async function dayTotals(location_id: string, mode: "trading_day" | "all" = "all") {
+    const cutoff = tradingDayCutoff();
+    let q = admin
       .from("menu_orders")
       .select("id, order_no, order_type, total, amount_paid, status, created_at")
       .eq("location_id", location_id)
       .is("closed_at", null);
+    const { data: allRows, error } = await q;
     if (error) throw error;
-    const orders = rows || [];
+    const laterRows = (allRows || []).filter((o: any) => o.created_at >= cutoff);
+    const orders = mode === "trading_day" ? (allRows || []).filter((o: any) => o.created_at < cutoff) : (allRows || []);
     const live = orders.filter((o: any) => o.status !== "cancelled");
     const ids = live.map((o: any) => o.id);
     const byMethod: Record<string, number> = { cash: 0, card: 0, other: 0 };
@@ -160,6 +182,11 @@ Deno.serve(async (req) => {
         discount_total: round2(discountTotal),
         order_count: live.length, cancelled_count: cancelled, by_type: byType,
         oldest: live.length ? live.reduce((m: string, o: any) => (o.created_at < m ? o.created_at : m), live[0].created_at) : null,
+        mode, cutoff,
+        // How many open orders are AFTER the 4am cutoff (this morning's trade);
+        // with mode=trading_day they stay open after the close.
+        later_count: laterRows.filter((o: any) => o.status !== "cancelled").length,
+        before_cutoff_count: (allRows || []).filter((o: any) => o.created_at < cutoff && o.status !== "cancelled").length,
       },
     };
   }
@@ -1089,9 +1116,9 @@ Deno.serve(async (req) => {
 
       // ---- TILL: today's sales summary for a location ----
       case "day_summary": {
-        const { location_id } = data || {};
+        const { location_id, mode } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
-        const { summary } = await dayTotals(location_id);
+        const { summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
         return json({ ok: true, summary });
       }
 
@@ -1103,9 +1130,10 @@ Deno.serve(async (req) => {
 
       // ---- TILL: close the day — snapshot totals, then archive open orders ----
       case "close_day": {
-        const { location_id, cash_counted = null, float_amount = null, closed_by = null, note = null } = data || {};
+        const { location_id, cash_counted = null, float_amount = null, closed_by = null, note = null, mode } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
-        const { ids, summary } = await dayTotals(location_id);
+        const { ids, summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
+        if (!ids.length) return json({ error: "nothing_to_close", message: "No orders to close for that period." }, 409);
         const now = new Date().toISOString();
         const counted = cash_counted == null ? null : round2(cash_counted);
         const flt = float_amount == null ? null : round2(float_amount);
@@ -1120,6 +1148,7 @@ Deno.serve(async (req) => {
           cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance,
           closed_by: closed_by ? String(closed_by).slice(0, 80) : null, note: note ? String(note).slice(0, 300) : null,
           other_total: summary.other, cancelled_count: summary.cancelled_count,
+          period_end: mode === "trading_day" ? summary.cutoff : now,
         }).select("id").single();
         if (cErr) throw cErr;
         if (ids.length) {
