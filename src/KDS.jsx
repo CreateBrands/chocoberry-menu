@@ -1096,6 +1096,10 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [tab, setTab] = useState("setup"); // setup | store
+  const initial = JSON.stringify({ label: current?.label || "", station: current?.station || "", printer: current?.printer_sn || "", routing: { menus: [...(current?.routing?.menus || [])], categories: [...(current?.routing?.categories || [])], items: [...(current?.routing?.items || [])] } });
+  const dirty = JSON.stringify({ label, station, printer, routing }) !== initial;
+  const reset = () => { const i = JSON.parse(initial); setLabel(i.label); setStation(i.station); setPrinter(i.printer); setRouting(i.routing); };
+  useEffect(() => { const h = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []); // eslint-disable-line
   useEffect(() => {
     fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "menu_catalog" }) }).then((r) => r.json()).then((j) => setCat(j.ok ? j : { menus: [], categories: [], items: [] })).catch(() => setCat({ menus: [], categories: [], items: [] }));
     fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "printers_list", data: { location_id: loc } }) }).then((r) => r.json()).then((j) => setPrinters(j.ok ? j.printers : [])).catch(() => setPrinters([]));
@@ -1116,6 +1120,8 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
   const isDessert = (m) => /dessert|sweet|cake|ice/i.test(m.name);
   const preset = (fn) => setRouting({ menus: menus.filter(fn).map((m) => m.id), categories: [], items: [] });
   const PRESETS = [["Food", "kitchen", isFood], ["Drinks", "drinks", isDrink], ["Desserts", "desserts", isDessert], ["Everything", "", () => false]];
+  const groupOf = (m) => isDrink(m) ? "Drinks" : isDessert(m) ? "Desserts" : isFood(m) ? "Food" : "Other";
+  const menuGroups = ["Food", "Desserts", "Drinks", "Other"].map((g) => [g, menus.filter((m) => groupOf(m) === g)]).filter(([, ms]) => ms.length);
   const copyFrom = (sc) => { setRouting({ menus: [...(sc.routing?.menus || [])], categories: [...(sc.routing?.categories || [])], items: [...(sc.routing?.items || [])] }); if (sc.station) setStation(sc.station); };
 
   // ---- live preview: with the draft routing, what would this screen show right now? ----
@@ -1158,7 +1164,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
   const Tab = ({ v, children }) => <span onClick={() => setTab(v)} className="kbtn" style={{ cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontSize: 13, fontWeight: 800, background: tab === v ? C.ink : "transparent", color: tab === v ? "#fff" : C.muted }}>{children}</span>;
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(15,23,42,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#f8fafc", borderRadius: 24, width: 900, maxWidth: "100%", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px rgba(15,23,42,.4)", color: C.ink }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#f8fafc", borderRadius: 24, width: 1040, maxWidth: "100%", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px rgba(15,23,42,.4)", color: C.ink }}>
         {/* header */}
         <div style={{ padding: "16px 24px 12px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div>
@@ -1173,87 +1179,97 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
         </div>
 
         {tab === "setup" && (
-        <div style={{ overflowY: "auto", padding: "16px 24px", display: "grid", gap: 14 }}>
-          <Card>
-            <Step n="1" title="Name and station" right="the station decides whether this screen's bumps count as cooking time" />
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr", gap: 14 }}>
-              <label style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>NAME<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Hot Kitchen" style={{ ...inp, marginTop: 6 }} /></label>
-              <div>
-                <div style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>STATION</div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
-                  {STATIONS.map(([v, l]) => <Chip key={v} small on={station.trim().toLowerCase() === v} onClick={() => setStation(v)}>{l}</Chip>)}
-                  <input value={STATIONS.some(([v]) => v === station.trim().toLowerCase()) ? "" : station} onChange={(e) => setStation(e.target.value)} placeholder="other…" style={{ ...inp, width: 100, padding: "5px 10px", fontSize: 12.5 }} />
-                </div>
-                <div style={{ fontSize: 12, marginTop: 6, color: isPass ? C.warn : C.muted }}>{isPass ? "Pass screen — serves and clears only; its bumps won't count as cooking time." : station.trim() ? "Production station — its bumps define when food is done." : "No station — this screen won't count for ticket timing."}{dupStation && <span style={{ color: C.warn }}> · another screen already uses this station — fine if they share a line, otherwise give each its own.</span>}</div>
-              </div>
-            </div>
-          </Card>
-
-          <Card>
-            <Step n="2" title="Printer" right="where this screen's manual prints come out" />
-            {printers === null && <div style={{ fontSize: 13, color: C.muted }}>Loading printers…</div>}
-            {printers && (
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                <Chip small on={!printer} onClick={() => setPrinter("")}>Every printer at the store</Chip>
-                {printers.map((p) => <Chip key={p.sn} small on={printer === p.sn} onClick={() => setPrinter(p.sn)}>{p.name || p.station || "Printer"} <span style={{ opacity: .6, fontWeight: 600 }}>· …{String(p.sn).slice(-4)}</span>{p.online === false ? <span style={{ color: printer === p.sn ? "#fecaca" : "#b91c1c", marginLeft: 6, fontSize: 11 }}>offline</span> : null}</Chip>)}
-                {!printers.length && <span style={{ fontSize: 12.5, color: C.muted }}>No printers registered for this store.</span>}
-              </div>
-            )}
-          </Card>
-
-          <Card>
-            <Step n="3" title="What this screen shows" right={total ? total + " selected" : "nothing selected = everything"} />
-            <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
-              <span style={{ fontSize: 12, color: C.muted, marginRight: 2 }}>Quick set:</span>
-              {PRESETS.map(([l, st, fn]) => <Chip key={l} small onClick={() => { preset(fn); if (st) setStation(st); }}>{l}</Chip>)}
-              {others.filter((x) => x.routing).length > 0 && <><span style={{ width: 1, height: 18, background: C.line, margin: "0 4px" }} /><span style={{ fontSize: 12, color: C.muted }}>Copy from:</span>{others.filter((x) => x.routing).map((x) => <Chip key={x.screen_key} small onClick={() => copyFrom(x)}>{x.label || "Screen " + x.screen_key}</Chip>)}</>}
-            </div>
-            {!cat && <div style={{ color: C.muted, fontSize: 13 }}>Loading menu…</div>}
-            {cat && menus.map((m) => {
-              const mcats = cats.filter((c) => c.menu_id === m.id);
-              const menuOn = has("menus", m.id);
-              const picked = mcats.filter((c) => has("categories", c.id)).length;
-              const el = claimedElsewhere("menus", m.id);
-              return (
-                <div key={m.id} style={{ border: "1.5px solid " + (menuOn || picked ? C.ink : C.line), borderRadius: 14, marginBottom: 8, overflow: "hidden", background: menuOn ? "#f8fafc" : "#fff" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px" }}>
-                    <Switch on={menuOn} onClick={() => { setRouting((r) => ({ ...r, menus: menuOn ? r.menus.filter((x) => x !== m.id) : [...r.menus, m.id], categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) })); }} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 900, fontSize: 14.5 }}>{m.name}</div>
-                      <div style={{ fontSize: 12, color: C.muted }}>{menuOn ? "Whole menu on this screen" : picked ? picked + " of " + mcats.length + " categories" : "Off — unless a category below is picked"}{el.length ? " · also on " + el.join(", ") : ""}</div>
-                    </div>
+        <div style={{ overflowY: "auto", padding: "16px 24px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) minmax(360px, 1.6fr)", gap: 14, alignItems: "start" }}>
+            {/* LEFT: identity, printer, preview */}
+            <div style={{ display: "grid", gap: 14, position: "sticky", top: 0 }}>
+              <Card>
+                <Step n="1" title="Name and station" />
+                <label style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>NAME<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Hot Kitchen" style={{ ...inp, marginTop: 6 }} /></label>
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>STATION</div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
+                    {STATIONS.map(([v, l]) => <Chip key={v} small on={station.trim().toLowerCase() === v} onClick={() => setStation(v)}>{l}</Chip>)}
+                    <input value={STATIONS.some(([v]) => v === station.trim().toLowerCase()) ? "" : station} onChange={(e) => setStation(e.target.value)} placeholder="other…" style={{ ...inp, width: 96, padding: "5px 10px", fontSize: 12.5 }} />
                   </div>
-                  {!menuOn && mcats.length > 0 && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 14px 12px" }}>
-                      {mcats.map((c) => { const ce = claimedElsewhere("categories", c.id); return <Chip key={c.id} small on={has("categories", c.id)} dim={ce.length > 0} onClick={() => toggle("categories", c.id)}>{has("categories", c.id) ? "✓ " : ""}{c.name}{ce.length ? <span style={{ fontSize: 10.5, marginLeft: 5, opacity: .7 }}>→ {ce.join(", ")}</span> : null}</Chip>; })}
-                    </div>
-                  )}
+                  <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.45, color: isPass ? C.warn : C.muted }}>{isPass ? "Pass screen — serves and clears only; its bumps won't count as cooking time." : station.trim() ? "Production station — its bumps define when food is done." : "No station — this screen won't count for ticket timing."}{dupStation && <span style={{ color: C.warn }}> Another screen already uses this station.</span>}</div>
                 </div>
-              );
-            })}
-          </Card>
+              </Card>
+              <Card>
+                <Step n="2" title="Printer" />
+                {printers === null && <div style={{ fontSize: 13, color: C.muted }}>Loading printers…</div>}
+                {printers && (
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    <Chip small on={!printer} onClick={() => setPrinter("")}>Every printer</Chip>
+                    {printers.map((p) => <Chip key={p.sn} small on={printer === p.sn} onClick={() => setPrinter(p.sn)}>{p.name || p.station || "Printer"} <span style={{ opacity: .6, fontWeight: 600 }}>…{String(p.sn).slice(-4)}</span>{p.online === false ? <span style={{ color: printer === p.sn ? "#fecaca" : "#b91c1c", marginLeft: 6, fontSize: 11 }}>offline</span> : null}</Chip>)}
+                    {!printers.length && <span style={{ fontSize: 12.5, color: C.muted }}>No printers registered for this store.</span>}
+                  </div>
+                )}
+              </Card>
+              <Card>
+                <Step n="4" title="Live preview" right={preview.length ? showing.length + "/" + preview.length + " open tickets" : "no open tickets"} />
+                {preview.length === 0 && <div style={{ fontSize: 12.5, color: C.muted }}>Open tickets will appear here, filtered by the selection on the right — before you save.</div>}
+                {preview.length > 0 && (
+                  <div style={{ display: "grid", gap: 4 }}>
+                    {preview.slice(0, 8).map(({ o, total: t, mine }) => (
+                      <div key={o.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5, padding: "5px 0", borderTop: "1px solid " + C.soft, color: mine.length ? C.ink : "#94a3b8" }}>
+                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>#{o.order_no}</b>{o.menu_tables?.label ? " " + o.menu_tables.label : ""} · {mine.length ? mine.map((it) => it.name_snapshot).join(", ") : "nothing"}</span>
+                        <span style={{ flexShrink: 0, fontWeight: 800, color: mine.length === t ? C.good : mine.length ? C.warn : "#94a3b8" }}>{mine.length}/{t}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </div>
 
-          <Card>
-            <Step n="4" title="Single items (optional)" right="exceptions — e.g. one dessert the kitchen makes" />
-            <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type an item name…" style={inp} />
-            {itemMatches.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>{itemMatches.map((i) => <Chip key={i.id} small on={has("items", i.id)} onClick={() => { toggle("items", i.id); setQ(""); }}>{has("items", i.id) ? "✓ " : "+ "}{i.name}</Chip>)}</div>}
-            {routing.items.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>{routing.items.map((id) => <Chip key={id} small on onClick={() => toggle("items", id)}>{nameOf("items", id)} ✕</Chip>)}</div>}
-          </Card>
-
-          <Card>
-            <Step n="5" title="Preview with live tickets" right={preview.length ? showing.length + " of " + preview.length + " open tickets would show here" : "no open tickets to preview"} />
-            {preview.length > 0 && (
-              <div style={{ display: "grid", gap: 6 }}>
-                {preview.slice(0, 8).map(({ o, total: t, mine }) => (
-                  <div key={o.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, padding: "6px 0", borderTop: "1px solid " + C.soft, color: mine.length ? C.ink : "#94a3b8" }}>
-                    <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>#{o.order_no}</b>{o.menu_tables?.label ? " · " + o.menu_tables.label : ""} · {mine.length ? mine.map((it) => it.name_snapshot).join(", ") : "nothing from this ticket"}</span>
-                    <span style={{ flexShrink: 0, fontWeight: 800, color: mine.length === t ? C.good : mine.length ? C.warn : "#94a3b8" }}>{mine.length}/{t} lines</span>
+            {/* RIGHT: routing */}
+            <div style={{ display: "grid", gap: 14 }}>
+              <Card>
+                <Step n="3" title="What this screen shows" right={total ? total + " selected" : "nothing selected = everything"} />
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                  <span style={{ fontSize: 12, color: C.muted }}>Quick set:</span>
+                  {PRESETS.map(([l, st, fn]) => <Chip key={l} small onClick={() => { preset(fn); if (st) setStation(st); }}>{l}</Chip>)}
+                  {others.filter((x) => x.routing).length > 0 && <><span style={{ width: 1, height: 18, background: C.line, margin: "0 4px" }} /><span style={{ fontSize: 12, color: C.muted }}>Copy:</span>{others.filter((x) => x.routing).map((x) => <Chip key={x.screen_key} small onClick={() => copyFrom(x)}>{x.label || "Screen " + x.screen_key}</Chip>)}</>}
+                </div>
+                {!cat && <div style={{ color: C.muted, fontSize: 13 }}>Loading menu…</div>}
+                {cat && menuGroups.map(([g, ms]) => (
+                  <div key={g} style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: ".1em", color: C.muted, margin: "6px 0 6px 2px" }}>{g.toUpperCase()}</div>
+                    {ms.map((m) => {
+                      const mcats = cats.filter((c) => c.menu_id === m.id);
+                      const menuOn = has("menus", m.id);
+                      const picked = mcats.filter((c) => has("categories", c.id)).length;
+                      const el = claimedElsewhere("menus", m.id);
+                      return (
+                        <div key={m.id} style={{ border: "1.5px solid " + (menuOn || picked ? C.ink : C.line), borderRadius: 14, marginBottom: 8, overflow: "hidden", background: menuOn ? "#f8fafc" : "#fff" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px" }}>
+                            <Switch on={menuOn} onClick={() => { setRouting((r) => ({ ...r, menus: menuOn ? r.menus.filter((x) => x !== m.id) : [...r.menus, m.id], categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) })); }} />
+                            <div style={{ flex: 1, minWidth: 0 }}>
+                              <div style={{ fontWeight: 900, fontSize: 14.5 }}>{m.name}</div>
+                              <div style={{ fontSize: 12, color: C.muted }}>{menuOn ? "Whole menu" : picked ? picked + " of " + mcats.length + " categories" : "Off — tap a category to pick part of it"}{el.length ? " · also on " + el.join(", ") : ""}</div>
+                            </div>
+                            {!menuOn && picked > 0 && <span onClick={() => setRouting((r) => ({ ...r, categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) }))} style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, cursor: "pointer" }}>clear</span>}
+                          </div>
+                          {mcats.length > 0 && (
+                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, padding: "0 14px 12px", opacity: menuOn ? .45 : 1, pointerEvents: menuOn ? "none" : "auto" }}>
+                              {mcats.map((c) => { const ce = claimedElsewhere("categories", c.id); const on = menuOn || has("categories", c.id); return <Chip key={c.id} small on={on} dim={ce.length > 0} onClick={() => toggle("categories", c.id)}>{on ? "✓ " : ""}{c.name}{ce.length ? <span style={{ fontSize: 10.5, marginLeft: 5, opacity: .7 }}>→ {ce.join(", ")}</span> : null}</Chip>; })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
-              </div>
-            )}
-          </Card>
-          {err && <div style={{ color: "#b91c1c", fontWeight: 700 }}>{err}</div>}
+                <div style={{ borderTop: "1px solid " + C.line, paddingTop: 12, marginTop: 4 }}>
+                  <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: ".1em", color: C.muted, marginBottom: 6 }}>SINGLE ITEMS <span style={{ fontWeight: 600, letterSpacing: 0 }}>· exceptions, e.g. one dessert the kitchen makes</span></div>
+                  <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Type an item name…" style={inp} />
+                  {itemMatches.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>{itemMatches.map((i) => <Chip key={i.id} small on={has("items", i.id)} onClick={() => { toggle("items", i.id); setQ(""); }}>{has("items", i.id) ? "✓ " : "+ "}{i.name}</Chip>)}</div>}
+                  {routing.items.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>{routing.items.map((id) => <Chip key={id} small on onClick={() => toggle("items", id)}>{nameOf("items", id)} ✕</Chip>)}</div>}
+                </div>
+              </Card>
+              {err && <div style={{ color: "#b91c1c", fontWeight: 700 }}>{err}</div>}
+            </div>
+          </div>
         </div>
         )}
 
@@ -1291,9 +1307,10 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
         {/* footer */}
         <div style={{ padding: "12px 24px 16px", background: "#fff", borderTop: "1px solid " + C.line }}>
           <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b style={{ color: C.ink }}>{label.trim() || "Screen " + screenKey}</b>{station.trim() ? " · " + station.trim() : ""}{printer ? " · printer …" + String(printer).slice(-4) : ""} · shows: {summary}</div>
-          <div style={{ display: "flex", gap: 10 }}>
-            <div onClick={onClose} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: C.soft, fontWeight: 800, cursor: "pointer" }}>Cancel</div>
-            <div onClick={() => !busy && save()} className="kbtn" style={{ flex: 2, textAlign: "center", padding: "14px 0", borderRadius: 12, background: busy ? "#94a3b8" : C.ink, color: "#fff", fontWeight: 900, cursor: "pointer" }}>{busy ? "Saving…" : "Save this screen"}</div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div onClick={onClose} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: C.soft, fontWeight: 800, cursor: "pointer" }}>{dirty ? "Discard" : "Close"}</div>
+            {dirty && <div onClick={reset} className="kbtn" style={{ padding: "14px 16px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, fontWeight: 800, cursor: "pointer", fontSize: 13 }}>Reset</div>}
+            <div onClick={() => !busy && dirty && save()} className="kbtn" style={{ flex: 2, textAlign: "center", padding: "14px 0", borderRadius: 12, background: busy || !dirty ? "#cbd5e1" : C.ink, color: "#fff", fontWeight: 900, cursor: dirty ? "pointer" : "default" }}>{busy ? "Saving…" : dirty ? "Save this screen" : "No changes"}</div>
           </div>
         </div>
       </div>
