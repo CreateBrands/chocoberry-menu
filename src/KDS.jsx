@@ -224,7 +224,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,menu_items(category_id,menu_categories(menu_menus(name))))"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.desc&limit=500";
       // Only today's trade: a busy day passed 200 open orders and the old
@@ -451,6 +451,25 @@ export default function KDS() {
   active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0));
   // Orders that failed to print — shown as an un-ignorable banner across the KDS.
   const failedOrders = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled" && o.print_failed);
+  const [retryingPrint, setRetryingPrint] = useState(false);
+  async function retryPrint(list) {
+    if (retryingPrint) return;
+    setRetryingPrint(true);
+    try {
+      for (const o of list.slice(0, 10)) {
+        await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "retry_print", data: { order_id: o.id } }) });
+      }
+      await load();
+    } catch {} finally { setRetryingPrint(false); }
+  }
+  async function dismissPrint(list) {
+    try {
+      for (const o of list.slice(0, 20)) {
+        await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "clear_print_flag", data: { order_id: o.id } }) });
+      }
+      setOrders((prev) => prev.map((o) => list.some((x) => x.id === o.id) ? { ...o, print_failed: false, print_error: null } : o));
+    } catch {}
+  }
   const completed = orders.filter((o) => myBumps.has(o.id)).map(filterStation).filter(Boolean)
     .sort((a, b) => new Date(b.kds_bumped_at || b.created_at) - new Date(a.kds_bumped_at || a.created_at));
 
@@ -568,18 +587,21 @@ export default function KDS() {
         </div>
       </div>
 
-      {failedOrders.length > 0 && (
-        <div style={{ animation: "kfailflash 1.1s ease-in-out infinite", color: "#fff", padding: "12px 20px", display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 19, boxShadow: "0 4px 14px rgba(220,38,38,.4)" }}>
+      {failedOrders.length > 0 && view !== "pos" && (
+        <div style={{ animation: "kfailflash 1.1s ease-in-out infinite", color: "#fff", padding: "10px 18px", display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 19, boxShadow: "0 4px 14px rgba(0,0,0,.25)", flexWrap: "wrap" }}>
           <span style={{ fontSize: F(20) }}>{WARN}</span>
-          <span style={{ fontWeight: 900, fontSize: F(16), letterSpacing: ".02em" }}>
-            {failedOrders.length === 1
-              ? "ORDER #" + failedOrders[0].order_no + " DID NOT PRINT"
-              : failedOrders.length + " ORDERS DID NOT PRINT"}
-            <span style={{ fontWeight: 600, opacity: .9 }}> — check the printer (paper / power / jam)</span>
-          </span>
-          <span style={{ marginLeft: "auto", fontWeight: 800, fontSize: F(13), opacity: .9 }}>
-            #{failedOrders.slice(0, 6).map((o) => o.order_no).join("  #")}
-          </span>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <div style={{ fontWeight: 900, fontSize: F(15), letterSpacing: ".02em" }}>
+              {failedOrders.length === 1 ? "ORDER #" + failedOrders[0].order_no + " DID NOT PRINT" : failedOrders.length + " ORDERS DID NOT PRINT" + " · #" + failedOrders.slice(0, 6).map((o) => o.order_no).join(" #")}
+            </div>
+            <div style={{ fontWeight: 600, fontSize: F(13), opacity: .95, marginTop: 2 }}>
+              {(() => { const reasons = [...new Set(failedOrders.map((o) => o.print_error).filter(Boolean))]; return reasons.length ? reasons.join(" · ") : "Printer did not accept the job — check it is on, connected and has paper"; })()}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+            <span onClick={() => retryPrint(failedOrders)} className="kbtn" style={{ cursor: "pointer", background: "#fff", color: "#991b1b", borderRadius: 9, padding: "8px 14px", fontWeight: 900, fontSize: F(13) }}>{retryingPrint ? "Retrying…" : "⟳ Retry " + (failedOrders.length === 1 ? "print" : "all")}</span>
+            <span onClick={() => dismissPrint(failedOrders)} className="kbtn" style={{ cursor: "pointer", background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: F(13) }}>Dismiss</span>
+          </div>
         </div>
       )}
 

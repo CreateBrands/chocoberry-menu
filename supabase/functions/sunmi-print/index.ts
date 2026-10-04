@@ -649,9 +649,35 @@ async function printOrder(
   const anyHardFailed = attempted.some((r) => r.printed === false && r.pending !== true);
   try {
     if (anyHardFailed) {
-      await supabase.from("menu_orders").update({ print_failed: true }).eq("id", orderId);
+      // Say WHY, not just that it failed: which printer, is it online, and what
+      // Sunmi actually said — so staff know whether to check the plug, the
+      // Wi-Fi, the paper, or call it in.
+      const bad = attempted.filter((r) => r.printed === false && r.pending !== true);
+      const reasons: string[] = [];
+      for (const r of bad) {
+        const sn = String(r.printer || "");
+        const label = (r.station ? String(r.station) : "printer") + " printer …" + sn.slice(-4);
+        let online: boolean | null = null;
+        try {
+          const st = await sunmi.onlineStatus(sn);
+          const list: any[] = (st as any)?.data?.list ?? [];
+          const row = list.find((x: any) => String(x?.sn ?? x?.msn ?? "") === sn) ?? list[0];
+          const v = String(row?.is_online);
+          online = v === "1" || v === "true" ? true : v === "0" || v === "false" ? false : null;
+        } catch { online = null; }
+        const msg = r.sunmi?.msg ? String(r.sunmi.msg) : "";
+        if (online === false) reasons.push(label + " is OFFLINE — check power and Wi‑Fi");
+        else if (/paper/i.test(msg)) reasons.push(label + " is out of paper");
+        else if (/cover|lid/i.test(msg)) reasons.push(label + " cover is open");
+        else if (/bind|unbound|shop/i.test(msg)) reasons.push(label + " is not linked to the store (Sunmi: " + msg + ")");
+        else if (/limit|frequen|too many|rate/i.test(msg)) reasons.push("Sunmi is throttling " + label + " — tap Retry in a minute");
+        else if (online === true) reasons.push(label + " is online but rejected the job" + (msg ? " (Sunmi: " + msg + ")" : "") + " — tap Retry");
+        else reasons.push(label + " could not be reached" + (msg ? " (Sunmi: " + msg + ")" : "") + " — check it is on and connected");
+        try { await supabase.from("printers").update({ online, ...(online ? { last_online_at: new Date().toISOString() } : {}) }).eq("sn", sn); } catch { /* best effort */ }
+      }
+      await supabase.from("menu_orders").update({ print_failed: true, print_error: reasons.join("; ").slice(0, 300), print_failed_at: new Date().toISOString() }).eq("id", orderId);
     } else if (attempted.length > 0 && attempted.every((r) => r.printed)) {
-      await supabase.from("menu_orders").update({ print_failed: false }).eq("id", orderId);
+      await supabase.from("menu_orders").update({ print_failed: false, print_error: null }).eq("id", orderId);
     }
   } catch (e) { console.error("print_failed flag update error:", e); }
 
@@ -864,7 +890,7 @@ Deno.serve(async (req) => {
         const missingIds = new Set(missing.map((o: any) => o.id));
         const staleFlagged = candidates.filter((o: any) => o.print_failed === true && !missingIds.has(o.id)).map((o: any) => o.id);
         if (staleFlagged.length) {
-          try { await supabase.from("menu_orders").update({ print_failed: false }).in("id", staleFlagged); } catch { /* best effort */ }
+          try { await supabase.from("menu_orders").update({ print_failed: false, print_error: null }).in("id", staleFlagged); } catch { /* best effort */ }
         }
 
         // Auto-cancel stale EMPTY orders (incl. abandoned pay-first "hold"

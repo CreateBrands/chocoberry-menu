@@ -34,6 +34,7 @@ Deno.serve(async (req) => {
     "set_order_type",
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
+    "sweep_unprinted", "retry_print", "clear_print_flag",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
 
@@ -1194,6 +1195,21 @@ Deno.serve(async (req) => {
         if (!location_id) return json({ error: "location_id required" }, 400);
         const { summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
         return json({ ok: true, summary });
+      }
+
+      // ---- PRINT: retry one order / dismiss its alarm ----
+      case "retry_print": {
+        const { order_id } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const r = await callSunmi({ action: "print-order", order_id, force: true });
+        return json({ ok: r.ok, result: r.body });
+      }
+      case "clear_print_flag": {
+        const { order_id } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const { error } = await admin.from("menu_orders").update({ print_failed: false, print_error: null }).eq("id", order_id);
+        if (error) throw error;
+        return json({ ok: true });
       }
 
       // ---- PRINT SAFETY NET: staff-triggered re-push of any unprinted orders ----

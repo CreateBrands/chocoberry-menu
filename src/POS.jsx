@@ -193,7 +193,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const myReq = ++ordersReqRef.current;
     setOrdersBusy(true);
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,print_failed,total,paid_method,paid_amount,amount_paid,is_split,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,print_failed,print_error,total,paid_method,paid_amount,amount_paid,is_split,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
         + (loc ? "&location_id=eq." + loc : "")
         + "&closed_at=is.null&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
@@ -909,9 +909,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               {failedPrintOrders.length === 1
                 ? "ORDER #" + failedPrintOrders[0].order_no + " DID NOT PRINT"
                 : failedPrintOrders.length + " ORDERS DID NOT PRINT"}
-              <span style={{ fontWeight: 600, opacity: .9 }}> — check the printer (paper / power / jam)</span>
+              <span style={{ fontWeight: 600, opacity: .95, display: "block", fontSize: 13.5, marginTop: 2 }}>
+                {(() => { const reasons = [...new Set(failedPrintOrders.map((o) => o.print_error).filter(Boolean))]; return reasons.length ? reasons.join(" · ") : "Printer did not accept the job — check it is on, connected and has paper"; })()}
+              </span>
             </span>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+              <span onClick={async () => { for (const o of failedPrintOrders.slice(0, 20)) await ordAction("clear_print_flag", { order_id: o.id }); loadOrders(); }} title="Dismiss the alarm"
+                style={{ cursor: "pointer", background: "rgba(255,255,255,.14)", border: "1px solid rgba(255,255,255,.4)", borderRadius: 9, padding: "6px 12px", fontWeight: 800, fontSize: 13 }}>Dismiss</span>
               {failedPrintOrders.slice(0, 4).map((o) => (
                 <span key={o.id} onClick={() => ordReprint(o)} title={"Reprint order #" + o.order_no}
                   style={{ cursor: "pointer", background: "rgba(255,255,255,.2)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "6px 12px", fontWeight: 800, fontSize: 14 }}>
