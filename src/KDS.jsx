@@ -910,7 +910,7 @@ function PerformanceView({ loc, F, lateMin }) {
       rpc(range.from, range.to),
       rpc(range.prevFrom, range.prevTo),
       rpc(new Date(t0.getTime() - 13 * 86400000), new Date(t0.getTime() + 86400000)),
-      fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,name,station&location_id=eq." + loc, { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
+      fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,label,station&location_id=eq." + loc, { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
       fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=value&key=eq." + encodeURIComponent("kds_target_minutes:" + loc), { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
     ]).then(([r, p, tr, sc, tg]) => {
       if (!alive) return;
@@ -1008,7 +1008,7 @@ function PerformanceView({ loc, F, lateMin }) {
   const byType = grp((o) => typeLabel[o.order_type] || o.order_type || "Other");
   const bySource = grp((o) => o.external_channel ? String(o.external_channel) : o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
   const bySize = grp((o) => { const n = o.item_count || 0; return n <= 2 ? "1–2 items" : n <= 5 ? "3–5 items" : n <= 9 ? "6–9 items" : "10+ items"; }).sort((a, b) => a.k.localeCompare(b.k));
-  const scName = (k) => { const sc = screens.find((x) => x.screen_key === k); return sc ? (sc.name || sc.station || "Screen " + k) + (sc.station && sc.name ? " · " + sc.station : "") : "Screen " + k; };
+  const scName = (k) => { const sc = screens.find((x) => x.screen_key === k); return sc ? (sc.label || sc.station || "Screen " + k) + (sc.station && sc.label ? " · " + sc.station : "") : "Screen " + k; };
   const byScreen = (() => { const m = {}; const rowsBy = {}; for (const o of live) { const first = Math.min(...(o.bumps || []).map((b) => new Date(b.bumped_at).getTime())); for (const b of (o.bumps || [])) { const t = new Date(b.bumped_at).getTime(); if (t - first > HOUSEKEEPING_GAP) continue; (m[b.screen_key] ||= []).push((t - new Date(o.created_at)) / 1000); (rowsBy[b.screen_key] ||= []).push(o); } } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100), rows: rowsBy[k] })).filter((r) => r.n >= 3).sort((a, b) => b.n - a.n); })();
   const slowest = [...done].sort((a, b) => tt(b) - tt(a)).slice(0, 7);
 
@@ -1337,7 +1337,7 @@ function PerformanceView({ loc, F, lateMin }) {
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: F(14) }}>
-        <Card title="BY CATEGORY" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets containing an item from the category · tap a row for the tickets</span>}><Table rows={byCategory} label="CATEGORY" /></Card>
+        <Card title="BY CATEGORY" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets containing an item from the category · tap a row for the tickets</span>}>{done.length && !done.some((o) => (o.items || []).length) ? <div style={{ fontSize: F(13), color: C.warn }}>Item data isn't coming through — run the latest db/kds_perf.sql in Supabase.</div> : <Table rows={byCategory} label="CATEGORY" />}</Card>
         <Card title="BY MENU"><Table rows={byMenu} label="MENU" /></Card>
       </div>
 
