@@ -495,8 +495,10 @@ export default function KDS() {
     const mods = cleanMods(it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : []);
     const variant = mods.join(", ") || "";
     const age = (now - new Date(o.created_at)) / 60000;
-    const row = (allday[name] ||= { name, cat, qty: 0, variants: {}, oldest: 0, late: 0, tickets: [], notes: [] });
+    const row = (allday[name] ||= { name, cat, qty: 0, variants: {}, oldest: 0, late: 0, tickets: [], notes: [], lineIds: [], newest: Infinity });
     row.qty += it.qty || 1;
+    row.lineIds.push(it.id);
+    row.newest = Math.min(row.newest, age);
     row.variants[variant] = (row.variants[variant] || 0) + (it.qty || 1);
     row.oldest = Math.max(row.oldest, age);
     if (age >= LATE_MIN) row.late += it.qty || 1;
@@ -513,6 +515,16 @@ export default function KDS() {
   const [alldayCat, setAlldayCatRaw] = useState(() => { try { return localStorage.getItem("kds_allday_cat") || ""; } catch { return ""; } });
   const setAlldayCat = (v) => { setAlldayCatRaw(v); try { localStorage.setItem("kds_allday_cat", v); } catch {} };
   const alldayShown = alldayCat ? alldayByCat.filter(([c]) => c === alldayCat) : alldayByCat;
+  // Fire-now rail: the items on the oldest tickets, in the order to start them.
+  const fireNow = [...alldayRows].filter((r) => !alldayCat || r.cat === alldayCat).sort((a, b) => b.oldest - a.oldest).slice(0, 6);
+  // Plating: tickets with everything made except one or two lines — call them.
+  const nearlyReady = active.map((o) => { const lines = (o.menu_order_items || []); const left = lines.filter((it) => it.item_status !== DONE_ITEM); return { o, total: lines.length, left }; }).filter((x) => x.total >= 2 && x.left.length > 0 && x.left.length <= 2 && x.left.length < x.total).sort((a, b) => new Date(a.o.created_at) - new Date(b.o.created_at)).slice(0, 6);
+  const [alldayBusy, setAlldayBusy] = useState(null);
+  async function markAllMade(r) {
+    setAlldayBusy(r.name);
+    for (const id of r.lineIds) await patchItem(id, { item_status: DONE_ITEM });
+    setAlldayBusy(null); setAlldayFocus(null);
+  }
 
   // Header stats: how fast THIS screen cleared its tickets today (its own bump
   // times), not the all-screens settle that rarely completes.
@@ -739,6 +751,42 @@ export default function KDS() {
             </div>
           </div>
           {alldayRows.length === 0 && <div style={{ color: "#64748b", padding: 40, textAlign: "center", fontSize: F(18) }}>Nothing in the queue — kitchen clear ✓</div>}
+          {alldayRows.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: nearlyReady.length ? "1.4fr 1fr" : "1fr", gap: F(14), marginBottom: F(14) }}>
+              <div style={{ background: "#0f172a", color: "#fff", borderRadius: 16, padding: F(12) + "px " + F(16) + "px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><span style={{ fontSize: F(12), fontWeight: 900, letterSpacing: ".1em", color: "#fbbf24" }}>FIRE NOW</span><span style={{ fontSize: F(11.5), color: "#94a3b8" }}>oldest ticket first · tap to spotlight</span></div>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {fireNow.map((r, i) => {
+                    const state = r.late ? "late" : r.oldest >= LATE_MIN * 0.75 ? "warn" : "ok";
+                    return (
+                      <div key={r.name} onClick={() => setAlldayFocus(alldayFocus === r.name ? null : r.name)} className="kbtn" style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 10, padding: F(8) + "px " + F(12) + "px", borderRadius: 12, background: state === "late" ? "#7f1d1d" : state === "warn" ? "#78350f" : "#1e293b", border: "1px solid " + (alldayFocus === r.name ? "#fbbf24" : "transparent") }}>
+                        <span style={{ fontSize: F(11), fontWeight: 900, color: "#94a3b8" }}>{i + 1}</span>
+                        <span style={{ fontWeight: 800, fontSize: F(15) }}>{r.qty}× {r.name}</span>
+                        <span style={{ fontSize: F(12), fontWeight: 800, color: state === "late" ? "#fca5a5" : state === "warn" ? "#fcd34d" : "#94a3b8" }}>{Math.floor(r.oldest)}m</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              {nearlyReady.length > 0 && (
+                <div style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, padding: F(12) + "px " + F(16) + "px" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><span style={{ fontSize: F(12), fontWeight: 900, letterSpacing: ".1em", color: "#16a34a" }}>NEARLY READY</span><span style={{ fontSize: F(11.5), color: "#64748b" }}>tickets waiting on one or two items</span></div>
+                  <div style={{ display: "grid", gap: 6 }}>
+                    {nearlyReady.map(({ o, total, left }) => {
+                      const age = (now - new Date(o.created_at)) / 60000;
+                      const lbl = o.menu_tables?.label || (o.order_type === "takeaway" ? "T/A" : "");
+                      return (
+                        <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, fontSize: F(13.5), padding: "6px 0", borderTop: "1px solid #f1f5f9" }}>
+                          <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>{lbl ? lbl + " · " : ""}#{o.order_no}</b> <span style={{ color: "#64748b" }}>{total - left.length}/{total} made · needs</span> <b style={{ color: "#0f172a" }}>{left.map((it) => it.name_snapshot).join(", ")}</b></span>
+                          <span style={{ fontSize: F(12), fontWeight: 800, color: age >= LATE_MIN ? "#dc2626" : "#64748b", flexShrink: 0 }}>{Math.floor(age)}m</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(340) + "px, 1fr))", gap: F(14), alignItems: "start" }}>
             {alldayShown.map(([cat, rows]) => (
               <div key={cat} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, overflow: "hidden", boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>
@@ -755,7 +803,7 @@ export default function KDS() {
                   return (
                     <div key={r.name} onClick={() => setAlldayFocus(on ? null : r.name)} className="kbtn" style={{ padding: F(12) + "px " + F(16) + "px", borderTop: "1px solid #f1f5f9", cursor: "pointer", background: on ? "#fffbeb" : state === "late" ? "#fef2f2" : "#fff", borderLeft: "5px solid " + (on ? "#f59e0b" : col) }}>
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                        <span style={{ fontWeight: 800, fontSize: F(19), minWidth: 0, lineHeight: 1.15 }}>{r.name}{made > 0 && <span style={{ fontSize: F(11.5), color: "#94a3b8", fontWeight: 700, marginLeft: 8 }}>{made} made</span>}</span>
+                        <span style={{ fontWeight: 800, fontSize: F(19), minWidth: 0, lineHeight: 1.15 }}>{r.name}{r.newest <= 1.5 && <span style={{ fontSize: F(10.5), fontWeight: 900, letterSpacing: ".06em", background: "#7c3aed", color: "#fff", padding: "2px 7px", borderRadius: 6, marginLeft: 8, verticalAlign: "middle" }}>NEW</span>}{made > 0 && <span style={{ fontSize: F(11.5), color: "#94a3b8", fontWeight: 700, marginLeft: 8 }}>{made} made</span>}</span>
                         <span style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                           {r.oldest > 0 && <span style={{ fontSize: F(12.5), fontWeight: 800, padding: "3px 8px", borderRadius: 7, background: state === "late" ? "#fee2e2" : state === "warn" ? "#fef3c7" : "#f1f5f9", color: col }}>{Math.floor(r.oldest)}m</span>}
                           <span style={{ fontWeight: 900, fontSize: F(32), color: col, fontVariantNumeric: "tabular-nums", lineHeight: 1, fontFamily: "'Poppins',sans-serif", minWidth: F(28), textAlign: "right" }}>{r.qty}</span>
@@ -773,8 +821,11 @@ export default function KDS() {
                       )}
                       {r.notes.length > 0 && <div style={{ marginTop: 6, fontSize: F(12.5), color: "#b45309", fontWeight: 800 }}>⚠ {[...new Set(r.notes)].join(" · ")}</div>}
                       {on && (
-                        <div style={{ marginTop: 9, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                          {r.tickets.sort((a, b) => b.age - a.age).map((t) => <span key={t.id} style={{ fontSize: F(12.5), fontWeight: 800, padding: "4px 10px", borderRadius: 8, background: t.age >= LATE_MIN ? "#fee2e2" : "#e2e8f0", color: t.age >= LATE_MIN ? "#b91c1c" : "#334155" }}>{t.lbl ? t.lbl + " · " : ""}#{t.no} · {Math.floor(t.age)}m</span>)}
+                        <div style={{ marginTop: 9 }}>
+                          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            {r.tickets.sort((a, b) => b.age - a.age).map((t) => <span key={t.id} style={{ fontSize: F(12.5), fontWeight: 800, padding: "4px 10px", borderRadius: 8, background: t.age >= LATE_MIN ? "#fee2e2" : "#e2e8f0", color: t.age >= LATE_MIN ? "#b91c1c" : "#334155" }}>{t.lbl ? t.lbl + " · " : ""}#{t.no} · {Math.floor(t.age)}m</span>)}
+                          </div>
+                          <div onClick={(e) => { e.stopPropagation(); if (alldayBusy) return; markAllMade(r); }} className="kbtn" style={{ marginTop: 10, textAlign: "center", padding: F(11) + "px 0", borderRadius: 11, background: "#16a34a", color: "#fff", fontWeight: 900, fontSize: F(15), cursor: "pointer", opacity: alldayBusy === r.name ? .6 : 1 }}>{alldayBusy === r.name ? "Marking…" : "✓ All " + r.qty + " made — tick off on every ticket"}</div>
                         </div>
                       )}
                     </div>
