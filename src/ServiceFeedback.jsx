@@ -107,11 +107,11 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
 
   const [stage, setStage] = useState(prefill && prefill.rating ? "choose" : "mood"); // mood → (allgood | flag) → pin
   const Chip = ({ on, children, onClick, tone, small }) => (
-    <span onClick={onClick} style={{ cursor: "pointer", padding: small ? "8px 13px" : "10px 15px", borderRadius: 11, fontSize: small ? 13.5 : 14.5, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : C.ink, border: "1.5px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap", lineHeight: 1.2 }}>{children}</span>
+    <span onClick={onClick} style={{ cursor: "pointer", padding: small ? "12px 18px" : "14px 20px", borderRadius: 13, fontSize: small ? 16 : 17, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : C.ink, border: "1.5px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap", lineHeight: 1.2 }}>{children}</span>
   );
   const Sec = ({ title, right, children, style }) => (
     <div style={{ marginBottom: 14, ...style }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><span style={{ fontSize: 11.5, fontWeight: 900, letterSpacing: ".08em", color: C.muted }}>{title}</span>{right && <span style={{ fontSize: 12, color: C.muted }}>{right}</span>}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}><span style={{ fontSize: 14, fontWeight: 900, letterSpacing: ".08em", color: C.muted }}>{title}</span>{right && <span style={{ fontSize: 13.5, color: C.muted }}>{right}</span>}</div>
       {children}
     </div>
   );
@@ -120,9 +120,9 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
   const lbl = o.menu_tables?.label || (o.order_type === "takeaway" ? "Takeaway" : o.order_type === "dine_in" ? "Dine in" : o.order_type || "");
   const overTarget = ticketSecs != null && ticketSecs > 15 * 60;
   const PinPad = () => (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 64px)", gap: 6 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 92px)", gap: 10 }}>
       {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "C"].map((k) => (
-        <span key={k} onClick={() => onPin(k === "⌫" ? pin.slice(0, -1) : k === "C" ? "" : pin + k)} style={{ height: 48, borderRadius: 11, background: /\d/.test(k) ? "#fff" : C.soft, border: "1.5px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 800, cursor: "pointer", userSelect: "none" }}>{k}</span>
+        <span key={k} onClick={() => onPin(k === "⌫" ? pin.slice(0, -1) : k === "C" ? "" : pin + k)} style={{ height: 68, borderRadius: 14, background: /\d/.test(k) ? "#fff" : C.soft, border: "1.5px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 24, fontWeight: 800, cursor: "pointer", userSelect: "none" }}>{k}</span>
       ))}
     </div>
   );
@@ -132,19 +132,19 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
   const onPrimary = () => { if (busy || !primaryOk) return; if (stage === "mood") setStage("choose"); else if (stage === "flag") setStage("pin"); else save(); };
 
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 90, background: "rgba(15,23,42,.6)", display: "flex", alignItems: "center", justifyContent: "center", padding: 12 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: 820, maxWidth: "100%", maxHeight: "94vh", borderRadius: 22, display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px rgba(15,23,42,.4)", color: C.ink, fontFamily: "'Inter',system-ui,sans-serif" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "#f8fafc" }}>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", overflow: "hidden", color: C.ink, fontFamily: "'Inter',system-ui,sans-serif" }}>
         {/* header: what order this is */}
-        <div style={{ padding: "16px 22px 12px", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+        <div style={{ padding: "18px 32px 14px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 20, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>How did it go?</div>
-            <div style={{ fontSize: 13, color: C.muted, marginTop: 2, display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <div style={{ fontSize: 26, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>How did it go?</div>
+            <div style={{ fontSize: 15, color: C.muted, marginTop: 4, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
               <b style={{ color: C.ink }}>#{o.order_no}</b>{lbl && <span>{lbl}</span>}
               <span>· {items.slice(0, 4).join(", ")}{items.length > 4 ? " +" + (items.length - 4) : ""}</span>
               {ticketSecs != null && <span style={{ fontWeight: 800, padding: "1px 8px", borderRadius: 6, background: overTarget ? "#fee2e2" : "#dcfce7", color: overTarget ? C.bad : C.good }}>kitchen {Math.floor(ticketSecs / 60)}:{String(ticketSecs % 60).padStart(2, "0")}{overTarget ? " · over target" : ""}</span>}
             </div>
           </div>
-          <span onClick={onClose} style={{ cursor: "pointer", width: 36, height: 36, borderRadius: 10, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, flexShrink: 0 }}>✕</span>
+          <span onClick={onClose} style={{ cursor: "pointer", width: 48, height: 48, borderRadius: 12, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 18, flexShrink: 0 }}>✕</span>
         </div>
         {existing.length > 0 && (
           <div style={{ margin: "10px 22px 0", padding: "8px 12px", borderRadius: 10, background: "#eff6ff", color: "#1e3a8a", fontSize: 12.5, fontWeight: 700 }}>
@@ -152,32 +152,32 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
           </div>
         )}
         {/* progress */}
-        <div style={{ display: "flex", gap: 6, padding: "10px 22px 0" }}>
-          {[["mood", "Mood"], ["flag", "What happened"], ["pin", "Your PIN"]].map(([k, l], i) => { const on = stage === k || (stage === "choose" && k === "mood") || (k === "mood" && rating) || (k === "flag" && (tags.size || stage === "pin")) || (k === "pin" && pin.length >= 4); return <span key={k} style={{ flex: 1, textAlign: "center", fontSize: 11.5, fontWeight: 800, color: on ? C.ink : "#94a3b8", borderBottom: "3px solid " + (on ? C.ink : C.line), paddingBottom: 6 }}>{i + 1} · {l}</span>; })}
+        <div style={{ display: "flex", gap: 8, padding: "12px 32px 0", background: "#fff" }}>
+          {[["mood", "Mood"], ["flag", "What happened"], ["pin", "Your PIN"]].map(([k, l], i) => { const on = stage === k || (stage === "choose" && k === "mood") || (k === "mood" && rating) || (k === "flag" && (tags.size || stage === "pin")) || (k === "pin" && pin.length >= 4); return <span key={k} style={{ flex: 1, textAlign: "center", fontSize: 13.5, fontWeight: 800, color: on ? C.ink : "#94a3b8", borderBottom: "3px solid " + (on ? C.ink : C.line), paddingBottom: 6 }}>{i + 1} · {l}</span>; })}
         </div>
 
-        <div style={{ overflowY: "auto", padding: "16px 22px 8px" }}>
+        <div style={{ overflowY: "auto", padding: "22px 32px 12px", flex: 1 }}><div style={{ maxWidth: 1400, margin: "0 auto" }}>
           {(stage === "mood" || stage === "choose") && (
             <>
               <Sec title="HOW DID THE GUEST LEAVE?" right="your honest read">
                 <div style={{ display: "flex", gap: 8 }}>
                   {MOODS.map(([v, face, l]) => (
-                    <div key={v} onClick={() => { setRating(v); setStage("choose"); }} style={{ flex: 1, textAlign: "center", padding: "14px 0 10px", borderRadius: 16, cursor: "pointer", background: rating === v ? (v <= 2 ? "#fee2e2" : v === 3 ? "#fef3c7" : "#dcfce7") : C.soft, border: "2px solid " + (rating === v ? (v <= 2 ? C.bad : v === 3 ? C.warn : C.good) : "transparent"), transform: rating === v ? "scale(1.04)" : "none", transition: "transform .1s" }}>
-                      <div style={{ fontSize: 36, lineHeight: 1 }}>{face}</div>
-                      <div style={{ fontSize: 12.5, fontWeight: 800, marginTop: 6, color: rating === v ? C.ink : C.muted }}>{l}</div>
+                    <div key={v} onClick={() => { setRating(v); setStage("choose"); }} style={{ flex: 1, textAlign: "center", padding: "32px 0 24px", borderRadius: 22, cursor: "pointer", background: rating === v ? (v <= 2 ? "#fee2e2" : v === 3 ? "#fef3c7" : "#dcfce7") : C.soft, border: "2px solid " + (rating === v ? (v <= 2 ? C.bad : v === 3 ? C.warn : C.good) : "transparent"), transform: rating === v ? "scale(1.04)" : "none", transition: "transform .1s" }}>
+                      <div style={{ fontSize: 64, lineHeight: 1 }}>{face}</div>
+                      <div style={{ fontSize: 16, fontWeight: 800, marginTop: 10, color: rating === v ? C.ink : C.muted }}>{l}</div>
                     </div>
                   ))}
                 </div>
               </Sec>
               {stage === "choose" && (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 4 }}>
-                  <div onClick={() => { setTags(new Set()); setStage("pin"); }} style={{ cursor: "pointer", padding: "18px 16px", borderRadius: 16, background: "#f0fdf4", border: "2px solid #86efac" }}>
-                    <div style={{ fontSize: 16, fontWeight: 900, color: C.good }}>✓ All good</div>
-                    <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>Nothing to flag — just record the mood.</div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginTop: 10 }}>
+                  <div onClick={() => { setTags(new Set()); setStage("pin"); }} style={{ cursor: "pointer", padding: "30px 24px", borderRadius: 20, background: "#f0fdf4", border: "2px solid #86efac" }}>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: C.good }}>✓ All good</div>
+                    <div style={{ fontSize: 15, color: C.muted, marginTop: 6 }}>Nothing to flag.</div>
                   </div>
-                  <div onClick={() => setStage("flag")} style={{ cursor: "pointer", padding: "18px 16px", borderRadius: 16, background: "#fff7ed", border: "2px solid #fdba74" }}>
-                    <div style={{ fontSize: 16, fontWeight: 900, color: C.warn }}>⚑ Something to note</div>
-                    <div style={{ fontSize: 12.5, color: C.muted, marginTop: 3 }}>An issue, a compliment, a special occasion, a regular.</div>
+                  <div onClick={() => setStage("flag")} style={{ cursor: "pointer", padding: "30px 24px", borderRadius: 20, background: "#fff7ed", border: "2px solid #fdba74" }}>
+                    <div style={{ fontSize: 24, fontWeight: 900, color: C.warn }}>⚑ Something to note</div>
+                    <div style={{ fontSize: 15, color: C.muted, marginTop: 6 }}>Issue, compliment, occasion, regular.</div>
                   </div>
                 </div>
               )}
@@ -193,11 +193,11 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
                 </div>
               )}
               <Sec title="WHAT HAPPENED" right={tags.size ? tags.size + " selected" : "tap all that apply"}>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: 10 }}>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))", gap: 12 }}>
                   {groups.map(([c, list]) => (
-                    <div key={c} style={{ background: c === "positive" ? "#f0fdf4" : C.soft, borderRadius: 14, padding: "10px 12px" }}>
-                      <div style={{ fontSize: 11.5, fontWeight: 900, letterSpacing: ".06em", color: C.muted, marginBottom: 8 }}>{GROUP_ICON[c]} {CATEGORY_LABEL[c].toUpperCase()}</div>
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    <div key={c} style={{ background: c === "positive" ? "#f0fdf4" : "#fff", border: "1px solid " + C.line, borderRadius: 18, padding: "14px 16px" }}>
+                      <div style={{ fontSize: 14, fontWeight: 900, letterSpacing: ".06em", color: C.muted, marginBottom: 10 }}>{GROUP_ICON[c]} {CATEGORY_LABEL[c].toUpperCase()}</div>
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                         {list.map((t) => <Chip key={t.k} small on={tags.has(t.k)} tone={c === "positive" ? C.good : undefined} onClick={() => setTags((s) => { const n = new Set(s); n.has(t.k) ? n.delete(t.k) : n.add(t.k); return n; })}>{t.l}</Chip>)}
                       </div>
                     </div>
@@ -228,16 +228,16 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
                 </Sec>
               )}
               <Sec title="NOTE" right="one line is plenty">
-                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={hasIssue ? "What the guest said, what you saw…" : "Anything worth remembering about this table"} style={{ width: "100%", boxSizing: "border-box", padding: "12px 13px", borderRadius: 12, border: "1.5px solid " + C.line, fontSize: 14.5 }} />
+                <input value={note} onChange={(e) => setNote(e.target.value)} placeholder={hasIssue ? "What the guest said, what you saw…" : "Anything worth remembering about this table"} style={{ width: "100%", boxSizing: "border-box", padding: "16px 16px", borderRadius: 14, border: "1.5px solid " + C.line, fontSize: 17 }} />
               </Sec>
             </>
           )}
 
           {stage === "pin" && (
-            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 20, alignItems: "start" }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 40, alignItems: "start" }}>
               <div>
                 <Sec title="YOU'RE LOGGING">
-                  <div style={{ background: C.soft, borderRadius: 14, padding: "12px 14px", fontSize: 14, lineHeight: 1.6 }}>
+                  <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 18, padding: "18px 20px", fontSize: 17, lineHeight: 1.7 }}>
                     <div>Mood: <b>{rating ? MOODS.find((m) => m[0] === rating)[1] + " " + MOODS.find((m) => m[0] === rating)[2] : "—"}</b></div>
                     <div>{tags.size ? <>Flags: <b>{[...tags].map((k) => TAGS.find((t) => t.k === k)?.l).join(", ")}</b></> : <b style={{ color: C.good }}>All good</b>}</div>
                     {itemSel.size > 0 && <div>Items: <b>{[...itemSel].join(", ")}</b></div>}
@@ -248,17 +248,17 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
                 </Sec>
               </div>
               <Sec title="YOUR PIN" right={staff ? (staff.unknown ? <span style={{ color: C.bad }}>not recognised</span> : <span style={{ color: C.good, fontWeight: 800 }}>{staff.name}{remembered && pin === remembered.pin ? <span onClick={() => { setPin(""); setStaff(null); }} style={{ marginLeft: 8, color: C.muted, cursor: "pointer", fontWeight: 700 }}>not you?</span> : null}</span>) : "as in the staff app"}>
-                <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: ".4em", textAlign: "center", padding: "6px 0 10px", minHeight: 42, color: staff && staff.unknown ? C.bad : C.ink }}>{pin ? "•".repeat(pin.length) : <span style={{ color: "#cbd5e1" }}>••••</span>}</div>
+                <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: ".4em", textAlign: "center", padding: "6px 0 14px", minHeight: 52, color: staff && staff.unknown ? C.bad : C.ink }}>{pin ? "•".repeat(pin.length) : <span style={{ color: "#cbd5e1" }}>••••</span>}</div>
                 <PinPad />
               </Sec>
             </div>
           )}
           {err && <div style={{ color: C.bad, fontWeight: 700, marginBottom: 8 }}>{err}</div>}
-        </div>
+        </div></div>
 
-        <div style={{ padding: "12px 22px 18px", borderTop: "1px solid " + C.line, display: "flex", gap: 10 }}>
-          <span onClick={() => stage === "mood" || stage === "choose" ? onClose() : setStage(stage === "pin" ? (tags.size ? "flag" : "choose") : "choose")} style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 13, background: C.soft, fontWeight: 800, cursor: "pointer" }}>{stage === "mood" || stage === "choose" ? "Cancel" : "‹ Back"}</span>
-          {stage !== "choose" && <span onClick={onPrimary} style={{ flex: 2, textAlign: "center", padding: "15px 0", borderRadius: 13, background: done ? C.good : primaryOk && !busy ? C.ink : "#cbd5e1", color: "#fff", fontWeight: 900, fontSize: 15, cursor: primaryOk ? "pointer" : "default" }}>{primaryLabel}</span>}
+        <div style={{ padding: "14px 32px 20px", background: "#fff", borderTop: "1px solid " + C.line, display: "flex", gap: 12 }}>
+          <span onClick={() => stage === "mood" || stage === "choose" ? onClose() : setStage(stage === "pin" ? (tags.size ? "flag" : "choose") : "choose")} style={{ flex: 1, maxWidth: 320, textAlign: "center", padding: "18px 0", borderRadius: 14, background: C.soft, fontWeight: 800, fontSize: 17, cursor: "pointer" }}>{stage === "mood" || stage === "choose" ? "Cancel" : "‹ Back"}</span>
+          {stage !== "choose" && <span onClick={onPrimary} style={{ flex: 2, textAlign: "center", padding: "18px 0", borderRadius: 14, background: done ? C.good : primaryOk && !busy ? C.ink : "#cbd5e1", color: "#fff", fontWeight: 900, fontSize: 18, cursor: primaryOk ? "pointer" : "default" }}>{primaryLabel}</span>}
         </div>
       </div>
     </div>
