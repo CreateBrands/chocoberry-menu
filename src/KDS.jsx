@@ -1534,6 +1534,19 @@ function PerformanceView({ loc, F, lateMin }) {
     </div>
   );
 
+  const spreadCard = (
+        <Card title="TICKET TIME SPREAD" right={<span style={{ fontSize: F(11), color: C.muted }}>minutes · green = within target · tap a band</span>}>
+          {buckets.map((b) => (
+            <div key={b.l} onClick={() => openDrill("Tickets " + b.l + " min", b.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "54px 1fr 72px", gap: 10, alignItems: "center", padding: "5px 0", cursor: b.n ? "pointer" : "default" }}>
+              <span style={{ fontSize: F(13), fontWeight: 700, color: b.late ? C.bad : C.ink, fontVariantNumeric: "tabular-nums" }}>{b.l}</span>
+              <div style={{ height: F(14), background: C.soft, borderRadius: 7, overflow: "hidden" }}><div style={{ width: (b.n / bMax) * 100 + "%", height: "100%", background: b.late ? "#fca5a5" : "#86efac", borderRadius: 7, transition: "width .4s" }} /></div>
+              <span style={{ fontSize: F(13), fontWeight: 800, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{b.n}<span style={{ fontWeight: 600, fontSize: F(11), marginLeft: 4 }}>{times.length ? Math.round(b.n / times.length * 100) + "%" : ""}</span></span>
+            </div>
+          ))}
+          {times.length > 0 && <div style={{ marginTop: 8, fontSize: F(12.5), color: C.ink }}>{Math.round(times.filter((x) => x <= T).length / times.length * 100)}% within {target} min · {Math.round(times.filter((x) => x > T * 2).length / times.length * 100)}% took more than double that.</div>}
+        </Card>
+  );
+
   return (
     <div style={{ padding: F(16), display: "grid", gap: F(14) }}>
       {/* header row (sticky) */}
@@ -1711,6 +1724,7 @@ function PerformanceView({ loc, F, lateMin }) {
               {(() => { const lit = hourLights.filter((x) => x.done >= 3); const best = [...lit].sort((a, b) => b.on - a.on)[0]; const worst = [...lit].sort((a, b) => a.on - b.on)[0]; return best && worst && best.h !== worst.h ? <>Best hour <b style={{ color: C.good }}>{best.h}:00 ({best.on}%)</b> · toughest <b style={{ color: C.bad }}>{worst.h}:00 ({worst.on}%, {worst.n} tickets)</b></> : null; })()}
             </div>
           </Card>
+          {spreadCard}
         </div>
       )}
 
@@ -1736,15 +1750,7 @@ function PerformanceView({ loc, F, lateMin }) {
             })}
           </div>
         </Card>
-        <Card title="TICKET TIME SPREAD" right={<span style={{ fontSize: F(11), color: C.muted }}>minutes</span>}>
-          {buckets.map((b) => (
-            <div key={b.l} onClick={() => openDrill("Tickets " + b.l + " min", b.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "54px 1fr 44px", gap: 10, alignItems: "center", padding: "5px 0", cursor: b.n ? "pointer" : "default" }}>
-              <span style={{ fontSize: F(13), fontWeight: 700, color: b.late ? C.bad : C.ink, fontVariantNumeric: "tabular-nums" }}>{b.l}</span>
-              <div style={{ height: F(12), background: C.soft, borderRadius: 6, overflow: "hidden" }}><div style={{ width: (b.n / bMax) * 100 + "%", height: "100%", background: b.late ? "#fca5a5" : "#86efac", borderRadius: 6, transition: "width .4s" }} /></div>
-              <span style={{ fontSize: F(13), fontWeight: 800, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{b.n}</span>
-            </div>
-          ))}
-        </Card>
+        {spreadCard}
       </div>
 
       </>)}
