@@ -101,7 +101,7 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
       setDone(true);
       try { sessionStorage.setItem("svc_pin", JSON.stringify({ pin, name: j.logged_by || (staff && staff.name) || "", t: Date.now() })); } catch {}
       if (onSaved) onSaved(j);
-      setTimeout(onClose, 900);
+      setTimeout(onClose, 1300);
     } catch (e) { setErr(e.message || "Could not save"); } finally { setBusy(false); }
   }
 
@@ -118,20 +118,32 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
 
   // sizes scale with the screen: a 10" POS tablet and a 32" wall screen both work
   const fs = (min, vw, max) => "clamp(" + min + "px, " + vw + "vw, " + max + "px)";
-  const T = { h1: fs(22, 1.6, 34), h2: fs(14, .9, 18), body: fs(15, 1.05, 22), chip: fs(16, 1.15, 24), face: fs(56, 5, 110), key: fs(22, 1.6, 34), btn: fs(16, 1.2, 24) };
+  const T = { h1: fs(22, 1.6, 34), h2: fs(14, .9, 18), body: fs(15, 1.05, 22), chip: fs(16, 1.15, 24), face: "min(11vw, 30vh)", key: fs(22, 1.6, 34), btn: fs(16, 1.2, 24) };
+  useEffect(() => { const h = (e) => { if (stage !== "mood" && stage !== "choose") return; const n = Number(e.key); if (n >= 1 && n <= 5) { setRating(n); setStage("choose"); } }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, [stage]);
+  // mood → sensible defaults for severity, so an upset guest isn't logged as "minor" by accident
+  useEffect(() => { if (rating === 1) setSeverity("high"); else if (rating === 2) setSeverity("medium"); else if (rating >= 3) setSeverity("low"); }, [rating]);
   const pad = fs(14, 1.4, 32);
 
   const Tag = ({ on, children, onClick, tone }) => (
-    <span onClick={onClick} style={{ cursor: "pointer", padding: fs(10, .8, 18) + " " + fs(14, 1.1, 26), borderRadius: fs(10, .8, 16), fontSize: T.chip, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : C.ink, border: "2px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap", lineHeight: 1.15, boxShadow: on ? "none" : "0 1px 2px rgba(15,23,42,.05)" }}>{on ? "✓ " : ""}{children}</span>
+    <span onClick={onClick} className={"svc-tap" + (on ? " svc-on" : "")} style={{ cursor: "pointer", padding: fs(10, .8, 18) + " " + fs(14, 1.1, 26), borderRadius: fs(10, .8, 16), fontSize: T.chip, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : C.ink, border: "2px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap", lineHeight: 1.15, boxShadow: on ? "0 6px 16px rgba(15,23,42,.18)" : "0 1px 2px rgba(15,23,42,.05)" }}>{on ? "✓ " : ""}{children}</span>
   );
   const Row = ({ k, v }) => <div style={{ display: "flex", gap: 8, fontSize: T.body, lineHeight: 1.5 }}><span style={{ color: "#94a3b8", width: "5.5em", flexShrink: 0 }}>{k}</span><span style={{ fontWeight: 700, minWidth: 0 }}>{v}</span></div>;
   const steps = [["mood", "Mood"], ["flag", "What happened"], ["pin", "Your PIN"]];
   const stepIdx = stage === "mood" || stage === "choose" ? 0 : stage === "flag" ? 1 : 2;
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "#eef2f7", color: C.ink, fontFamily: "'Inter',system-ui,sans-serif", display: "grid", gridTemplateColumns: "minmax(280px, 26%) 1fr" }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 90, background: "#eef2f7", color: C.ink, fontFamily: "'Inter',system-ui,sans-serif", display: "grid", gridTemplateColumns: "minmax(280px, 26%) 1fr", height: "100vh", overflow: "hidden" }}>
+      <style>{`
+        @keyframes svcPop { 0% { transform: scale(.92); } 60% { transform: scale(1.06); } 100% { transform: scale(1); } }
+        @keyframes svcIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+        @keyframes svcTick { 0% { transform: scale(0) rotate(-20deg); opacity: 0; } 60% { transform: scale(1.2) rotate(4deg); opacity: 1; } 100% { transform: scale(1) rotate(0); } }
+        .svc-stage > * { animation: svcIn .22s ease-out both; }
+        .svc-tap { transition: transform .12s ease, box-shadow .12s ease, background .12s ease, border-color .12s ease; }
+        .svc-tap:active { transform: scale(.96) !important; }
+        .svc-on { animation: svcPop .22s ease-out; }
+      `}</style>
       {/* ───── LEFT: context + running summary ───── */}
-      <div style={{ background: "#0f172a", color: "#fff", padding: pad, display: "flex", flexDirection: "column", gap: fs(14, 1.2, 28), minWidth: 0 }}>
+      <div style={{ background: "#0f172a", color: "#fff", padding: pad, display: "flex", flexDirection: "column", gap: fs(14, 1.2, 28), minWidth: 0, minHeight: 0, overflowY: "auto" }}>
         <div>
           <div style={{ fontSize: T.h2, fontWeight: 800, letterSpacing: ".1em", color: "#94a3b8" }}>SERVICE FEEDBACK</div>
           <div style={{ fontSize: T.h1, fontWeight: 900, fontFamily: "'Poppins',sans-serif", marginTop: 4 }}>#{o.order_no}{lbl ? " · " + lbl : ""}</div>
@@ -161,12 +173,21 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
         </div>
       </div>
 
+      {done && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 5, background: "rgba(15,23,42,.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ background: "#fff", borderRadius: 28, padding: fs(28, 3, 60), display: "flex", flexDirection: "column", alignItems: "center", gap: 10, animation: "svcIn .2s ease-out both" }}>
+            <span style={{ width: fs(90, 9, 160), height: fs(90, 9, 160), borderRadius: "50%", background: C.good, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: fs(50, 5, 90), fontWeight: 900, animation: "svcTick .45s ease-out both" }}>✓</span>
+            <div style={{ fontSize: T.h1, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>Logged{staff && !staff.unknown ? " · " + staff.name : ""}</div>
+            <div style={{ fontSize: T.body, color: C.muted }}>#{o.order_no}{lbl ? " · " + lbl : ""} · {rating ? moodMeta(rating)[1] + " " + moodMeta(rating)[2] : ""}{tags.size ? " · " + tags.size + " flag" + (tags.size === 1 ? "" : "s") : ""}</div>
+          </div>
+        </div>
+      )}
       {/* ───── RIGHT: the stage ───── */}
-      <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div style={{ display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0, height: "100vh" }}>
         {/* step bar */}
         <div style={{ display: "flex", alignItems: "center", gap: fs(10, 1, 20), padding: pad, paddingBottom: 0 }}>
           {steps.map(([k, l], i) => (
-            <div key={k} style={{ flex: 1, display: "flex", alignItems: "center", gap: 10 }}>
+            <div key={k} onClick={() => { if (i < stepIdx) setStage(k === "mood" ? "choose" : "flag"); }} style={{ flex: 1, display: "flex", alignItems: "center", gap: 10, cursor: i < stepIdx ? "pointer" : "default" }}>
               <span style={{ width: fs(30, 2.2, 44), height: fs(30, 2.2, 44), borderRadius: "50%", background: i < stepIdx ? C.good : i === stepIdx ? C.ink : "#cbd5e1", color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: T.h2, flexShrink: 0 }}>{i < stepIdx ? "✓" : i + 1}</span>
               <span style={{ fontSize: T.body, fontWeight: 800, color: i === stepIdx ? C.ink : "#94a3b8", whiteSpace: "nowrap" }}>{l}</span>
               {i < steps.length - 1 && <span style={{ flex: 1, height: 3, background: i < stepIdx ? C.good : "#cbd5e1", borderRadius: 2, marginLeft: 8 }} />}
@@ -176,17 +197,18 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
         </div>
 
         {/* content */}
-        <div style={{ flex: 1, overflowY: "auto", padding: pad, display: "flex", flexDirection: "column" }}>
+        <div className="svc-stage" style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: pad, display: "flex", flexDirection: "column", WebkitOverflowScrolling: "touch" }}>
           {(stage === "mood" || stage === "choose") && (
             <>
               <div style={{ fontSize: T.h1, fontWeight: 900, fontFamily: "'Poppins',sans-serif", marginBottom: fs(12, 1, 24) }}>How did the guest leave?</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: fs(10, 1, 22), flex: stage === "mood" ? 1 : "0 0 auto", minHeight: stage === "mood" ? 0 : undefined }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: fs(10, 1, 22), flex: stage === "mood" ? 1 : "0 0 auto", minHeight: stage === "mood" ? 0 : undefined, maxHeight: stage === "mood" ? "62vh" : undefined }}>
                 {MOODS.map(([v, face, l]) => {
                   const on = rating === v; const col = v <= 2 ? C.bad : v === 3 ? C.warn : C.good; const bg = v <= 2 ? "#fee2e2" : v === 3 ? "#fef3c7" : "#dcfce7";
                   return (
-                    <div key={v} onClick={() => { setRating(v); setStage("choose"); }} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: fs(8, .8, 18), padding: stage === "mood" ? fs(24, 3, 60) + " 0" : fs(16, 1.4, 28) + " 0", borderRadius: fs(16, 1.4, 28), cursor: "pointer", background: on ? bg : "#fff", border: "3px solid " + (on ? col : "transparent"), boxShadow: on ? "0 10px 30px rgba(15,23,42,.12)" : "0 1px 3px rgba(15,23,42,.06)", transform: on ? "scale(1.03)" : "none", transition: "all .12s" }}>
-                      <div style={{ fontSize: stage === "mood" ? T.face : fs(36, 3, 64), lineHeight: 1 }}>{face}</div>
+                    <div key={v} onClick={() => { setRating(v); setStage("choose"); }} className={"svc-tap" + (on ? " svc-on" : "")} style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: fs(8, .8, 18), padding: stage === "mood" ? fs(18, 2, 40) + " 0" : fs(14, 1.2, 24) + " 0", borderRadius: fs(16, 1.4, 28), cursor: "pointer", background: on ? bg : "#fff", border: "3px solid " + (on ? col : "transparent"), boxShadow: on ? "0 14px 36px rgba(15,23,42,.14)" : "0 1px 3px rgba(15,23,42,.06)", transform: on ? "scale(1.03)" : "none", position: "relative" }}>
+                      <div style={{ fontSize: stage === "mood" ? T.face : fs(36, 3, 64), lineHeight: 1, filter: rating && !on ? "grayscale(.6) opacity(.55)" : "none", transition: "filter .15s" }}>{face}</div>
                       <div style={{ fontSize: T.body, fontWeight: 800, color: on ? C.ink : C.muted }}>{l}</div>
+                      {stage === "mood" && <span style={{ position: "absolute", top: 10, left: 12, fontSize: T.h2, fontWeight: 800, color: "#cbd5e1" }}>{v}</span>}
                     </div>
                   );
                 })}
@@ -225,8 +247,11 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
               )}
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(" + fs(300, 24, 460) + ", 1fr))", gap: fs(10, .9, 20) }}>
                 {groups.map(([c, list]) => (
-                  <div key={c} style={{ background: c === "positive" ? "#f0fdf4" : "#fff", border: "1px solid " + (c === "positive" ? "#bbf7d0" : C.line), borderRadius: fs(14, 1.2, 24), padding: fs(12, 1, 22) }}>
-                    <div style={{ fontSize: T.h2, fontWeight: 900, letterSpacing: ".08em", color: C.muted, marginBottom: fs(8, .7, 14) }}>{GROUP_ICON[c]} {CATEGORY_LABEL[c].toUpperCase()}</div>
+                  <div key={c} style={{ background: c === "positive" ? "#f0fdf4" : "#fff", border: "2px solid " + (list.some((t) => tags.has(t.k)) ? (c === "positive" ? C.good : C.ink) : (c === "positive" ? "#bbf7d0" : C.line)), borderRadius: fs(14, 1.2, 24), padding: fs(12, 1, 22), transition: "border-color .15s" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: fs(8, .7, 14) }}>
+                      <span style={{ fontSize: T.h2, fontWeight: 900, letterSpacing: ".08em", color: C.muted }}>{GROUP_ICON[c]} {CATEGORY_LABEL[c].toUpperCase()}</span>
+                      {list.filter((t) => tags.has(t.k)).length > 0 && <span style={{ fontSize: T.h2, fontWeight: 900, background: c === "positive" ? C.good : C.ink, color: "#fff", borderRadius: 999, padding: "2px 10px" }}>{list.filter((t) => tags.has(t.k)).length}</span>}
+                    </div>
                     <div style={{ display: "flex", flexWrap: "wrap", gap: fs(6, .6, 12) }}>
                       {list.map((t) => <Tag key={t.k} on={tags.has(t.k)} tone={c === "positive" ? C.good : undefined} onClick={() => setTags((s) => { const n = new Set(s); n.has(t.k) ? n.delete(t.k) : n.add(t.k); return n; })}>{t.l}</Tag>)}
                     </div>
@@ -266,7 +291,10 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
 
           {stage === "pin" && (
             <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: fs(12, 1.2, 28) }}>
-              <div style={{ fontSize: T.h1, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>{staff && !staff.unknown ? "Logging as " + staff.name : "Your PIN"}</div>
+              <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                {staff && !staff.unknown && <span className="svc-on" style={{ width: fs(44, 3.4, 68), height: fs(44, 3.4, 68), borderRadius: "50%", background: C.good, color: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: T.h1 }}>{String(staff.name).trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join("").toUpperCase()}</span>}
+                <div style={{ fontSize: T.h1, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>{staff && !staff.unknown ? "Logging as " + staff.name : "Your PIN"}</div>
+              </div>
               <div style={{ fontSize: T.body, color: staff && staff.unknown ? C.bad : C.muted }}>{staff && staff.unknown ? "PIN not recognised for this store" : staff ? (remembered && pin === remembered.pin ? <span>Remembered from earlier · <span onClick={() => { setPin(""); setStaff(null); }} style={{ textDecoration: "underline", cursor: "pointer" }}>not you?</span></span> : "Tap Log feedback to save") : "Same PIN as the staff app"}</div>
               <div style={{ display: "flex", gap: fs(10, 1, 20), margin: fs(6, .6, 14) + " 0" }}>
                 {[0, 1, 2, 3].map((i) => <span key={i} style={{ width: fs(18, 1.4, 28), height: fs(18, 1.4, 28), borderRadius: "50%", background: i < pin.length ? (staff && staff.unknown ? C.bad : C.ink) : "#cbd5e1" }} />)}
@@ -274,7 +302,7 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
               </div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(3, " + fs(80, 7, 140) + ")", gap: fs(8, .9, 18) }}>
                 {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "C"].map((k) => (
-                  <span key={k} onClick={() => onPin(k === "⌫" ? pin.slice(0, -1) : k === "C" ? "" : pin + k)} style={{ height: fs(60, 5.2, 104), borderRadius: fs(14, 1.2, 24), background: /\d/.test(k) ? "#fff" : "#e2e8f0", border: "1px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: T.key, fontWeight: 800, cursor: "pointer", userSelect: "none", boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>{k}</span>
+                  <span key={k} onClick={() => onPin(k === "⌫" ? pin.slice(0, -1) : k === "C" ? "" : pin + k)} className="svc-tap" style={{ height: fs(60, 5.2, 104), borderRadius: fs(14, 1.2, 24), background: /\d/.test(k) ? "#fff" : "#e2e8f0", border: "1px solid " + C.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: T.key, fontWeight: 800, cursor: "pointer", userSelect: "none", boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>{k}</span>
                 ))}
               </div>
             </div>
