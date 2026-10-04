@@ -922,6 +922,7 @@ function PerformanceView({ loc, F, lateMin }) {
   const [tick, setTick] = useState(0);
   const [drill, setDrill] = useState(null); // { title, rows } — drill-down panel
   const [drillOpen, setDrillOpen] = useState({});
+  const [staff, setStaff] = useState(null); // punches in the period (null = not available)
   useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 30000); return () => clearInterval(id); }, []);
 
   const range = (() => {
@@ -938,15 +939,17 @@ function PerformanceView({ loc, F, lateMin }) {
     let alive = true;
     const rpc = (from, to) => fetch(SUPABASE_URL + "/rest/v1/rpc/kds_ticket_times", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: from.toISOString(), p_to: to.toISOString() }), cache: "no-store" }).then(async (r) => { if (r.ok) return r.json(); let msg = String(r.status); try { const j = await r.json(); msg += " " + (j.message || j.hint || j.details || JSON.stringify(j)).slice(0, 200); } catch {} throw new Error(msg); });
     const t0 = tradingDayStart();
+    const staffing = fetch(SUPABASE_URL + "/rest/v1/rpc/kds_staffing", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: range.from.toISOString(), p_to: range.to.toISOString() }), cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch(() => null);
     Promise.all([
       rpc(range.from, range.to),
       rpc(range.prevFrom, range.prevTo),
       rpc(new Date(t0.getTime() - 13 * 86400000), new Date(t0.getTime() + 86400000)),
+      staffing,
       fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,label,station&location_id=eq." + loc, { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
       fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=value&key=eq." + encodeURIComponent("kds_target_minutes:" + loc), { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
-    ]).then(([r, p, tr, sc, tg]) => {
+    ]).then(([r, p, tr, st, sc, tg]) => {
       if (!alive) return;
-      setRows(r || []); setPrev(p || []); setTrend(tr || []); setScreens(sc || []); setUpdatedAt(new Date());
+      setRows(r || []); setPrev(p || []); setTrend(tr || []); setStaff(Array.isArray(st) ? st : null); setScreens(sc || []); setUpdatedAt(new Date());
       if (tg && tg[0] && Number(tg[0].value) > 0) setTarget(Number(tg[0].value));
     }).catch((e) => alive && setErr("Could not load performance data: " + (e && e.message ? e.message : e) + " — if it mentions kds_ticket_times, run db/kds_perf.sql"));
     return () => { alive = false; };
@@ -1081,6 +1084,42 @@ function PerformanceView({ loc, F, lateMin }) {
   const slowItems = itemImpact.filter((x) => x.delta > 120).slice(0, 6);
   const fastItems = itemImpact.filter((x) => x.delta < -120).slice(-4).reverse();
 
+  // ---- staffing (punch_records): headcount per hour, labour hours, per-person ----
+  const staffing = (() => {
+    if (!staff || !staff.length) return null;
+    const punches = staff.map((p) => ({ ...p, a: new Date(p.punch_in).getTime(), b: p.punch_out ? new Date(p.punch_out).getTime() : Math.min(Date.now(), range.to.getTime()) })).filter((p) => p.b > p.a);
+    const onAt = (t) => punches.filter((p) => p.a <= t && p.b > t);
+    // headcount per hour (average over the hour, sampled at :00/:15/:30/:45)
+    const hourHead = {};
+    for (const [h] of hours) { const samples = []; for (const o of live) { /* use the hour's real span: first/last ticket in that hour */ } hourHead[h] = null; }
+    for (const [h, v] of hours) { const ts = v.rows.map((o) => new Date(o.created_at).getTime()); const cnts = ts.map((t) => onAt(t).length); hourHead[h] = cnts.length ? avg(cnts) : null; }
+    // per shift: labour hours inside the shift window
+    const shiftLabour = {};
+    const dayStart = tradingDayStart(range.from).getTime();
+    for (const [k, a, b] of SHIFTS) {
+      let hrs = 0;
+      const days = period === "7d" ? 7 : period === "30d" ? 30 : 1;
+      for (let d = 0; d < days; d++) {
+        const ws = tradingDayStart(new Date(range.from.getTime() + d * 86400000 + 3600000)).getTime() + (a - 4) * 3600000, we = ws + (b - a) * 3600000;
+        for (const p of punches) hrs += Math.max(0, Math.min(p.b, we) - Math.max(p.a, ws)) / 3600000;
+      }
+      shiftLabour[k] = hrs;
+    }
+    // per person: tickets placed while they were on
+    const people = {};
+    for (const p of punches) {
+      const k = p.name || p.employee_id;
+      const rowsOn = done.filter((o) => { const t = new Date(o.created_at).getTime(); return t >= p.a && t < p.b; });
+      (people[k] ||= { k, hours: 0, shifts: 0, rows: [], roles: new Set() });
+      people[k].hours += (p.b - p.a) / 3600000 - (Number(p.break_minutes) || 0) / 60; people[k].shifts++;
+      for (const o of rowsOn) if (!people[k].rows.includes(o)) people[k].rows.push(o);
+      if (p.role) people[k].roles.add(p.role);
+    }
+    const perPerson = Object.values(people).map((x) => ({ ...pack(x.k, x.rows), hours: x.hours, shifts: x.shifts, role: [...x.roles].join(", "), perHour: x.hours ? x.rows.length / x.hours : 0 })).filter((x) => x.hours >= 0.5).sort((a, b) => b.hours - a.hours);
+    const totalHours = punches.reduce((t, p) => t + (p.b - p.a) / 3600000, 0);
+    return { punches, hourHead, shiftLabour, perPerson, totalHours, ticketsPerLabourHour: totalHours ? done.length / totalHours : null };
+  })();
+
   // ---- weekday pattern (7d / 30d) ----
   const byWeekday = (() => { if (period === "today" || period === "yesterday") return []; const m = {}; for (const o of done) { const k = tradingDayStart(new Date(o.created_at)).toLocaleDateString("en-GB", { weekday: "short" }); (m[k] ||= []).push(o); } const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; return order.filter((k) => m[k]).map((k) => pack(k, m[k])); })();
 
@@ -1110,6 +1149,18 @@ function PerformanceView({ loc, F, lateMin }) {
     if (slowItems.length) push("warn", "Items that drag tickets", slowItems.slice(0, 3).map((x) => x.k + " (+" + mmss(x.delta) + ")").join(", ") + " — tickets containing these run well over the average. Check prep, portioning, or whether they're built to order when they could be part-prepped.");
     // 6a. shift
     if (byShift.length >= 2) { const sl = [...byShift].filter((r) => r.n >= 5).sort((a, b) => b.avg - a.avg); if (sl.length >= 2 && sl[0].avg > sl[sl.length - 1].avg * 1.3) push("info", sl[0].k + " shift is the slow one", sl[0].k + " (" + sl[0].span + ") averages " + mmss(sl[0].avg) + " at " + sl[0].on + "% on-time on " + sl[0].n + " tickets, against " + mmss(sl[sl.length - 1].avg) + " on " + sl[sl.length - 1].k + ". Look at that shift's staffing level and who is on the line before anything else."); }
+    // 6a2. staffing
+    if (staffing) {
+      const hs = hours.filter(([, v]) => v.t.length >= 3 && staffing.hourHead[v === undefined ? "" : ""] !== undefined).map(([h, v]) => ({ h, n: v.n, avg: avg(v.t), head: staffing.hourHead[h] })).filter((x) => x.head != null && x.head > 0);
+      if (hs.length >= 3) {
+        const perHead = hs.map((x) => ({ ...x, load: x.n / x.head })).sort((a, b) => b.load - a.load);
+        const top = perHead[0], rest = avg(perHead.slice(1).map((x) => x.load));
+        if (top && rest && top.load > rest * 1.5 && top.avg > a) push("warn", "Thin at " + top.h + ":00", "At " + top.h + ":00 there were " + top.n + " tickets for " + top.head.toFixed(1) + " staff on the clock (" + top.load.toFixed(1) + " per person) and tickets averaged " + mmss(top.avg) + ". The rest of the day runs ~" + rest.toFixed(1) + " per person. That hour wants one more on the line.");
+        const over = perHead.filter((x) => x.head >= 3 && x.load < rest * 0.5 && x.avg > T);
+        if (over.length) push("info", "Slow with plenty of people at " + over.map((x) => x.h + ":00").join(", "), "Low tickets per person yet times over target — that's process or setup, not staffing.");
+      }
+      if (staffing.ticketsPerLabourHour != null) push(staffing.ticketsPerLabourHour >= 6 ? "good" : "info", staffing.ticketsPerLabourHour.toFixed(1) + " tickets per labour hour", done.length + " tickets across " + staffing.totalHours.toFixed(1) + " clocked hours in the period. Track this number week to week — it rises when prep, layout or rota improve.");
+    }
     // 6b. category
     if (byCategory.length >= 2) { const worstCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => b.avg - a.avg)[0]; const bestCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => a.avg - b.avg)[0]; if (worstCat && bestCat && worstCat.k !== bestCat.k && worstCat.avg > bestCat.avg * 1.4) push("info", worstCat.k + " is the slow section", "Tickets with " + worstCat.k + " average " + mmss(worstCat.avg) + " (" + worstCat.on + "% on-time) against " + mmss(bestCat.avg) + " for " + bestCat.k + ". That section's prep and station layout are where the minutes are."); }
     // 7. takeaway vs dine-in
@@ -1481,19 +1532,19 @@ function PerformanceView({ loc, F, lateMin }) {
 
       {/* by hour + slowest */}
       <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: F(14) }}>
-        <Card title="BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>{peak ? "busiest " + peak[0] + ":00 (" + peak[1].n + ")" : ""}{worst ? " · slowest " + worst[0] + ":00 (" + mmss(avg(worst[1].t)) + ")" : ""}</span>}>
-          <div style={{ position: "relative", height: F(150) }}>
-            <div style={{ position: "absolute", left: 0, right: 0, bottom: F(18), height: F(120), borderBottom: "1px solid " + C.line }}>
+        <Card title="BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>{peak ? "busiest " + peak[0] + ":00 (" + peak[1].n + ")" : ""}{worst ? " · slowest " + worst[0] + ":00 (" + mmss(avg(worst[1].t)) + ")" : ""}{staffing ? " · 👤 = staff clocked in" : ""}</span>}>
+          <div style={{ position: "relative", height: F(staffing ? 162 : 150) }}>
+            <div style={{ position: "absolute", left: 0, right: 0, bottom: F(staffing ? 30 : 18), height: F(120), borderBottom: "1px solid " + C.line }}>
               <div style={{ position: "absolute", left: 0, right: 0, bottom: (T / maxT) * 100 + "%", borderTop: "1.5px dashed " + C.warn, opacity: .7 }} />
             </div>
-            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 4, padding: "0 2px " + F(18) + "px" }}>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 4, padding: "0 2px " + F(staffing ? 30 : 18) + "px" }}>
               {hours.map(([h, v]) => {
                 const a = avg(v.t);
                 return (
                   <div key={h} onClick={() => openDrill(h + ":00 – " + h + ":59", v.rows)} className="kbtn" style={{ flex: 1, position: "relative", height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", minWidth: 0, cursor: "pointer" }} title={h + ":00 · " + v.n + " tickets · avg " + mmss(a) + (v.late ? " · " + v.late + " late" : "")}>
                     {a != null && <div style={{ position: "absolute", bottom: (Math.min(a, maxT) / maxT) * F(120) - 4, width: 10, height: 10, borderRadius: "50%", background: a > T ? C.bad : C.ink, border: "2px solid #fff", zIndex: 2 }} />}
                     <div style={{ width: "70%", height: (v.n / maxN) * F(110), background: v.late ? "#fecaca" : "#cbd5e1", borderRadius: 4 }} />
-                    <span style={{ position: "absolute", bottom: 0, fontSize: F(10), color: C.muted }}>{h}</span>
+                    <span style={{ position: "absolute", bottom: 0, fontSize: F(10), color: C.muted, textAlign: "center", lineHeight: 1.1 }}>{h}{staffing && staffing.hourHead[h] != null && <><br /><span style={{ fontSize: F(9), fontWeight: 800, color: "#1d4ed8" }}>{staffing.hourHead[h].toFixed(0)}👤</span></>}</span>
                   </div>
                 );
               })}
@@ -1543,6 +1594,7 @@ function PerformanceView({ loc, F, lateMin }) {
                 <div style={{ display: "flex", gap: 14, fontSize: F(12), color: C.muted, marginTop: 4 }}>
                   <span>{r.n} tickets</span><span>avg <b style={{ color: C.ink, fontFamily: PF }}>{mmss(r.avg)}</b></span><span>p90 <b style={{ color: C.ink, fontFamily: PF }}>{mmss(r.p90)}</b></span>
                   <span>{Math.round(r.n / Math.max(1, (period === "today" || period === "yesterday") ? 1 : period === "7d" ? 7 : 30))}/day</span>
+                  {staffing && staffing.shiftLabour[r.k] > 0 && <span>{staffing.shiftLabour[r.k].toFixed(1)}h staff · <b style={{ color: C.ink, fontFamily: PF }}>{(r.n / staffing.shiftLabour[r.k]).toFixed(1)}</b>/labour h</span>}
                 </div>
               </div>
             ))}
@@ -1576,6 +1628,24 @@ function PerformanceView({ loc, F, lateMin }) {
           ) : <div style={{ fontSize: F(13), color: C.muted }}>Needs item data — run db/kds_perf.sql if categories are empty.</div>}
         </Card>
       </div>
+
+      {staffing && (
+        <Card title="WHO WAS ON" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets placed while clocked in · {staffing.totalHours.toFixed(1)}h total{staffing.ticketsPerLabourHour != null ? " · " + staffing.ticketsPerLabourHour.toFixed(1) + " tickets / labour hour" : ""}</span>}>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 48px 44px 64px 64px 54px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px" }}><span>PERSON</span><span style={{ textAlign: "right" }}>HOURS</span><span style={{ textAlign: "right" }}>SHIFTS</span><span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>TKT/HR</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>ON-TIME</span></div>
+          {staffing.perPerson.map((r) => (
+            <div key={r.k} onClick={() => openDrill("While " + r.k + " was on", r.rows)} className="kbtn" style={{ display: "grid", gridTemplateColumns: "1fr 60px 48px 44px 64px 64px 54px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center", cursor: r.rows.length ? "pointer" : "default" }}>
+              <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k}{r.role && <span style={{ color: C.muted, fontWeight: 500, fontSize: F(11.5) }}> · {r.role}</span>}</span>
+              <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.hours.toFixed(1)}</span>
+              <span style={{ textAlign: "right", color: C.muted }}>{r.shifts}</span>
+              <span style={{ textAlign: "right", color: C.muted }}>{r.n}</span>
+              <span style={{ textAlign: "right", fontWeight: 800, fontFamily: PF }}>{r.perHour.toFixed(1)}</span>
+              <span style={{ textAlign: "right", fontWeight: 800, fontFamily: PF, color: r.avg != null && r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</span>
+              <span style={{ textAlign: "right" }}>{r.n ? <span style={{ display: "inline-block", minWidth: 42, textAlign: "center", padding: "2px 6px", borderRadius: 6, fontWeight: 800, fontSize: F(12), background: r.on >= 80 ? C.goodBg : r.on >= 60 ? C.warnBg : C.badBg, color: r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on}%</span> : <span style={{ color: C.muted }}>—</span>}</span>
+            </div>
+          ))}
+          <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>These are the tickets the whole kitchen produced while each person was clocked in — a team measure of the shifts they worked, not an individual score.</div>
+        </Card>
+      )}
 
       <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: F(14) }}>
         <Card title="BY CATEGORY" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets containing an item from the category · tap a row for the tickets</span>}>{done.length && !done.some((o) => (o.items || []).length) ? <div style={{ fontSize: F(13), color: C.warn }}>Item data isn't coming through — run the latest db/kds_perf.sql in Supabase.</div> : <PerfTable {...tp} rows={byCategory} label="CATEGORY" limit={12} sortable />}</Card>
