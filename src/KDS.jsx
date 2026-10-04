@@ -1034,9 +1034,21 @@ function PerformanceView({ loc, F, lateMin }) {
     const m = {};
     for (const o of (trend || []).flatMap(segmentsOf)) { if (o._done == null) continue; const k = tradingDayStart(new Date(o.created_at)).toDateString(); (m[k] ||= { t: [], d: tradingDayStart(new Date(o.created_at)) }).t.push(tt(o)); }
     const out = []; const t0 = tradingDayStart();
-    for (let i = 13; i >= 0; i--) { const d = new Date(t0.getTime() - i * 86400000); const e = m[d.toDateString()]; out.push({ d, n: e ? e.t.length : 0, avg: e ? avg(e.t) : null, on: e ? Math.round(e.t.filter((x) => x <= T).length / e.t.length * 100) : null }); }
+    for (let i = 13; i >= 0; i--) { const d = new Date(t0.getTime() - i * 86400000); const e = m[d.toDateString()]; out.push({ d, n: e ? e.t.length : 0, avg: e ? avg(e.t) : null, med: e ? pct(e.t, 0.5) : null, on: e ? Math.round(e.t.filter((x) => x <= T).length / e.t.length * 100) : null }); }
     return out;
   })();
+  const yesterdayDay = trendDays[trendDays.length - 2];
+  const bestDay = trendDays.slice(0, -1).filter((d) => d.n >= 10).sort((a, b) => b.on - a.on)[0] || null;
+
+  // ---- staff-facing: recent tickets, streaks, hour lights, target tracker ----
+  const byDone = [...done].sort((a, b) => a._done - b._done);
+  const last10 = byDone.slice(-10);
+  const streak = (() => { let cur = 0, best = 0; for (const o of byDone) { if (tt(o) <= T) { cur++; best = Math.max(best, cur); } else cur = 0; } return { cur, best }; })();
+  const GOAL = 80;
+  const needForGoal = (() => { if (!times.length) return null; const n = times.length, k = onTime; if (k / n * 100 >= GOAL) return 0; // need x more all on time: (k+x)/(n+x) >= GOAL
+    const x = Math.ceil((GOAL * n - 100 * k) / (100 - GOAL)); return x; })();
+  const hourLights = hours.map(([h, v]) => ({ h, n: v.n, done: v.t.length, on: v.t.length ? Math.round(v.t.filter((x) => x <= T).length / v.t.length * 100) : null, avg: avg(v.t), rows: v.rows }));
+  const fastest = byDone.length ? [...done].sort((a, b) => tt(a) - tt(b))[0] : null;
   // Cap the scale at 4x target so one forgotten ticket doesn't flatten the chart.
   const trendMax = Math.min(T * 4, Math.max(T * 1.5, ...trendDays.map((x) => x.avg || 0)));
 
@@ -1554,6 +1566,11 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
       )}
 
+      {!adv && times.length > 0 && (
+        <div style={{ fontSize: F(14), color: C.ink, background: "#fff", border: "1px solid " + C.line, borderRadius: 14, padding: F(12) + "px " + F(16) + "px", lineHeight: 1.5 }}>
+          <b>{period === "today" ? "So far today" : range.label}:</b> {done.length} tickets, <b style={{ color: onTimePct >= 80 ? C.good : onTimePct >= 60 ? C.warn : C.bad }}>{onTime} on time</b> ({onTimePct}%). A typical ticket takes <b>{mmss(med)}</b> against a {target}-minute target{peak ? "; the busiest hour was " + peak[0] + ":00 with " + peak[1].n + " orders" : ""}{worst && worst[0] !== (peak || [])[0] ? ", and the slowest " + worst[0] + ":00" : ""}.{pAvg != null ? " " + (dAvg <= 0 ? "Faster" : "Slower") + " than last time by " + mmss(Math.abs(dAvg)) + "." : ""}
+        </div>
+      )}
       {/* live now (today only) */}
       {pace && (
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: F(14), alignItems: "center", background: pace.state === "clear" ? "#f0fdf4" : pace.state === "overloaded" ? "#fef2f2" : pace.state === "stretched" ? "#fffbeb" : "#f8fafc", border: "1px solid " + (pace.state === "clear" ? "#bbf7d0" : pace.state === "overloaded" ? "#fecaca" : pace.state === "stretched" ? "#fde68a" : C.line), borderRadius: 18, padding: F(12) + "px " + F(16) + "px" }}>
@@ -1618,6 +1635,66 @@ function PerformanceView({ loc, F, lateMin }) {
           {!insights.length && <div style={{ fontSize: F(13), color: C.muted }}>Findings appear once there are completed tickets.</div>}
         </div>
       </Card>
+
+      {!adv && (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(14) }}>
+          {/* scorecard */}
+          <Card title="SCORECARD" right={<span style={{ fontSize: F(11), color: C.muted }}>on-time at {target} min</span>}>
+            {[
+              { l: period === "today" ? "Today" : range.label, on: onTimePct, med: med, n: done.length, hi: true },
+              ...(period === "today" && yesterdayDay && yesterdayDay.n ? [{ l: "Yesterday", on: yesterdayDay.on, med: yesterdayDay.med, n: yesterdayDay.n }] : []),
+              ...(bestDay ? [{ l: "Best day (2 wks) · " + bestDay.d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric" }), on: bestDay.on, med: bestDay.med, n: bestDay.n, star: true }] : []),
+            ].map((r, i) => (
+              <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 64px 72px 56px", gap: 8, alignItems: "center", padding: "8px 0", borderTop: i ? "1px solid " + C.line : "none", background: r.hi ? "transparent" : "transparent" }}>
+                <span style={{ fontWeight: r.hi ? 900 : 600, fontSize: F(13.5) }}>{r.star ? "★ " : ""}{r.l}</span>
+                <span style={{ textAlign: "right", fontFamily: PF, fontWeight: 900, fontSize: F(16), color: r.on == null ? C.muted : r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on == null ? "—" : r.on + "%"}</span>
+                <span style={{ textAlign: "right", fontFamily: PF, fontWeight: 800, color: r.med != null && r.med > T ? C.bad : C.ink }}>{mmss(r.med)}</span>
+                <span style={{ textAlign: "right", color: C.muted, fontSize: F(12) }}>{r.n} tkts</span>
+              </div>
+            ))}
+            {period === "today" && bestDay && onTimePct != null && (
+              <div style={{ marginTop: 8, fontSize: F(12.5), color: onTimePct > bestDay.on ? C.good : C.muted, fontWeight: onTimePct > bestDay.on ? 800 : 500 }}>{onTimePct > bestDay.on ? "Best day in two weeks so far — keep it going." : "Beat " + bestDay.on + "% to make it the best day in two weeks."}</div>
+            )}
+          </Card>
+
+          {/* last 10 + streak + goal */}
+          <Card title={period === "today" ? "RIGHT NOW" : "STREAKS"} right={<span style={{ fontSize: F(11), color: C.muted }}>goal {GOAL}% on-time</span>}>
+            <div style={{ fontSize: F(11), fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>LAST 10 TICKETS</div>
+            <div style={{ display: "flex", gap: 5, margin: "8px 0 14px" }}>
+              {last10.map((o) => <span key={o.order_id} onClick={() => { openDrill("Ticket " + (o.order_no_label || "#" + o.order_no), [o]); setTimeout(() => setDrillOpen({ [o.order_id]: true }), 0); }} title={(o.order_no_label || "#" + o.order_no) + " · " + mmss(tt(o))} style={{ flex: 1, height: F(26), borderRadius: 7, cursor: "pointer", background: tt(o) <= T ? C.good : tt(o) <= T * 1.5 ? C.warn : C.bad, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: F(10), fontWeight: 800 }}>{Math.round(tt(o) / 60)}</span>)}
+              {!last10.length && <span style={{ fontSize: F(12.5), color: C.muted }}>No tickets yet</span>}
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <div style={{ background: C.soft, borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>ON-TIME STREAK</div>
+                <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(24), color: streak.cur >= 5 ? C.good : C.ink }}>{streak.cur}<span style={{ fontSize: F(12), color: C.muted, fontWeight: 600 }}> now · best {streak.best}</span></div>
+              </div>
+              <div style={{ background: needForGoal === 0 ? C.goodBg : C.soft, borderRadius: 12, padding: "10px 12px" }}>
+                <div style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em" }}>TO REACH {GOAL}%</div>
+                <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(24), color: needForGoal === 0 ? C.good : C.ink }}>{needForGoal == null ? "—" : needForGoal === 0 ? "On it ✓" : needForGoal <= 50 ? needForGoal : "50+"}<span style={{ fontSize: F(12), color: C.muted, fontWeight: 600 }}>{needForGoal ? " on-time in a row" : ""}</span></div>
+              </div>
+            </div>
+            {fastest && <div style={{ marginTop: 10, fontSize: F(12), color: C.muted }}>Fastest: <b style={{ color: C.good }}>{mmss(tt(fastest))}</b> ({fastest.order_no_label || "#" + fastest.order_no}, {(fastest.items || []).slice(0, 2).map(itemName).join(", ") || fastest.item_count + " items"})</div>}
+          </Card>
+
+          {/* hour lights */}
+          <Card title="HOUR BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>green ≥80% · amber ≥60% · number = tickets</span>}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(44px, 1fr))", gap: 5 }}>
+              {hourLights.map((x) => (
+                <div key={x.h} onClick={() => openDrill(x.h + ":00 – " + x.h + ":59", x.rows)} className="kbtn" title={x.h + ":00 · " + x.n + " tickets · " + (x.on == null ? "none done" : x.on + "% on-time · avg " + mmss(x.avg))} style={{ cursor: "pointer", borderRadius: 9, padding: "7px 0", textAlign: "center", background: x.on == null ? C.soft : x.on >= 80 ? C.goodBg : x.on >= 60 ? C.warnBg : C.badBg, color: x.on == null ? C.muted : x.on >= 80 ? C.good : x.on >= 60 ? C.warn : C.bad }}>
+                  <div style={{ fontSize: F(11), fontWeight: 800 }}>{x.h}</div>
+                  <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(15) }}>{x.n}</div>
+                  <div style={{ fontSize: F(10), fontWeight: 700 }}>{x.on == null ? "·" : x.on + "%"}</div>
+                </div>
+              ))}
+              {!hourLights.length && <span style={{ fontSize: F(12.5), color: C.muted }}>No orders yet</span>}
+            </div>
+            <div style={{ marginTop: 10, fontSize: F(12.5), color: C.ink }}>
+              {(() => { const lit = hourLights.filter((x) => x.done >= 3); const best = [...lit].sort((a, b) => b.on - a.on)[0]; const worst = [...lit].sort((a, b) => a.on - b.on)[0]; return best && worst && best.h !== worst.h ? <>Best hour <b style={{ color: C.good }}>{best.h}:00 ({best.on}%)</b> · toughest <b style={{ color: C.bad }}>{worst.h}:00 ({worst.on}%, {worst.n} tickets)</b></> : null; })()}
+            </div>
+          </Card>
+        </div>
+      )}
 
       {adv && (<>
       {/* trend + distribution */}
