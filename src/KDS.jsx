@@ -128,7 +128,8 @@ export default function KDS() {
     if (!loc) return;
     let alive = true;
     const load = () => {
-      const since = new Date(Date.now() - 18 * 3600 * 1000).toISOString();
+      // Must cover at least the order window (20h) or bumped tickets resurrect.
+      const since = new Date(Date.now() - 26 * 3600 * 1000).toISOString();
       fetch(SUPABASE_URL + "/rest/v1/kds_bumps?location_id=eq." + encodeURIComponent(loc)
             + "&screen_key=eq." + encodeURIComponent(getScreenId())
             + "&bumped_at=gte." + encodeURIComponent(since)
@@ -362,6 +363,10 @@ export default function KDS() {
           headers: { ...H, Prefer: "resolution=merge-duplicates,return=minimal" },
           body: JSON.stringify({
             order_id: o.id, screen_key: getScreenId(), location_id: loc, bumped_by: who,
+            // Re-bumping an order that already has a row (e.g. one reopened by an
+            // append, or an old ticket) must refresh the timestamp, or the row
+            // stays outside the load window and the ticket comes straight back.
+            bumped_at: new Date().toISOString(),
           }),
         });
         await fetch(SUPABASE_URL + "/rest/v1/rpc/kds_settle_order", {
