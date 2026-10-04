@@ -867,7 +867,11 @@ function tradingDayStart(d = new Date()) {
   t.setHours(4, 0, 0, 0);
   return t;
 }
-const mmss = (secs) => secs == null || !isFinite(secs) ? "—" : Math.floor(secs / 60) + ":" + String(Math.floor(secs % 60)).padStart(2, "0");
+const mmss = (secs) => {
+  if (secs == null || !isFinite(secs)) return "—";
+  if (secs >= 3600) return Math.floor(secs / 3600) + "h " + String(Math.floor((secs % 3600) / 60)).padStart(2, "0") + "m";
+  return Math.floor(secs / 60) + ":" + String(Math.floor(secs % 60)).padStart(2, "0");
+};
 const pct = (arr, q) => { if (!arr.length) return null; const a = [...arr].sort((x, y) => x - y); const i = Math.min(a.length - 1, Math.floor(q * (a.length - 1))); return a[i]; };
 const avg = (arr) => arr.length ? arr.reduce((t, x) => t + x, 0) / arr.length : null;
 
@@ -876,7 +880,6 @@ function PerformanceView({ loc, F, lateMin }) {
   const [rows, setRows] = useState(null);           // orders in period
   const [prev, setPrev] = useState(null);           // comparison period (completed only)
   const [trend, setTrend] = useState(null);         // last 14 trading days, completed only
-  const [bumps, setBumps] = useState([]);
   const [screens, setScreens] = useState([]);
   const [target, setTarget] = useState(lateMin);
   const [editTarget, setEditTarget] = useState(null);
@@ -896,22 +899,19 @@ function PerformanceView({ loc, F, lateMin }) {
   useEffect(() => {
     if (!loc) return;
     let alive = true;
-    const q = (from, to, sel, extra = "") => fetch(SUPABASE_URL + "/rest/v1/menu_orders?select=" + sel + "&location_id=eq." + loc + "&created_at=gte." + encodeURIComponent(from.toISOString()) + "&created_at=lt." + encodeURIComponent(to.toISOString()) + extra + "&limit=10000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : Promise.reject(r.status));
-    const full = "id,order_no,order_type,tablet_no,external_channel,status,created_at,kds_started_at,kds_bumped_at,menu_order_items(id)";
-    const lite = "created_at,kds_bumped_at,status";
+    const rpc = (from, to) => fetch(SUPABASE_URL + "/rest/v1/rpc/kds_ticket_times", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: from.toISOString(), p_to: to.toISOString() }), cache: "no-store" }).then((r) => r.ok ? r.json() : Promise.reject(r.status));
     const t0 = tradingDayStart();
     Promise.all([
-      q(range.from, range.to, full, "&order=created_at.asc"),
-      q(range.prevFrom, range.prevTo, lite, "&kds_bumped_at=not.is.null"),
-      q(new Date(t0.getTime() - 13 * 86400000), new Date(t0.getTime() + 86400000), lite, "&kds_bumped_at=not.is.null"),
-      fetch(SUPABASE_URL + "/rest/v1/kds_bumps?select=order_id,screen_key,bumped_at&location_id=eq." + loc + "&bumped_at=gte." + encodeURIComponent(range.from.toISOString()) + "&bumped_at=lt." + encodeURIComponent(range.to.toISOString()) + "&limit=10000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
+      rpc(range.from, range.to),
+      rpc(range.prevFrom, range.prevTo),
+      rpc(new Date(t0.getTime() - 13 * 86400000), new Date(t0.getTime() + 86400000)),
       fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,name,station&location_id=eq." + loc, { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
       fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=value&key=eq." + encodeURIComponent("kds_target_minutes:" + loc), { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
-    ]).then(([r, p, tr, b, sc, tg]) => {
+    ]).then(([r, p, tr, sc, tg]) => {
       if (!alive) return;
-      setRows(r || []); setPrev(p || []); setTrend(tr || []); setBumps(b || []); setScreens(sc || []);
+      setRows(r || []); setPrev(p || []); setTrend(tr || []); setScreens(sc || []);
       if (tg && tg[0] && Number(tg[0].value) > 0) setTarget(Number(tg[0].value));
-    }).catch((e) => alive && setErr("Could not load performance data (" + e + ")"));
+    }).catch((e) => alive && setErr("Could not load performance data (" + e + "). Has db/kds_perf.sql been run?"));
     return () => { alive = false; };
   }, [loc, tick, period]); // eslint-disable-line
 
@@ -928,10 +928,10 @@ function PerformanceView({ loc, F, lateMin }) {
 
   const now = Date.now();
   const T = target * 60;
-  const live = rows.filter((o) => o.status !== "cancelled");
-  const done = live.filter((o) => o.kds_bumped_at);
-  const open = period === "today" ? live.filter((o) => !o.kds_bumped_at && o.status !== "served") : [];
-  const tt = (o) => (new Date(o.kds_bumped_at) - new Date(o.created_at)) / 1000;
+  const live = rows;
+  const done = live.filter((o) => o.completed_at);
+  const open = period === "today" ? live.filter((o) => !o.completed_at) : [];
+  const tt = (o) => (new Date(o.completed_at) - new Date(o.created_at)) / 1000;
   const ts = (o) => o.kds_started_at ? (new Date(o.kds_started_at) - new Date(o.created_at)) / 1000 : null;
   const times = done.map(tt);
   const starts = done.map(ts).filter((x) => x != null);
@@ -939,8 +939,9 @@ function PerformanceView({ loc, F, lateMin }) {
   const onTimePct = times.length ? Math.round(onTime / times.length * 100) : null;
   const waiting = open.map((o) => (now - new Date(o.created_at)) / 1000);
   const overNow = waiting.filter((x) => x > T).length;
-  const items = live.reduce((t, o) => t + (o.menu_order_items || []).length, 0);
-  const pTimes = (prev || []).filter((o) => o.status !== "cancelled").map(tt);
+  const items = live.reduce((t, o) => t + (o.item_count || 0), 0);
+  const med = pct(times, 0.5);
+  const pTimes = (prev || []).filter((o) => o.completed_at).map(tt);
   const pAvg = avg(pTimes), pOn = pTimes.length ? Math.round(pTimes.filter((x) => x <= T).length / pTimes.length * 100) : null;
   const dAvg = pAvg != null && times.length ? avg(times) - pAvg : null;
   const grade = onTimePct == null ? null : onTimePct >= 90 ? "A" : onTimePct >= 80 ? "B" : onTimePct >= 65 ? "C" : "D";
@@ -950,12 +951,13 @@ function PerformanceView({ loc, F, lateMin }) {
   // trend: last 14 trading days
   const trendDays = (() => {
     const m = {};
-    for (const o of trend || []) { if (o.status === "cancelled") continue; const k = tradingDayStart(new Date(o.created_at)).toDateString(); (m[k] ||= { t: [], d: tradingDayStart(new Date(o.created_at)) }).t.push(tt(o)); }
+    for (const o of trend || []) { if (!o.completed_at) continue; const k = tradingDayStart(new Date(o.created_at)).toDateString(); (m[k] ||= { t: [], d: tradingDayStart(new Date(o.created_at)) }).t.push(tt(o)); }
     const out = []; const t0 = tradingDayStart();
     for (let i = 13; i >= 0; i--) { const d = new Date(t0.getTime() - i * 86400000); const e = m[d.toDateString()]; out.push({ d, n: e ? e.t.length : 0, avg: e ? avg(e.t) : null, on: e ? Math.round(e.t.filter((x) => x <= T).length / e.t.length * 100) : null }); }
     return out;
   })();
-  const trendMax = Math.max(T, ...trendDays.map((x) => x.avg || 0));
+  // Cap the scale at 4x target so one forgotten ticket doesn't flatten the chart.
+  const trendMax = Math.min(T * 4, Math.max(T * 1.5, ...trendDays.map((x) => x.avg || 0)));
 
   // distribution
   const buckets = [["< 5", 0, 300], ["5–10", 300, 600], ["10–15", 600, 900], ["15–20", 900, 1200], ["20–30", 1200, 1800], ["30+", 1800, Infinity]].map(([l, a, b]) => ({ l, n: times.filter((x) => x >= a && x < b).length, late: a >= T }));
@@ -963,10 +965,10 @@ function PerformanceView({ loc, F, lateMin }) {
 
   // by hour
   const byHour = {};
-  for (const o of live) { const h = String(new Date(o.created_at).getHours()).padStart(2, "0"); (byHour[h] ||= { n: 0, t: [], late: 0 }); byHour[h].n++; if (o.kds_bumped_at) { const x = tt(o); byHour[h].t.push(x); if (x > T) byHour[h].late++; } }
+  for (const o of live) { const h = String(new Date(o.created_at).getHours()).padStart(2, "0"); (byHour[h] ||= { n: 0, t: [], late: 0 }); byHour[h].n++; if (o.completed_at) { const x = tt(o); byHour[h].t.push(x); if (x > T) byHour[h].late++; } }
   const hours = Object.entries(byHour).sort((a, b) => a[0].localeCompare(b[0]));
   const maxN = Math.max(1, ...hours.map(([, v]) => v.n));
-  const maxT = Math.max(T * 1.2, ...hours.map(([, v]) => avg(v.t) || 0));
+  const maxT = Math.min(T * 4, Math.max(T * 1.5, ...hours.map(([, v]) => avg(v.t) || 0)));
   const peak = hours.slice().sort((a, b) => b[1].n - a[1].n)[0];
   const worst = hours.filter(([, v]) => v.t.length >= 3).sort((a, b) => (avg(b[1].t) || 0) - (avg(a[1].t) || 0))[0];
 
@@ -974,9 +976,9 @@ function PerformanceView({ loc, F, lateMin }) {
   const grp = (key) => { const m = {}; for (const o of done) { const k = key(o); (m[k] ||= []).push(tt(o)); } return Object.entries(m).map(([k, v]) => ({ k, n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).sort((a, b) => b.n - a.n); };
   const byType = grp((o) => typeLabel[o.order_type] || o.order_type || "Other");
   const bySource = grp((o) => o.external_channel ? String(o.external_channel) : o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
-  const bySize = grp((o) => { const n = (o.menu_order_items || []).length; return n <= 2 ? "1–2 items" : n <= 5 ? "3–5 items" : n <= 9 ? "6–9 items" : "10+ items"; }).sort((a, b) => a.k.localeCompare(b.k));
+  const bySize = grp((o) => { const n = o.item_count || 0; return n <= 2 ? "1–2 items" : n <= 5 ? "3–5 items" : n <= 9 ? "6–9 items" : "10+ items"; }).sort((a, b) => a.k.localeCompare(b.k));
   const scName = (k) => { const sc = screens.find((x) => x.screen_key === k); return sc ? (sc.name || sc.station || "Screen " + k) + (sc.station && sc.name ? " · " + sc.station : "") : "Screen " + k; };
-  const byScreen = (() => { const m = {}; const byId = Object.fromEntries(live.map((o) => [o.id, o])); for (const b of bumps) { const o = byId[b.order_id]; if (!o) continue; (m[b.screen_key] ||= []).push((new Date(b.bumped_at) - new Date(o.created_at)) / 1000); } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).sort((a, b) => b.n - a.n); })();
+  const byScreen = (() => { const m = {}; for (const o of live) for (const b of (o.bumps || [])) { (m[b.screen_key] ||= []).push((new Date(b.bumped_at) - new Date(o.created_at)) / 1000); } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).filter((r) => r.n >= 3).sort((a, b) => b.n - a.n); })();
   const slowest = [...done].sort((a, b) => tt(b) - tt(a)).slice(0, 7);
 
   const Tile = ({ label, value, sub, tone, big }) => (
@@ -994,9 +996,9 @@ function PerformanceView({ loc, F, lateMin }) {
   );
   const Table = ({ rows: rs, label }) => (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 46px 56px 56px 56px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px" }}><span>{label}</span><span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>P90</span><span style={{ textAlign: "right" }}>ON-TIME</span></div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px 54px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px" }}><span>{label}</span><span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>P90</span><span style={{ textAlign: "right" }}>ON-TIME</span></div>
       {rs.map((r) => (
-        <div key={r.k} style={{ display: "grid", gridTemplateColumns: "1fr 46px 56px 56px 56px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center" }}>
+        <div key={r.k} style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px 54px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center" }}>
           <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k}</span>
           <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{r.n}</span>
           <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, fontFamily: PF, color: r.avg != null && r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</span>
@@ -1028,7 +1030,7 @@ function PerformanceView({ loc, F, lateMin }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div>
           <div style={{ fontSize: F(21), fontWeight: 900, fontFamily: PF, letterSpacing: "-.02em" }}>Kitchen performance</div>
-          <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped on every screen{period === "today" ? " · live, refreshes every 30s" : ""}</div>
+          <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → last screen bumped{period === "today" ? " · live, refreshes every 30s" : ""}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Seg value={period} options={[["today", "Today"], ["yesterday", "Yesterday"], ["7d", "7 days"], ["30d", "30 days"]]} onChange={setPeriod} />
@@ -1064,8 +1066,8 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: F(10) }}>
           <Tile big label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (pAvg != null ? "prev " + mmss(pAvg) : "—") : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs prev " + mmss(pAvg)} />
-          <Tile label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub="9 in 10 faster than this" tone={pct(times, 0.9) != null && pct(times, 0.9) > T ? "bad" : undefined} />
-          <Tile label="TIME TO START" value={mmss(avg(starts))} sub={starts.length ? starts.length + " Start taps" : "no Start taps"} />
+          <Tile label="TYPICAL (MEDIAN)" value={mmss(med)} sub="half of tickets faster than this" tone={med != null && med > T ? "bad" : "good"} />
+          <Tile label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub={starts.length ? "time to start avg " + mmss(avg(starts)) : "9 in 10 faster than this"} tone={pct(times, 0.9) != null && pct(times, 0.9) > T ? "bad" : undefined} />
           <Tile label="TICKETS" value={String(done.length)} sub={items + " items · " + (done.length ? (items / Math.max(1, live.length)).toFixed(1) + " per ticket" : "")} />
           {period === "today"
             ? <Tile label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target · oldest " + mmss(Math.max(0, ...waiting)) : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
@@ -1079,7 +1081,7 @@ function PerformanceView({ loc, F, lateMin }) {
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: F(140), position: "relative", paddingBottom: F(30) }}>
             <div style={{ position: "absolute", left: 0, right: 0, bottom: F(30) + (T / trendMax) * F(100), borderTop: "1.5px dashed " + C.warn, opacity: .7 }} />
             {trendDays.map((d, i) => {
-              const h = d.avg == null ? 0 : (d.avg / trendMax) * F(100);
+              const h = d.avg == null ? 0 : (Math.min(d.avg, trendMax) / trendMax) * F(100);
               const isToday = i === trendDays.length - 1;
               return (
                 <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", minWidth: 0 }} title={d.d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) + " · " + d.n + " tickets · avg " + mmss(d.avg) + (d.on != null ? " · " + d.on + "% on-time" : "")}>
@@ -1117,7 +1119,7 @@ function PerformanceView({ loc, F, lateMin }) {
                 const a = avg(v.t);
                 return (
                   <div key={h} style={{ flex: 1, position: "relative", height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", minWidth: 0 }} title={h + ":00 · " + v.n + " tickets · avg " + mmss(a) + (v.late ? " · " + v.late + " late" : "")}>
-                    {a != null && <div style={{ position: "absolute", bottom: (a / maxT) * F(120) - 4, width: 10, height: 10, borderRadius: "50%", background: a > T ? C.bad : C.ink, border: "2px solid #fff", zIndex: 2 }} />}
+                    {a != null && <div style={{ position: "absolute", bottom: (Math.min(a, maxT) / maxT) * F(120) - 4, width: 10, height: 10, borderRadius: "50%", background: a > T ? C.bad : C.ink, border: "2px solid #fff", zIndex: 2 }} />}
                     <div style={{ width: "70%", height: (v.n / maxN) * F(110), background: v.late ? "#fecaca" : "#cbd5e1", borderRadius: 4 }} />
                     <span style={{ position: "absolute", bottom: 0, fontSize: F(10), color: C.muted }}>{h}</span>
                   </div>
@@ -1130,7 +1132,7 @@ function PerformanceView({ loc, F, lateMin }) {
         <Card title="SLOWEST TICKETS">
           {slowest.map((o) => (
             <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5) }}>
-              <span><b>#{o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {(o.menu_order_items || []).length} items · {new Date(o.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span></span>
+              <span><b>#{o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {o.item_count} items · {new Date(o.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span></span>
               <span style={{ fontWeight: 900, fontVariantNumeric: "tabular-nums", fontFamily: PF, color: tt(o) > T ? C.bad : C.ink }}>{mmss(tt(o))}</span>
             </div>
           ))}
