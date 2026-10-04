@@ -872,44 +872,67 @@ const pct = (arr, q) => { if (!arr.length) return null; const a = [...arr].sort(
 const avg = (arr) => arr.length ? arr.reduce((t, x) => t + x, 0) / arr.length : null;
 
 function PerformanceView({ loc, F, lateMin }) {
-  const [rows, setRows] = useState(null);     // trading day orders
-  const [hist, setHist] = useState(null);     // previous 7 trading days (completed only)
-  const [bumps, setBumps] = useState([]);     // kds_bumps today
-  const [screens, setScreens] = useState([]); // kds_screens names
+  const [period, setPeriod] = useState("today");   // today | yesterday | 7d | 30d
+  const [rows, setRows] = useState(null);           // orders in period
+  const [prev, setPrev] = useState(null);           // comparison period (completed only)
+  const [trend, setTrend] = useState(null);         // last 14 trading days, completed only
+  const [bumps, setBumps] = useState([]);
+  const [screens, setScreens] = useState([]);
   const [target, setTarget] = useState(lateMin);
+  const [editTarget, setEditTarget] = useState(null);
   const [err, setErr] = useState("");
   const [tick, setTick] = useState(0);
   useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 30000); return () => clearInterval(id); }, []);
+
+  const range = (() => {
+    const t0 = tradingDayStart();
+    const day = 86400000;
+    if (period === "today") return { from: t0, to: new Date(t0.getTime() + day), prevFrom: new Date(t0.getTime() - 7 * day), prevTo: t0, label: "Today" };
+    if (period === "yesterday") return { from: new Date(t0.getTime() - day), to: t0, prevFrom: new Date(t0.getTime() - 8 * day), prevTo: new Date(t0.getTime() - day), label: "Yesterday" };
+    const n = period === "7d" ? 7 : 30;
+    return { from: new Date(t0.getTime() - (n - 1) * day), to: new Date(t0.getTime() + day), prevFrom: new Date(t0.getTime() - (2 * n - 1) * day), prevTo: new Date(t0.getTime() - (n - 1) * day), label: "Last " + n + " days" };
+  })();
+
   useEffect(() => {
     if (!loc) return;
     let alive = true;
-    const start = tradingDayStart();
-    const histStart = new Date(start.getTime() - 7 * 86400000);
-    const sel = "id,order_no,order_type,tablet_no,external_channel,status,created_at,kds_started_at,kds_bumped_at,total,menu_order_items(id)";
+    const q = (from, to, sel, extra = "") => fetch(SUPABASE_URL + "/rest/v1/menu_orders?select=" + sel + "&location_id=eq." + loc + "&created_at=gte." + encodeURIComponent(from.toISOString()) + "&created_at=lt." + encodeURIComponent(to.toISOString()) + extra + "&limit=10000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : Promise.reject(r.status));
+    const full = "id,order_no,order_type,tablet_no,external_channel,status,created_at,kds_started_at,kds_bumped_at,menu_order_items(id)";
+    const lite = "created_at,kds_bumped_at,status";
+    const t0 = tradingDayStart();
     Promise.all([
-      fetch(SUPABASE_URL + "/rest/v1/menu_orders?select=" + sel + "&location_id=eq." + loc + "&created_at=gte." + encodeURIComponent(start.toISOString()) + "&order=created_at.asc&limit=2000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : Promise.reject(r.status)),
-      fetch(SUPABASE_URL + "/rest/v1/menu_orders?select=created_at,kds_started_at,kds_bumped_at,status&location_id=eq." + loc + "&created_at=gte." + encodeURIComponent(histStart.toISOString()) + "&created_at=lt." + encodeURIComponent(start.toISOString()) + "&kds_bumped_at=not.is.null&limit=10000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
-      fetch(SUPABASE_URL + "/rest/v1/kds_bumps?select=order_id,screen_key,bumped_at&location_id=eq." + loc + "&bumped_at=gte." + encodeURIComponent(start.toISOString()) + "&limit=5000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
+      q(range.from, range.to, full, "&order=created_at.asc"),
+      q(range.prevFrom, range.prevTo, lite, "&kds_bumped_at=not.is.null"),
+      q(new Date(t0.getTime() - 13 * 86400000), new Date(t0.getTime() + 86400000), lite, "&kds_bumped_at=not.is.null"),
+      fetch(SUPABASE_URL + "/rest/v1/kds_bumps?select=order_id,screen_key,bumped_at&location_id=eq." + loc + "&bumped_at=gte." + encodeURIComponent(range.from.toISOString()) + "&bumped_at=lt." + encodeURIComponent(range.to.toISOString()) + "&limit=10000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
       fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,name,station&location_id=eq." + loc, { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
       fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=value&key=eq." + encodeURIComponent("kds_target_minutes:" + loc), { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
-    ]).then(([r, h, b, sc, tg]) => {
+    ]).then(([r, p, tr, b, sc, tg]) => {
       if (!alive) return;
-      setRows(r || []); setHist(h || []); setBumps(b || []); setScreens(sc || []);
+      setRows(r || []); setPrev(p || []); setTrend(tr || []); setBumps(b || []); setScreens(sc || []);
       if (tg && tg[0] && Number(tg[0].value) > 0) setTarget(Number(tg[0].value));
     }).catch((e) => alive && setErr("Could not load performance data (" + e + ")"));
     return () => { alive = false; };
-  }, [loc, tick]);
+  }, [loc, tick, period]); // eslint-disable-line
 
-  if (err) return <div style={{ padding: 30, color: "#b91c1c", fontWeight: 700 }}>{err}</div>;
-  if (!rows) return <div style={{ padding: 40, color: "#64748b" }}>Loading today's figures…</div>;
+  async function saveTarget(m) {
+    const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "set_kds_target", data: { location_id: loc, minutes: m } }) }).then((x) => x.json()).catch(() => ({}));
+    if (r.ok) setTarget(r.minutes);
+    setEditTarget(null);
+  }
+
+  const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", good: "#15803d", warn: "#b45309", bad: "#b91c1c", brand: "#ec4899", goodBg: "#dcfce7", warnBg: "#fef3c7", badBg: "#fee2e2" };
+  const PF = "'Poppins',sans-serif";
+  if (err) return <div style={{ padding: 30, color: C.bad, fontWeight: 700 }}>{err}</div>;
+  if (!rows) return <div style={{ padding: 40, color: C.muted }}>Loading figures…</div>;
 
   const now = Date.now();
   const T = target * 60;
   const live = rows.filter((o) => o.status !== "cancelled");
   const done = live.filter((o) => o.kds_bumped_at);
-  const open = live.filter((o) => !o.kds_bumped_at && o.status !== "served");
-  const tt = (o) => (new Date(o.kds_bumped_at) - new Date(o.created_at)) / 1000;           // ticket time
-  const ts = (o) => o.kds_started_at ? (new Date(o.kds_started_at) - new Date(o.created_at)) / 1000 : null; // time to start
+  const open = period === "today" ? live.filter((o) => !o.kds_bumped_at && o.status !== "served") : [];
+  const tt = (o) => (new Date(o.kds_bumped_at) - new Date(o.created_at)) / 1000;
+  const ts = (o) => o.kds_started_at ? (new Date(o.kds_started_at) - new Date(o.created_at)) / 1000 : null;
   const times = done.map(tt);
   const starts = done.map(ts).filter((x) => x != null);
   const onTime = times.filter((x) => x <= T).length;
@@ -917,111 +940,201 @@ function PerformanceView({ loc, F, lateMin }) {
   const waiting = open.map((o) => (now - new Date(o.created_at)) / 1000);
   const overNow = waiting.filter((x) => x > T).length;
   const items = live.reduce((t, o) => t + (o.menu_order_items || []).length, 0);
+  const pTimes = (prev || []).filter((o) => o.status !== "cancelled").map(tt);
+  const pAvg = avg(pTimes), pOn = pTimes.length ? Math.round(pTimes.filter((x) => x <= T).length / pTimes.length * 100) : null;
+  const dAvg = pAvg != null && times.length ? avg(times) - pAvg : null;
+  const grade = onTimePct == null ? null : onTimePct >= 90 ? "A" : onTimePct >= 80 ? "B" : onTimePct >= 65 ? "C" : "D";
+  const gradeTone = grade === "A" || grade === "B" ? "good" : grade === "C" ? "warn" : "bad";
+  const toneColor = (t) => t === "good" ? C.good : t === "warn" ? C.warn : t === "bad" ? C.bad : C.ink;
 
-  // history: previous 7 trading days
-  const hTimes = (hist || []).filter((o) => o.status !== "cancelled").map(tt);
-  const hAvg = avg(hTimes), hOn = hTimes.length ? Math.round(hTimes.filter((x) => x <= T).length / hTimes.length * 100) : null;
-  const hDays = Math.max(1, new Set((hist || []).map((o) => tradingDayStart(new Date(o.created_at)).toDateString())).size);
-  const hPerDay = (hist || []).length / hDays;
+  // trend: last 14 trading days
+  const trendDays = (() => {
+    const m = {};
+    for (const o of trend || []) { if (o.status === "cancelled") continue; const k = tradingDayStart(new Date(o.created_at)).toDateString(); (m[k] ||= { t: [], d: tradingDayStart(new Date(o.created_at)) }).t.push(tt(o)); }
+    const out = []; const t0 = tradingDayStart();
+    for (let i = 13; i >= 0; i--) { const d = new Date(t0.getTime() - i * 86400000); const e = m[d.toDateString()]; out.push({ d, n: e ? e.t.length : 0, avg: e ? avg(e.t) : null, on: e ? Math.round(e.t.filter((x) => x <= T).length / e.t.length * 100) : null }); }
+    return out;
+  })();
+  const trendMax = Math.max(T, ...trendDays.map((x) => x.avg || 0));
+
+  // distribution
+  const buckets = [["< 5", 0, 300], ["5–10", 300, 600], ["10–15", 600, 900], ["15–20", 900, 1200], ["20–30", 1200, 1800], ["30+", 1800, Infinity]].map(([l, a, b]) => ({ l, n: times.filter((x) => x >= a && x < b).length, late: a >= T }));
+  const bMax = Math.max(1, ...buckets.map((b) => b.n));
 
   // by hour
   const byHour = {};
   for (const o of live) { const h = String(new Date(o.created_at).getHours()).padStart(2, "0"); (byHour[h] ||= { n: 0, t: [], late: 0 }); byHour[h].n++; if (o.kds_bumped_at) { const x = tt(o); byHour[h].t.push(x); if (x > T) byHour[h].late++; } }
   const hours = Object.entries(byHour).sort((a, b) => a[0].localeCompare(b[0]));
   const maxN = Math.max(1, ...hours.map(([, v]) => v.n));
-  const maxT = Math.max(T, ...hours.map(([, v]) => avg(v.t) || 0));
+  const maxT = Math.max(T * 1.2, ...hours.map(([, v]) => avg(v.t) || 0));
+  const peak = hours.slice().sort((a, b) => b[1].n - a[1].n)[0];
+  const worst = hours.filter(([, v]) => v.t.length >= 3).sort((a, b) => (avg(b[1].t) || 0) - (avg(a[1].t) || 0))[0];
 
-  // by type / source
   const typeLabel = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
-  const grp = (key) => { const m = {}; for (const o of done) { const k = key(o); (m[k] ||= []).push(tt(o)); } return Object.entries(m).map(([k, v]) => ({ k, n: v.length, avg: avg(v), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).sort((a, b) => b.n - a.n); };
+  const grp = (key) => { const m = {}; for (const o of done) { const k = key(o); (m[k] ||= []).push(tt(o)); } return Object.entries(m).map(([k, v]) => ({ k, n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).sort((a, b) => b.n - a.n); };
   const byType = grp((o) => typeLabel[o.order_type] || o.order_type || "Other");
   const bySource = grp((o) => o.external_channel ? String(o.external_channel) : o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
-  // size buckets
   const bySize = grp((o) => { const n = (o.menu_order_items || []).length; return n <= 2 ? "1–2 items" : n <= 5 ? "3–5 items" : n <= 9 ? "6–9 items" : "10+ items"; }).sort((a, b) => a.k.localeCompare(b.k));
-
-  // per screen (station) from kds_bumps
   const scName = (k) => { const sc = screens.find((x) => x.screen_key === k); return sc ? (sc.name || sc.station || "Screen " + k) + (sc.station && sc.name ? " · " + sc.station : "") : "Screen " + k; };
   const byScreen = (() => { const m = {}; const byId = Object.fromEntries(live.map((o) => [o.id, o])); for (const b of bumps) { const o = byId[b.order_id]; if (!o) continue; (m[b.screen_key] ||= []).push((new Date(b.bumped_at) - new Date(o.created_at)) / 1000); } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).sort((a, b) => b.n - a.n); })();
+  const slowest = [...done].sort((a, b) => tt(b) - tt(a)).slice(0, 7);
 
-  const slowest = [...done].sort((a, b) => tt(b) - tt(a)).slice(0, 6);
-  const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", good: "#15803d", warn: "#b45309", bad: "#b91c1c", brand: "#ec4899" };
-  const Tile = ({ label, value, sub, tone }) => (
-    <div style={{ background: tone === "dark" ? C.ink : "#fff", color: tone === "dark" ? "#fff" : C.ink, border: tone === "dark" ? "none" : "1px solid " + C.line, borderRadius: 16, padding: F(14) + "px " + F(16) + "px" }}>
-      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".08em", opacity: .7 }}>{label}</div>
-      <div style={{ fontSize: F(30), fontWeight: 900, letterSpacing: "-.02em", marginTop: 2, fontVariantNumeric: "tabular-nums", color: tone === "dark" ? "#fff" : tone === "good" ? C.good : tone === "warn" ? C.warn : tone === "bad" ? C.bad : C.ink }}>{value}</div>
-      {sub && <div style={{ fontSize: F(12), marginTop: 4, opacity: .75 }}>{sub}</div>}
+  const Tile = ({ label, value, sub, tone, big }) => (
+    <div style={{ background: tone === "dark" ? C.ink : "#fff", color: tone === "dark" ? "#fff" : C.ink, border: tone === "dark" ? "none" : "1px solid " + C.line, borderRadius: 18, padding: F(14) + "px " + F(16) + "px", minWidth: 0 }}>
+      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".09em", opacity: .65 }}>{label}</div>
+      <div style={{ fontSize: F(big ? 34 : 28), fontWeight: 900, letterSpacing: "-.025em", marginTop: 2, fontVariantNumeric: "tabular-nums", fontFamily: PF, color: tone === "dark" ? "#fff" : toneColor(tone) }}>{value}</div>
+      {sub && <div style={{ fontSize: F(12), marginTop: 4, opacity: .75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
     </div>
   );
-  const Card = ({ title, children, right }) => (
-    <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: F(14) + "px " + F(16) + "px" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}><span style={{ fontSize: F(12), fontWeight: 800, letterSpacing: ".08em", color: C.muted }}>{title}</span>{right}</div>
+  const Card = ({ title, children, right, style }) => (
+    <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 18, padding: F(14) + "px " + F(16) + "px", minWidth: 0, ...style }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, gap: 8 }}><span style={{ fontSize: F(12), fontWeight: 800, letterSpacing: ".08em", color: C.muted }}>{title}</span>{right}</div>
       {children}
     </div>
   );
   const Table = ({ rows: rs, label }) => (
     <div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 54px 64px 60px", gap: 8, fontSize: F(11), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px" }}><span>{label}</span><span style={{ textAlign: "right" }}>TICKETS</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>ON-TIME</span></div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 46px 56px 56px 56px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px" }}><span>{label}</span><span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>P90</span><span style={{ textAlign: "right" }}>ON-TIME</span></div>
       {rs.map((r) => (
-        <div key={r.k} style={{ display: "grid", gridTemplateColumns: "1fr 54px 64px 60px", gap: 8, fontSize: F(14), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center" }}>
+        <div key={r.k} style={{ display: "grid", gridTemplateColumns: "1fr 46px 56px 56px 56px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center" }}>
           <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k}</span>
-          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.n}</span>
-          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, color: r.avg != null && r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</span>
-          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, color: r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on}%</span>
+          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{r.n}</span>
+          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, fontFamily: PF, color: r.avg != null && r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</span>
+          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{mmss(r.p90)}</span>
+          <span style={{ textAlign: "right" }}><span style={{ display: "inline-block", minWidth: 42, textAlign: "center", padding: "2px 6px", borderRadius: 6, fontWeight: 800, fontSize: F(12), background: r.on >= 80 ? C.goodBg : r.on >= 60 ? C.warnBg : C.badBg, color: r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on}%</span></span>
         </div>
       ))}
-      {!rs.length && <div style={{ fontSize: F(13), color: C.muted, padding: "8px 0" }}>No completed tickets yet</div>}
+      {!rs.length && <div style={{ fontSize: F(13), color: C.muted, padding: "8px 0" }}>No completed tickets</div>}
     </div>
   );
-  const dAvg = hAvg != null && times.length ? avg(times) - hAvg : null;
+  const Ring = ({ value, size, stroke, color }) => {
+    const r = (size - stroke) / 2, c = 2 * Math.PI * r, v = value == null ? 0 : Math.max(0, Math.min(100, value));
+    return (
+      <svg width={size} height={size} style={{ display: "block" }}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={C.soft} strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round" strokeDasharray={c} strokeDashoffset={c * (1 - v / 100)} transform={"rotate(-90 " + size / 2 + " " + size / 2 + ")"} style={{ transition: "stroke-dashoffset .6s" }} />
+      </svg>
+    );
+  };
+  const Seg = ({ value, options, onChange }) => (
+    <div style={{ display: "flex", gap: 3, background: C.soft, borderRadius: 11, padding: 3 }}>
+      {options.map(([v, l]) => <div key={v} onClick={() => onChange(v)} className="kbtn" style={{ padding: "7px 13px", borderRadius: 8, fontSize: F(13), fontWeight: 800, cursor: "pointer", background: value === v ? "#fff" : "transparent", color: value === v ? C.ink : C.muted, boxShadow: value === v ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>{l}</div>)}
+    </div>
+  );
 
   return (
     <div style={{ padding: F(16), display: "grid", gap: F(14) }}>
-      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+      {/* header row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
         <div>
-          <span style={{ fontSize: F(20), fontWeight: 900 }}>Kitchen performance</span>
-          <span style={{ fontSize: F(13), color: C.muted, marginLeft: 12 }}>Trading day from {tradingDayStart().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · target {target} min · refreshes every 30s</span>
+          <div style={{ fontSize: F(21), fontWeight: 900, fontFamily: PF, letterSpacing: "-.02em" }}>Kitchen performance</div>
+          <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped on every screen{period === "today" ? " · live, refreshes every 30s" : ""}</div>
         </div>
-        <div style={{ fontSize: F(12), color: C.muted }}>Ticket time = order placed → bumped on every screen</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Seg value={period} options={[["today", "Today"], ["yesterday", "Yesterday"], ["7d", "7 days"], ["30d", "30 days"]]} onChange={setPeriod} />
+          <div onClick={() => setEditTarget(editTarget == null ? target : null)} className="kbtn" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>
+            <span style={{ color: C.muted, fontWeight: 700 }}>Target</span> {target} min <span style={{ color: C.muted }}>✎</span>
+          </div>
+        </div>
+      </div>
+      {editTarget != null && (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, background: "#fff", border: "1px solid " + C.line, borderRadius: 14, padding: "10px 14px" }}>
+          <span style={{ fontSize: F(13), fontWeight: 700 }}>Target ticket time for this store</span>
+          <div onClick={() => setEditTarget(Math.max(3, editTarget - 1))} className="kbtn" style={{ cursor: "pointer", width: 36, height: 36, borderRadius: 9, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 18 }}>−</div>
+          <span style={{ fontFamily: PF, fontWeight: 900, fontSize: F(22), minWidth: 70, textAlign: "center" }}>{editTarget} min</span>
+          <div onClick={() => setEditTarget(Math.min(60, editTarget + 1))} className="kbtn" style={{ cursor: "pointer", width: 36, height: 36, borderRadius: 9, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 18 }}>+</div>
+          <div onClick={() => saveTarget(editTarget)} className="kbtn" style={{ cursor: "pointer", background: C.ink, color: "#fff", borderRadius: 9, padding: "8px 16px", fontWeight: 800, fontSize: F(13) }}>Save</div>
+          <div onClick={() => setEditTarget(null)} className="kbtn" style={{ cursor: "pointer", color: C.muted, fontWeight: 700, fontSize: F(13), padding: "8px 6px" }}>Cancel</div>
+          <span style={{ fontSize: F(12), color: C.muted, marginLeft: "auto" }}>Used for on-time %, the late colour on tickets, and the dashed line on the charts.</span>
+        </div>
+      )}
+
+      {/* hero: grade ring + tiles */}
+      <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", gap: F(14) }}>
+        <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 18, padding: F(16), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6 }}>
+          <div style={{ position: "relative", width: F(130), height: F(130) }}>
+            <Ring value={onTimePct} size={F(130)} stroke={F(12)} color={toneColor(gradeTone)} />
+            <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+              <span style={{ fontFamily: PF, fontWeight: 900, fontSize: F(30), letterSpacing: "-.03em", lineHeight: 1, color: toneColor(gradeTone) }}>{onTimePct == null ? "—" : onTimePct + "%"}</span>
+              <span style={{ fontSize: F(10.5), fontWeight: 800, letterSpacing: ".08em", color: C.muted, marginTop: 4 }}>ON-TIME</span>
+            </div>
+          </div>
+          <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(15), color: toneColor(gradeTone) }}>{grade ? "Grade " + grade : "No tickets yet"}</div>
+          <div style={{ fontSize: F(12), color: C.muted, textAlign: "center" }}>{onTime} of {times.length} within {target} min{pOn != null ? " · prev " + pOn + "%" : ""}</div>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: F(10) }}>
+          <Tile big label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (pAvg != null ? "prev " + mmss(pAvg) : "—") : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs prev " + mmss(pAvg)} />
+          <Tile label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub="9 in 10 faster than this" tone={pct(times, 0.9) != null && pct(times, 0.9) > T ? "bad" : undefined} />
+          <Tile label="TIME TO START" value={mmss(avg(starts))} sub={starts.length ? starts.length + " Start taps" : "no Start taps"} />
+          <Tile label="TICKETS" value={String(done.length)} sub={items + " items · " + (done.length ? (items / Math.max(1, live.length)).toFixed(1) + " per ticket" : "")} />
+          {period === "today"
+            ? <Tile label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target · oldest " + mmss(Math.max(0, ...waiting)) : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
+            : <Tile label="LATE TICKETS" value={String(times.length - onTime)} tone={times.length - onTime ? "bad" : "good"} sub={times.length ? Math.round((times.length - onTime) / times.length * 100) + "% of tickets" : ""} />}
+        </div>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: F(10) }}>
-        <Tile label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (hAvg != null ? "7-day avg " + mmss(hAvg) : null) : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs 7-day avg " + mmss(hAvg)} />
-        <Tile label="ON-TIME" value={onTimePct == null ? "—" : onTimePct + "%"} tone={onTimePct == null ? undefined : onTimePct >= 80 ? "good" : onTimePct >= 60 ? "warn" : "bad"} sub={hOn != null ? "7-day " + hOn + "%" : "≤ " + target + " min"} />
-        <Tile label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub="9 in 10 tickets faster than this" />
-        <Tile label="TIME TO START" value={mmss(avg(starts))} sub={starts.length ? "placed → first Start tap" : "no Start taps today"} />
-        <Tile label="TICKETS" value={String(done.length)} sub={items + " items · " + (hist && hist.length ? "7-day avg " + Math.round(hPerDay) + "/day" : "")} />
-        <Tile label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target · oldest " + mmss(Math.max(0, ...waiting)) : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
+      {/* trend + distribution */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: F(14) }}>
+        <Card title="14-DAY TREND" right={<span style={{ fontSize: F(11), color: C.muted }}>avg ticket time per day · dashed = target · badge = on-time</span>}>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: F(140), position: "relative", paddingBottom: F(30) }}>
+            <div style={{ position: "absolute", left: 0, right: 0, bottom: F(30) + (T / trendMax) * F(100), borderTop: "1.5px dashed " + C.warn, opacity: .7 }} />
+            {trendDays.map((d, i) => {
+              const h = d.avg == null ? 0 : (d.avg / trendMax) * F(100);
+              const isToday = i === trendDays.length - 1;
+              return (
+                <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", minWidth: 0 }} title={d.d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" }) + " · " + d.n + " tickets · avg " + mmss(d.avg) + (d.on != null ? " · " + d.on + "% on-time" : "")}>
+                  {d.avg != null && <span style={{ fontSize: F(9.5), fontWeight: 800, color: d.avg > T ? C.bad : C.muted, marginBottom: 2 }}>{mmss(d.avg)}</span>}
+                  <div style={{ width: "72%", height: Math.max(d.avg == null ? 0 : 3, h), background: d.avg == null ? "transparent" : d.avg > T ? "#fca5a5" : isToday ? C.ink : "#94a3b8", borderRadius: 4, transition: "height .4s" }} />
+                  <div style={{ position: "absolute", bottom: 0, textAlign: "center" }}>
+                    <div style={{ fontSize: F(10), color: isToday ? C.ink : C.muted, fontWeight: isToday ? 900 : 600 }}>{d.d.toLocaleDateString("en-GB", { weekday: "narrow" })}</div>
+                    {d.on != null && <div style={{ fontSize: F(9), fontWeight: 800, color: d.on >= 80 ? C.good : d.on >= 60 ? C.warn : C.bad }}>{d.on}%</div>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+        <Card title="TICKET TIME SPREAD" right={<span style={{ fontSize: F(11), color: C.muted }}>minutes</span>}>
+          {buckets.map((b) => (
+            <div key={b.l} style={{ display: "grid", gridTemplateColumns: "54px 1fr 44px", gap: 10, alignItems: "center", padding: "5px 0" }}>
+              <span style={{ fontSize: F(13), fontWeight: 700, color: b.late ? C.bad : C.ink, fontVariantNumeric: "tabular-nums" }}>{b.l}</span>
+              <div style={{ height: F(12), background: C.soft, borderRadius: 6, overflow: "hidden" }}><div style={{ width: (b.n / bMax) * 100 + "%", height: "100%", background: b.late ? "#fca5a5" : "#86efac", borderRadius: 6, transition: "width .4s" }} /></div>
+              <span style={{ fontSize: F(13), fontWeight: 800, textAlign: "right", fontVariantNumeric: "tabular-nums", color: C.muted }}>{b.n}</span>
+            </div>
+          ))}
+        </Card>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: F(14) }}>
-        <Card title="BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>bars = tickets · line = avg time · red = over target</span>}>
+      {/* by hour + slowest */}
+      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: F(14) }}>
+        <Card title="BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>{peak ? "busiest " + peak[0] + ":00 (" + peak[1].n + ")" : ""}{worst ? " · slowest " + worst[0] + ":00 (" + mmss(avg(worst[1].t)) + ")" : ""}</span>}>
           <div style={{ position: "relative", height: F(150) }}>
             <div style={{ position: "absolute", left: 0, right: 0, bottom: F(18), height: F(120), borderBottom: "1px solid " + C.line }}>
-              <div style={{ position: "absolute", left: 0, right: 0, bottom: (T / maxT) * 100 + "%", borderTop: "1.5px dashed " + C.warn, opacity: .7 }} title={"Target " + target + " min"} />
+              <div style={{ position: "absolute", left: 0, right: 0, bottom: (T / maxT) * 100 + "%", borderTop: "1.5px dashed " + C.warn, opacity: .7 }} />
             </div>
             <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 4, padding: "0 2px " + F(18) + "px" }}>
               {hours.map(([h, v]) => {
                 const a = avg(v.t);
                 return (
                   <div key={h} style={{ flex: 1, position: "relative", height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", minWidth: 0 }} title={h + ":00 · " + v.n + " tickets · avg " + mmss(a) + (v.late ? " · " + v.late + " late" : "")}>
-                    {a != null && <div style={{ position: "absolute", bottom: (a / maxT) * F(120) - 4, width: 9, height: 9, borderRadius: "50%", background: a > T ? C.bad : C.ink, zIndex: 2 }} />}
+                    {a != null && <div style={{ position: "absolute", bottom: (a / maxT) * F(120) - 4, width: 10, height: 10, borderRadius: "50%", background: a > T ? C.bad : C.ink, border: "2px solid #fff", zIndex: 2 }} />}
                     <div style={{ width: "70%", height: (v.n / maxN) * F(110), background: v.late ? "#fecaca" : "#cbd5e1", borderRadius: 4 }} />
                     <span style={{ position: "absolute", bottom: 0, fontSize: F(10), color: C.muted }}>{h}</span>
                   </div>
                 );
               })}
-              {!hours.length && <div style={{ color: C.muted, fontSize: F(13) }}>No orders yet today</div>}
+              {!hours.length && <div style={{ color: C.muted, fontSize: F(13) }}>No orders in this period</div>}
             </div>
           </div>
         </Card>
-        <Card title="SLOWEST TICKETS TODAY">
+        <Card title="SLOWEST TICKETS">
           {slowest.map((o) => (
-            <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "7px 0", borderTop: "1px solid " + C.line, fontSize: F(14) }}>
-              <span><b>#{o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {(o.menu_order_items || []).length} items · {new Date(o.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span></span>
-              <span style={{ fontWeight: 900, fontVariantNumeric: "tabular-nums", color: tt(o) > T ? C.bad : C.ink }}>{mmss(tt(o))}</span>
+            <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5) }}>
+              <span><b>#{o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {(o.menu_order_items || []).length} items · {new Date(o.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}</span></span>
+              <span style={{ fontWeight: 900, fontVariantNumeric: "tabular-nums", fontFamily: PF, color: tt(o) > T ? C.bad : C.ink }}>{mmss(tt(o))}</span>
             </div>
           ))}
-          {!slowest.length && <div style={{ fontSize: F(13), color: C.muted }}>No completed tickets yet</div>}
+          {!slowest.length && <div style={{ fontSize: F(13), color: C.muted }}>No completed tickets</div>}
         </Card>
       </div>
 
@@ -1031,7 +1144,6 @@ function PerformanceView({ loc, F, lateMin }) {
         <Card title="BY SOURCE"><Table rows={bySource} label="SOURCE" /></Card>
         <Card title="BY TICKET SIZE"><Table rows={bySize} label="SIZE" /></Card>
       </div>
-      <div style={{ fontSize: F(12), color: C.muted }}>Set a different target with the setting <code>kds_target_minutes:&lt;location id&gt;</code> in the menu admin (default {lateMin} min).</div>
     </div>
   );
 }

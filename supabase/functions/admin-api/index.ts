@@ -35,6 +35,7 @@ Deno.serve(async (req) => {
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag",
+    "set_kds_target",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
 
@@ -1195,6 +1196,16 @@ Deno.serve(async (req) => {
         if (!location_id) return json({ error: "location_id required" }, 400);
         const { summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
         return json({ ok: true, summary });
+      }
+
+      // ---- KDS: per-store target ticket time (minutes) ----
+      case "set_kds_target": {
+        const { location_id, minutes } = data || {};
+        const m = Math.round(Number(minutes));
+        if (!location_id || !(m >= 3 && m <= 60)) return json({ error: "location_id and minutes (3-60) required" }, 400);
+        const { error } = await admin.from("menu_app_settings").upsert({ key: "kds_target_minutes:" + location_id, value: String(m) }, { onConflict: "key" });
+        if (error) throw error;
+        return json({ ok: true, minutes: m });
       }
 
       // ---- PRINT: retry one order / dismiss its alarm ----
