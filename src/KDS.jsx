@@ -913,6 +913,9 @@ function PerfTable({ rows: rs, label, limit, sortable, C, F, PF, T, onRow }) {
 function PerformanceView({ loc, F, lateMin }) {
   const [period, setPeriodRaw] = useState(() => { try { return localStorage.getItem("kds_perf_period") || "today"; } catch { return "today"; } });   // today | yesterday | 7d | 30d
   const setPeriod = (v) => { setPeriodRaw(v); try { localStorage.setItem("kds_perf_period", v); } catch {} };
+  const [mode, setModeRaw] = useState(() => { try { return localStorage.getItem("kds_perf_mode") || "basic"; } catch { return "basic"; } }); // basic | advanced
+  const setMode = (v) => { setModeRaw(v); try { localStorage.setItem("kds_perf_mode", v); } catch {} };
+  const adv = mode === "advanced";
   const [rows, setRows] = useState(null);           // orders in period
   const [prev, setPrev] = useState(null);           // comparison period (completed only)
   const [trend, setTrend] = useState(null);         // last 14 trading days, completed only
@@ -1519,7 +1522,8 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {updatedAt && <span style={{ fontSize: F(11), color: C.muted }}>updated {updatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
-          <div onClick={() => openDrill("All tickets · " + range.label, live)} className="kbtn" title="Open every ticket in the period (CSV export is in the panel)" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800 }}>All tickets</div>
+          <Seg value={mode} options={[["basic", "Basic"], ["advanced", "Advanced"]]} onChange={setMode} />
+          {adv && <div onClick={() => openDrill("All tickets · " + range.label, live)} className="kbtn" title="Open every ticket in the period (CSV export is in the panel)" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800 }}>All tickets</div>}
           <div onClick={() => !printing && printSummary([
             range.label + (period === "today" ? " to " + new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""),
             "Tickets: " + done.length + "   Target: " + target + " min",
@@ -1582,6 +1586,14 @@ function PerformanceView({ loc, F, lateMin }) {
           <div style={{ fontSize: F(12), color: C.muted, textAlign: "center" }}>{onTime} of {times.length} within {target} min{pOn != null ? " · prev " + pOn + "%" : ""}</div>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: F(10) }}>
+          {!adv && <>
+            <Tile onClick={() => openDrill("All completed tickets", done)} big label="TYPICAL TICKET" value={mmss(med)} tone="dark" sub={pAvg != null ? "last time " + mmss(pct(pTimes, 0.5)) : "half of tickets faster than this"} />
+            <Tile onClick={() => openDrill("All tickets", live)} label="TICKETS" value={String(done.length)} sub={items + " items"} />
+            {period === "today"
+              ? <Tile onClick={() => openDrill("Waiting now", open)} label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target" : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
+              : <Tile onClick={() => openDrill("Late tickets", done.filter((o) => tt(o) > T))} label="LATE TICKETS" value={String(times.length - onTime)} tone={times.length - onTime ? "bad" : "good"} sub={times.length ? Math.round((times.length - onTime) / times.length * 100) + "% of tickets" : ""} />}
+          </>}
+          {adv && <>
           <Tile onClick={() => openDrill("All completed tickets", done)} big label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (pAvg != null ? "prev " + mmss(pAvg) : "—") : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs prev " + mmss(pAvg)} />
           <Tile onClick={() => openDrill("All completed tickets", done)} label="TYPICAL (MEDIAN)" value={mmss(med)} sub="half of tickets faster than this" tone={med != null && med > T ? "bad" : "good"} />
           <Tile onClick={() => openDrill("Slowest 10% of tickets", done.filter((o) => tt(o) >= (pct(times, 0.9) || 0)))} label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub={starts.length ? "time to start avg " + mmss(avg(starts)) : "9 in 10 faster than this"} tone={pct(times, 0.9) != null && pct(times, 0.9) > T ? "bad" : undefined} />
@@ -1589,13 +1601,14 @@ function PerformanceView({ loc, F, lateMin }) {
           {period === "today"
             ? <Tile onClick={() => openDrill("Waiting now", open)} label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target · oldest " + mmss(Math.max(0, ...waiting)) : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
             : <Tile onClick={() => openDrill("Late tickets", done.filter((o) => tt(o) > T))} label="LATE TICKETS" value={String(times.length - onTime)} tone={times.length - onTime ? "bad" : "good"} sub={times.length ? Math.round((times.length - onTime) / times.length * 100) + "% of tickets" : ""} />}
+          </>}
         </div>
       </div>
 
       {/* insights */}
-      <Card title="WHAT THE NUMBERS SAY" right={<span style={{ fontSize: F(11), color: C.muted }}>findings and what to try · recalculated with the data</span>}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(" + Math.min(3, Math.max(1, insights.length)) + ", 1fr)", gap: F(10) }}>
-          {insights.map((x, i) => (
+      <Card title={adv ? "WHAT THE NUMBERS SAY" : "WHAT TO DO"} right={<span style={{ fontSize: F(11), color: C.muted }}>{adv ? "findings and what to try · recalculated with the data" : "the three things that matter most right now"}</span>}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(" + Math.min(3, Math.max(1, (adv ? insights : insights.slice(0, 3)).length)) + ", 1fr)", gap: F(10) }}>
+          {(adv ? insights : insights.slice(0, 3)).map((x, i) => (
             <div key={i} style={{ background: toneBg(x.tone), borderRadius: 14, padding: F(12) + "px " + F(14) + "px" }}>
               <div style={{ fontSize: F(13.5), fontWeight: 800, color: toneFg(x.tone), fontFamily: PF }}>{x.title}</div>
               <div style={{ fontSize: F(12.5), color: C.ink, marginTop: 4, lineHeight: 1.45 }}>{x.body}</div>
@@ -1606,6 +1619,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
       </Card>
 
+      {adv && (<>
       {/* trend + distribution */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: F(14) }}>
         <Card title="14-DAY TREND" right={<span style={{ fontSize: F(11), color: C.muted }}>avg ticket time per day · dashed = target · badge = on-time</span>}>
@@ -1638,6 +1652,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </Card>
       </div>
 
+      </>)}
       {/* by hour + slowest */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: F(14) }}>
         <Card title="BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>{peak ? "busiest " + peak[0] + ":00 (" + peak[1].n + ")" : ""}{worst ? " · slowest " + worst[0] + ":00 (" + mmss(avg(worst[1].t)) + ")" : ""}{staffing ? " · 👤 = staff clocked in" : ""}</span>}>
@@ -1671,6 +1686,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </Card>
       </div>
 
+      {adv && (<>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(14) }}>
         <Card title="LOAD VS SPEED" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets already open when placed{maxOpen.n ? " · peak " + maxOpen.n : ""}</span>}>
           <PerfTable {...tp} rows={loadBuckets} label="QUEUE" />
@@ -1689,6 +1705,8 @@ function PerformanceView({ loc, F, lateMin }) {
         {byWeekday.length > 0 && <Card title="BY WEEKDAY"><PerfTable {...tp} rows={byWeekday} label="DAY" /></Card>}
       </div>
 
+      {adv && (<>
+      </>)}
       {/* diagnostics: station balance · late episodes · prep benchmarks */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(14) }}>
         <Card title="STATION BALANCE" right={<span style={{ fontSize: F(11), color: C.muted }}>who finishes last on shared tickets</span>}>
@@ -1724,6 +1742,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </Card>
       </div>
 
+      </>)}
       {/* shifts */}
       <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 1fr) 2fr", gap: F(14) }}>
         <Card title="BY SHIFT" right={<span style={{ fontSize: F(11), color: C.muted }}>dayparts on the 04:00 trading day</span>}>
@@ -1744,6 +1763,7 @@ function PerformanceView({ loc, F, lateMin }) {
             {!byShift.length && <div style={{ fontSize: F(13), color: C.muted }}>No completed tickets</div>}
           </div>
         </Card>
+        {adv && (
         <Card title="CATEGORY × SHIFT" right={<span style={{ fontSize: F(11), color: C.muted }}>avg ticket time · colour = on-time · tap a cell</span>}>
           {shiftCats.cats.length ? (
             <div style={{ overflowX: "auto" }}>
@@ -1770,8 +1790,10 @@ function PerformanceView({ loc, F, lateMin }) {
             </div>
           ) : <div style={{ fontSize: F(13), color: C.muted }}>Needs item data — run db/kds_perf.sql if categories are empty.</div>}
         </Card>
+        )}
       </div>
 
+      {adv && (<>
       {staffing && (
         <Card title="WHO WAS ON" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets placed while clocked in · {staffing.totalHours.toFixed(1)}h total{staffing.ticketsPerLabourHour != null ? " · " + staffing.ticketsPerLabourHour.toFixed(1) + " tickets / labour hour" : ""}</span>}>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 48px 44px 64px 64px 54px", gap: 6, fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px" }}><span>PERSON</span><span style={{ textAlign: "right" }}>HOURS</span><span style={{ textAlign: "right" }}>SHIFTS</span><span style={{ textAlign: "right" }}>TKTS</span><span style={{ textAlign: "right" }}>TKT/HR</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>ON-TIME</span></div>
@@ -1801,6 +1823,7 @@ function PerformanceView({ loc, F, lateMin }) {
         <Card title="BY SOURCE"><PerfTable {...tp} rows={bySource} label="SOURCE" /></Card>
         <Card title="BY TICKET SIZE"><PerfTable {...tp} rows={bySize} label="SIZE" /></Card>
       </div>
+      </>)}
       <DrillPanel />
     </div>
   );
