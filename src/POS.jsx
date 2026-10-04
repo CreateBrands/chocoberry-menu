@@ -1446,6 +1446,15 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                         </div>
                       ))}
                     </div>
+                    {closeTill.step === "summary" && sm.kitchen && sm.kitchen.tickets > 0 && (
+                      <div style={{ marginTop: 12, display: "flex", gap: 14, alignItems: "center", background: C.soft, borderRadius: 13, padding: "10px 14px", fontSize: 13.5 }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", color: C.muted }}>KITCHEN</span>
+                        <span><b style={{ fontFamily: F }}>{sm.kitchen.on_time_pct}%</b> on-time at {sm.kitchen.target_min} min</span>
+                        <span>typical <b style={{ fontFamily: F }}>{Math.floor(sm.kitchen.median_secs / 60)}:{String(sm.kitchen.median_secs % 60).padStart(2, "0")}</b></span>
+                        <span>90th pct <b style={{ fontFamily: F }}>{Math.floor(sm.kitchen.p90_secs / 60)}:{String(sm.kitchen.p90_secs % 60).padStart(2, "0")}</b></span>
+                        <span style={{ color: C.muted }}>{sm.kitchen.tickets} tickets</span>
+                      </div>
+                    )}
                     {sm.unpaid_count > 0 && (
                       <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13.5, color: C.warn, background: "#fff4ec", border: "1px solid #f3d3c0", borderRadius: 13, padding: "11px 14px", lineHeight: 1.5 }}>
                         <span style={{ fontSize: 18 }}>⚠</span>

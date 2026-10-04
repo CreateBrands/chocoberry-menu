@@ -987,6 +987,18 @@ Deno.serve(async (req) => {
           r.bold(true).line("BY SOURCE").bold(false);
           for (const [k, v] of Object.entries(bs) as any) r.leftRight(k + " (" + v.count + ")", money(v.amount), W);
         }
+        // ---- KITCHEN ----
+        if (s.kitchen && s.kitchen.tickets) {
+          const k = s.kitchen;
+          const mm = (sec: number) => sec >= 3600 ? Math.floor(sec / 3600) + "h " + String(Math.floor((sec % 3600) / 60)).padStart(2, "0") + "m" : Math.floor(sec / 60) + ":" + String(Math.floor(sec % 60)).padStart(2, "0");
+          r.divider("=").bold(true).line("KITCHEN SPEED").bold(false);
+          r.leftRight("Tickets", String(k.tickets), W);
+          r.leftRight("On-time (" + k.target_min + " min)", k.on_time_pct + "%", W);
+          r.leftRight("Typical (median)", mm(k.median_secs), W);
+          r.leftRight("Average", mm(k.avg_secs), W);
+          r.leftRight("90th percentile", mm(k.p90_secs), W);
+          if (k.over_hour) r.leftRight("Over an hour (forgotten?)", String(k.over_hour), W);
+        }
         // ---- TOP ITEMS ----
         if ((s.top_items || []).length) {
           r.divider("=").bold(true).line("TOP SELLERS").bold(false);

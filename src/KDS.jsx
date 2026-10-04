@@ -122,6 +122,7 @@ export default function KDS() {
   // localStorage so it survives a reload and so other screens are unaffected:
   // bumping here no longer clears the ticket on the other screen.
   const [myBumps, setMyBumps] = useState(() => new Set());
+  const [myBumpAt, setMyBumpAt] = useState({}); // order_id -> when THIS screen bumped it
   // Load THIS screen's bumps on start and keep them fresh, so a reload (or a
   // replaced tablet) does not resurrect tickets this screen already cleared.
   useEffect(() => {
@@ -133,9 +134,9 @@ export default function KDS() {
       fetch(SUPABASE_URL + "/rest/v1/kds_bumps?location_id=eq." + encodeURIComponent(loc)
             + "&screen_key=eq." + encodeURIComponent(getScreenId())
             + "&bumped_at=gte." + encodeURIComponent(since)
-            + "&select=order_id", { headers: H, cache: "no-store" })
+            + "&select=order_id,bumped_at", { headers: H, cache: "no-store" })
         .then((r) => (r.ok ? r.json() : []))
-        .then((rows) => { if (alive) setMyBumps(new Set((rows || []).map((r) => r.order_id))); })
+        .then((rows) => { if (alive) { setMyBumps(new Set((rows || []).map((r) => r.order_id))); setMyBumpAt(Object.fromEntries((rows || []).map((r) => [r.order_id, r.bumped_at]))); } })
         .catch(() => {});
     };
     load();
@@ -490,12 +491,14 @@ export default function KDS() {
   }
   const alldayRows = Object.entries(allday).sort((a, b) => b[1] - a[1]);
 
-  const bumpedToday = completed.filter((o) => o.kds_bumped_at);
+  // Header stats: how fast THIS screen cleared its tickets today (its own bump
+  // times), not the all-screens settle that rarely completes.
+  const bumpedToday = completed.filter((o) => myBumpAt[o.id] || o.kds_bumped_at);
   let avgSecs = 0, onTime = 0;
   if (bumpedToday.length) {
     let total = 0;
     for (const o of bumpedToday) {
-      const secs = (new Date(o.kds_bumped_at) - new Date(o.created_at)) / 1000;
+      const secs = (new Date(myBumpAt[o.id] || o.kds_bumped_at) - new Date(o.created_at)) / 1000;
       total += secs;
       if (secs <= LATE_MIN * 60) onTime++;
     }
@@ -909,12 +912,19 @@ function PerformanceView({ loc, F, lateMin }) {
       fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=value&key=eq." + encodeURIComponent("kds_target_minutes:" + loc), { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
     ]).then(([r, p, tr, sc, tg]) => {
       if (!alive) return;
-      setRows(r || []); setPrev(p || []); setTrend(tr || []); setScreens(sc || []);
+      setRows(r || []); setPrev(p || []); setTrend(tr || []); setScreens(sc || []); setUpdatedAt(new Date());
       if (tg && tg[0] && Number(tg[0].value) > 0) setTarget(Number(tg[0].value));
     }).catch((e) => alive && setErr("Could not load performance data (" + e + "). Has db/kds_perf.sql been run?"));
     return () => { alive = false; };
   }, [loc, tick, period]); // eslint-disable-line
 
+  const [printing, setPrinting] = useState(false);
+  const [updatedAt, setUpdatedAt] = useState(null);
+  async function printSummary(lines, title) {
+    setPrinting(true);
+    try { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "print_kitchen_summary", data: { location_id: loc, title, lines } }) }); }
+    catch {} finally { setTimeout(() => setPrinting(false), 1500); }
+  }
   async function saveTarget(m) {
     const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "set_kds_target", data: { location_id: loc, minutes: m } }) }).then((x) => x.json()).catch(() => ({}));
     if (r.ok) setTarget(r.minutes);
@@ -1029,7 +1039,7 @@ function PerformanceView({ loc, F, lateMin }) {
     const a = avg(times), m = med;
     // 1. target realism
     const p80 = pct(times, 0.8);
-    if (onTimePct != null && onTimePct < 50 && p80 > T * 1.5) push("warn", "The target doesn't match reality", "Only " + onTimePct + "% of tickets make " + target + " min, while 8 in 10 finish within " + mmss(p80) + ". Either set the target to what you want the kitchen to hit (" + Math.ceil(p80 / 60) + " min would be ~80% on-time today) or treat " + target + " as a stretch goal and track the trend.");
+    if (onTimePct != null && onTimePct < 50 && p80 > T * 1.5) { push("warn", "The target doesn't match reality", "Only " + onTimePct + "% of tickets make " + target + " min, while 8 in 10 finish within " + mmss(p80) + ". Either set the target to what you want the kitchen to hit (" + Math.ceil(p80 / 60) + " min would be ~80% on-time today) or treat " + target + " as a stretch goal and track the trend."); out[out.length - 1].action = { label: "Set target to " + Math.min(60, Math.ceil(p80 / 60)) + " min", run: () => saveTarget(Math.min(60, Math.ceil(p80 / 60))) }; }
     // 2. forgotten tickets
     const stale = done.filter((o) => tt(o) > 3600).length;
     if (stale) push("info", stale + " ticket" + (stale === 1 ? "" : "s") + " sat over an hour", "These are almost always bumps that were forgotten rather than food that took an hour. They inflate the average (" + mmss(a) + ") — the median (" + mmss(m) + ") is the truer number. Bump when the plate leaves the pass.");
@@ -1111,6 +1121,19 @@ function PerformanceView({ loc, F, lateMin }) {
           <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped (later tidy-up bumps ignored){period === "today" ? " · live, refreshes every 30s" : ""}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          {updatedAt && <span style={{ fontSize: F(11), color: C.muted }}>updated {updatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
+          <div onClick={() => !printing && printSummary([
+            range.label + (period === "today" ? " to " + new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""),
+            "Tickets: " + done.length + "   Target: " + target + " min",
+            "On-time: " + (onTimePct == null ? "-" : onTimePct + "%") + (grade ? "   Grade " + grade : ""),
+            "Typical: " + mmss(med) + "   Average: " + mmss(avg(times)),
+            "90th pct: " + mmss(pct(times, 0.9)),
+            ...(peak ? ["Busiest: " + peak[0] + ":00 (" + peak[1].n + ")" + (worst ? "  Slowest: " + worst[0] + ":00 " + mmss(avg(worst[1].t)) : "")] : []),
+            "",
+            ...byScreen.slice(0, 4).map((r) => r.k.slice(0, 18).padEnd(18) + " " + String(r.n).padStart(4) + " " + mmss(r.avg).padStart(7) + " " + (r.on + "%").padStart(5)),
+            "",
+            ...insights.slice(0, 3).map((x) => "* " + x.title),
+          ], "KITCHEN SPEED")} className="kbtn" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800 }}>{printing ? "Printing…" : "🖨 Print"}</div>
           <Seg value={period} options={[["today", "Today"], ["yesterday", "Yesterday"], ["7d", "7 days"], ["30d", "30 days"]]} onChange={setPeriod} />
           <div onClick={() => setEditTarget(editTarget == null ? target : null)} className="kbtn" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ color: C.muted, fontWeight: 700 }}>Target</span> {target} min <span style={{ color: C.muted }}>✎</span>
@@ -1160,6 +1183,7 @@ function PerformanceView({ loc, F, lateMin }) {
             <div key={i} style={{ background: toneBg(x.tone), borderRadius: 14, padding: F(12) + "px " + F(14) + "px" }}>
               <div style={{ fontSize: F(13.5), fontWeight: 800, color: toneFg(x.tone), fontFamily: PF }}>{x.title}</div>
               <div style={{ fontSize: F(12.5), color: C.ink, marginTop: 4, lineHeight: 1.45 }}>{x.body}</div>
+              {x.action && <div onClick={x.action.run} className="kbtn" style={{ display: "inline-block", marginTop: 8, padding: "6px 12px", borderRadius: 8, background: "#fff", border: "1px solid " + C.line, fontSize: F(12), fontWeight: 800, cursor: "pointer" }}>{x.action.label}</div>}
             </div>
           ))}
           {!insights.length && <div style={{ fontSize: F(13), color: C.muted }}>Findings appear once there are completed tickets.</div>}

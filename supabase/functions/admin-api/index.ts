@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag",
-    "set_kds_target",
+    "set_kds_target", "print_kitchen_summary",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
 
@@ -167,6 +167,27 @@ Deno.serve(async (req) => {
     if (local.getUTCHours() < TRADING_DAY_END_HOUR) { const prev = new Date(Date.UTC(y, m, d - 1)); y = prev.getUTCFullYear(); m = prev.getUTCMonth(); d = prev.getUTCDate(); }
     const wall = Date.UTC(y, m, d, TRADING_DAY_END_HOUR);
     return new Date(wall - tzOffsetMinutes(wall, "Europe/London") * 60000).toISOString();
+  }
+  // Kitchen speed for the closing report, same definition as the KDS Performance tab:
+  // completion = latest bump within 30 min of the first bump (later bumps are housekeeping).
+  async function kitchenStats(location_id: string, from: string, to: string, targetMin: number) {
+    try {
+      const { data } = await admin.rpc("kds_ticket_times", { p_location: location_id, p_from: from, p_to: to });
+      const rows: any[] = Array.isArray(data) ? data : [];
+      const times: number[] = [];
+      for (const o of rows) {
+        const bs = (o.bumps || []).map((b: any) => new Date(b.bumped_at).getTime()).sort((a: number, b: number) => a - b);
+        let doneAt: number | null = null;
+        if (bs.length) { const first = bs[0]; doneAt = first; for (const t of bs) if (t - first <= 30 * 60000) doneAt = t; }
+        else if (o.completed_at) doneAt = new Date(o.completed_at).getTime();
+        if (doneAt != null) times.push((doneAt - new Date(o.created_at).getTime()) / 1000);
+      }
+      if (!times.length) return null;
+      const sorted = [...times].sort((a, b) => a - b);
+      const q = (x: number) => sorted[Math.min(sorted.length - 1, Math.floor(x * (sorted.length - 1)))];
+      const T = targetMin * 60;
+      return { tickets: times.length, avg_secs: Math.round(times.reduce((a, b) => a + b, 0) / times.length), median_secs: Math.round(q(0.5)), p90_secs: Math.round(q(0.9)), on_time_pct: Math.round(times.filter((x) => x <= T).length / times.length * 100), target_min: targetMin, over_hour: times.filter((x) => x > 3600).length };
+    } catch { return null; }
   }
   // mode "trading_day": only orders created before the last 04:00; "all": every open order.
   async function dayTotals(location_id: string, mode: "trading_day" | "all" = "all") {
@@ -1195,7 +1216,18 @@ Deno.serve(async (req) => {
         const { location_id, mode } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
         const { summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
+        const { data: tgtRow } = await admin.from("menu_app_settings").select("value").eq("key", "kds_target_minutes:" + location_id).maybeSingle();
+        const targetMin = Number(tgtRow?.value) > 0 ? Number(tgtRow!.value) : 12;
+        if (summary.oldest) (summary as any).kitchen = await kitchenStats(location_id, summary.oldest, mode === "trading_day" ? summary.cutoff : new Date().toISOString(), targetMin);
         return json({ ok: true, summary });
+      }
+
+      // ---- KDS: print the performance summary on the kitchen printer ----
+      case "print_kitchen_summary": {
+        const { location_id, title, lines } = data || {};
+        if (!location_id || !Array.isArray(lines)) return json({ error: "location_id and lines required" }, 400);
+        const r = await callSunmi({ action: "print-message", location_id, title: String(title || "KITCHEN SUMMARY").slice(0, 40), lines: lines.slice(0, 60) });
+        return json({ ok: r.ok });
       }
 
       // ---- KDS: per-store target ticket time (minutes) ----
@@ -1236,6 +1268,13 @@ Deno.serve(async (req) => {
         if (!location_id) return json({ error: "location_id required" }, 400);
         const { ids, summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
         if (!ids.length) return json({ error: "nothing_to_close", message: "No orders to close for that period." }, 409);
+        // Kitchen speed for the period being closed.
+        const { data: tgtRow } = await admin.from("menu_app_settings").select("value").eq("key", "kds_target_minutes:" + location_id).maybeSingle();
+        const targetMin = Number(tgtRow?.value) > 0 ? Number(tgtRow!.value) : 12;
+        const kFrom = summary.oldest || new Date(Date.now() - 24 * 3600000).toISOString();
+        const kTo = mode === "trading_day" ? summary.cutoff : new Date().toISOString();
+        const kitchen = await kitchenStats(location_id, kFrom, kTo, targetMin);
+        (summary as any).kitchen = kitchen;
         const now = new Date().toISOString();
         const counted = cash_counted == null ? null : round2(cash_counted);
         const flt = float_amount == null ? null : round2(float_amount);
