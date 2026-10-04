@@ -911,7 +911,8 @@ function PerfTable({ rows: rs, label, limit, sortable, C, F, PF, T, onRow }) {
 }
 
 function PerformanceView({ loc, F, lateMin }) {
-  const [period, setPeriod] = useState("today");   // today | yesterday | 7d | 30d
+  const [period, setPeriodRaw] = useState(() => { try { return localStorage.getItem("kds_perf_period") || "today"; } catch { return "today"; } });   // today | yesterday | 7d | 30d
+  const setPeriod = (v) => { setPeriodRaw(v); try { localStorage.setItem("kds_perf_period", v); } catch {} };
   const [rows, setRows] = useState(null);           // orders in period
   const [prev, setPrev] = useState(null);           // comparison period (completed only)
   const [trend, setTrend] = useState(null);         // last 14 trading days, completed only
@@ -1138,6 +1139,68 @@ function PerformanceView({ loc, F, lateMin }) {
     return { punches, hourHead, shiftLabour, perPerson, totalHours, ticketsPerLabourHour: totalHours ? done.length / totalHours : null };
   })();
 
+  // ---- live pace (today): arrivals vs completions in the last 30 min, projected clear time ----
+  const pace = (() => {
+    if (period !== "today") return null;
+    const w = 30 * 60000;
+    const arrived = live.filter((o) => now - new Date(o.created_at).getTime() <= w).length;
+    const cleared = done.filter((o) => now - o._done <= w).length;
+    const recent = done.filter((o) => now - o._done <= 60 * 60000).map(tt);
+    const recentAvg = avg(recent);
+    const clearMins = cleared ? Math.round(open.length / (cleared / 30)) : null;
+    const state = !open.length ? "clear" : overNow >= 3 || (clearMins != null && clearMins > target) ? "overloaded" : overNow ? "stretched" : "busy";
+    return { arrived, cleared, recentAvg, clearMins, state };
+  })();
+
+  // ---- next-hour forecast from the same weekday in the trend window ----
+  const forecast = (() => {
+    if (period !== "today" || !trend) return null;
+    const nh = (new Date().getHours() + 1) % 24;
+    const wd = new Date().getDay();
+    const days = {};
+    for (const o of trend) { const d = new Date(o.created_at); if (d.getDay() !== wd || d.getHours() !== nh) continue; const k = tradingDayStart(d).toDateString(); if (k === tradingDayStart().toDateString()) continue; days[k] = (days[k] || 0) + 1; }
+    const vals = Object.values(days);
+    if (vals.length < 1) return null;
+    const expect = Math.round(avg(vals));
+    const head = staffing ? staffing.hourHead[String(new Date().getHours()).padStart(2, "0")] : null;
+    return { hour: String(nh).padStart(2, "0"), expect, sample: vals.length, head };
+  })();
+
+  // ---- station balance: on multi-screen tickets, which screen finishes last? ----
+  const stationBalance = (() => {
+    const lastCount = {}; let multi = 0; const lag = {};
+    for (const o of done) {
+      const bs = (o.bumps || []).map((b) => ({ k: scName(b.screen_key), t: new Date(b.bumped_at).getTime() })).filter((b) => isFinite(b.t)).sort((a, b) => a.t - b.t);
+      const first = bs[0]; if (!first) continue;
+      const inWin = bs.filter((b) => b.t - first.t <= HOUSEKEEPING_GAP);
+      const keys = [...new Set(inWin.map((b) => b.k))];
+      if (keys.length < 2) continue;
+      multi++;
+      const last = inWin[inWin.length - 1];
+      lastCount[last.k] = (lastCount[last.k] || 0) + 1;
+      (lag[last.k] ||= []).push((last.t - first.t) / 1000);
+    }
+    if (multi < 5) return null;
+    return Object.entries(lastCount).map(([k, n]) => ({ k, n, pct: Math.round(n / multi * 100), lag: avg(lag[k]) })).sort((a, b) => b.n - a.n).concat([{ k: "__total", n: multi }]);
+  })();
+
+  // ---- late episodes: runs of consecutive late tickets ----
+  const episodes = (() => {
+    const seq = [...done].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+    const out = []; let run = [];
+    const flush = () => { if (run.length >= 4) out.push({ from: run[0].created_at, to: run[run.length - 1].created_at, n: run.length, avg: avg(run.map(tt)), rows: [...run], open: Math.max(...run.map((o) => { const c = new Date(o.created_at).getTime(); return seq.filter((x) => new Date(x.created_at).getTime() <= c && (x._done == null || x._done > c)).length; })) }); run = []; };
+    for (const o of seq) { if (tt(o) > T) run.push(o); else flush(); }
+    flush();
+    return out.sort((a, b) => b.n - a.n).slice(0, 5);
+  })();
+
+  // ---- solo item times: tickets with exactly one line = closest thing to a prep time ----
+  const soloItems = (() => {
+    const m = {};
+    for (const o of done) { if ((o.items || []).length !== 1 || Number(o.items[0].qty || 1) !== 1) continue; const k = itemName(o.items[0]); if (!k) continue; (m[k] ||= { rows: [], cat: itemCat(o.items[0]) }).rows.push(o); }
+    return Object.entries(m).filter(([, v]) => v.rows.length >= 3).map(([k, v]) => ({ k, cat: v.cat, n: v.rows.length, med: pct(v.rows.map(tt), 0.5), avg: avg(v.rows.map(tt)), rows: v.rows })).sort((a, b) => b.med - a.med);
+  })();
+
   // ---- weekday pattern (7d / 30d) ----
   const byWeekday = (() => { if (period === "today" || period === "yesterday") return []; const m = {}; for (const o of done) { const k = tradingDayStart(new Date(o.created_at)).toLocaleDateString("en-GB", { weekday: "short" }); (m[k] ||= []).push(o); } const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; return order.filter((k) => m[k]).map((k) => pack(k, m[k])); })();
 
@@ -1181,6 +1244,12 @@ function PerformanceView({ loc, F, lateMin }) {
     }
     // 6b. category
     if (byCategory.length >= 2) { const worstCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => b.avg - a.avg)[0]; const bestCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => a.avg - b.avg)[0]; if (worstCat && bestCat && worstCat.k !== bestCat.k && worstCat.avg > bestCat.avg * 1.4) push("info", worstCat.k + " is the slow section", "Tickets with " + worstCat.k + " average " + mmss(worstCat.avg) + " (" + worstCat.on + "% on-time) against " + mmss(bestCat.avg) + " for " + bestCat.k + ". That section's prep and station layout are where the minutes are."); }
+    // 6d. station balance
+    if (stationBalance) { const total = stationBalance.find((x) => x.k === "__total").n; const top = stationBalance[0]; if (top && top.pct >= 65 && top.lag > 120) push("warn", top.k + " finishes last on " + top.pct + "% of shared tickets", "On " + total + " tickets that needed more than one screen, " + top.k + " was the last to clear " + top.pct + "% of the time, on average " + mmss(top.lag) + " after the first screen. Food waits for drinks (or the reverse) — start that station's items first, or move the slow items to the other screen."); }
+    // 6e. late episodes
+    if (episodes.length && episodes[0].n >= 6) { const e = episodes[0]; push("warn", e.n + " late tickets in a row from " + new Date(e.from).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), "Between " + new Date(e.from).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + " and " + new Date(e.to).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + " every ticket missed target (avg " + mmss(e.avg) + ", up to " + e.open + " open at once). That's a backlog event — see what was on the screen, and whether the queue was cleared before taking the next wave."); }
+    // 6f. forecast
+    if (forecast && forecast.head != null && forecast.expect / forecast.head > 8) push("warn", "Next hour looks thin", "Expect ~" + forecast.expect + " tickets at " + forecast.hour + ":00 (same weekday, last " + forecast.sample + " weeks) with " + forecast.head.toFixed(0) + " on the clock now — over 8 per person. Pull someone forward or prep now.");
     // 6c. additions
     if (additions.length >= 3) { const ad = additions.filter((o) => o._done != null); const aa = avg(ad.map(tt)); if (aa != null && ad.length >= 3) push(aa > a ? "warn" : "info", additions.length + " tickets were items added to an existing order", "Additions average " + mmss(aa) + " from the moment they were added" + (aa > a ? ", slower than fresh tickets (" + mmss(a) + ") — they're arriving in the middle of a busy screen; the ADDED tag should be the first thing the kitchen clears." : ", quicker than fresh tickets (" + mmss(a) + ").")); }
     // 7. takeaway vs dine-in
@@ -1450,6 +1519,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {updatedAt && <span style={{ fontSize: F(11), color: C.muted }}>updated {updatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
+          <div onClick={() => openDrill("All tickets · " + range.label, live)} className="kbtn" title="Open every ticket in the period (CSV export is in the panel)" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800 }}>All tickets</div>
           <div onClick={() => !printing && printSummary([
             range.label + (period === "today" ? " to " + new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""),
             "Tickets: " + done.length + "   Target: " + target + " min",
@@ -1480,8 +1550,26 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
       )}
 
+      {/* live now (today only) */}
+      {pace && (
+        <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: F(14), alignItems: "center", background: pace.state === "clear" ? "#f0fdf4" : pace.state === "overloaded" ? "#fef2f2" : pace.state === "stretched" ? "#fffbeb" : "#f8fafc", border: "1px solid " + (pace.state === "clear" ? "#bbf7d0" : pace.state === "overloaded" ? "#fecaca" : pace.state === "stretched" ? "#fde68a" : C.line), borderRadius: 18, padding: F(12) + "px " + F(16) + "px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ width: 12, height: 12, borderRadius: "50%", background: pace.state === "clear" ? C.good : pace.state === "overloaded" ? C.bad : pace.state === "stretched" ? C.warn : "#64748b", boxShadow: "0 0 0 4px " + (pace.state === "clear" ? "#bbf7d0" : pace.state === "overloaded" ? "#fecaca" : pace.state === "stretched" ? "#fde68a" : C.line) }} />
+            <span style={{ fontFamily: PF, fontWeight: 900, fontSize: F(16), textTransform: "capitalize" }}>{pace.state === "clear" ? "Kitchen clear" : pace.state === "overloaded" ? "Falling behind" : pace.state === "stretched" ? "Stretched" : "Busy, keeping up"}</span>
+          </div>
+          <div style={{ display: "flex", gap: F(18), flexWrap: "wrap", fontSize: F(13), color: C.muted }}>
+            <span><b style={{ color: C.ink, fontFamily: PF, fontSize: F(15) }}>{open.length}</b> open{overNow ? <span style={{ color: C.bad }}> · {overNow} over target</span> : ""}</span>
+            <span>last 30 min: <b style={{ color: C.ink, fontFamily: PF }}>{pace.arrived}</b> in · <b style={{ color: C.ink, fontFamily: PF }}>{pace.cleared}</b> out</span>
+            {pace.recentAvg != null && <span>last hour avg <b style={{ color: pace.recentAvg > T ? C.bad : C.ink, fontFamily: PF }}>{mmss(pace.recentAvg)}</b></span>}
+            {open.length > 0 && pace.clearMins != null && <span>at this pace clear in <b style={{ color: pace.clearMins > target ? C.bad : C.ink, fontFamily: PF }}>~{pace.clearMins} min</b></span>}
+            {forecast && <span>next hour ({forecast.hour}:00) expect <b style={{ color: C.ink, fontFamily: PF }}>~{forecast.expect}</b> tickets{forecast.head != null ? " · " + forecast.head.toFixed(0) + " on now" : ""}</span>}
+          </div>
+          <div onClick={() => openDrill("Open now", open)} className="kbtn" style={{ cursor: open.length ? "pointer" : "default", fontSize: F(12), fontWeight: 800, color: C.muted }}>{open.length ? "View open ›" : ""}</div>
+        </div>
+      )}
+
       {/* hero: grade ring + tiles */}
-      <div style={{ display: "grid", gridTemplateColumns: "230px 1fr", gap: F(14) }}>
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 230px) 1fr", gap: F(14) }}>
         <div onClick={() => openDrill("Late tickets (over " + target + " min)", done.filter((o) => tt(o) > T))} className="kbtn" style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 18, padding: F(16), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer" }}>
           <div style={{ position: "relative", width: F(130), height: F(130) }}>
             <Ring value={onTimePct} size={F(130)} stroke={F(12)} color={toneColor(gradeTone)} />
@@ -1493,7 +1581,7 @@ function PerformanceView({ loc, F, lateMin }) {
           <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(15), color: toneColor(gradeTone) }}>{grade ? "Grade " + grade : "No tickets yet"}</div>
           <div style={{ fontSize: F(12), color: C.muted, textAlign: "center" }}>{onTime} of {times.length} within {target} min{pOn != null ? " · prev " + pOn + "%" : ""}</div>
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: F(10) }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: F(10) }}>
           <Tile onClick={() => openDrill("All completed tickets", done)} big label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (pAvg != null ? "prev " + mmss(pAvg) : "—") : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs prev " + mmss(pAvg)} />
           <Tile onClick={() => openDrill("All completed tickets", done)} label="TYPICAL (MEDIAN)" value={mmss(med)} sub="half of tickets faster than this" tone={med != null && med > T ? "bad" : "good"} />
           <Tile onClick={() => openDrill("Slowest 10% of tickets", done.filter((o) => tt(o) >= (pct(times, 0.9) || 0)))} label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub={starts.length ? "time to start avg " + mmss(avg(starts)) : "9 in 10 faster than this"} tone={pct(times, 0.9) != null && pct(times, 0.9) > T ? "bad" : undefined} />
@@ -1519,7 +1607,7 @@ function PerformanceView({ loc, F, lateMin }) {
       </Card>
 
       {/* trend + distribution */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: F(14) }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: F(14) }}>
         <Card title="14-DAY TREND" right={<span style={{ fontSize: F(11), color: C.muted }}>avg ticket time per day · dashed = target · badge = on-time</span>}>
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: F(140), position: "relative", paddingBottom: F(30) }}>
             <div style={{ position: "absolute", left: 0, right: 0, bottom: F(30) + (T / trendMax) * F(100), borderTop: "1.5px dashed " + C.warn, opacity: .7 }} />
@@ -1551,7 +1639,7 @@ function PerformanceView({ loc, F, lateMin }) {
       </div>
 
       {/* by hour + slowest */}
-      <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: F(14) }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: F(14) }}>
         <Card title="BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>{peak ? "busiest " + peak[0] + ":00 (" + peak[1].n + ")" : ""}{worst ? " · slowest " + worst[0] + ":00 (" + mmss(avg(worst[1].t)) + ")" : ""}{staffing ? " · 👤 = staff clocked in" : ""}</span>}>
           <div style={{ position: "relative", height: F(staffing ? 162 : 150) }}>
             <div style={{ position: "absolute", left: 0, right: 0, bottom: F(staffing ? 30 : 18), height: F(120), borderBottom: "1px solid " + C.line }}>
@@ -1583,7 +1671,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </Card>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: byWeekday.length ? "1fr 1fr 1fr" : "1fr 1fr", gap: F(14) }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(14) }}>
         <Card title="LOAD VS SPEED" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets already open when placed{maxOpen.n ? " · peak " + maxOpen.n : ""}</span>}>
           <PerfTable {...tp} rows={loadBuckets} label="QUEUE" />
         </Card>
@@ -1599,6 +1687,41 @@ function PerformanceView({ loc, F, lateMin }) {
           {fastItems.length > 0 && <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>Quickest: {fastItems.map((x) => x.k + " (" + mmss(x.delta) + ")").join(", ")}</div>}
         </Card>
         {byWeekday.length > 0 && <Card title="BY WEEKDAY"><PerfTable {...tp} rows={byWeekday} label="DAY" /></Card>}
+      </div>
+
+      {/* diagnostics: station balance · late episodes · prep benchmarks */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(14) }}>
+        <Card title="STATION BALANCE" right={<span style={{ fontSize: F(11), color: C.muted }}>who finishes last on shared tickets</span>}>
+          {stationBalance ? (() => { const total = stationBalance.find((x) => x.k === "__total").n; return (
+            <div>
+              <div style={{ fontSize: F(12), color: C.muted, marginBottom: 8 }}>{total} tickets needed more than one screen</div>
+              {stationBalance.filter((x) => x.k !== "__total").map((x) => (
+                <div key={x.k} style={{ padding: "6px 0", borderTop: "1px solid " + C.line }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: F(13), alignItems: "baseline" }}><span style={{ fontWeight: 700 }}>{x.k}</span><span><b style={{ fontFamily: PF }}>{x.pct}%</b> <span style={{ color: C.muted }}>· waits {mmss(x.lag)}</span></span></div>
+                  <div style={{ height: 6, background: C.soft, borderRadius: 3, marginTop: 4 }}><div style={{ width: x.pct + "%", height: "100%", borderRadius: 3, background: x.pct >= 65 ? "#fca5a5" : "#cbd5e1" }} /></div>
+                </div>
+              ))}
+            </div>
+          ); })() : <div style={{ fontSize: F(13), color: C.muted }}>Needs 5+ tickets bumped on more than one screen</div>}
+        </Card>
+        <Card title="LATE EPISODES" right={<span style={{ fontSize: F(11), color: C.muted }}>4+ late tickets in a row</span>}>
+          {episodes.length ? episodes.map((e, i) => (
+            <div key={i} onClick={() => openDrill("Late run " + new Date(e.from).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + "–" + new Date(e.to).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), e.rows)} className="kbtn" style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "7px 0", borderTop: "1px solid " + C.line, fontSize: F(13) }}>
+              <span><b>{(period === "7d" || period === "30d" ? new Date(e.from).toLocaleDateString("en-GB", { weekday: "short" }) + " " : "")}{new Date(e.from).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}–{new Date(e.to).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</b> <span style={{ color: C.muted }}>· up to {e.open} open</span></span>
+              <span><b style={{ color: C.bad, fontFamily: PF }}>{e.n}</b> <span style={{ color: C.muted }}>late · avg {mmss(e.avg)}</span></span>
+            </div>
+          )) : <div style={{ fontSize: F(13), color: C.muted }}>No runs of 4+ late tickets</div>}
+        </Card>
+        <Card title="PREP BENCHMARKS" right={<span style={{ fontSize: F(11), color: C.muted }}>single-item tickets · median · tap for tickets</span>}>
+          {soloItems.length ? soloItems.slice(0, 8).map((x) => (
+            <div key={x.k} onClick={() => openDrill("Solo: " + x.k, x.rows)} className="kbtn" style={{ cursor: "pointer", display: "grid", gridTemplateColumns: "1fr 36px 64px", gap: 6, padding: "6px 0", borderTop: "1px solid " + C.line, fontSize: F(13), alignItems: "center" }}>
+              <span style={{ minWidth: 0 }}><div style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.k}</div><div style={{ fontSize: F(11), color: C.muted }}>{x.cat}</div></span>
+              <span style={{ textAlign: "right", color: C.muted }}>{x.n}</span>
+              <span style={{ textAlign: "right", fontWeight: 800, fontFamily: PF, color: x.med > T ? C.bad : C.ink }}>{mmss(x.med)}</span>
+            </div>
+          )) : <div style={{ fontSize: F(13), color: C.muted }}>Needs items that were ordered on their own 3+ times</div>}
+          {soloItems.length > 0 && <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>A one-item ticket is the nearest thing to the item's real make time. If a solo item takes longer than target, no amount of sequencing will fix it — that's prep or recipe.</div>}
+        </Card>
       </div>
 
       {/* shifts */}
@@ -1667,12 +1790,12 @@ function PerformanceView({ loc, F, lateMin }) {
         </Card>
       )}
 
-      <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: F(14) }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: F(14) }}>
         <Card title="BY CATEGORY" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets containing an item from the category · tap a row for the tickets</span>}>{done.length && !done.some((o) => (o.items || []).length) ? <div style={{ fontSize: F(13), color: C.warn }}>Item data isn't coming through — run the latest db/kds_perf.sql in Supabase.</div> : <PerfTable {...tp} rows={byCategory} label="CATEGORY" limit={12} sortable />}</Card>
         <Card title="BY MENU"><PerfTable {...tp} rows={byMenu} label="MENU" sortable /></Card>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: F(14) }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: F(14) }}>
         <Card title="BY SCREEN"><PerfTable {...tp} rows={byScreen} label="SCREEN" /></Card>
         <Card title="BY ORDER TYPE"><PerfTable {...tp} rows={byType} label="TYPE" /></Card>
         <Card title="BY SOURCE"><PerfTable {...tp} rows={bySource} label="SOURCE" /></Card>
