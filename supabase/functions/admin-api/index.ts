@@ -37,6 +37,7 @@ Deno.serve(async (req) => {
     "sweep_unprinted", "retry_print", "clear_print_flag",
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
+    "service_log_add", "service_log_delete", "mark_served",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
 
@@ -1241,6 +1242,49 @@ Deno.serve(async (req) => {
         if (routing !== undefined) row.routing = r && (r.menus.length || r.categories.length || r.items.length) ? r : null;
         if (printer_sn !== undefined) row.printer_sn = printer_sn ? String(printer_sn) : null;
         const { error } = await admin.from("kds_screens").upsert(row, { onConflict: "location_id,screen_key" });
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      // ---- FOH: log service feedback against an order ----
+      case "service_log_add": {
+        const d = data || {};
+        if (!d.location_id || !d.order_id) return json({ error: "location_id and order_id required" }, 400);
+        let who: { id: string; name: string } | null = null;
+        if (d.staff_pin) { const r = await staffForPin(String(d.staff_pin), d.location_id); if (r && r.ok) who = { id: r.id, name: r.name }; else return json({ ok: false, error: "Unknown PIN for this store" }, 400); }
+        const { data: o } = await admin.from("menu_orders").select("order_no, created_at, kds_bumped_at, menu_tables(label)").eq("id", d.order_id).maybeSingle();
+        const clean = (a: unknown) => Array.isArray(a) ? a.map((x) => String(x).slice(0, 60)).filter(Boolean).slice(0, 20) : [];
+        const row = {
+          location_id: d.location_id, order_id: d.order_id, order_no: o?.order_no ?? null,
+          table_label: (o as any)?.menu_tables?.label ?? d.table_label ?? null,
+          rating: d.rating ? Math.max(1, Math.min(5, Number(d.rating))) : null,
+          tags: clean(d.tags), category: d.category ? String(d.category).slice(0, 30) : null,
+          severity: ["low", "medium", "high"].includes(d.severity) ? d.severity : null,
+          note: d.note ? String(d.note).slice(0, 600) : null,
+          action: d.action ? String(d.action).slice(0, 30) : null,
+          action_value: d.action_value != null && d.action_value !== "" ? Number(d.action_value) : null,
+          resolved: typeof d.resolved === "boolean" ? d.resolved : null,
+          item_names: clean(d.item_names),
+          logged_by: who ? who.name : (d.logged_by ? String(d.logged_by).slice(0, 60) : null),
+          logged_by_member_id: who ? who.id : null,
+          source: ["pos", "kds", "app"].includes(d.source) ? d.source : "pos",
+          ticket_secs: d.ticket_secs != null ? Math.round(Number(d.ticket_secs)) : null,
+        };
+        const { data: ins, error } = await admin.from("service_log").insert(row).select("id").single();
+        if (error) throw error;
+        return json({ ok: true, id: ins.id, logged_by: row.logged_by });
+      }
+      case "service_log_delete": {
+        const { id, location_id } = data || {};
+        if (!id || !location_id) return json({ error: "id and location_id required" }, 400);
+        const { error } = await admin.from("service_log").delete().eq("id", id).eq("location_id", location_id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      // ---- Pass screen: food is on the table ----
+      case "mark_served": {
+        const { order_id } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const { error } = await admin.from("menu_orders").update({ served_at: new Date().toISOString() }).eq("id", order_id).is("served_at", null);
         if (error) throw error;
         return json({ ok: true });
       }

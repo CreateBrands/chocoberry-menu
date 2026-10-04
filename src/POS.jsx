@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { OrdersList, OrderDetailPanel } from "./OrdersStrip.jsx";
+import ServiceFeedback from "./ServiceFeedback.jsx";
 import CartLine from "./CartLine.jsx";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -177,6 +178,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [payNowOrder, setPayNowOrder] = useState(null); // locally-built order for instant panel
   const [now, setNow] = useState(Date.now());
   const [posPin, setPosPin] = useState(""); // PIN captured once for order actions
+  const [feedbackFor, setFeedbackFor] = useState(null); // order → FOH feedback sheet
 
   // On first mount, honour the saved default view for this tablet.
   useEffect(() => { setMode(defaultView === "orders" ? "orders" : "new"); }, []); // eslint-disable-line
@@ -950,6 +952,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
         </div>
       )}
+      {feedbackFor && <ServiceFeedback order={feedbackFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="pos" onClose={() => setFeedbackFor(null)} />}
       {paidBanner && (
         <div onClick={() => setPaidBanner(null)}
           style={{ position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)", zIndex: 9999,
@@ -1137,6 +1140,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               onSetType={ordSetType}
               onVoidFired={ordVoidFired}
               onReprint={ordReprint}
+              onFeedback={(o) => setFeedbackFor(o)}
             />
           ) : (
           <>

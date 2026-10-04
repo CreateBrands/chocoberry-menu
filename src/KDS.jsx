@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import POS from "./POS.jsx";
+import ServiceFeedback, { TAGS as SVC_TAGS, CATEGORY_LABEL as SVC_CAT } from "./ServiceFeedback.jsx";
 
 // ============================================================================
 // Create Brands / Chocoberry — Kitchen Display System (v2, comprehensive)
@@ -179,6 +180,12 @@ export default function KDS() {
   const mySettings = allScreens.find((x) => x.screen_key === getScreenId()) || null;
   const myName = (mySettings && mySettings.label) || myNameSeed;
   const [setupOpen, setSetupOpen] = useState(false);
+  const [feedbackFor, setFeedbackFor] = useState(null);
+  const [servedIds, setServedIds] = useState(() => new Set());
+  async function markServed(o) {
+    setServedIds((p) => new Set(p).add(o.id));
+    try { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "mark_served", data: { order_id: o.id } }) }); } catch {}
+  }
   const myStation = (mySettings && mySettings.station) || myStationSeed;
   const [soundOn, setSoundOn] = useState(true);
   const [connected, setConnected] = useState(true);
@@ -240,7 +247,7 @@ export default function KDS() {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,served_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
         + "&status=in.(placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.desc&limit=500";
       // Only today's trade: a busy day passed 200 open orders and the old
@@ -967,6 +974,10 @@ export default function KDS() {
                       {printingId === o.id ? "\u2026" : PRINTER}
                     </div>
                     <div onClick={() => recall(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: "#475569", borderRadius: 9, fontWeight: 800, fontSize: F(15.5), cursor: "pointer", color: "#ffffff" }}>{ARROW + " Recall"}</div>
+                    {!myStation || !["pass", "front", "expo", "counter"].includes(String(myStation).toLowerCase()) ? null : (
+                      <div onClick={() => !(o.served_at || servedIds.has(o.id)) && markServed(o)} className="kbtn" style={{ flex: 1.2, textAlign: "center", padding: F(11) + "px 0", background: (o.served_at || servedIds.has(o.id)) ? "#dcfce7" : "#16a34a", color: (o.served_at || servedIds.has(o.id)) ? "#166534" : "#fff", borderRadius: 9, fontWeight: 800, fontSize: F(14), cursor: "pointer" }}>{(o.served_at || servedIds.has(o.id)) ? "Served ✓" : "Served"}</div>
+                    )}
+                    <div onClick={() => setFeedbackFor(o)} className="kbtn" title="Log how this table went" style={{ width: F(52), textAlign: "center", padding: F(11) + "px 0", background: "#fff", border: "1px solid #94a3b8", borderRadius: 9, fontSize: F(18), cursor: "pointer" }}>🙂</div>
                   </div>
                 </div>
               );
@@ -976,6 +987,7 @@ export default function KDS() {
       )}
 
       {view === "perf" && <PerformanceView loc={loc} F={F} lateMin={LATE_MIN} />}
+      {feedbackFor && <ServiceFeedback order={feedbackFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="kds" onClose={() => setFeedbackFor(null)} />}
       {setupOpen && <ScreenSetup loc={loc} screenKey={getScreenId()} current={mySettings} siblings={allScreens} orders={orders.filter((o) => o.status !== "cancelled")} onClose={() => setSetupOpen(false)} onSaved={(sn) => { setScreensTick((t) => t + 1); if (sn !== undefined) { setMyPrinter(sn || null); try { sn ? localStorage.setItem("kds_printer", sn) : localStorage.removeItem("kds_printer"); } catch {} } }} />}
 
       {view === "pos" && (
@@ -1163,8 +1175,8 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
   const uncovered = coverage.filter((c) => !c.anyone).map((c) => c.m.name);
   const Tab = ({ v, children }) => <span onClick={() => setTab(v)} className="kbtn" style={{ cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontSize: 13, fontWeight: 800, background: tab === v ? C.ink : "transparent", color: tab === v ? "#fff" : C.muted }}>{children}</span>;
   return (
-    <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 80, background: "rgba(15,23,42,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 16 }}>
-      <div onClick={(e) => e.stopPropagation()} style={{ background: "#f8fafc", borderRadius: 24, width: 1040, maxWidth: "100%", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 30px 80px rgba(15,23,42,.4)", color: C.ink }}>
+    <div style={{ position: "fixed", inset: 0, zIndex: 80, background: "#f8fafc" }}>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", overflow: "hidden", color: C.ink }}>
         {/* header */}
         <div style={{ padding: "16px 24px 12px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div>
@@ -1180,7 +1192,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
 
         {tab === "setup" && (
         <div style={{ overflowY: "auto", padding: "16px 24px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(280px, 1fr) minmax(360px, 1.6fr)", gap: 14, alignItems: "start" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 1fr) minmax(420px, 2fr)", gap: 16, alignItems: "start", maxWidth: 1500, margin: "0 auto" }}>
             {/* LEFT: identity, printer, preview */}
             <div style={{ display: "grid", gap: 14, position: "sticky", top: 0 }}>
               <Card>
@@ -1208,7 +1220,8 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
               </Card>
               <Card>
                 <Step n="4" title="Live preview" right={preview.length ? showing.length + "/" + preview.length + " open tickets" : "no open tickets"} />
-                {preview.length === 0 && <div style={{ fontSize: 12.5, color: C.muted }}>Open tickets will appear here, filtered by the selection on the right — before you save.</div>}
+                <div style={{ fontSize: 12, color: C.muted, marginBottom: 8, lineHeight: 1.45 }}>The tickets open right now, filtered by your unsaved selection: which lines would show on this screen, and which wouldn't.</div>
+                {preview.length === 0 && <div style={{ fontSize: 12.5, color: C.muted }}>No open tickets at the moment — place one and it will appear here.</div>}
                 {preview.length > 0 && (
                   <div style={{ display: "grid", gap: 4 }}>
                     {preview.slice(0, 8).map(({ o, total: t, mine }) => (
@@ -1365,6 +1378,8 @@ function PerformanceView({ loc, F, lateMin }) {
   const [drill, setDrill] = useState(null); // { title, rows } — drill-down panel
   const [drillOpen, setDrillOpen] = useState({});
   const [staff, setStaff] = useState(null); // punches in the period (null = not available)
+  const [svc, setSvc] = useState([]); // service_log rows in the period
+  const [view2, setView2] = useState("kitchen"); // kitchen | service
   useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 30000); return () => clearInterval(id); }, []);
 
   const range = (() => {
@@ -1381,17 +1396,19 @@ function PerformanceView({ loc, F, lateMin }) {
     let alive = true;
     const rpc = (from, to) => fetch(SUPABASE_URL + "/rest/v1/rpc/kds_ticket_times", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: from.toISOString(), p_to: to.toISOString() }), cache: "no-store" }).then(async (r) => { if (r.ok) return r.json(); let msg = String(r.status); try { const j = await r.json(); msg += " " + (j.message || j.hint || j.details || JSON.stringify(j)).slice(0, 200); } catch {} throw new Error(msg); });
     const t0 = tradingDayStart();
+    const svc = fetch(SUPABASE_URL + "/rest/v1/service_log?select=*&location_id=eq." + loc + "&created_at=gte." + range.from.toISOString() + "&created_at=lt." + range.to.toISOString() + "&order=created_at.desc&limit=1000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []).catch(() => []);
     const staffing = fetch(SUPABASE_URL + "/rest/v1/rpc/kds_staffing", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: range.from.toISOString(), p_to: range.to.toISOString() }), cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch(() => null);
     Promise.all([
       rpc(range.from, range.to),
       rpc(range.prevFrom, range.prevTo),
       rpc(new Date(t0.getTime() - 13 * 86400000), new Date(t0.getTime() + 86400000)),
       staffing,
+      svc,
       fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,label,station&location_id=eq." + loc, { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
       fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=value&key=eq." + encodeURIComponent("kds_target_minutes:" + loc), { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
-    ]).then(([r, p, tr, st, sc, tg]) => {
+    ]).then(([r, p, tr, st, sv, sc, tg]) => {
       if (!alive) return;
-      setRows(r || []); setPrev(p || []); setTrend(tr || []); setStaff(Array.isArray(st) ? st : null); setScreens(sc || []); setUpdatedAt(new Date());
+      setRows(r || []); setPrev(p || []); setTrend(tr || []); setStaff(Array.isArray(st) ? st : null); setSvc(Array.isArray(sv) ? sv : []); setScreens(sc || []); setUpdatedAt(new Date());
       if (tg && tg[0] && Number(tg[0].value) > 0) setTarget(Number(tg[0].value));
     }).catch((e) => alive && setErr("Could not load performance data: " + (e && e.message ? e.message : e) + " — if it mentions kds_ticket_times, run db/kds_perf.sql"));
     return () => { alive = false; };
@@ -1672,6 +1689,38 @@ function PerformanceView({ loc, F, lateMin }) {
     return Object.entries(m).filter(([, v]) => v.rows.length >= 3).map(([k, v]) => ({ k, cat: v.cat, n: v.rows.length, med: pct(v.rows.map(tt), 0.5), avg: avg(v.rows.map(tt)), rows: v.rows })).sort((a, b) => b.med - a.med);
   })();
 
+  // ---- service log analysis ----
+  const service = (() => {
+    const rows = svc || [];
+    const tagMeta = (k) => SVC_TAGS.find((t) => t.k === k);
+    const isIssue = (r) => (r.tags || []).some((k) => { const t = tagMeta(k); return t && t.c !== "positive"; }) || (r.rating != null && r.rating <= 2);
+    const issues = rows.filter(isIssue);
+    const positives = rows.filter((r) => !isIssue(r) && ((r.tags || []).some((k) => tagMeta(k)?.c === "positive") || (r.rating != null && r.rating >= 4)));
+    const rated = rows.filter((r) => r.rating != null);
+    const avgRating = rated.length ? avg(rated.map((r) => r.rating)) : null;
+    const per100 = done.length ? issues.length / done.length * 100 : null;
+    const resolvedRate = (() => { const x = issues.filter((r) => r.resolved != null); return x.length ? Math.round(x.filter((r) => r.resolved).length / x.length * 100) : null; })();
+    const compValue = rows.reduce((t, r) => t + (Number(r.action_value) || 0), 0);
+    const count = (key) => { const m = {}; for (const r of issues) for (const k of new Set(key(r))) (m[k] ||= []).push(r); return Object.entries(m).map(([k, v]) => ({ k, n: v.length, rows: v, high: v.filter((r) => r.severity === "high").length, unresolved: v.filter((r) => r.resolved === false).length })).sort((a, b) => b.n - a.n); };
+    const byCategory = count((r) => [r.category ? (SVC_CAT[r.category] || r.category) : "Other"]);
+    const byTag = count((r) => (r.tags || []).filter((k) => tagMeta(k)?.c !== "positive").map((k) => tagMeta(k)?.l || k));
+    const byItem = count((r) => r.item_names || []);
+    const byTable = count((r) => r.table_label ? [r.table_label] : []);
+    const byStaff = count((r) => r.logged_by ? [r.logged_by] : []);
+    const byHour = count((r) => [String(new Date(r.created_at).getHours()).padStart(2, "0") + ":00"]).sort((a, b) => a.k.localeCompare(b.k));
+    const byShift = count((r) => { let h = new Date(r.created_at).getHours(); if (h < 4) h += 24; return [(SHIFTS.find(([, a, b]) => h >= a && h < b) || SHIFTS[SHIFTS.length - 1])[0]]; });
+    const byAction = count((r) => [r.action ? (({ none: "Nothing", apology: "Apology", remake: "Remade", discount: "Discount", comp: "Comped", manager: "Manager", voucher: "Voucher" })[r.action] || r.action) : "Not recorded"]);
+    // link each log entry to its ticket for trace-back
+    const ticketOf = (r) => live.find((o) => (o.order_id || "").split(":")[0] === r.order_id) || null;
+    const slowIssues = issues.filter((r) => r.ticket_secs != null && r.ticket_secs > T).length;
+    // kitchen tickets over 2x target with no feedback logged → unknown outcomes
+    const silentSlow = done.filter((o) => tt(o) > T * 2 && !rows.some((r) => r.order_id === (o.order_id || "").split(":")[0])).length;
+    // serve time: kitchen done → on the table (pass-screen Served tap)
+    const serveTimes = done.filter((o) => o.served_at && o._done).map((o) => (new Date(o.served_at).getTime() - o._done) / 1000).filter((x) => x >= 0 && x < 3600);
+    const serveAvg = avg(serveTimes);
+    return { rows, issues, positives, rated, avgRating, per100, resolvedRate, compValue, byCategory, byTag, byItem, byTable, byStaff, byHour, byShift, byAction, ticketOf, slowIssues, silentSlow, serveTimes, serveAvg };
+  })();
+
   // ---- weekday pattern (7d / 30d) ----
   const byWeekday = (() => { if (period === "today" || period === "yesterday") return []; const m = {}; for (const o of done) { const k = tradingDayStart(new Date(o.created_at)).toLocaleDateString("en-GB", { weekday: "short" }); (m[k] ||= []).push(o); } const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; return order.filter((k) => m[k]).map((k) => pack(k, m[k])); })();
 
@@ -1721,6 +1770,12 @@ function PerformanceView({ loc, F, lateMin }) {
     if (episodes.length && episodes[0].n >= 6) { const e = episodes[0]; push("warn", e.n + " late tickets in a row from " + new Date(e.from).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }), "Between " + new Date(e.from).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + " and " + new Date(e.to).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) + " every ticket missed target (avg " + mmss(e.avg) + ", up to " + e.open + " open at once). That's a backlog event — see what was on the screen, and whether the queue was cleared before taking the next wave."); }
     // 6f. forecast
     if (forecast && forecast.head != null && forecast.expect / forecast.head > 8) push("warn", "Next hour looks thin", "Expect ~" + forecast.expect + " tickets at " + forecast.hour + ":00 (same weekday, last " + forecast.sample + " weeks) with " + forecast.head.toFixed(0) + " on the clock now — over 8 per person. Pull someone forward or prep now.");
+    // 6g. service
+    if (service.issues.length >= 3) {
+      const top = service.byTag[0]; if (top) push("warn", top.n + "× " + top.k + " logged by the floor", "The most common issue this period" + (service.byItem[0] ? ", most often on " + service.byItem[0].k : "") + ". " + (service.slowIssues ? service.slowIssues + " of the " + service.issues.length + " issues were on tickets that ran over target — the kitchen clock and the guest's experience agree." : "Few of these were on slow tickets, so this is about the food or the floor rather than speed."));
+      if (service.resolvedRate != null && service.resolvedRate < 70) push("warn", "Only " + service.resolvedRate + "% of issues ended with a happy guest", "Recovery matters more than the slip itself. Make sure servers offer something (apology, remake, small comp) and come back to check — then log 'left happy'.");
+    }
+    if (service.silentSlow >= 5) push("info", service.silentSlow + " slow tickets with no feedback logged", "These ran over double the target and nobody recorded how the guest took it. Ask the floor to log a mood on tickets the kitchen flags late — even 'OK' is useful.");
     // 6c. additions
     if (additions.length >= 3) { const ad = additions.filter((o) => o._done != null); const aa = avg(ad.map(tt)); if (aa != null && ad.length >= 3) push(aa > a ? "warn" : "info", additions.length + " tickets were items added to an existing order", "Additions average " + mmss(aa) + " from the moment they were added" + (aa > a ? ", slower than fresh tickets (" + mmss(a) + ") — they're arriving in the middle of a busy screen; the ADDED tag should be the first thing the kitchen clears." : ", quicker than fresh tickets (" + mmss(a) + ").")); }
     // 7. takeaway vs dine-in
@@ -1743,6 +1798,21 @@ function PerformanceView({ loc, F, lateMin }) {
   const DrillPanel = () => {
     if (!drill || !drill.stack.length) return null;
     const cur = drill.stack[drill.stack.length - 1];
+    if (cur.service) {
+      return (
+        <div onClick={() => setDrill(null)} style={{ position: "fixed", inset: 0, zIndex: 60, background: "rgba(15,23,42,.35)" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ position: "absolute", top: 0, right: 0, bottom: 0, width: "min(640px, 94vw)", background: "#fff", boxShadow: "-12px 0 40px rgba(0,0,0,.25)", display: "flex", flexDirection: "column" }}>
+            <div style={{ padding: F(14) + "px " + F(18) + "px " + F(10) + "px", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div><div style={{ fontSize: F(17), fontWeight: 900, fontFamily: PF }}>{cur.title}</div><div style={{ fontSize: F(12.5), color: C.muted }}>{cur.service.length} entr{cur.service.length === 1 ? "y" : "ies"} · tap one to open its ticket</div></div>
+              <div onClick={() => setDrill(null)} className="kbtn" style={{ cursor: "pointer", width: 34, height: 34, borderRadius: 9, background: C.soft, display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900 }}>✕</div>
+            </div>
+            <div style={{ flex: 1, overflowY: "auto", padding: "4px " + F(18) + "px " + F(18) + "px" }}>
+              {cur.service.map((r) => <ServiceRow key={r.id} r={r} />)}
+            </div>
+          </div>
+        </div>
+      );
+    }
     const pushDrill = (title, rows) => { if (!rows || !rows.length) return; setDrill((d) => ({ ...d, stack: [...d.stack, { title, rows }], view: "tickets" })); setDrillOpen({}); };
     const popTo = (i) => setDrill((d) => ({ ...d, stack: d.stack.slice(0, i + 1) }));
     const base = cur.rows;
@@ -1886,6 +1956,8 @@ function PerformanceView({ loc, F, lateMin }) {
                 { t: placed, l: o._seg > 0 ? "Items added to #" + o.order_no : "Placed", d: null },
                 ...(o.kds_started_at ? [{ t: new Date(o.kds_started_at).getTime(), l: "Started", d: (new Date(o.kds_started_at).getTime() - placed) / 1000 }] : []),
                 ...(() => { const prodFirst = bumpsSorted.find((b) => isProduction(b.screen_key)) || bumpsSorted[0]; return bumpsSorted.map((b) => { const t = new Date(b.bumped_at).getTime(); const notProd = productionKeys.size > 0 && !productionKeys.has(b.screen_key); const hk = notProd || (t - new Date(prodFirst.bumped_at).getTime() > HOUSEKEEPING_GAP); return { t, l: "Bumped · " + scName(b.screen_key) + (notProd ? " (pass screen)" : ""), hk, d: (t - placed) / 1000 }; }); })(),
+                ...(o.served_at ? [{ t: new Date(o.served_at).getTime(), l: "Served to the table", d: (new Date(o.served_at).getTime() - placed) / 1000, served: true }] : []),
+                ...svc.filter((r) => r.order_id === (o.order_id || "").split(":")[0]).map((r) => ({ t: new Date(r.created_at).getTime(), l: "Feedback · " + ((r.tags || []).map((k) => SVC_TAGS.find((x) => x.k === k)?.l || k).join(", ") || (r.rating ? "mood " + r.rating + "/5" : "logged")) + (r.logged_by ? " · " + r.logged_by : ""), d: null, fb: true })),
               ];
               return (
                 <div key={o.order_id} style={{ borderBottom: "1px solid " + C.line }}>
@@ -1951,6 +2023,29 @@ function PerformanceView({ loc, F, lateMin }) {
     );
   };
 
+  const ServiceRow = ({ r }) => {
+    const t = service.ticketOf(r);
+    const isIssue = (r.tags || []).some((k) => SVC_TAGS.find((x) => x.k === k)?.c !== "positive") || (r.rating != null && r.rating <= 2);
+    const face = r.rating ? ["", "😠", "🙁", "😐", "🙂", "😄"][r.rating] : "";
+    return (
+      <div onClick={() => { if (t) { openDrill("Ticket " + (t.order_no_label || "#" + t.order_no), [t]); setTimeout(() => setDrillOpen({ [t.order_id]: true }), 0); } }} className="kbtn" style={{ cursor: t ? "pointer" : "default", display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 10, padding: "8px 0", borderTop: "1px solid " + C.line, alignItems: "center", fontSize: F(13) }}>
+        <span style={{ fontSize: F(20), width: 28, textAlign: "center" }}>{face || (isIssue ? "⚠" : "✓")}</span>
+        <span style={{ minWidth: 0 }}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "baseline" }}>
+            <b>#{r.order_no}</b>{r.table_label && <span style={{ color: C.muted }}>{r.table_label}</span>}
+            {(r.tags || []).map((k) => { const m = SVC_TAGS.find((x) => x.k === k); return <span key={k} style={{ fontSize: F(11), fontWeight: 800, padding: "1px 7px", borderRadius: 6, background: m?.c === "positive" ? C.goodBg : C.badBg, color: m?.c === "positive" ? C.good : C.bad }}>{m?.l || k}</span>; })}
+            {r.severity === "high" && <span style={{ fontSize: F(11), fontWeight: 900, color: C.bad }}>HIGH</span>}
+            {r.resolved === true && <span style={{ fontSize: F(11), fontWeight: 800, color: C.good }}>left happy</span>}
+            {r.resolved === false && <span style={{ fontSize: F(11), fontWeight: 800, color: C.bad }}>left unhappy</span>}
+          </div>
+          <div style={{ color: C.muted, fontSize: F(12), marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(r.item_names || []).join(", ")}{r.item_names?.length && r.note ? " · " : ""}{r.note || ""}{r.action && r.action !== "none" ? " · " + r.action + (r.action_value ? " £" + Number(r.action_value).toFixed(2) : "") : ""}</div>
+        </span>
+        <span style={{ textAlign: "right", fontSize: F(11.5), color: C.muted, whiteSpace: "nowrap" }}>{new Date(r.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}<br />{r.logged_by || r.source}{r.ticket_secs != null ? " · kitchen " + mmss(r.ticket_secs) : ""}</span>
+      </div>
+    );
+  };
+  const openServiceDrill = (title, list) => { if (!list || !list.length) return; setDrill({ stack: [{ title, rows: [], service: list }], view: "service", filter: "all", sort: "slowest" }); };
+
   const Tile = ({ label, value, sub, tone, big, onClick }) => (
     <div onClick={onClick} className={onClick ? "kbtn" : undefined} style={{ background: tone === "dark" ? C.ink : "#fff", color: tone === "dark" ? "#fff" : C.ink, border: tone === "dark" ? "none" : "1px solid " + C.line, borderRadius: 18, padding: F(14) + "px " + F(16) + "px", minWidth: 0, cursor: onClick ? "pointer" : "default", display: "flex", flexDirection: "column", justifyContent: "center" }}>
       <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".09em", opacity: .65 }}>{label}{onClick && <span style={{ float: "right", opacity: .5 }}>›</span>}</div>
@@ -2003,7 +2098,8 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {updatedAt && <span style={{ fontSize: F(11), color: C.muted }}>updated {updatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
-          <Seg value={mode} options={[["basic", "Basic"], ["advanced", "Advanced"]]} onChange={setMode} />
+          <Seg value={view2} options={[["kitchen", "Kitchen"], ["service", "Service" + (service.issues.length ? " " + service.issues.length : "")]]} onChange={setView2} />
+          {view2 === "kitchen" && <Seg value={mode} options={[["basic", "Basic"], ["advanced", "Advanced"]]} onChange={setMode} />}
           {adv && <div onClick={() => openDrill("All tickets · " + range.label, live)} className="kbtn" title="Open every ticket in the period (CSV export is in the panel)" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800 }}>All tickets</div>}
           <div onClick={() => !printing && printSummary([
             range.label + (period === "today" ? " to " + new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""),
@@ -2035,11 +2131,45 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
       )}
 
-      {!adv && times.length > 0 && (
+      {view2 === "service" && (<>
+        <div style={{ fontSize: F(14), color: C.ink, background: "#fff", border: "1px solid " + C.line, borderRadius: 14, padding: F(12) + "px " + F(16) + "px", lineHeight: 1.5 }}>
+          <b>{range.label}:</b> {service.rows.length} feedback entr{service.rows.length === 1 ? "y" : "ies"} on {done.length} tickets — <b style={{ color: service.issues.length ? C.bad : C.good }}>{service.issues.length} issue{service.issues.length === 1 ? "" : "s"}</b>{service.per100 != null ? " (" + service.per100.toFixed(1) + " per 100 tickets)" : ""}, {service.positives.length} positive{service.positives.length === 1 ? "" : "s"}.{service.avgRating != null ? " Average guest mood " + service.avgRating.toFixed(1) + " / 5." : ""}{service.resolvedRate != null ? " " + service.resolvedRate + "% of issues ended with the guest leaving happy." : ""}{service.compValue ? " £" + service.compValue.toFixed(2) + " given back in comps and discounts." : ""}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: F(10) }}>
+          <Tile onClick={() => openServiceDrill("All issues", service.issues)} big label="ISSUES" value={String(service.issues.length)} tone={service.issues.length ? "bad" : "good"} sub={service.per100 != null ? service.per100.toFixed(1) + " per 100 tickets" : ""} />
+          <Tile label="GUEST MOOD" value={service.avgRating != null ? service.avgRating.toFixed(1) : "—"} tone={service.avgRating == null ? undefined : service.avgRating >= 4 ? "good" : service.avgRating >= 3 ? "warn" : "bad"} sub={service.rated.length + " rated"} />
+          <Tile onClick={() => openServiceDrill("Unresolved issues", service.issues.filter((r) => r.resolved === false))} label="LEFT HAPPY" value={service.resolvedRate != null ? service.resolvedRate + "%" : "—"} tone={service.resolvedRate == null ? undefined : service.resolvedRate >= 80 ? "good" : service.resolvedRate >= 60 ? "warn" : "bad"} sub={service.issues.filter((r) => r.resolved === false).length + " left unhappy"} />
+          <Tile onClick={() => openServiceDrill("Positives", service.positives)} label="POSITIVES" value={String(service.positives.length)} tone="good" sub="compliments, regulars, occasions" />
+          <Tile onClick={() => openDrill("Served tickets", done.filter((o) => o.served_at))} label="SERVE TIME" value={service.serveAvg != null ? mmss(service.serveAvg) : "—"} tone={service.serveAvg == null ? undefined : service.serveAvg <= 180 ? "good" : service.serveAvg <= 360 ? "warn" : "bad"} sub={service.serveTimes.length ? "kitchen done → table · " + service.serveTimes.length + " tapped" : "needs the Served tap on a pass screen"} />
+          <Tile onClick={() => openServiceDrill("High severity", service.issues.filter((r) => r.severity === "high"))} label="HIGH SEVERITY" value={String(service.issues.filter((r) => r.severity === "high").length)} tone={service.issues.some((r) => r.severity === "high") ? "bad" : undefined} sub={"£" + service.compValue.toFixed(0) + " comps / discounts"} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: F(14) }}>
+          {[["BY CATEGORY", service.byCategory], ["BY ISSUE", service.byTag], ["BY ITEM", service.byItem], ["BY TABLE", service.byTable], ["BY SHIFT", service.byShift], ["BY HOUR", service.byHour], ["RECOVERY ACTION", service.byAction], ["LOGGED BY", service.byStaff]].map(([title, rs]) => (
+            <Card key={title} title={title} right={<span style={{ fontSize: F(11), color: C.muted }}>tap for the entries</span>}>
+              {rs.length ? rs.slice(0, 10).map((r) => (
+                <div key={r.k} onClick={() => openServiceDrill(title.charAt(0) + title.slice(1).toLowerCase() + ": " + r.k, r.rows)} className="kbtn" style={{ cursor: "pointer", display: "grid", gridTemplateColumns: "1fr 40px 60px 70px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center" }}>
+                  <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k}</span>
+                  <span style={{ textAlign: "right", fontWeight: 900, fontFamily: PF }}>{r.n}</span>
+                  <span style={{ textAlign: "right", fontSize: F(12), color: r.high ? C.bad : C.muted }}>{r.high ? r.high + " high" : ""}</span>
+                  <span style={{ textAlign: "right", fontSize: F(12), color: r.unresolved ? C.bad : C.muted }}>{r.unresolved ? r.unresolved + " unhappy" : ""}</span>
+                </div>
+              )) : <div style={{ fontSize: F(13), color: C.muted }}>No issues logged</div>}
+            </Card>
+          ))}
+        </div>
+        <Card title="LATEST ENTRIES" right={<span style={{ fontSize: F(11), color: C.muted }}>tap to trace back to the ticket</span>}>
+          {service.rows.slice(0, 30).map((r) => <ServiceRow key={r.id} r={r} />)}
+          {!service.rows.length && <div style={{ fontSize: F(13), color: C.muted }}>Nothing logged yet. Servers log from the 🙂 button on an order (POS) or a finished ticket (KDS Done tab).</div>}
+        </Card>
+        {service.silentSlow > 0 && <div style={{ fontSize: F(12.5), color: C.muted }}>{service.silentSlow} ticket{service.silentSlow === 1 ? "" : "s"} ran over double the target with no feedback logged — outcomes unknown.</div>}
+      </>)}
+
+      {view2 === "kitchen" && !adv && times.length > 0 && (
         <div style={{ fontSize: F(14), color: C.ink, background: "#fff", border: "1px solid " + C.line, borderRadius: 14, padding: F(12) + "px " + F(16) + "px", lineHeight: 1.5 }}>
           <b>{period === "today" ? "So far today" : range.label}:</b> {done.length} tickets, <b style={{ color: onTimePct >= 80 ? C.good : onTimePct >= 60 ? C.warn : C.bad }}>{onTime} on time</b> ({onTimePct}%). A typical ticket takes <b>{mmss(med)}</b> against a {target}-minute target{peak ? "; the busiest hour was " + peak[0] + ":00 with " + peak[1].n + " orders" : ""}{worst && worst[0] !== (peak || [])[0] ? ", and the slowest " + worst[0] + ":00" : ""}.{pAvg != null ? " " + (dAvg <= 0 ? "Faster" : "Slower") + " than last time by " + mmss(Math.abs(dAvg)) + "." : ""}
         </div>
       )}
+      {view2 === "kitchen" && (<>
       {/* live now (today only) */}
       {pace && (
         <div style={{ display: "grid", gridTemplateColumns: "auto 1fr auto", gap: F(14), alignItems: "center", background: pace.state === "clear" ? "#f0fdf4" : pace.state === "overloaded" ? "#fef2f2" : pace.state === "stretched" ? "#fffbeb" : "#f8fafc", border: "1px solid " + (pace.state === "clear" ? "#bbf7d0" : pace.state === "overloaded" ? "#fecaca" : pace.state === "stretched" ? "#fde68a" : C.line), borderRadius: 18, padding: F(12) + "px " + F(16) + "px" }}>
@@ -2371,6 +2501,7 @@ function PerformanceView({ loc, F, lateMin }) {
         <Card title="BY SOURCE"><PerfTable {...tp} rows={bySource} label="SOURCE" /></Card>
         <Card title="BY TICKET SIZE"><PerfTable {...tp} rows={bySize} label="SIZE" /></Card>
       </div>
+      </>)}
       </>)}
       <DrillPanel />
     </div>

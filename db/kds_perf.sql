@@ -31,6 +31,7 @@ language sql stable security definer set search_path = public as $$
     'status', o.status,
     'created_at', o.created_at,
     'kds_started_at', o.kds_started_at,
+    'served_at', o.served_at,
     'table_label', t.label,
     'items_added_log', coalesce(o.items_added_log, '[]'::jsonb),
     'customer_note', o.customer_note,
