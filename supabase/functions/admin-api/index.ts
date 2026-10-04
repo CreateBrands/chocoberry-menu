@@ -73,6 +73,7 @@ Deno.serve(async (req) => {
     "create_table", "update_table", "delete_table",
     "set_store_menus",
     "close_day",           // close their own till (location is forced to their store)
+    "reprint_closure",
   ]);
 
   // For a store scope: block master-only actions, and force every location_id
@@ -138,55 +139,92 @@ Deno.serve(async (req) => {
   // mode "trading_day": only orders created before the last 04:00; "all": every open order.
   async function dayTotals(location_id: string, mode: "trading_day" | "all" = "all") {
     const cutoff = tradingDayCutoff();
-    let q = admin
+    const { data: allRows, error } = await admin
       .from("menu_orders")
-      .select("id, order_no, order_type, total, amount_paid, status, created_at")
+      .select("id, order_no, order_type, tablet_no, external_channel, total, subtotal, amount_paid, paid_amount, app_discount, discount_type, status, created_at, kds_bumped_at, customer_note")
       .eq("location_id", location_id)
       .is("closed_at", null);
-    const { data: allRows, error } = await q;
     if (error) throw error;
     const laterRows = (allRows || []).filter((o: any) => o.created_at >= cutoff);
     const orders = mode === "trading_day" ? (allRows || []).filter((o: any) => o.created_at < cutoff) : (allRows || []);
     const live = orders.filter((o: any) => o.status !== "cancelled");
     const ids = live.map((o: any) => o.id);
-    const byMethod: Record<string, number> = { cash: 0, card: 0, other: 0 };
-    let tenderCount = 0;
-    if (ids.length) {
-      for (let i = 0; i < ids.length; i += 500) {
-        const { data: pays } = await admin.from("order_payments").select("order_id, method, amount").in("order_id", ids.slice(i, i + 500));
-        for (const p of pays || []) {
-          const m = p.method === "cash" || p.method === "card" ? p.method : "other";
-          byMethod[m] += Number(p.amount || 0); tenderCount++;
-        }
+
+    // ---- tenders from order_payments ----
+    const byMethod: Record<string, { amount: number; count: number }> = { cash: { amount: 0, count: 0 }, card: { amount: 0, count: 0 }, other: { amount: 0, count: 0 } };
+    const paidByOrder: Record<string, number> = {};
+    for (let i = 0; i < ids.length; i += 500) {
+      const { data: pays } = await admin.from("order_payments").select("order_id, method, amount").in("order_id", ids.slice(i, i + 500));
+      for (const p of pays || []) {
+        const m = p.method === "cash" || p.method === "card" ? p.method : "other";
+        byMethod[m].amount += Number(p.amount || 0); byMethod[m].count++;
+        paidByOrder[p.order_id] = (paidByOrder[p.order_id] || 0) + Number(p.amount || 0);
       }
     }
-    // Orders with no order_payments rows but a legacy paid_method still count (pre-split data).
-    let paidCount = 0, unpaidTotal = 0, unpaidCount = 0, gross = 0, discountTotal = 0;
-    const unpaid: any[] = [];
-    for (const o of live) {
-      const total = Number(o.total || 0), paid = Number(o.amount_paid || 0);
-      gross += total;
-      if (paid + 0.001 >= total && total > 0) paidCount++;
-      else if (total > 0) { unpaidCount++; unpaidTotal += total - paid; unpaid.push({ id: o.id, order_no: o.order_no, order_type: o.order_type, due: round2(total - paid), created_at: o.created_at }); }
+    // ---- items: top sellers + category mix ----
+    const itemAgg: Record<string, { name: string; qty: number; sales: number }> = {};
+    let itemsSold = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const { data: lines } = await admin.from("menu_order_items").select("order_id, name_snapshot, qty, line_total, item_status").in("order_id", ids.slice(i, i + 500));
+      for (const l of lines || []) {
+        if (l.item_status === "voided") continue;
+        const k = String(l.name_snapshot || "").trim(); if (!k) continue;
+        const a = itemAgg[k] || (itemAgg[k] = { name: k, qty: 0, sales: 0 });
+        a.qty += Number(l.qty || 0); a.sales += Number(l.line_total || 0); itemsSold += Number(l.qty || 0);
+      }
     }
-    const taken = byMethod.cash + byMethod.card + byMethod.other;
-    const cancelled = orders.length - live.length;
-    const byType: Record<string, number> = {};
-    for (const o of live) byType[o.order_type || "other"] = (byType[o.order_type || "other"] || 0) + 1;
+    const topItems = Object.values(itemAgg).sort((a, b) => b.qty - a.qty || b.sales - a.sales).slice(0, 8).map((x) => ({ ...x, sales: round2(x.sales) }));
+
+    // ---- order-level rollups ----
+    let paidCount = 0, unpaidTotal = 0, unpaidCount = 0, gross = 0, discountTotal = 0, cancelledTotal = 0;
+    const unpaid: any[] = [];
+    const byType: Record<string, { count: number; amount: number }> = {};
+    const bySource: Record<string, { count: number; amount: number }> = {};
+    const byHour: Record<string, { count: number; amount: number }> = {};
+    let first: string | null = null, last: string | null = null;
+    const hourOf = (iso: string) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", hourCycle: "h23" }).format(new Date(iso)));
+    for (const o of orders) if (o.status === "cancelled") cancelledTotal += Number(o.total || 0);
+    for (const o of live) {
+      const total = Number(o.total || 0);
+      const paid = Math.max(Number(o.amount_paid || 0), paidByOrder[o.id] || 0, o.paid_amount != null ? Number(o.paid_amount) : 0);
+      gross += total;
+      // Discounts: app membership/reward discounts, and till discounts (paid less than total but marked paid).
+      if (o.app_discount) discountTotal += Number(o.app_discount);
+      if (o.discount_type && o.paid_amount != null && Number(o.paid_amount) < total) discountTotal += total - Number(o.paid_amount);
+      const settled = o.discount_type ? true : paid + 0.001 >= total;
+      if (total > 0 && settled) paidCount++;
+      else if (total > 0) { unpaidCount++; unpaidTotal += total - paid; unpaid.push({ id: o.id, order_no: o.order_no, order_type: o.order_type, due: round2(total - paid), created_at: o.created_at }); }
+      const t = o.order_type || "other"; (byType[t] ||= { count: 0, amount: 0 }); byType[t].count++; byType[t].amount += total;
+      const src = o.external_channel ? String(o.external_channel) : (o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
+      (bySource[src] ||= { count: 0, amount: 0 }); bySource[src].count++; bySource[src].amount += total;
+      const h = String(hourOf(o.created_at)).padStart(2, "0"); (byHour[h] ||= { count: 0, amount: 0 }); byHour[h].count++; byHour[h].amount += total;
+      if (!first || o.created_at < first) first = o.created_at; if (!last || o.created_at > last) last = o.created_at;
+    }
+    const taken = byMethod.cash.amount + byMethod.card.amount + byMethod.other.amount;
+    const r2 = (o: Record<string, { count: number; amount: number }>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, { count: v.count, amount: round2(v.amount) }]));
+    const peak = Object.entries(byHour).sort((a, b) => b[1].amount - a[1].amount)[0];
+
+    // ---- previous closure for comparison ----
+    const { data: prev } = await admin.from("till_closures").select("closed_at, total_taken, order_count, cash_variance").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
+
     return {
       ids: orders.map((o: any) => o.id),
       summary: {
-        total: round2(taken), cash: round2(byMethod.cash), card: round2(byMethod.card), other: round2(byMethod.other),
-        gross: round2(gross), paid_count: paidCount, tender_count: tenderCount,
+        total: round2(taken), cash: round2(byMethod.cash.amount), card: round2(byMethod.card.amount), other: round2(byMethod.other.amount),
+        tenders: { cash: byMethod.cash.count, card: byMethod.card.count, other: byMethod.other.count },
+        gross: round2(gross), net: round2(gross - discountTotal), discount_total: round2(discountTotal),
+        paid_count: paidCount, tender_count: byMethod.cash.count + byMethod.card.count + byMethod.other.count,
         unpaid_total: round2(unpaidTotal), unpaid_count: unpaidCount, unpaid,
-        discount_total: round2(discountTotal),
-        order_count: live.length, cancelled_count: cancelled, by_type: byType,
-        oldest: live.length ? live.reduce((m: string, o: any) => (o.created_at < m ? o.created_at : m), live[0].created_at) : null,
+        order_count: live.length, cancelled_count: orders.length - live.length, cancelled_total: round2(cancelledTotal),
+        avg_ticket: live.length ? round2(gross / live.length) : 0, items_sold: itemsSold,
+        by_type: r2(byType), by_source: r2(bySource), by_hour: r2(byHour),
+        peak_hour: peak ? { hour: peak[0], amount: round2(peak[1].amount), count: peak[1].count } : null,
+        top_items: topItems,
+        first_order: first, last_order: last,
         mode, cutoff,
-        // How many open orders are AFTER the 4am cutoff (this morning's trade);
-        // with mode=trading_day they stay open after the close.
         later_count: laterRows.filter((o: any) => o.status !== "cancelled").length,
         before_cutoff_count: (allRows || []).filter((o: any) => o.created_at < cutoff && o.status !== "cancelled").length,
+        previous: prev ? { closed_at: prev.closed_at, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance } : null,
       },
     };
   }
@@ -1149,6 +1187,7 @@ Deno.serve(async (req) => {
           closed_by: closed_by ? String(closed_by).slice(0, 80) : null, note: note ? String(note).slice(0, 300) : null,
           other_total: summary.other, cancelled_count: summary.cancelled_count,
           period_end: mode === "trading_day" ? summary.cutoff : now,
+          report: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, closed_by, note },
         }).select("id").single();
         if (cErr) throw cErr;
         if (ids.length) {
@@ -1168,6 +1207,18 @@ Deno.serve(async (req) => {
         } catch { printed = false; }
         return json({ ok: true, closure_id: closure?.id, closed_orders: ids.length, printed,
           summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance } });
+      }
+
+      // ---- TILL: reprint a Z-report from a saved closure ----
+      case "reprint_closure": {
+        const { closure_id } = data || {};
+        if (!closure_id) return json({ error: "closure_id required" }, 400);
+        const { data: c } = await admin.from("till_closures").select("id, location_id, closed_at, report").eq("id", closure_id).maybeSingle();
+        if (!c) return json({ error: "closure not found" }, 404);
+        if (scope === "store" && c.location_id !== scopeLocationId) return json({ error: "forbidden" }, 403);
+        const { data: loc } = await admin.from("menu_locations").select("name").eq("id", c.location_id).single();
+        const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id: c.location_id, summary: { ...(c.report || {}), reprint: true, closed_at: c.closed_at } });
+        return json({ ok: pr.ok });
       }
 
       // ---- MENUS ----

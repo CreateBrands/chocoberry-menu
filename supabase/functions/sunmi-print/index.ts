@@ -904,46 +904,79 @@ Deno.serve(async (req) => {
       }
 
       case "print-summary": {
-        // store (or all printers if we can't resolve one).
+        // Closing report (Z-report). Prints on the store's own printers.
         const s = body.summary || {};
         const storeName = String(body.store_name || "");
-        const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+        const fmtDT = (iso: string) => new Date(iso).toLocaleString("en-GB", { timeZone: "Europe/London", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+        const fmtT = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+        const when = fmtDT(s.closed_at || new Date().toISOString());
         const money = (n: number) => "GBP " + (Number(n) || 0).toFixed(2);
         const W = 48;
         const r = new Receipt();
-        r.align(1).size(1, 1).bold(true).line("END OF DAY").bold(false).size(0, 0);
+        r.align(1).size(1, 1).bold(true).line(s.reprint ? "Z-REPORT (COPY)" : "Z-REPORT").bold(false).size(0, 0);
         if (storeName) r.line(storeName);
-        r.line("Z-REPORT").feed(1);
-        r.align(0).line(when);
-        if (s.mode === "trading_day" && s.cutoff) r.line("Trading day to " + new Date(s.cutoff).toLocaleString("en-GB", { timeZone: "Europe/London" }));
-        r.divider("-").feed(1);
+        r.line("Closed " + when);
+        if (s.mode === "trading_day" && s.cutoff) r.line("Trading day to " + fmtDT(s.cutoff));
+        if (s.first_order && s.last_order) r.line("Orders " + fmtT(s.first_order) + " - " + fmtT(s.last_order));
+        r.feed(1).align(0).divider("=");
+        // ---- SALES ----
         r.size(0, 1).leftRight("TOTAL TAKEN", money(s.total), W).size(0, 0);
         r.divider("-");
-        r.leftRight("Cash", money(s.cash), W);
-        r.leftRight("Card", money(s.card), W);
-        r.leftRight("Paid orders", String(s.paid_count ?? 0), W);
-        if ((s.discount_total ?? 0) > 0) r.leftRight("Discounts given", money(s.discount_total), W);
-        r.divider("-");
+        r.leftRight("Gross sales", money(s.gross), W);
+        if ((s.discount_total ?? 0) > 0) { r.leftRight("Discounts", "-" + money(s.discount_total), W); r.leftRight("Net sales", money(s.net), W); }
+        r.leftRight("Orders", String(s.order_count ?? 0), W);
+        if ((s.avg_ticket ?? 0) > 0) r.leftRight("Average order", money(s.avg_ticket), W);
+        if ((s.items_sold ?? 0) > 0) r.leftRight("Items sold", String(s.items_sold), W);
+        if ((s.cancelled_count ?? 0) > 0) r.leftRight("Cancelled (" + s.cancelled_count + ")", money(s.cancelled_total || 0), W);
+        if (s.peak_hour) r.leftRight("Busiest hour", s.peak_hour.hour + ":00  " + money(s.peak_hour.amount), W);
+        // ---- TENDERS ----
+        r.divider("=").bold(true).line("TENDERS").bold(false);
+        const tc = s.tenders || {};
+        r.leftRight("Cash" + (tc.cash ? " (" + tc.cash + ")" : ""), money(s.cash), W);
+        r.leftRight("Card" + (tc.card ? " (" + tc.card + ")" : ""), money(s.card), W);
+        if ((s.other ?? 0) > 0) r.leftRight("Other" + (tc.other ? " (" + tc.other + ")" : ""), money(s.other), W);
         if ((s.unpaid_count ?? 0) > 0) {
           r.bold(true).leftRight("UNPAID (" + s.unpaid_count + ")", money(s.unpaid_total), W).bold(false);
-          r.divider("-");
+          const list = (s.unpaid || []).slice(0, 8).map((u: any) => "#" + u.order_no).join(" ");
+          if (list) r.line("  " + list + ((s.unpaid || []).length > 8 ? " ..." : ""));
         }
-        if ((s.other ?? 0) > 0) r.leftRight("Other tenders", money(s.other), W);
+        // ---- CASH DRAWER ----
         if (s.cash_counted != null) {
-          r.feed(1).bold(true).line("CASH DRAWER").bold(false);
+          r.divider("=").bold(true).line("CASH DRAWER").bold(false);
           if (s.float_amount != null) r.leftRight("Float", money(s.float_amount), W);
           r.leftRight("Cash taken", money(s.cash), W);
-          r.leftRight("Expected in drawer", money(s.cash_expected), W);
+          r.leftRight("Expected", money(s.cash_expected), W);
           r.leftRight("Counted", money(s.cash_counted), W);
           const v = Number(s.cash_variance || 0);
-          r.bold(true).leftRight(v === 0 ? "Variance" : v > 0 ? "OVER" : "SHORT", (v < 0 ? "-" : "") + money(Math.abs(v)), W).bold(false);
-          r.divider("-");
+          r.size(0, 1).bold(true).leftRight(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", (v < 0 ? "-" : "") + money(Math.abs(v)), W).bold(false).size(0, 0);
         }
-        r.leftRight("Orders archived", String(s.order_count ?? s.paid_count ?? 0), W);
-        if ((s.cancelled_count ?? 0) > 0) r.leftRight("Cancelled", String(s.cancelled_count), W);
+        // ---- MIX ----
+        const bt = s.by_type || {}, bs = s.by_source || {};
+        const typeLabel: Record<string, string> = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
+        if (Object.keys(bt).length) {
+          r.divider("=").bold(true).line("ORDERS BY TYPE").bold(false);
+          for (const [k, v] of Object.entries(bt) as any) r.leftRight((typeLabel[k] || k) + " (" + v.count + ")", money(v.amount), W);
+        }
+        if (Object.keys(bs).length > 1) {
+          r.bold(true).line("BY SOURCE").bold(false);
+          for (const [k, v] of Object.entries(bs) as any) r.leftRight(k + " (" + v.count + ")", money(v.amount), W);
+        }
+        // ---- TOP ITEMS ----
+        if ((s.top_items || []).length) {
+          r.divider("=").bold(true).line("TOP SELLERS").bold(false);
+          for (const it of s.top_items.slice(0, 8)) r.leftRight(String(it.qty) + "x " + String(it.name).slice(0, 28), money(it.sales), W);
+        }
+        // ---- SIGN OFF ----
+        r.divider("=");
+        if (s.previous && s.previous.total != null) {
+          const d = Number(s.total || 0) - Number(s.previous.total || 0);
+          r.leftRight("Previous close", money(s.previous.total), W);
+          r.leftRight("Change", (d < 0 ? "-" : "+") + money(Math.abs(d)), W);
+        }
         if (s.closed_by) r.leftRight("Closed by", String(s.closed_by).slice(0, 24), W);
-        if (s.note) r.feed(1).line("Note: " + String(s.note).slice(0, 90));
-        r.feed(1).align(1).line("Day closed").feed(2).cut();
+        if (s.note) r.line("Note: " + String(s.note).slice(0, 90));
+        r.feed(1).line("Signed: ______________________").feed(1);
+        r.align(1).line(s.reprint ? "Reprint" : "Day closed").feed(2).cut();
         const hex = r.toHex();
         // Print on THIS store's printers only (fall back to all if none are mapped).
         let pq = supabase.from("printers").select("sn, station, location_id");
