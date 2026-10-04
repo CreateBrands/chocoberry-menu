@@ -1154,10 +1154,17 @@ function PerformanceView({ loc, F, lateMin }) {
   // Completion: the latest bump within 30 min of the FIRST bump on the order.
   // A screen bumping an old ticket hours later is housekeeping, not cooking,
   // and must not count — otherwise one stale-clearing screen inflates every day.
-  const HOUSEKEEPING_GAP = 30 * 60 * 1000;
+  const HOUSEKEEPING_GAP = 15 * 60 * 1000;
+  // Production screens = kds_screens rows with a station (kitchen, bar…). Pass /
+  // front screens have no station and only tidy tickets away, so their bumps
+  // never define when the food was finished.
+  const productionKeys = new Set(screens.filter((x) => x.station && String(x.station).trim()).map((x) => x.screen_key));
+  const isProduction = (k) => productionKeys.size === 0 || productionKeys.has(k);
   const completionOf = (o) => {
-    const bs = (o.bumps || []).map((b) => new Date(b.bumped_at).getTime()).filter((t) => isFinite(t)).sort((a, b) => a - b);
-    if (!bs.length) return o.completed_at ? new Date(o.completed_at).getTime() : null;
+    const all = (o.bumps || []).map((b) => ({ t: new Date(b.bumped_at).getTime(), k: b.screen_key })).filter((b) => isFinite(b.t)).sort((a, b) => a.t - b.t);
+    if (!all.length) return o.completed_at ? new Date(o.completed_at).getTime() : null;
+    const prod = all.filter((b) => isProduction(b.k));
+    const bs = (prod.length ? prod : all.slice(0, 1)).map((b) => b.t);
     const first = bs[0];
     let last = first;
     for (const t of bs) if (t - first <= HOUSEKEEPING_GAP) last = t;
@@ -1367,7 +1374,7 @@ function PerformanceView({ loc, F, lateMin }) {
   const stationBalance = (() => {
     const lastCount = {}; let multi = 0; const lag = {};
     for (const o of done) {
-      const bs = (o.bumps || []).map((b) => ({ k: scName(b.screen_key), t: new Date(b.bumped_at).getTime() })).filter((b) => isFinite(b.t)).sort((a, b) => a.t - b.t);
+      const bs = (o.bumps || []).filter((b) => isProduction(b.screen_key)).map((b) => ({ k: scName(b.screen_key), t: new Date(b.bumped_at).getTime() })).filter((b) => isFinite(b.t)).sort((a, b) => a.t - b.t);
       const first = bs[0]; if (!first) continue;
       const inWin = bs.filter((b) => b.t - first.t <= HOUSEKEEPING_GAP);
       const keys = [...new Set(inWin.map((b) => b.k))];
@@ -1611,7 +1618,7 @@ function PerformanceView({ loc, F, lateMin }) {
               const steps = [
                 { t: placed, l: o._seg > 0 ? "Items added to #" + o.order_no : "Placed", d: null },
                 ...(o.kds_started_at ? [{ t: new Date(o.kds_started_at).getTime(), l: "Started", d: (new Date(o.kds_started_at).getTime() - placed) / 1000 }] : []),
-                ...bumpsSorted.map((b) => { const t = new Date(b.bumped_at).getTime(); const hk = t - new Date(bumpsSorted[0].bumped_at).getTime() > HOUSEKEEPING_GAP; return { t, l: "Bumped · " + scName(b.screen_key), hk, d: (t - placed) / 1000 }; }),
+                ...(() => { const prodFirst = bumpsSorted.find((b) => isProduction(b.screen_key)) || bumpsSorted[0]; return bumpsSorted.map((b) => { const t = new Date(b.bumped_at).getTime(); const notProd = productionKeys.size > 0 && !productionKeys.has(b.screen_key); const hk = notProd || (t - new Date(prodFirst.bumped_at).getTime() > HOUSEKEEPING_GAP); return { t, l: "Bumped · " + scName(b.screen_key) + (notProd ? " (pass screen)" : ""), hk, d: (t - placed) / 1000 }; }); })(),
               ];
               return (
                 <div key={o.order_id} style={{ borderBottom: "1px solid " + C.line }}>
@@ -1655,7 +1662,7 @@ function PerformanceView({ loc, F, lateMin }) {
                           {steps.map((e, i) => (
                             <div key={i} style={{ position: "relative", display: "flex", justifyContent: "space-between", gap: 8, padding: "4px 0", fontSize: F(12.5), color: e.hk ? C.muted : C.ink }}>
                               <span style={{ position: "absolute", left: -14, top: 9, width: 10, height: 10, borderRadius: "50%", background: e.d == null ? C.muted : e.hk ? "#cbd5e1" : e.d > T ? C.bad : C.good, border: "2px solid #fff" }} />
-                              <span style={{ minWidth: 0 }}><span style={{ color: C.muted, fontVariantNumeric: "tabular-nums", marginRight: 6 }}>{fmtS(e.t)}</span>{e.l}{e.hk && <span style={{ color: C.muted }}> (tidy-up, ignored)</span>}</span>
+                              <span style={{ minWidth: 0 }}><span style={{ color: C.muted, fontVariantNumeric: "tabular-nums", marginRight: 6 }}>{fmtS(e.t)}</span>{e.l}{e.hk && !/pass screen/.test(e.l) && <span style={{ color: C.muted }}> (tidy-up, ignored)</span>}</span>
                               <span style={{ fontWeight: 800, fontFamily: PF, whiteSpace: "nowrap", color: e.d == null ? C.muted : e.hk ? C.muted : e.d > T ? C.bad : C.good }}>{e.d == null ? "" : "+" + mmss(e.d)}</span>
                             </div>
                           ))}
@@ -1725,7 +1732,7 @@ function PerformanceView({ loc, F, lateMin }) {
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, position: "sticky", top: -F(16), zIndex: 5, background: "#f8fafc", margin: "0 " + -F(16) + "px", padding: F(10) + "px " + F(16) + "px", boxShadow: "0 6px 12px -8px rgba(15,23,42,.18)" }}>
         <div>
           <div style={{ fontSize: F(21), fontWeight: 900, fontFamily: PF, letterSpacing: "-.02em" }}>Kitchen performance</div>
-          <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped (later tidy-up bumps ignored){period === "today" ? " · live, refreshes every 30s" : ""}</div>
+          <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped on a production screen (pass screens and tidy-ups ignored){period === "today" ? " · live, refreshes every 30s" : ""}</div>
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {updatedAt && <span style={{ fontSize: F(11), color: C.muted }}>updated {updatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
