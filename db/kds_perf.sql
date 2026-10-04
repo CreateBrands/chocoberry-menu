@@ -18,6 +18,7 @@ language sql stable security definer set search_path = public as $$
     'kds_started_at', o.kds_started_at,
     'completed_at', coalesce(b.last_bump, o.kds_bumped_at),
     'item_count', coalesce(i.n, 0),
+    'items', coalesce(i.names, '[]'::jsonb),
     'bumps', coalesce(b.per_screen, '[]'::jsonb)
   ) order by o.created_at), '[]'::jsonb)
   from menu_orders o
@@ -26,7 +27,10 @@ language sql stable security definer set search_path = public as $$
            jsonb_agg(jsonb_build_object('screen_key', screen_key, 'bumped_at', bumped_at)) as per_screen
     from kds_bumps kb where kb.order_id = o.id
   ) b on true
-  left join lateral (select count(*) as n from menu_order_items mi where mi.order_id = o.id and coalesce(mi.item_status::text, '') <> 'voided') i on true
+  left join lateral (
+    select count(*) as n, jsonb_agg(mi.name_snapshot) as names
+    from menu_order_items mi where mi.order_id = o.id and coalesce(mi.item_status::text, '') <> 'voided'
+  ) i on true
   where o.location_id = p_location
     and o.created_at >= p_from and o.created_at < p_to
     and o.status <> 'cancelled';

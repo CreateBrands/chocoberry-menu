@@ -993,6 +993,72 @@ function PerformanceView({ loc, F, lateMin }) {
   const byScreen = (() => { const m = {}; for (const o of live) { const first = Math.min(...(o.bumps || []).map((b) => new Date(b.bumped_at).getTime())); for (const b of (o.bumps || [])) { const t = new Date(b.bumped_at).getTime(); if (t - first > HOUSEKEEPING_GAP) continue; (m[b.screen_key] ||= []).push((t - new Date(o.created_at)) / 1000); } } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).filter((r) => r.n >= 3).sort((a, b) => b.n - a.n); })();
   const slowest = [...done].sort((a, b) => tt(b) - tt(a)).slice(0, 7);
 
+  // ---- load vs speed: how many tickets were already open when each was placed ----
+  const loadBuckets = (() => {
+    const ev = live.map((o) => ({ c: new Date(o.created_at).getTime(), d: o._done })).sort((a, b) => a.c - b.c);
+    const out = { "1–2 open": [], "3–4 open": [], "5–7 open": [], "8+ open": [] };
+    for (const o of done) {
+      const c = new Date(o.created_at).getTime();
+      const openAt = ev.filter((e) => e.c <= c && (e.d == null || e.d > c)).length; // includes itself
+      const k = openAt <= 2 ? "1–2 open" : openAt <= 4 ? "3–4 open" : openAt <= 7 ? "5–7 open" : "8+ open";
+      out[k].push(tt(o));
+    }
+    return Object.entries(out).map(([k, v]) => ({ k, n: v.length, avg: avg(v), p90: pct(v, 0.9), on: v.length ? Math.round(v.filter((x) => x <= T).length / v.length * 100) : 0 })).filter((r) => r.n > 0);
+  })();
+  const maxOpen = (() => { const ev = live.map((o) => ({ c: new Date(o.created_at).getTime(), d: o._done })); let m = 0, at = null; for (const o of live) { const c = new Date(o.created_at).getTime(); const n = ev.filter((e) => e.c <= c && (e.d == null || e.d > c)).length; if (n > m) { m = n; at = c; } } return { n: m, at }; })();
+
+  // ---- items that slow tickets down (tickets containing the item vs the rest) ----
+  const itemImpact = (() => {
+    if (done.length < 8) return [];
+    const overall = avg(times);
+    const m = {};
+    for (const o of done) for (const name of new Set(o.items || [])) (m[name] ||= []).push(tt(o));
+    return Object.entries(m).filter(([, v]) => v.length >= 4).map(([k, v]) => ({ k, n: v.length, avg: avg(v), delta: avg(v) - overall })).sort((a, b) => b.delta - a.delta);
+  })();
+  const slowItems = itemImpact.filter((x) => x.delta > 120).slice(0, 6);
+  const fastItems = itemImpact.filter((x) => x.delta < -120).slice(-4).reverse();
+
+  // ---- weekday pattern (7d / 30d) ----
+  const byWeekday = (() => { if (period === "today" || period === "yesterday") return []; const m = {}; for (const o of done) { const k = tradingDayStart(new Date(o.created_at)).toLocaleDateString("en-GB", { weekday: "short" }); (m[k] ||= []).push(tt(o)); } const order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]; return order.filter((k) => m[k]).map((k) => ({ k, n: m[k].length, avg: avg(m[k]), p90: pct(m[k], 0.9), on: Math.round(m[k].filter((x) => x <= T).length / m[k].length * 100) })); })();
+
+  // ---- insights: plain-English findings + what to try ----
+  const insights = (() => {
+    const out = [];
+    const push = (tone, title, body) => out.push({ tone, title, body });
+    if (!times.length) return out;
+    const a = avg(times), m = med;
+    // 1. target realism
+    const p80 = pct(times, 0.8);
+    if (onTimePct != null && onTimePct < 50 && p80 > T * 1.5) push("warn", "The target doesn't match reality", "Only " + onTimePct + "% of tickets make " + target + " min, while 8 in 10 finish within " + mmss(p80) + ". Either set the target to what you want the kitchen to hit (" + Math.ceil(p80 / 60) + " min would be ~80% on-time today) or treat " + target + " as a stretch goal and track the trend.");
+    // 2. forgotten tickets
+    const stale = done.filter((o) => tt(o) > 3600).length;
+    if (stale) push("info", stale + " ticket" + (stale === 1 ? "" : "s") + " sat over an hour", "These are almost always bumps that were forgotten rather than food that took an hour. They inflate the average (" + mmss(a) + ") — the median (" + mmss(m) + ") is the truer number. Bump when the plate leaves the pass.");
+    // 3. small vs large
+    const small = bySize.find((r) => r.k === "1–2 items"), large = bySize.find((r) => r.k === "6–9 items" || r.k === "10+ items");
+    if (small && large && small.n >= 4 && large.n >= 3 && small.avg > large.avg * 0.9) push("warn", "Small orders aren't getting out faster", "1–2 item tickets average " + mmss(small.avg) + " vs " + mmss(large.avg) + " for " + large.k + ". Drinks and desserts are queuing behind big breakfasts. Try: make single drinks/desserts as they arrive on a separate station, and bump them straight away.");
+    // 4. load
+    const lo = loadBuckets.find((r) => r.k === "1–2 open"), hi = loadBuckets.find((r) => r.k === "5–7 open") || loadBuckets.find((r) => r.k === "8+ open");
+    if (lo && hi && lo.n >= 3 && hi.n >= 3 && hi.avg > lo.avg * 1.4) push("warn", "Speed collapses once " + hi.k.replace(" open", "") + " tickets are open", "Quiet tickets take " + mmss(lo.avg) + "; with " + hi.k + " they take " + mmss(hi.avg) + ". The kitchen's comfortable capacity is about " + (lo.k === "1–2 open" ? "3–4" : "4") + " tickets at once. Peak today was " + maxOpen.n + " open" + (maxOpen.at ? " at " + new Date(maxOpen.at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "") + " — that's where a second pair of hands or pre-prep pays off.");
+    else if (lo && hi && lo.n >= 3 && hi.n >= 3) push("good", "Holds up under load", "Ticket times stay close whether " + lo.k + " (" + mmss(lo.avg) + ") or " + hi.k + " (" + mmss(hi.avg) + ") — the kitchen scales well; the gains are in the baseline pace.");
+    // 5. worst hour
+    if (worst && peak && worst[0] !== peak[0] && avg(worst[1].t) > a * 1.3) push("info", "Slowest hour is " + worst[0] + ":00, not the busiest", "At " + worst[0] + ":00 tickets averaged " + mmss(avg(worst[1].t)) + " on " + worst[1].n + " orders, while the busiest hour (" + peak[0] + ":00, " + peak[1].n + " orders) ran " + mmss(avg(peak[1].t)) + ". That points at setup, breaks or staffing at " + worst[0] + ":00 rather than volume.");
+    else if (worst && peak && worst[0] === peak[0]) push("info", "The rush is the slow point", "The busiest hour (" + peak[0] + ":00, " + peak[1].n + " orders) is also the slowest at " + mmss(avg(peak[1].t)) + ". Pre-prep the top sellers before " + peak[0] + ":00 and hold the simplest items ready.");
+    // 6. items
+    if (slowItems.length) push("warn", "Items that drag tickets", slowItems.slice(0, 3).map((x) => x.k + " (+" + mmss(x.delta) + ")").join(", ") + " — tickets containing these run well over the average. Check prep, portioning, or whether they're built to order when they could be part-prepped.");
+    // 7. takeaway vs dine-in
+    const di = byType.find((r) => r.k === "Dine in"), ta = byType.find((r) => r.k === "Takeaway");
+    if (di && ta && di.n >= 4 && ta.n >= 4 && ta.avg > di.avg * 1.2) push("info", "Takeaways are waiting longer than dine-in", "Takeaway " + mmss(ta.avg) + " vs dine-in " + mmss(di.avg) + ". Customers at the counter notice this most — consider calling takeaway tickets first when they're ready to go.");
+    // 8. start usage
+    if (starts.length === 0 && done.length >= 5) push("info", "Start isn't being used", "Without a Start tap, waiting time and cooking time are one number. Tapping Start when a ticket is picked up shows whether slow tickets are slow to begin or slow to cook.");
+    // 9. trend
+    const recent = trendDays.slice(-4).filter((d) => d.avg != null), earlier = trendDays.slice(0, 10).filter((d) => d.avg != null);
+    if (recent.length >= 3 && earlier.length >= 4) { const ra = avg(recent.map((d) => d.avg)), ea = avg(earlier.map((d) => d.avg)); if (ra < ea * 0.85) push("good", "Getting faster", "Last few days average " + mmss(ra) + " against " + mmss(ea) + " earlier in the fortnight — keep whatever changed."); else if (ra > ea * 1.15) push("warn", "Getting slower", "Last few days average " + mmss(ra) + " against " + mmss(ea) + " earlier in the fortnight. Worth asking what changed: menu, staffing, equipment."); }
+    if (!out.length) push("good", "Nothing stands out", "Ticket times are consistent across sizes, hours and load. Pushing the baseline pace is the lever now.");
+    return out.slice(0, 6);
+  })();
+  const toneBg = (t) => t === "good" ? C.goodBg : t === "warn" ? C.badBg : "#eff6ff";
+  const toneFg = (t) => t === "good" ? C.good : t === "warn" ? C.bad : "#1d4ed8";
+
   const Tile = ({ label, value, sub, tone, big }) => (
     <div style={{ background: tone === "dark" ? C.ink : "#fff", color: tone === "dark" ? "#fff" : C.ink, border: tone === "dark" ? "none" : "1px solid " + C.line, borderRadius: 18, padding: F(14) + "px " + F(16) + "px", minWidth: 0 }}>
       <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".09em", opacity: .65 }}>{label}</div>
@@ -1087,6 +1153,19 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
       </div>
 
+      {/* insights */}
+      <Card title="WHAT THE NUMBERS SAY" right={<span style={{ fontSize: F(11), color: C.muted }}>findings and what to try · recalculated with the data</span>}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(" + Math.min(3, Math.max(1, insights.length)) + ", 1fr)", gap: F(10) }}>
+          {insights.map((x, i) => (
+            <div key={i} style={{ background: toneBg(x.tone), borderRadius: 14, padding: F(12) + "px " + F(14) + "px" }}>
+              <div style={{ fontSize: F(13.5), fontWeight: 800, color: toneFg(x.tone), fontFamily: PF }}>{x.title}</div>
+              <div style={{ fontSize: F(12.5), color: C.ink, marginTop: 4, lineHeight: 1.45 }}>{x.body}</div>
+            </div>
+          ))}
+          {!insights.length && <div style={{ fontSize: F(13), color: C.muted }}>Findings appear once there are completed tickets.</div>}
+        </div>
+      </Card>
+
       {/* trend + distribution */}
       <div style={{ display: "grid", gridTemplateColumns: "1.5fr 1fr", gap: F(14) }}>
         <Card title="14-DAY TREND" right={<span style={{ fontSize: F(11), color: C.muted }}>avg ticket time per day · dashed = target · badge = on-time</span>}>
@@ -1150,6 +1229,24 @@ function PerformanceView({ loc, F, lateMin }) {
           ))}
           {!slowest.length && <div style={{ fontSize: F(13), color: C.muted }}>No completed tickets</div>}
         </Card>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: byWeekday.length ? "1fr 1fr 1fr" : "1fr 1fr", gap: F(14) }}>
+        <Card title="LOAD VS SPEED" right={<span style={{ fontSize: F(11), color: C.muted }}>tickets already open when placed{maxOpen.n ? " · peak " + maxOpen.n : ""}</span>}>
+          <Table rows={loadBuckets} label="QUEUE" />
+        </Card>
+        <Card title="ITEMS THAT SLOW TICKETS" right={<span style={{ fontSize: F(11), color: C.muted }}>vs overall avg · min 4 tickets</span>}>
+          {slowItems.length ? slowItems.map((x) => (
+            <div key={x.k} style={{ display: "grid", gridTemplateColumns: "1fr 40px 64px 64px", gap: 6, fontSize: F(13.5), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center" }}>
+              <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{x.k}</span>
+              <span style={{ textAlign: "right", color: C.muted, fontVariantNumeric: "tabular-nums" }}>{x.n}</span>
+              <span style={{ textAlign: "right", fontWeight: 800, fontFamily: PF, fontVariantNumeric: "tabular-nums" }}>{mmss(x.avg)}</span>
+              <span style={{ textAlign: "right", fontWeight: 800, color: C.bad, fontVariantNumeric: "tabular-nums" }}>+{mmss(x.delta)}</span>
+            </div>
+          )) : <div style={{ fontSize: F(13), color: C.muted }}>{done.length < 8 ? "Needs more completed tickets" : "No item adds more than 2 min over the average"}</div>}
+          {fastItems.length > 0 && <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>Quickest: {fastItems.map((x) => x.k + " (" + mmss(x.delta) + ")").join(", ")}</div>}
+        </Card>
+        {byWeekday.length > 0 && <Card title="BY WEEKDAY"><Table rows={byWeekday} label="DAY" /></Card>}
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: F(14) }}>
