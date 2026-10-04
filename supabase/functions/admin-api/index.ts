@@ -72,6 +72,7 @@ Deno.serve(async (req) => {
     "create_token", "delete_token", "release_token",
     "create_table", "update_table", "delete_table",
     "set_store_menus",
+    "close_day",           // close their own till (location is forced to their store)
   ]);
 
   // For a store scope: block master-only actions, and force every location_id
@@ -111,6 +112,58 @@ Deno.serve(async (req) => {
   };
 
   try {
+
+  // ---- TILL totals over the currently-open (not yet closed) orders ----
+  // Tenders come from order_payments so split bills, part-payments and the
+  // Teya card machine all count correctly; an order is "unpaid" by its balance.
+  const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  async function dayTotals(location_id: string) {
+    const { data: rows, error } = await admin
+      .from("menu_orders")
+      .select("id, order_no, order_type, total, amount_paid, status, created_at")
+      .eq("location_id", location_id)
+      .is("closed_at", null);
+    if (error) throw error;
+    const orders = rows || [];
+    const live = orders.filter((o: any) => o.status !== "cancelled");
+    const ids = live.map((o: any) => o.id);
+    const byMethod: Record<string, number> = { cash: 0, card: 0, other: 0 };
+    let tenderCount = 0;
+    if (ids.length) {
+      for (let i = 0; i < ids.length; i += 500) {
+        const { data: pays } = await admin.from("order_payments").select("order_id, method, amount").in("order_id", ids.slice(i, i + 500));
+        for (const p of pays || []) {
+          const m = p.method === "cash" || p.method === "card" ? p.method : "other";
+          byMethod[m] += Number(p.amount || 0); tenderCount++;
+        }
+      }
+    }
+    // Orders with no order_payments rows but a legacy paid_method still count (pre-split data).
+    let paidCount = 0, unpaidTotal = 0, unpaidCount = 0, gross = 0, discountTotal = 0;
+    const unpaid: any[] = [];
+    for (const o of live) {
+      const total = Number(o.total || 0), paid = Number(o.amount_paid || 0);
+      gross += total;
+      if (paid + 0.001 >= total && total > 0) paidCount++;
+      else if (total > 0) { unpaidCount++; unpaidTotal += total - paid; unpaid.push({ id: o.id, order_no: o.order_no, order_type: o.order_type, due: round2(total - paid), created_at: o.created_at }); }
+    }
+    const taken = byMethod.cash + byMethod.card + byMethod.other;
+    const cancelled = orders.length - live.length;
+    const byType: Record<string, number> = {};
+    for (const o of live) byType[o.order_type || "other"] = (byType[o.order_type || "other"] || 0) + 1;
+    return {
+      ids: orders.map((o: any) => o.id),
+      summary: {
+        total: round2(taken), cash: round2(byMethod.cash), card: round2(byMethod.card), other: round2(byMethod.other),
+        gross: round2(gross), paid_count: paidCount, tender_count: tenderCount,
+        unpaid_total: round2(unpaidTotal), unpaid_count: unpaidCount, unpaid,
+        discount_total: round2(discountTotal),
+        order_count: live.length, cancelled_count: cancelled, by_type: byType,
+        oldest: live.length ? live.reduce((m: string, o: any) => (o.created_at < m ? o.created_at : m), live[0].created_at) : null,
+      },
+    };
+  }
+
     switch (action) {
       // ---- READ: everything the admin UI needs in one call ----
       case "load": {
@@ -1038,37 +1091,8 @@ Deno.serve(async (req) => {
       case "day_summary": {
         const { location_id } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
-        // Summary covers OPEN orders (not yet closed off). Closing the day zeroes this.
-        const { data: rows, error } = await admin
-          .from("menu_orders")
-          .select("total, paid_method, paid_amount")
-          .eq("location_id", location_id)
-          .is("closed_at", null);
-        if (error) throw error;
-        let cash = 0, card = 0, paidCount = 0, unpaidTotal = 0, unpaidCount = 0, discountTotal = 0;
-        for (const r of rows || []) {
-          if (r.paid_method === "cash" || r.paid_method === "card") {
-            const amt = Number(r.paid_amount ?? r.total) || 0;
-            if (r.paid_method === "cash") cash += amt; else card += amt;
-            paidCount++;
-            const orig = Number(r.total) || 0;
-            if (amt < orig) discountTotal += (orig - amt);
-          } else {
-            unpaidTotal += Number(r.total) || 0;
-            unpaidCount++;
-          }
-        }
-        const round = (n) => Math.round(n * 100) / 100;
-        return json({
-          ok: true,
-          summary: {
-            total: round(cash + card),
-            cash: round(cash), card: round(card),
-            paid_count: paidCount,
-            unpaid_total: round(unpaidTotal), unpaid_count: unpaidCount,
-            discount_total: round(discountTotal),
-          },
-        });
+        const { summary } = await dayTotals(location_id);
+        return json({ ok: true, summary });
       }
 
       // ---- PRINT SAFETY NET: staff-triggered re-push of any unprinted orders ----
@@ -1079,69 +1103,42 @@ Deno.serve(async (req) => {
 
       // ---- TILL: close the day — snapshot totals, then archive open orders ----
       case "close_day": {
-        const { location_id } = data || {};
+        const { location_id, cash_counted = null, float_amount = null, closed_by = null, note = null } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
-        // Compute totals over the currently-open orders (same basis as day_summary).
-        const { data: rows, error: rErr } = await admin
-          .from("menu_orders")
-          .select("id, total, paid_method, paid_amount")
-          .eq("location_id", location_id)
-          .is("closed_at", null);
-        if (rErr) throw rErr;
-        let cash = 0, card = 0, paidCount = 0, unpaidTotal = 0, unpaidCount = 0, discountTotal = 0;
-        const ids = [];
-        for (const r of rows || []) {
-          ids.push(r.id);
-          if (r.paid_method === "cash" || r.paid_method === "card") {
-            const amt = Number(r.paid_amount ?? r.total) || 0;
-            if (r.paid_method === "cash") cash += amt; else card += amt;
-            paidCount++;
-            const orig = Number(r.total) || 0;
-            if (amt < orig) discountTotal += (orig - amt);
-          } else {
-            unpaidTotal += Number(r.total) || 0;
-            unpaidCount++;
-          }
-        }
-        const round = (n) => Math.round(n * 100) / 100;
+        const { ids, summary } = await dayTotals(location_id);
         const now = new Date().toISOString();
-        // Save a permanent closure record for the dashboard/history.
+        const counted = cash_counted == null ? null : round2(cash_counted);
+        const flt = float_amount == null ? null : round2(float_amount);
+        // Expected drawer = float left in at the start + cash taken today.
+        const expected = counted == null ? null : round2((flt || 0) + summary.cash);
+        const variance = counted == null ? null : round2(counted - (expected as number));
         const { data: closure, error: cErr } = await admin.from("till_closures").insert({
-          location_id,
-          closed_at: now,
-          total_taken: round(cash + card),
-          cash_total: round(cash),
-          card_total: round(card),
-          paid_count: paidCount,
-          unpaid_total: round(unpaidTotal),
-          unpaid_count: unpaidCount,
-          discount_total: round(discountTotal),
-          order_count: ids.length,
+          location_id, closed_at: now,
+          total_taken: summary.total, cash_total: summary.cash, card_total: summary.card,
+          paid_count: summary.paid_count, unpaid_total: summary.unpaid_total, unpaid_count: summary.unpaid_count,
+          discount_total: summary.discount_total, order_count: summary.order_count,
+          cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance,
+          closed_by: closed_by ? String(closed_by).slice(0, 80) : null, note: note ? String(note).slice(0, 300) : null,
+          other_total: summary.other, cancelled_count: summary.cancelled_count,
         }).select("id").single();
         if (cErr) throw cErr;
-        // Archive the orders: stamp closed_at so they leave the active list but stay in the DB.
         if (ids.length) {
-          const { error: uErr } = await admin.from("menu_orders")
-            .update({ closed_at: now }).in("id", ids);
-          if (uErr) throw uErr;
+          for (let i = 0; i < ids.length; i += 500) {
+            const { error: uErr } = await admin.from("menu_orders").update({ closed_at: now }).in("id", ids.slice(i, i + 500));
+            if (uErr) throw uErr;
+          }
         }
-        // Print the Z-report (best-effort — don't fail the close if printing fails).
-        let printed = null;
+        let printed: boolean | null = null;
         try {
           const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).single();
           const pr = await callSunmi({
-            action: "print-summary",
-            store_name: loc?.name || "",
-            summary: {
-              total: round(cash + card), cash: round(cash), card: round(card),
-              paid_count: paidCount, unpaid_total: round(unpaidTotal), unpaid_count: unpaidCount,
-              discount_total: round(discountTotal), order_count: ids.length,
-            },
+            action: "print-summary", store_name: loc?.name || "", location_id,
+            summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, closed_by, note },
           });
           printed = pr.ok;
         } catch { printed = false; }
         return json({ ok: true, closure_id: closure?.id, closed_orders: ids.length, printed,
-          summary: { total: round(cash + card), cash: round(cash), card: round(card), paid_count: paidCount, unpaid_total: round(unpaidTotal), unpaid_count: unpaidCount } });
+          summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance } });
       }
 
       // ---- MENUS ----

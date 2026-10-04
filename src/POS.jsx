@@ -237,6 +237,31 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       return { ok: r.ok, ...j };
     } catch { return { ok: false }; } finally { setOrdersBusy(false); }
   }
+  // ---- Close till (end of day) ----
+  // Shows today's tenders from order_payments, takes a cash count + manager
+  // PIN, then admin-api close_day archives the open orders, writes
+  // till_closures and prints the Z-report on this store's printer.
+  const [closeTill, setCloseTill] = useState(null); // null | { step: "summary"|"done", summary, counted, float, pin, by, note, busy, err, result }
+  async function openCloseTill() {
+    setCloseTill({ step: "summary", summary: null, counted: "", float: "", pin: "", by: "", note: "", busy: true, err: "" });
+    const r = await ordActionJson("day_summary", { location_id: loc });
+    setCloseTill((c) => c && { ...c, busy: false, summary: r.summary || null, err: r.summary ? "" : (r.error || "Could not load today's totals") });
+  }
+  async function confirmCloseTill() {
+    setCloseTill((c) => c && { ...c, busy: true, err: "" });
+    const c = closeTill;
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, action: "close_day", data: {
+        location_id: loc, cash_counted: c.counted === "" ? null : Number(c.counted), float_amount: c.float === "" ? null : Number(c.float), closed_by: c.by.trim() || null, note: c.note.trim() || null,
+      } }) });
+      const j = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(j.error === "unauthorized" ? "Wrong PIN" : (j.error || "Close failed"));
+      setCloseTill((x) => x && { ...x, busy: false, step: "done", result: j });
+      await loadOrders();
+      setSelOrderId(null); setPayNowOrder(null);
+    } catch (e) { setCloseTill((x) => x && { ...x, busy: false, err: e.message || "Close failed" }); }
+  }
+
   // ---- Teya card machine (POSLink) ----
   // If this store has a Teya terminal mapped (teya_terminals), "Card" pushes the
   // amount to the machine and waits for the cardholder instead of trusting a
@@ -1253,8 +1278,101 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               );
             })}
           </div>
+          <div style={{ flexShrink: 0, padding: "clamp(8px,.65vw,12px)", borderTop: "1px solid rgba(94,234,212,.14)" }}>
+            <div onClick={openCloseTill} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(94,234,212,.12)", color: "#5eead4", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(94,234,212,.25)" }}>
+              Close till
+            </div>
+          </div>
         </div>
       </div>
+
+      {/* CLOSE TILL */}
+      {closeTill && (
+        <div onClick={() => !closeTill.busy && setCloseTill(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.5)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 22, width: 520, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", padding: 26, boxShadow: "0 24px 70px rgba(18,21,28,.3)" }}>
+            {closeTill.step === "summary" && (() => {
+              const sm = closeTill.summary;
+              const counted = closeTill.counted === "" ? null : Number(closeTill.counted);
+              const flt = closeTill.float === "" ? 0 : Number(closeTill.float);
+              const expected = sm ? Math.round(((flt || 0) + Number(sm.cash || 0)) * 100) / 100 : 0;
+              const variance = counted == null ? null : Math.round((counted - expected) * 100) / 100;
+              const Row = ({ l, v, strong, warn }) => <div style={{ display: "flex", justifyContent: "space-between", fontSize: strong ? 17 : 14.5, fontWeight: strong ? 800 : 500, color: warn ? "#9a3412" : "#22271f", padding: "5px 0" }}><span style={{ color: warn ? "#9a3412" : "#6b7a60" }}>{l}</span><span>{v}</span></div>;
+              return (
+                <>
+                  <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.02em" }}>Close till</div>
+                  <div style={{ fontSize: 13.5, color: "#6b7a60", marginTop: 3 }}>Archives today's orders, records the cash count and prints the Z-report.</div>
+                  {closeTill.busy && !sm && <div style={{ padding: "30px 0", textAlign: "center", color: "#6b7a60" }}>Loading today's totals…</div>}
+                  {sm && (
+                    <>
+                      <div style={{ marginTop: 18, background: "#f6f7f3", borderRadius: 14, padding: "12px 16px" }}>
+                        <Row l="Total taken" v={gbp(sm.total)} strong />
+                        <Row l="Cash" v={gbp(sm.cash)} />
+                        <Row l="Card" v={gbp(sm.card)} />
+                        {sm.other > 0 && <Row l="Other" v={gbp(sm.other)} />}
+                        <Row l={"Paid orders"} v={String(sm.paid_count)} />
+                        {sm.cancelled_count > 0 && <Row l="Cancelled" v={String(sm.cancelled_count)} />}
+                        {sm.unpaid_count > 0 && <Row l={"Unpaid orders (" + sm.unpaid_count + ")"} v={gbp(sm.unpaid_total)} warn />}
+                      </div>
+                      {sm.unpaid_count > 0 && (
+                        <div style={{ marginTop: 10, fontSize: 13, color: "#9a3412", background: "#fff4ec", border: "1px solid #f3d3c0", borderRadius: 10, padding: "9px 12px", lineHeight: 1.45 }}>
+                          {sm.unpaid_count} order{sm.unpaid_count === 1 ? "" : "s"} still unpaid ({(sm.unpaid || []).slice(0, 6).map((u) => "#" + u.order_no).join(", ")}{sm.unpaid_count > 6 ? "…" : ""}). Take payment or cancel them first, or they'll be archived as unpaid.
+                        </div>
+                      )}
+                      <div style={{ marginTop: 18, fontSize: 12, fontWeight: 800, letterSpacing: ".08em", color: "#6b7a60" }}>CASH COUNT</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
+                        <label style={{ fontSize: 13, color: "#6b7a60" }}>Float left in drawer
+                          <input inputMode="decimal" value={closeTill.float} onChange={(e) => setCloseTill((c) => ({ ...c, float: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="e.g. 100.00" style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 5, padding: "12px 13px", fontSize: 18, fontWeight: 700, border: "1.5px solid #e2e4e8", borderRadius: 11, outline: "none" }} />
+                        </label>
+                        <label style={{ fontSize: 13, color: "#6b7a60" }}>Cash counted (total in drawer)
+                          <input inputMode="decimal" value={closeTill.counted} onChange={(e) => setCloseTill((c) => ({ ...c, counted: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="0.00" style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 5, padding: "12px 13px", fontSize: 18, fontWeight: 700, border: "1.5px solid #e2e4e8", borderRadius: 11, outline: "none" }} />
+                        </label>
+                      </div>
+                      <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 14, padding: "8px 2px" }}>
+                        <span style={{ color: "#6b7a60" }}>Expected in drawer (float + cash taken)</span><span style={{ fontWeight: 700 }}>{gbp(expected)}</span>
+                      </div>
+                      {variance != null && (
+                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 800, padding: "6px 2px", color: variance === 0 ? "#166534" : variance > 0 ? "#1d4ed8" : "#b91c1c" }}>
+                          <span>{variance === 0 ? "Drawer balances" : variance > 0 ? "Over" : "Short"}</span><span>{variance < 0 ? "-" : ""}{gbp(Math.abs(variance))}</span>
+                        </div>
+                      )}
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
+                        <input value={closeTill.by} onChange={(e) => setCloseTill((c) => ({ ...c, by: e.target.value }))} placeholder="Closed by (name)" style={{ padding: "12px 13px", fontSize: 15, border: "1.5px solid #e2e4e8", borderRadius: 11, outline: "none" }} />
+                        <input type="password" inputMode="numeric" value={closeTill.pin} onChange={(e) => setCloseTill((c) => ({ ...c, pin: e.target.value }))} placeholder="Manager PIN" style={{ padding: "12px 13px", fontSize: 15, border: "1.5px solid " + (closeTill.err === "Wrong PIN" ? "#dc2626" : "#e2e4e8"), borderRadius: 11, outline: "none", letterSpacing: ".2em" }} />
+                      </div>
+                      <input value={closeTill.note} onChange={(e) => setCloseTill((c) => ({ ...c, note: e.target.value }))} placeholder="Note (optional — e.g. reason for variance)" style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 10, padding: "12px 13px", fontSize: 14, border: "1.5px solid #e2e4e8", borderRadius: 11, outline: "none" }} />
+                    </>
+                  )}
+                  {closeTill.err && <div style={{ marginTop: 12, color: "#b91c1c", fontWeight: 700, fontSize: 14 }}>{closeTill.err}</div>}
+                  <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
+                    <div onClick={() => !closeTill.busy && setCloseTill(null)} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#f3f4ef", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</div>
+                    <div onClick={() => { if (closeTill.busy || !sm) return; if (!closeTill.pin) { setCloseTill((c) => ({ ...c, err: "Enter the manager PIN" })); return; } confirmCloseTill(); }}
+                      style={{ flex: 2, textAlign: "center", padding: "14px 0", borderRadius: 12, background: closeTill.busy || !sm ? "#9aa1ac" : "#22271f", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
+                      {closeTill.busy && sm ? "Closing…" : "Close till & print Z-report"}
+                    </div>
+                  </div>
+                </>
+              );
+            })()}
+            {closeTill.step === "done" && (() => {
+              const r = closeTill.result || {}; const sm = r.summary || {};
+              return (
+                <>
+                  <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.02em", color: "#166534" }}>Till closed</div>
+                  <div style={{ fontSize: 14, color: "#6b7a60", marginTop: 4 }}>{r.closed_orders} order{r.closed_orders === 1 ? "" : "s"} archived · Z-report {r.printed ? "printed" : r.printed === false ? "could not print — check the printer" : "not sent"}</div>
+                  <div style={{ marginTop: 16, background: "#f6f7f3", borderRadius: 14, padding: "12px 16px", fontSize: 15 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 18, padding: "4px 0" }}><span>Total taken</span><span>{gbp(sm.total)}</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span style={{ color: "#6b7a60" }}>Cash</span><span>{gbp(sm.cash)}</span></div>
+                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span style={{ color: "#6b7a60" }}>Card</span><span>{gbp(sm.card)}</span></div>
+                    {sm.cash_counted != null && <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontWeight: 700, color: sm.cash_variance === 0 ? "#166534" : sm.cash_variance > 0 ? "#1d4ed8" : "#b91c1c" }}><span>Cash {sm.cash_variance === 0 ? "balances" : sm.cash_variance > 0 ? "over" : "short"}</span><span>{sm.cash_variance < 0 ? "-" : ""}{gbp(Math.abs(sm.cash_variance || 0))}</span></div>}
+                    {sm.unpaid_count > 0 && <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", color: "#9a3412" }}><span>Archived unpaid ({sm.unpaid_count})</span><span>{gbp(sm.unpaid_total)}</span></div>}
+                  </div>
+                  <div onClick={() => setCloseTill(null)} style={{ marginTop: 20, textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#22271f", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>Done</div>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* TABLE PICKER SHEET */}
       {showTablePicker && (
