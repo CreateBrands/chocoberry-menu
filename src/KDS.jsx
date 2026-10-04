@@ -172,7 +172,7 @@ export default function KDS() {
   const [armedBump, setArmedBump] = useState(null); // {id, timer} — first tap arms, second confirms
   const [rushIds, setRushIds] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("kds_rush") || "[]")); } catch { return new Set(); } });
   // Orders/payment view state
-  const [view, setView] = useState("kitchen");      // "kitchen" | "orders"
+  const [view, setView] = useState("kitchen");      // "kitchen" | "pos" (the old "orders" screen was removed — payments live on the POS)
   const [orderFilter, setOrderFilter] = useState("unpaid"); // unpaid | paid | all
   const [payFor, setPayFor] = useState(null);       // order awaiting payment action
   const [payPin, setPayPin] = useState("");         // PIN entered to confirm payment
@@ -519,9 +519,9 @@ export default function KDS() {
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
           <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
-            {[["kitchen", "Kitchen"], ["orders", "Orders"], ["pos", "POS"]].map(([v, label]) => (
+            {[["kitchen", "Kitchen"], ["pos", "POS"]].map(([v, label]) => (
               <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#475569" }}>
-                {label}{v === "orders" && unpaidOrders.length ? " " + unpaidOrders.length : ""}
+                {label}
               </div>
             ))}
           </div>
@@ -755,63 +755,7 @@ export default function KDS() {
         <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables} />
       )}
 
-      {view === "orders" && (
-        <div style={{ padding: F(16) }}>
-          {/* Summary strip */}
-          <div style={{ display: "flex", gap: 12, marginBottom: 14, flexWrap: "wrap" }}>
-            <div style={{ flex: 1, minWidth: 160, background: "linear-gradient(180deg,#1c1712,#161009)", border: "1px solid #3a2e17", borderRadius: 12, padding: "12px 16px" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24", letterSpacing: ".04em" }}>UNPAID</div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2 }}>GBP {totalUnpaid.toFixed(2)}</div>
-              <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 2 }}>{unpaidOrders.length} order{unpaidOrders.length === 1 ? "" : "s"}</div>
-            </div>
-            <div style={{ flex: 1, minWidth: 160, background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px" }}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: "#4ade80", letterSpacing: ".04em" }}>TAKEN TODAY</div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2 }}>GBP {totalTaken.toFixed(2)}</div>
-              <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 2 }}>{paidOrders.length} paid</div>
-            </div>
-          </div>
-          {/* Filter chips */}
-          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-            {[["unpaid", "Unpaid", unpaidOrders.length], ["paid", "Paid", paidOrders.length], ["all", "All", unpaidOrders.length + paidOrders.length]].map(([f, label, n]) => (
-              <div key={f} onClick={() => setOrderFilter(f)} className="kbtn" style={{ padding: "8px 16px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, background: orderFilter === f ? "#ec4899" : "#20242f", color: orderFilter === f ? "#fff" : "#cbd5e1" }}>{label} {n}</div>
-            ))}
-          </div>
-          {/* Order rows */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(320px, 1fr))", gap: 10 }}>
-            {shownOrders.length === 0 && <div style={{ color: "#64748b", padding: 40, fontSize: 17 }}>No {orderFilter === "all" ? "" : orderFilter} orders.</div>}
-            {shownOrders.map((o) => {
-              const paid = isPaid(o);
-              const items = o.menu_order_items || [];
-              const preview = items.map((it) => it.qty + "x " + it.name_snapshot).join(", ");
-              const tbl = o.menu_tables?.label || (o.order_type === "dine_in" ? "Dine In" : "Takeaway");
-              const waited = Math.floor(minsSince(o.created_at, now));
-              return (
-                <div key={o.id} onClick={() => { if (!paid) { setPayFor(o); setPayMethod(null); setPayPin(""); setPayErr(""); } }}
-                  style={{ background: "#ffffff", border: "1px solid " + (paid ? "#bbf7d0" : "#fde68a"), borderLeft: "4px solid " + (paid ? "#16a34a" : "#d97706"), borderRadius: 12, padding: "12px 14px", cursor: paid ? "default" : "pointer" }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <span style={{ fontWeight: 800, fontSize: 17 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}</span>
-                    <span style={{ fontSize: 12, fontWeight: 700, padding: "3px 9px", borderRadius: 20, background: paid ? "#14532d" : "#7c5310", color: paid ? "#86efac" : "#fcd34d" }}>{paid ? (o.paid_method === "card" ? "PAID · CARD" : "PAID · CASH") : "UNPAID"}</span>
-                  </div>
-                  <div style={{ fontSize: 13, color: "#cbd5e1", fontWeight: 600 }}>{tbl}{!paid && <span style={{ color: "#9aa3b2", fontWeight: 500 }}> · waiting {waited}m</span>}</div>
-                  <div style={{ fontSize: 12, color: "#9aa3b2", marginTop: 4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{preview}</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                    <span style={{ fontSize: 20, fontWeight: 800 }}>GBP {Number(paid && o.paid_amount != null ? o.paid_amount : o.total || 0).toFixed(2)}</span>
-                    {!paid && <span style={{ fontSize: 13, fontWeight: 700, color: "#f472b6" }}>Take payment ›</span>}
-                  </div>
-                  <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ marginTop: 8, textAlign: "center", padding: "8px 0", borderRadius: 8, background: "#20242f", border: "1px solid #2f3542", fontSize: 13, fontWeight: 700, color: "#cbd5e1", cursor: "pointer", opacity: printingId === o.id ? .6 : 1 }}>
-                    {printingId === o.id ? "Printing…" : (printMsg && printMsg.id === o.id ? printMsg.text : "🖨 Print slip")}
-                  </div>
-                  {!paid && (
-                    <div onClick={(e) => { e.stopPropagation(); setVoidFor(o); setVoidReason(""); setVoidPin(""); setVoidErr(""); }} className="kbtn" style={{ marginTop: 6, textAlign: "center", padding: "8px 0", borderRadius: 8, background: "transparent", border: "1px solid #7f1d1d", fontSize: 13, fontWeight: 700, color: "#f87171", cursor: "pointer" }}>
-                      ✕ Void order
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+
 
       {/* Void panel */}
       {voidFor && (
