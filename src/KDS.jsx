@@ -1037,6 +1037,16 @@ function PerformanceView({ loc, F, lateMin }) {
   const itemMenu = (it) => (it && typeof it === "object" && it.menu) || "Other";
   const byCategory = grpMulti((o) => (o.items || []).map(itemCat));
   const byMenu = grpMulti((o) => (o.items || []).map(itemMenu));
+  // Shifts = dayparts on the 04:00 trading day.
+  const SHIFTS = [["Morning", 4, 12, "04:00–12:00"], ["Afternoon", 12, 17, "12:00–17:00"], ["Evening", 17, 21, "17:00–21:00"], ["Late", 21, 28, "21:00–04:00"]];
+  const shiftOf = (o) => { let h = new Date(o.created_at).getHours(); if (h < 4) h += 24; return (SHIFTS.find(([, a, b]) => h >= a && h < b) || SHIFTS[3])[0]; };
+  const byShift = SHIFTS.map(([k, , , span]) => ({ ...pack(k, done.filter((o) => shiftOf(o) === k)), span })).filter((r) => r.n > 0);
+  const shiftCats = (() => {
+    const cats = byCategory.slice(0, 14).map((r) => r.k);
+    const cell = {};
+    for (const o of done) { const sh = shiftOf(o); for (const c of new Set((o.items || []).map(itemCat))) { (cell[sh + "|" + c] ||= []).push(o); } }
+    return { cats, cell: Object.fromEntries(Object.entries(cell).map(([k, v]) => [k, pack(k, v)])) };
+  })();
   const byType = grp((o) => typeLabel[o.order_type] || o.order_type || "Other");
   const bySource = grp((o) => o.external_channel ? String(o.external_channel) : o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
   const bySize = grp((o) => { const n = o.item_count || 0; return n <= 2 ? "1–2 items" : n <= 5 ? "3–5 items" : n <= 9 ? "6–9 items" : "10+ items"; }).sort((a, b) => a.k.localeCompare(b.k));
@@ -1098,6 +1108,8 @@ function PerformanceView({ loc, F, lateMin }) {
     else if (worst && peak && worst[0] === peak[0]) push("info", "The rush is the slow point", "The busiest hour (" + peak[0] + ":00, " + peak[1].n + " orders) is also the slowest at " + mmss(avg(peak[1].t)) + ". Pre-prep the top sellers before " + peak[0] + ":00 and hold the simplest items ready.");
     // 6. items
     if (slowItems.length) push("warn", "Items that drag tickets", slowItems.slice(0, 3).map((x) => x.k + " (+" + mmss(x.delta) + ")").join(", ") + " — tickets containing these run well over the average. Check prep, portioning, or whether they're built to order when they could be part-prepped.");
+    // 6a. shift
+    if (byShift.length >= 2) { const sl = [...byShift].filter((r) => r.n >= 5).sort((a, b) => b.avg - a.avg); if (sl.length >= 2 && sl[0].avg > sl[sl.length - 1].avg * 1.3) push("info", sl[0].k + " shift is the slow one", sl[0].k + " (" + sl[0].span + ") averages " + mmss(sl[0].avg) + " at " + sl[0].on + "% on-time on " + sl[0].n + " tickets, against " + mmss(sl[sl.length - 1].avg) + " on " + sl[sl.length - 1].k + ". Look at that shift's staffing level and who is on the line before anything else."); }
     // 6b. category
     if (byCategory.length >= 2) { const worstCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => b.avg - a.avg)[0]; const bestCat = byCategory.filter((r) => r.n >= 4).sort((a, b) => a.avg - b.avg)[0]; if (worstCat && bestCat && worstCat.k !== bestCat.k && worstCat.avg > bestCat.avg * 1.4) push("info", worstCat.k + " is the slow section", "Tickets with " + worstCat.k + " average " + mmss(worstCat.avg) + " (" + worstCat.on + "% on-time) against " + mmss(bestCat.avg) + " for " + bestCat.k + ". That section's prep and station layout are where the minutes are."); }
     // 7. takeaway vs dine-in
@@ -1138,6 +1150,7 @@ function PerformanceView({ loc, F, lateMin }) {
     const sub = (key, multi) => { const m = {}; for (const o of doneList) { const ks = multi ? new Set(key(o)) : [key(o)]; for (const k of ks) (m[k] ||= []).push(o); } return Object.entries(m).map(([k, v]) => pack(k, v)).sort((a, b) => b.avg - a.avg); };
     const bd = {
       "Category": sub((o) => (o.items || []).map(itemCat), true),
+      "Shift": sub((o) => shiftOf(o)).sort((a, b) => SHIFTS.findIndex((x) => x[0] === a.k) - SHIFTS.findIndex((x) => x[0] === b.k)),
       "Hour": sub((o) => String(new Date(o.created_at).getHours()).padStart(2, "0") + ":00").sort((a, b) => a.k.localeCompare(b.k)),
       "Type": sub((o) => typeLabel2[o.order_type] || o.order_type || "Other"),
       "Source": sub((o) => srcOf(o)),
@@ -1515,6 +1528,53 @@ function PerformanceView({ loc, F, lateMin }) {
           {fastItems.length > 0 && <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>Quickest: {fastItems.map((x) => x.k + " (" + mmss(x.delta) + ")").join(", ")}</div>}
         </Card>
         {byWeekday.length > 0 && <Card title="BY WEEKDAY"><PerfTable {...tp} rows={byWeekday} label="DAY" /></Card>}
+      </div>
+
+      {/* shifts */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 1fr) 2fr", gap: F(14) }}>
+        <Card title="BY SHIFT" right={<span style={{ fontSize: F(11), color: C.muted }}>dayparts on the 04:00 trading day</span>}>
+          <div style={{ display: "grid", gap: 8 }}>
+            {byShift.map((r) => (
+              <div key={r.k} onClick={() => openDrill(r.k + " shift (" + r.span + ")", r.rows)} className="kbtn" style={{ cursor: "pointer", borderRadius: 14, padding: "10px 12px", background: r.on >= 80 ? C.goodBg : r.on >= 60 ? C.warnBg : C.badBg }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <span><b style={{ fontFamily: PF, fontSize: F(14) }}>{r.k}</b> <span style={{ fontSize: F(11), color: C.muted }}>{r.span}</span></span>
+                  <span style={{ fontWeight: 900, fontFamily: PF, fontSize: F(18), color: r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on}%</span>
+                </div>
+                <div style={{ display: "flex", gap: 14, fontSize: F(12), color: C.muted, marginTop: 4 }}>
+                  <span>{r.n} tickets</span><span>avg <b style={{ color: C.ink, fontFamily: PF }}>{mmss(r.avg)}</b></span><span>p90 <b style={{ color: C.ink, fontFamily: PF }}>{mmss(r.p90)}</b></span>
+                  <span>{Math.round(r.n / Math.max(1, (period === "today" || period === "yesterday") ? 1 : period === "7d" ? 7 : 30))}/day</span>
+                </div>
+              </div>
+            ))}
+            {!byShift.length && <div style={{ fontSize: F(13), color: C.muted }}>No completed tickets</div>}
+          </div>
+        </Card>
+        <Card title="CATEGORY × SHIFT" right={<span style={{ fontSize: F(11), color: C.muted }}>avg ticket time · colour = on-time · tap a cell</span>}>
+          {shiftCats.cats.length ? (
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(140px, 1.4fr) repeat(" + byShift.length + ", minmax(84px, 1fr))", gap: 4, fontSize: F(12.5), minWidth: 420 }}>
+                <span />
+                {byShift.map((sh) => <span key={sh.k} style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em", textAlign: "center", paddingBottom: 4 }}>{sh.k.toUpperCase()}</span>)}
+                {shiftCats.cats.map((c) => (
+                  <React.Fragment key={c}>
+                    <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", alignSelf: "center" }}>{c}</span>
+                    {byShift.map((sh) => {
+                      const cl = shiftCats.cell[sh.k + "|" + c];
+                      if (!cl || cl.n < 2) return <span key={sh.k} style={{ textAlign: "center", color: "#cbd5e1", padding: "6px 0" }}>·</span>;
+                      const bg = cl.on >= 80 ? C.goodBg : cl.on >= 60 ? C.warnBg : cl.on >= 35 ? "#fee2e2" : "#fecaca";
+                      return (
+                        <span key={sh.k} onClick={() => openDrill(sh.k + " · " + c, cl.rows)} className="kbtn" title={cl.n + " tickets · " + cl.on + "% on-time · p90 " + mmss(cl.p90)} style={{ cursor: "pointer", textAlign: "center", padding: "6px 4px", borderRadius: 8, background: bg }}>
+                          <div style={{ fontWeight: 800, fontFamily: PF, color: cl.avg > T ? C.bad : C.ink }}>{mmss(cl.avg)}</div>
+                          <div style={{ fontSize: F(10), color: C.muted }}>{cl.n} · {cl.on}%</div>
+                        </span>
+                      );
+                    })}
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          ) : <div style={{ fontSize: F(13), color: C.muted }}>Needs item data — run db/kds_perf.sql if categories are empty.</div>}
+        </Card>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: F(14) }}>
