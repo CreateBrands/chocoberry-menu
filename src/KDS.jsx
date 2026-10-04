@@ -487,8 +487,9 @@ export default function KDS() {
   // All-day production board: everything still to make across active tickets,
   // grouped by menu section, with variants, oldest wait and which tickets.
   const allday = {};
+  const alldayMade = {};
   for (const o of active) for (const it of (o.menu_order_items || [])) {
-    if (it.item_status === DONE_ITEM) continue;
+    if (it.item_status === DONE_ITEM) { alldayMade[it.name_snapshot] = (alldayMade[it.name_snapshot] || 0) + (it.qty || 1); continue; }
     const name = it.name_snapshot;
     const cat = catOf(it);
     const mods = cleanMods(it.modifiers_snapshot && typeof it.modifiers_snapshot === "object" ? Object.values(it.modifiers_snapshot) : []);
@@ -507,7 +508,11 @@ export default function KDS() {
   const alldayByCat = (() => { const m = {}; for (const r of alldayRows) (m[r.cat] ||= []).push(r); return Object.entries(m).sort((a, b) => b[1].reduce((t, r) => t + r.qty, 0) - a[1].reduce((t, r) => t + r.qty, 0)); })();
   const alldayTotal = alldayRows.reduce((t, r) => t + r.qty, 0);
   const alldayLate = alldayRows.reduce((t, r) => t + r.late, 0);
+  const alldayWarn = alldayRows.filter((r) => !r.late && r.oldest >= LATE_MIN * 0.75).length;
   const [alldayFocus, setAlldayFocus] = useState(null);
+  const [alldayCat, setAlldayCatRaw] = useState(() => { try { return localStorage.getItem("kds_allday_cat") || ""; } catch { return ""; } });
+  const setAlldayCat = (v) => { setAlldayCatRaw(v); try { localStorage.setItem("kds_allday_cat", v); } catch {} };
+  const alldayShown = alldayCat ? alldayByCat.filter(([c]) => c === alldayCat) : alldayByCat;
 
   // Header stats: how fast THIS screen cleared its tickets today (its own bump
   // times), not the all-screens settle that rarely completes.
@@ -721,42 +726,55 @@ export default function KDS() {
 
       {view === "kitchen" && tab === "allday" && (
         <div style={{ padding: F(16) }}>
-          <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: F(12) }}>
-            <div style={{ fontSize: F(14), color: "#64748b" }}>
-              <b style={{ color: "#0f172a", fontSize: F(18) }}>{alldayTotal}</b> to make across <b style={{ color: "#0f172a" }}>{active.length}</b> ticket{active.length === 1 ? "" : "s"}
-              {alldayLate > 0 && <span style={{ color: "#b91c1c", fontWeight: 800 }}> · {alldayLate} on tickets already over {LATE_MIN} min</span>}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: F(12) }}>
+            <div style={{ fontSize: F(15), color: "#64748b" }}>
+              <b style={{ color: "#0f172a", fontSize: F(22), fontFamily: "'Poppins',sans-serif" }}>{alldayTotal}</b> to make · <b style={{ color: "#0f172a" }}>{active.length}</b> ticket{active.length === 1 ? "" : "s"}
+              {alldayLate > 0 && <span style={{ color: "#b91c1c", fontWeight: 800 }}> · {alldayLate} already late</span>}
+              {alldayWarn > 0 && <span style={{ color: "#b45309", fontWeight: 800 }}> · {alldayWarn} about to be</span>}
             </div>
-            <div style={{ fontSize: F(12), color: "#64748b" }}>red = on a late ticket · tap an item to spotlight it</div>
+            <div style={{ display: "flex", gap: 4, background: "#e2e8f0", borderRadius: 11, padding: 3, flexWrap: "wrap" }}>
+              {[["", "All stations"], ...alldayByCat.map(([c, rows]) => [c, c.charAt(0) + c.slice(1).toLowerCase() + " " + rows.reduce((t, r) => t + r.qty, 0)])].map(([v, l]) => (
+                <span key={v} onClick={() => setAlldayCat(v)} className="kbtn" style={{ cursor: "pointer", padding: "7px 13px", borderRadius: 8, fontSize: F(13), fontWeight: 800, background: alldayCat === v ? "#fff" : "transparent", color: alldayCat === v ? "#0f172a" : "#475569", boxShadow: alldayCat === v ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>{l}</span>
+              ))}
+            </div>
           </div>
-          {alldayRows.length === 0 && <div style={{ color: "#64748b", padding: 30, textAlign: "center", fontSize: F(16) }}>Nothing in the queue — kitchen clear.</div>}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(320) + "px, 1fr))", gap: F(14), alignItems: "start" }}>
-            {alldayByCat.map(([cat, rows]) => (
-              <div key={cat} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, overflow: "hidden" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: F(10) + "px " + F(14) + "px", background: "#f1f5f9", borderBottom: "1px solid #e2e8f0" }}>
-                  <span style={{ fontSize: F(12), fontWeight: 900, letterSpacing: ".08em", color: "#334155" }}>{cat}</span>
-                  <span style={{ fontSize: F(13), fontWeight: 800, color: "#64748b" }}>{rows.reduce((t, r) => t + r.qty, 0)}</span>
+          {alldayRows.length === 0 && <div style={{ color: "#64748b", padding: 40, textAlign: "center", fontSize: F(18) }}>Nothing in the queue — kitchen clear ✓</div>}
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(340) + "px, 1fr))", gap: F(14), alignItems: "start" }}>
+            {alldayShown.map(([cat, rows]) => (
+              <div key={cat} style={{ background: "#fff", border: "1px solid #e2e8f0", borderRadius: 16, overflow: "hidden", boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: F(11) + "px " + F(16) + "px", background: "#0f172a", color: "#fff" }}>
+                  <span style={{ fontSize: F(12.5), fontWeight: 900, letterSpacing: ".1em" }}>{cat}</span>
+                  <span style={{ fontSize: F(15), fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>{rows.reduce((t, r) => t + r.qty, 0)}</span>
                 </div>
                 {rows.map((r) => {
                   const on = alldayFocus === r.name;
                   const variants = Object.entries(r.variants).sort((a, b) => b[1] - a[1]);
+                  const state = r.late ? "late" : r.oldest >= LATE_MIN * 0.75 ? "warn" : "ok";
+                  const col = state === "late" ? "#dc2626" : state === "warn" ? "#d97706" : "#16a34a";
+                  const made = alldayMade[r.name] || 0;
                   return (
-                    <div key={r.name} onClick={() => setAlldayFocus(on ? null : r.name)} className="kbtn" style={{ padding: F(10) + "px " + F(14) + "px", borderTop: "1px solid #f1f5f9", cursor: "pointer", background: on ? "#fefce8" : r.late ? "#fff5f5" : "#fff", borderLeft: "4px solid " + (on ? "#f59e0b" : r.late ? "#dc2626" : "transparent") }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-                        <span style={{ fontWeight: 800, fontSize: F(17), minWidth: 0 }}>{r.name}</span>
-                        <span style={{ display: "flex", alignItems: "baseline", gap: 8, flexShrink: 0 }}>
-                          {r.oldest > 0 && <span style={{ fontSize: F(12), fontWeight: 800, color: r.oldest >= LATE_MIN ? "#dc2626" : "#64748b" }}>{Math.floor(r.oldest)}m</span>}
-                          <span style={{ fontWeight: 900, fontSize: F(26), color: r.late ? "#dc2626" : "#f59e0b", fontVariantNumeric: "tabular-nums", lineHeight: 1 }}>{r.qty}</span>
+                    <div key={r.name} onClick={() => setAlldayFocus(on ? null : r.name)} className="kbtn" style={{ padding: F(12) + "px " + F(16) + "px", borderTop: "1px solid #f1f5f9", cursor: "pointer", background: on ? "#fffbeb" : state === "late" ? "#fef2f2" : "#fff", borderLeft: "5px solid " + (on ? "#f59e0b" : col) }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+                        <span style={{ fontWeight: 800, fontSize: F(19), minWidth: 0, lineHeight: 1.15 }}>{r.name}{made > 0 && <span style={{ fontSize: F(11.5), color: "#94a3b8", fontWeight: 700, marginLeft: 8 }}>{made} made</span>}</span>
+                        <span style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+                          {r.oldest > 0 && <span style={{ fontSize: F(12.5), fontWeight: 800, padding: "3px 8px", borderRadius: 7, background: state === "late" ? "#fee2e2" : state === "warn" ? "#fef3c7" : "#f1f5f9", color: col }}>{Math.floor(r.oldest)}m</span>}
+                          <span style={{ fontWeight: 900, fontSize: F(32), color: col, fontVariantNumeric: "tabular-nums", lineHeight: 1, fontFamily: "'Poppins',sans-serif", minWidth: F(28), textAlign: "right" }}>{r.qty}</span>
                         </span>
                       </div>
                       {(variants.length > 1 || (variants.length === 1 && variants[0][0])) && (
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 5, marginTop: 6 }}>
-                          {variants.map(([v, n]) => <span key={v} style={{ fontSize: F(12), fontWeight: 700, padding: "2px 8px", borderRadius: 7, background: "#f1f5f9", color: "#334155" }}>{n}× {v || "plain"}</span>)}
+                        <div style={{ marginTop: 7, display: "grid", gap: 4 }}>
+                          {variants.map(([v, n]) => (
+                            <div key={v} style={{ display: "flex", gap: 8, alignItems: "baseline", fontSize: F(13.5), color: "#334155" }}>
+                              <span style={{ fontWeight: 900, color: "#0f172a", fontFamily: "'Poppins',sans-serif", minWidth: F(26) }}>{n}×</span>
+                              <span style={{ lineHeight: 1.3 }}>{v ? v.split(", ").map((m, i) => <span key={i} style={{ display: "inline-block", background: /^NO /i.test(m) ? "#fee2e2" : "#f1f5f9", color: /^NO /i.test(m) ? "#b91c1c" : "#334155", padding: "1px 7px", borderRadius: 6, marginRight: 4, marginBottom: 3, fontWeight: 700 }}>{m}</span>) : <span style={{ color: "#94a3b8" }}>plain</span>}</span>
+                            </div>
+                          ))}
                         </div>
                       )}
-                      {r.notes.length > 0 && <div style={{ marginTop: 5, fontSize: F(12), color: "#b45309", fontWeight: 700 }}>⚠ {[...new Set(r.notes)].join(" · ")}</div>}
+                      {r.notes.length > 0 && <div style={{ marginTop: 6, fontSize: F(12.5), color: "#b45309", fontWeight: 800 }}>⚠ {[...new Set(r.notes)].join(" · ")}</div>}
                       {on && (
-                        <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 5 }}>
-                          {r.tickets.sort((a, b) => b.age - a.age).map((t) => <span key={t.id} style={{ fontSize: F(12), fontWeight: 800, padding: "3px 9px", borderRadius: 7, background: t.age >= LATE_MIN ? "#fee2e2" : "#e2e8f0", color: t.age >= LATE_MIN ? "#b91c1c" : "#334155" }}>{t.lbl ? t.lbl + " · " : ""}#{t.no} · {Math.floor(t.age)}m</span>)}
+                        <div style={{ marginTop: 9, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          {r.tickets.sort((a, b) => b.age - a.age).map((t) => <span key={t.id} style={{ fontSize: F(12.5), fontWeight: 800, padding: "4px 10px", borderRadius: 8, background: t.age >= LATE_MIN ? "#fee2e2" : "#e2e8f0", color: t.age >= LATE_MIN ? "#b91c1c" : "#334155" }}>{t.lbl ? t.lbl + " · " : ""}#{t.no} · {Math.floor(t.age)}m</span>)}
                         </div>
                       )}
                     </div>
