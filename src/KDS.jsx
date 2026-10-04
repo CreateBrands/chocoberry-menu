@@ -1506,7 +1506,7 @@ function PerformanceView({ loc, F, lateMin }) {
   };
 
   const Tile = ({ label, value, sub, tone, big, onClick }) => (
-    <div onClick={onClick} className={onClick ? "kbtn" : undefined} style={{ background: tone === "dark" ? C.ink : "#fff", color: tone === "dark" ? "#fff" : C.ink, border: tone === "dark" ? "none" : "1px solid " + C.line, borderRadius: 18, padding: F(14) + "px " + F(16) + "px", minWidth: 0, cursor: onClick ? "pointer" : "default" }}>
+    <div onClick={onClick} className={onClick ? "kbtn" : undefined} style={{ background: tone === "dark" ? C.ink : "#fff", color: tone === "dark" ? "#fff" : C.ink, border: tone === "dark" ? "none" : "1px solid " + C.line, borderRadius: 18, padding: F(14) + "px " + F(16) + "px", minWidth: 0, cursor: onClick ? "pointer" : "default", display: "flex", flexDirection: "column", justifyContent: "center" }}>
       <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".09em", opacity: .65 }}>{label}{onClick && <span style={{ float: "right", opacity: .5 }}>›</span>}</div>
       <div style={{ fontSize: F(big ? 34 : 28), fontWeight: 900, letterSpacing: "-.025em", marginTop: 2, fontVariantNumeric: "tabular-nums", fontFamily: PF, color: tone === "dark" ? "#fff" : toneColor(tone) }}>{value}</div>
       {sub && <div style={{ fontSize: F(12), marginTop: 4, opacity: .75, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{sub}</div>}
@@ -1550,7 +1550,7 @@ function PerformanceView({ loc, F, lateMin }) {
   return (
     <div style={{ padding: F(16), display: "grid", gap: F(14) }}>
       {/* header row (sticky) */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, position: "sticky", top: 0, zIndex: 5, background: "#f8fafc", margin: -F(16) + "px " + -F(16) + "px 0", padding: F(12) + "px " + F(16) + "px" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, position: "sticky", top: -F(16), zIndex: 5, background: "#f8fafc", margin: "0 " + -F(16) + "px", padding: F(10) + "px " + F(16) + "px", boxShadow: "0 6px 12px -8px rgba(15,23,42,.18)" }}>
         <div>
           <div style={{ fontSize: F(21), fontWeight: 900, fontFamily: PF, letterSpacing: "-.02em" }}>Kitchen performance</div>
           <div style={{ fontSize: F(12.5), color: C.muted, marginTop: 2 }}>{range.label} · trading days run 04:00–04:00 · ticket time = placed → bumped (later tidy-up bumps ignored){period === "today" ? " · live, refreshes every 30s" : ""}</div>
@@ -1602,7 +1602,7 @@ function PerformanceView({ loc, F, lateMin }) {
             <span style={{ fontFamily: PF, fontWeight: 900, fontSize: F(16), textTransform: "capitalize" }}>{pace.state === "clear" ? "Kitchen clear" : pace.state === "overloaded" ? "Falling behind" : pace.state === "stretched" ? "Stretched" : "Busy, keeping up"}</span>
           </div>
           <div style={{ display: "flex", gap: F(18), flexWrap: "wrap", fontSize: F(13), color: C.muted }}>
-            <span><b style={{ color: C.ink, fontFamily: PF, fontSize: F(15) }}>{open.length}</b> open{overNow ? <span style={{ color: C.bad }}> · {overNow} over target</span> : ""}</span>
+            <span><b style={{ color: C.ink, fontFamily: PF, fontSize: F(15) }}>{open.length}</b> open{overNow ? <span style={{ color: C.bad }}> · {overNow} over target</span> : ""}{open.length > 0 && open.length <= 4 && <span style={{ color: C.muted }}> ({[...open].sort((a, b) => new Date(a.created_at) - new Date(b.created_at)).map((o) => (o.order_no_label || "#" + o.order_no) + " " + mmss((now - new Date(o.created_at).getTime()) / 1000)).join(", ")})</span>}</span>
             <span>last 30 min: <b style={{ color: C.ink, fontFamily: PF }}>{pace.arrived}</b> in · <b style={{ color: C.ink, fontFamily: PF }}>{pace.cleared}</b> out</span>
             {pace.recentAvg != null && <span>last hour avg <b style={{ color: pace.recentAvg > T ? C.bad : C.ink, fontFamily: PF }}>{mmss(pace.recentAvg)}</b></span>}
             {open.length > 0 && pace.clearMins != null && <span>at this pace clear in <b style={{ color: pace.clearMins > target ? C.bad : C.ink, fontFamily: PF }}>~{pace.clearMins} min</b></span>}
@@ -1613,10 +1613,10 @@ function PerformanceView({ loc, F, lateMin }) {
       )}
 
       {/* hero: grade ring + tiles */}
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 230px) 1fr", gap: F(14) }}>
+      <div style={{ display: "grid", gridTemplateColumns: adv ? "minmax(200px, 230px) 1fr" : "minmax(180px, 200px) 1fr", gap: F(14), alignItems: "stretch" }}>
         <div onClick={() => openDrill("Late tickets (over " + target + " min)", done.filter((o) => tt(o) > T))} className="kbtn" style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 18, padding: F(16), display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 6, cursor: "pointer" }}>
-          <div style={{ position: "relative", width: F(130), height: F(130) }}>
-            <Ring value={onTimePct} size={F(130)} stroke={F(12)} color={toneColor(gradeTone)} />
+          <div style={{ position: "relative", width: F(adv ? 130 : 104), height: F(adv ? 130 : 104) }}>
+            <Ring value={onTimePct} size={F(adv ? 130 : 104)} stroke={F(adv ? 12 : 10)} color={toneColor(gradeTone)} />
             <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
               <span style={{ fontFamily: PF, fontWeight: 900, fontSize: F(30), letterSpacing: "-.03em", lineHeight: 1, color: toneColor(gradeTone) }}>{onTimePct == null ? "—" : onTimePct + "%"}</span>
               <span style={{ fontSize: F(10.5), fontWeight: 800, letterSpacing: ".08em", color: C.muted, marginTop: 4 }}>ON-TIME</span>
@@ -1627,7 +1627,7 @@ function PerformanceView({ loc, F, lateMin }) {
         </div>
         <div style={{ display: "grid", gridTemplateColumns: adv ? "repeat(auto-fit, minmax(150px, 1fr))" : "repeat(4, 1fr)", gap: F(10) }}>
           {!adv && <>
-            <Tile onClick={() => openDrill("All completed tickets", done)} big label="TYPICAL TICKET" value={mmss(med)} tone="dark" sub={pAvg != null ? "last time " + mmss(pct(pTimes, 0.5)) : "half of tickets faster than this"} />
+            <Tile onClick={() => openDrill("All completed tickets", done)} big label="TYPICAL TICKET" value={mmss(med)} tone="dark" sub={(() => { const pm = pTimes.length ? pct(pTimes, 0.5) : null; if (pm == null || med == null) return "half of tickets faster than this"; const d = med - pm; return (d <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(d)) + " vs last time (" + mmss(pm) + ")"; })()} />
             <Tile onClick={() => openDrill("All tickets", live)} label="TICKETS" value={String(done.length)} sub={items + " items"} />
             {period === "today"
               ? <Tile onClick={() => openDrill("Waiting now", open)} label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target" : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
@@ -1670,7 +1670,7 @@ function PerformanceView({ loc, F, lateMin }) {
               ...(bestDay ? [{ l: "Best day (2 wks) · " + bestDay.d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric" }), on: bestDay.on, med: bestDay.med, n: bestDay.n, star: true }] : []),
             ].map((r, i) => (
               <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 64px 72px 56px", gap: 8, alignItems: "center", padding: "8px 0", borderTop: i ? "1px solid " + C.line : "none", background: r.hi ? "transparent" : "transparent" }}>
-                <span style={{ fontWeight: r.hi ? 900 : 600, fontSize: F(13.5) }}>{r.star ? "★ " : ""}{r.l}</span>
+                <span style={{ fontWeight: r.hi ? 900 : 600, fontSize: F(13.5) }}>{r.star ? "★ " : ""}{r.l}{r.hi && yesterdayDay && yesterdayDay.on != null && r.on != null && period === "today" && <span style={{ marginLeft: 8, fontSize: F(11.5), fontWeight: 800, color: r.on >= yesterdayDay.on ? C.good : C.bad }}>{r.on >= yesterdayDay.on ? "▲" : "▼"} {Math.abs(r.on - yesterdayDay.on)} pts</span>}</span>
                 <span style={{ textAlign: "right", fontFamily: PF, fontWeight: 900, fontSize: F(16), color: r.on == null ? C.muted : r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on == null ? "—" : r.on + "%"}</span>
                 <span style={{ textAlign: "right", fontFamily: PF, fontWeight: 800, color: r.med != null && r.med > T ? C.bad : C.ink }}>{mmss(r.med)}</span>
                 <span style={{ textAlign: "right", color: C.muted, fontSize: F(12) }}>{r.n} tkts</span>
@@ -1716,6 +1716,7 @@ function PerformanceView({ loc, F, lateMin }) {
                   <div style={{ fontSize: F(11), fontWeight: 800 }}>{x.h}</div>
                   <div style={{ fontFamily: PF, fontWeight: 900, fontSize: F(15) }}>{x.n}</div>
                   <div style={{ fontSize: F(10), fontWeight: 700 }}>{x.on == null ? "·" : x.on + "%"}</div>
+                  {x.avg != null && <div style={{ fontSize: F(9.5), opacity: .8 }}>{mmss(x.avg)}</div>}
                 </div>
               ))}
               {!hourLights.length && <span style={{ fontSize: F(12.5), color: C.muted }}>No orders yet</span>}
