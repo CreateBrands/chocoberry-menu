@@ -538,7 +538,7 @@ export default function KDS() {
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
           <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
-            {[["kitchen", "Kitchen"], ["pos", "POS"]].map(([v, label]) => (
+            {[["kitchen", "Kitchen"], ["perf", "Performance"], ["pos", "POS"]].map(([v, label]) => (
               <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#475569" }}>
                 {label}
               </div>
@@ -773,6 +773,8 @@ export default function KDS() {
         </div>
       )}
 
+      {view === "perf" && <PerformanceView loc={loc} F={F} lateMin={LATE_MIN} />}
+
       {view === "pos" && (
         <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables} />
       )}
@@ -849,6 +851,187 @@ export default function KDS() {
           <div onClick={doUndo} className="kbtn" style={{ background: "#ec4899", padding: "8px 18px", borderRadius: 10, fontWeight: 800, fontSize: 14, cursor: "pointer", color: "#fff", boxShadow: "0 2px 10px -2px #ec489988" }}>Undo</div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ============================================================================
+// PERFORMANCE — kitchen speed for the trading day (04:00 → now) with a 7-day
+// comparison. Reads menu_orders directly (archived-by-close-till orders still
+// count, since closed_at doesn't matter here) and kds_bumps for per-screen
+// times. Everything is computed on the screen; nothing is written.
+// ============================================================================
+function tradingDayStart(d = new Date()) {
+  const t = new Date(d);
+  if (t.getHours() < 4) t.setDate(t.getDate() - 1);
+  t.setHours(4, 0, 0, 0);
+  return t;
+}
+const mmss = (secs) => secs == null || !isFinite(secs) ? "—" : Math.floor(secs / 60) + ":" + String(Math.floor(secs % 60)).padStart(2, "0");
+const pct = (arr, q) => { if (!arr.length) return null; const a = [...arr].sort((x, y) => x - y); const i = Math.min(a.length - 1, Math.floor(q * (a.length - 1))); return a[i]; };
+const avg = (arr) => arr.length ? arr.reduce((t, x) => t + x, 0) / arr.length : null;
+
+function PerformanceView({ loc, F, lateMin }) {
+  const [rows, setRows] = useState(null);     // trading day orders
+  const [hist, setHist] = useState(null);     // previous 7 trading days (completed only)
+  const [bumps, setBumps] = useState([]);     // kds_bumps today
+  const [screens, setScreens] = useState([]); // kds_screens names
+  const [target, setTarget] = useState(lateMin);
+  const [err, setErr] = useState("");
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const id = setInterval(() => setTick((t) => t + 1), 30000); return () => clearInterval(id); }, []);
+  useEffect(() => {
+    if (!loc) return;
+    let alive = true;
+    const start = tradingDayStart();
+    const histStart = new Date(start.getTime() - 7 * 86400000);
+    const sel = "id,order_no,order_type,tablet_no,external_channel,status,created_at,kds_started_at,kds_bumped_at,total,menu_order_items(id)";
+    Promise.all([
+      fetch(SUPABASE_URL + "/rest/v1/menu_orders?select=" + sel + "&location_id=eq." + loc + "&created_at=gte." + encodeURIComponent(start.toISOString()) + "&order=created_at.asc&limit=2000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : Promise.reject(r.status)),
+      fetch(SUPABASE_URL + "/rest/v1/menu_orders?select=created_at,kds_started_at,kds_bumped_at,status&location_id=eq." + loc + "&created_at=gte." + encodeURIComponent(histStart.toISOString()) + "&created_at=lt." + encodeURIComponent(start.toISOString()) + "&kds_bumped_at=not.is.null&limit=10000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
+      fetch(SUPABASE_URL + "/rest/v1/kds_bumps?select=order_id,screen_key,bumped_at&location_id=eq." + loc + "&bumped_at=gte." + encodeURIComponent(start.toISOString()) + "&limit=5000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
+      fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,name,station&location_id=eq." + loc, { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
+      fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=value&key=eq." + encodeURIComponent("kds_target_minutes:" + loc), { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
+    ]).then(([r, h, b, sc, tg]) => {
+      if (!alive) return;
+      setRows(r || []); setHist(h || []); setBumps(b || []); setScreens(sc || []);
+      if (tg && tg[0] && Number(tg[0].value) > 0) setTarget(Number(tg[0].value));
+    }).catch((e) => alive && setErr("Could not load performance data (" + e + ")"));
+    return () => { alive = false; };
+  }, [loc, tick]);
+
+  if (err) return <div style={{ padding: 30, color: "#b91c1c", fontWeight: 700 }}>{err}</div>;
+  if (!rows) return <div style={{ padding: 40, color: "#64748b" }}>Loading today's figures…</div>;
+
+  const now = Date.now();
+  const T = target * 60;
+  const live = rows.filter((o) => o.status !== "cancelled");
+  const done = live.filter((o) => o.kds_bumped_at);
+  const open = live.filter((o) => !o.kds_bumped_at && o.status !== "served");
+  const tt = (o) => (new Date(o.kds_bumped_at) - new Date(o.created_at)) / 1000;           // ticket time
+  const ts = (o) => o.kds_started_at ? (new Date(o.kds_started_at) - new Date(o.created_at)) / 1000 : null; // time to start
+  const times = done.map(tt);
+  const starts = done.map(ts).filter((x) => x != null);
+  const onTime = times.filter((x) => x <= T).length;
+  const onTimePct = times.length ? Math.round(onTime / times.length * 100) : null;
+  const waiting = open.map((o) => (now - new Date(o.created_at)) / 1000);
+  const overNow = waiting.filter((x) => x > T).length;
+  const items = live.reduce((t, o) => t + (o.menu_order_items || []).length, 0);
+
+  // history: previous 7 trading days
+  const hTimes = (hist || []).filter((o) => o.status !== "cancelled").map(tt);
+  const hAvg = avg(hTimes), hOn = hTimes.length ? Math.round(hTimes.filter((x) => x <= T).length / hTimes.length * 100) : null;
+  const hDays = Math.max(1, new Set((hist || []).map((o) => tradingDayStart(new Date(o.created_at)).toDateString())).size);
+  const hPerDay = (hist || []).length / hDays;
+
+  // by hour
+  const byHour = {};
+  for (const o of live) { const h = String(new Date(o.created_at).getHours()).padStart(2, "0"); (byHour[h] ||= { n: 0, t: [], late: 0 }); byHour[h].n++; if (o.kds_bumped_at) { const x = tt(o); byHour[h].t.push(x); if (x > T) byHour[h].late++; } }
+  const hours = Object.entries(byHour).sort((a, b) => a[0].localeCompare(b[0]));
+  const maxN = Math.max(1, ...hours.map(([, v]) => v.n));
+  const maxT = Math.max(T, ...hours.map(([, v]) => avg(v.t) || 0));
+
+  // by type / source
+  const typeLabel = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
+  const grp = (key) => { const m = {}; for (const o of done) { const k = key(o); (m[k] ||= []).push(tt(o)); } return Object.entries(m).map(([k, v]) => ({ k, n: v.length, avg: avg(v), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).sort((a, b) => b.n - a.n); };
+  const byType = grp((o) => typeLabel[o.order_type] || o.order_type || "Other");
+  const bySource = grp((o) => o.external_channel ? String(o.external_channel) : o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
+  // size buckets
+  const bySize = grp((o) => { const n = (o.menu_order_items || []).length; return n <= 2 ? "1–2 items" : n <= 5 ? "3–5 items" : n <= 9 ? "6–9 items" : "10+ items"; }).sort((a, b) => a.k.localeCompare(b.k));
+
+  // per screen (station) from kds_bumps
+  const scName = (k) => { const sc = screens.find((x) => x.screen_key === k); return sc ? (sc.name || sc.station || "Screen " + k) + (sc.station && sc.name ? " · " + sc.station : "") : "Screen " + k; };
+  const byScreen = (() => { const m = {}; const byId = Object.fromEntries(live.map((o) => [o.id, o])); for (const b of bumps) { const o = byId[b.order_id]; if (!o) continue; (m[b.screen_key] ||= []).push((new Date(b.bumped_at) - new Date(o.created_at)) / 1000); } return Object.entries(m).map(([k, v]) => ({ k: scName(k), n: v.length, avg: avg(v), p90: pct(v, 0.9), on: Math.round(v.filter((x) => x <= T).length / v.length * 100) })).sort((a, b) => b.n - a.n); })();
+
+  const slowest = [...done].sort((a, b) => tt(b) - tt(a)).slice(0, 6);
+  const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", good: "#15803d", warn: "#b45309", bad: "#b91c1c", brand: "#ec4899" };
+  const Tile = ({ label, value, sub, tone }) => (
+    <div style={{ background: tone === "dark" ? C.ink : "#fff", color: tone === "dark" ? "#fff" : C.ink, border: tone === "dark" ? "none" : "1px solid " + C.line, borderRadius: 16, padding: F(14) + "px " + F(16) + "px" }}>
+      <div style={{ fontSize: F(11), fontWeight: 800, letterSpacing: ".08em", opacity: .7 }}>{label}</div>
+      <div style={{ fontSize: F(30), fontWeight: 900, letterSpacing: "-.02em", marginTop: 2, fontVariantNumeric: "tabular-nums", color: tone === "dark" ? "#fff" : tone === "good" ? C.good : tone === "warn" ? C.warn : tone === "bad" ? C.bad : C.ink }}>{value}</div>
+      {sub && <div style={{ fontSize: F(12), marginTop: 4, opacity: .75 }}>{sub}</div>}
+    </div>
+  );
+  const Card = ({ title, children, right }) => (
+    <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: F(14) + "px " + F(16) + "px" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}><span style={{ fontSize: F(12), fontWeight: 800, letterSpacing: ".08em", color: C.muted }}>{title}</span>{right}</div>
+      {children}
+    </div>
+  );
+  const Table = ({ rows: rs, label }) => (
+    <div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 54px 64px 60px", gap: 8, fontSize: F(11), fontWeight: 800, color: C.muted, letterSpacing: ".04em", padding: "0 0 6px" }}><span>{label}</span><span style={{ textAlign: "right" }}>TICKETS</span><span style={{ textAlign: "right" }}>AVG</span><span style={{ textAlign: "right" }}>ON-TIME</span></div>
+      {rs.map((r) => (
+        <div key={r.k} style={{ display: "grid", gridTemplateColumns: "1fr 54px 64px 60px", gap: 8, fontSize: F(14), padding: "7px 0", borderTop: "1px solid " + C.line, alignItems: "center" }}>
+          <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.k}</span>
+          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums" }}>{r.n}</span>
+          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, color: r.avg != null && r.avg > T ? C.bad : C.ink }}>{mmss(r.avg)}</span>
+          <span style={{ textAlign: "right", fontVariantNumeric: "tabular-nums", fontWeight: 800, color: r.on >= 80 ? C.good : r.on >= 60 ? C.warn : C.bad }}>{r.on}%</span>
+        </div>
+      ))}
+      {!rs.length && <div style={{ fontSize: F(13), color: C.muted, padding: "8px 0" }}>No completed tickets yet</div>}
+    </div>
+  );
+  const dAvg = hAvg != null && times.length ? avg(times) - hAvg : null;
+
+  return (
+    <div style={{ padding: F(16), display: "grid", gap: F(14) }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+        <div>
+          <span style={{ fontSize: F(20), fontWeight: 900 }}>Kitchen performance</span>
+          <span style={{ fontSize: F(13), color: C.muted, marginLeft: 12 }}>Trading day from {tradingDayStart().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })} · target {target} min · refreshes every 30s</span>
+        </div>
+        <div style={{ fontSize: F(12), color: C.muted }}>Ticket time = order placed → bumped on every screen</div>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: F(10) }}>
+        <Tile label="AVG TICKET" value={mmss(avg(times))} tone="dark" sub={dAvg == null ? (hAvg != null ? "7-day avg " + mmss(hAvg) : null) : (dAvg <= 0 ? "▼ " : "▲ ") + mmss(Math.abs(dAvg)) + " vs 7-day avg " + mmss(hAvg)} />
+        <Tile label="ON-TIME" value={onTimePct == null ? "—" : onTimePct + "%"} tone={onTimePct == null ? undefined : onTimePct >= 80 ? "good" : onTimePct >= 60 ? "warn" : "bad"} sub={hOn != null ? "7-day " + hOn + "%" : "≤ " + target + " min"} />
+        <Tile label="90TH PERCENTILE" value={mmss(pct(times, 0.9))} sub="9 in 10 tickets faster than this" />
+        <Tile label="TIME TO START" value={mmss(avg(starts))} sub={starts.length ? "placed → first Start tap" : "no Start taps today"} />
+        <Tile label="TICKETS" value={String(done.length)} sub={items + " items · " + (hist && hist.length ? "7-day avg " + Math.round(hPerDay) + "/day" : "")} />
+        <Tile label="WAITING NOW" value={String(open.length)} tone={overNow ? "bad" : open.length ? "warn" : "good"} sub={overNow ? overNow + " over target · oldest " + mmss(Math.max(0, ...waiting)) : open.length ? "oldest " + mmss(Math.max(0, ...waiting)) : "kitchen clear"} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1.4fr 1fr", gap: F(14) }}>
+        <Card title="BY HOUR" right={<span style={{ fontSize: F(11), color: C.muted }}>bars = tickets · line = avg time · red = over target</span>}>
+          <div style={{ position: "relative", height: F(150) }}>
+            <div style={{ position: "absolute", left: 0, right: 0, bottom: F(18), height: F(120), borderBottom: "1px solid " + C.line }}>
+              <div style={{ position: "absolute", left: 0, right: 0, bottom: (T / maxT) * 100 + "%", borderTop: "1.5px dashed " + C.warn, opacity: .7 }} title={"Target " + target + " min"} />
+            </div>
+            <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "flex-end", gap: 4, padding: "0 2px " + F(18) + "px" }}>
+              {hours.map(([h, v]) => {
+                const a = avg(v.t);
+                return (
+                  <div key={h} style={{ flex: 1, position: "relative", height: "100%", display: "flex", flexDirection: "column", justifyContent: "flex-end", alignItems: "center", minWidth: 0 }} title={h + ":00 · " + v.n + " tickets · avg " + mmss(a) + (v.late ? " · " + v.late + " late" : "")}>
+                    {a != null && <div style={{ position: "absolute", bottom: (a / maxT) * F(120) - 4, width: 9, height: 9, borderRadius: "50%", background: a > T ? C.bad : C.ink, zIndex: 2 }} />}
+                    <div style={{ width: "70%", height: (v.n / maxN) * F(110), background: v.late ? "#fecaca" : "#cbd5e1", borderRadius: 4 }} />
+                    <span style={{ position: "absolute", bottom: 0, fontSize: F(10), color: C.muted }}>{h}</span>
+                  </div>
+                );
+              })}
+              {!hours.length && <div style={{ color: C.muted, fontSize: F(13) }}>No orders yet today</div>}
+            </div>
+          </div>
+        </Card>
+        <Card title="SLOWEST TICKETS TODAY">
+          {slowest.map((o) => (
+            <div key={o.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "7px 0", borderTop: "1px solid " + C.line, fontSize: F(14) }}>
+              <span><b>#{o.order_no}</b> <span style={{ color: C.muted }}>{typeLabel[o.order_type] || o.order_type} · {(o.menu_order_items || []).length} items · {new Date(o.created_at).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span></span>
+              <span style={{ fontWeight: 900, fontVariantNumeric: "tabular-nums", color: tt(o) > T ? C.bad : C.ink }}>{mmss(tt(o))}</span>
+            </div>
+          ))}
+          {!slowest.length && <div style={{ fontSize: F(13), color: C.muted }}>No completed tickets yet</div>}
+        </Card>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: F(14) }}>
+        <Card title="BY SCREEN"><Table rows={byScreen} label="SCREEN" /></Card>
+        <Card title="BY ORDER TYPE"><Table rows={byType} label="TYPE" /></Card>
+        <Card title="BY SOURCE"><Table rows={bySource} label="SOURCE" /></Card>
+        <Card title="BY TICKET SIZE"><Table rows={bySize} label="SIZE" /></Card>
+      </div>
+      <div style={{ fontSize: F(12), color: C.muted }}>Set a different target with the setting <code>kds_target_minutes:&lt;location id&gt;</code> in the menu admin (default {lateMin} min).</div>
     </div>
   );
 }
