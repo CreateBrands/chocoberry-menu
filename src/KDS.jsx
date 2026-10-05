@@ -200,9 +200,9 @@ export default function KDS({ surface = "kds" }) {
       if (ok && j.ok) { setLicence("ok"); if (j.kind && j.kind !== d.kind) setDevice({ ...d, kind: j.kind, label: j.label }); }
       else if (j.status === "revoked" || j.status === "unassigned") { clearDevice(); setLicence("revoked"); }
     };
+    beatRef.current = beat;
     beat();
-    const id = setInterval(beat, 60000);
-    return () => { alive = false; clearInterval(id); };
+    return () => { alive = false; beatRef.current = null; };
   }, [loc]); // eslint-disable-line
   const mySettings = allScreens.find((x) => x.screen_key === getScreenId()) || null;
   const myName = (mySettings && mySettings.label) || myNameSeed;
@@ -241,7 +241,9 @@ export default function KDS({ surface = "kds" }) {
   const [view, setView] = useState(surface === "pos" ? "pos" : "kitchen");      // "kitchen" | "perf" | "pos"
   const device = getDevice();
   const kind = device ? device.kind : "kds+pos"; // unlicensed legacy screens keep everything until claimed
-  const [licence, setLicence] = useState("ok"); // ok | revoked | unclaimed
+  const [licence, setLicence] = useState("ok"); // ok | revoked | unclaimed | needs_code
+  const beatRef = useRef(null);      // licence heartbeat, driven by the orders poll
+  const lastBeatRef = useRef(0);
   const [orderFilter, setOrderFilter] = useState("unpaid"); // unpaid | paid | all
   const [payFor, setPayFor] = useState(null);       // order awaiting payment action
   const [payPin, setPayPin] = useState("");         // PIN entered to confirm payment
@@ -324,7 +326,14 @@ export default function KDS({ surface = "kds" }) {
     } catch { setConnected(false); }
   }, [loc, beep]);
 
-  useEffect(() => { load(); const t = setInterval(load, POLL_MS); return () => clearInterval(t); }, [load]);
+  useEffect(() => {
+    const tick = () => { load(); if (beatRef.current && Date.now() - lastBeatRef.current > 45000) { lastBeatRef.current = Date.now(); beatRef.current(); } };
+    tick();
+    const t = setInterval(tick, POLL_MS);
+    const vis = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", vis);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", vis); };
+  }, [load]);
 
   async function patchOrder(id, body) {
     setOrders((prev) => prev.map((o) => o.id === id ? { ...o, ...body } : o));
