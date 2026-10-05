@@ -1188,7 +1188,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
   const total = routing.menus.length + routing.categories.length + routing.items.length;
   const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", brand: "#ec4899", good: "#16a34a", warn: "#b45309" };
   const inp = { padding: "11px 12px", fontSize: 15, fontWeight: 600, border: "1.5px solid " + C.line, borderRadius: 11, outline: "none", width: "100%", boxSizing: "border-box", background: "#fff" };
-  const Step = ({ n, title, right }) => <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 10 }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ width: 24, height: 24, borderRadius: "50%", background: C.ink, color: "#fff", fontSize: 12.5, fontWeight: 900, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</span><span style={{ fontSize: 14.5, fontWeight: 900 }}>{title}</span></div>{right && <span style={{ fontSize: 12, color: C.muted, textAlign: "right" }}>{right}</span>}</div>;
+  const Step = ({ n, title, right }) => <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, gap: 10 }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 18 }}>{n}</span><span style={{ fontSize: 15.5, fontWeight: 900 }}>{title}</span></div>{right && <span style={{ fontSize: 12.5, color: C.muted, textAlign: "right" }}>{right}</span>}</div>;
   const Chip = ({ on, children, onClick, dim, small, tone }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: small ? "5px 10px" : "8px 13px", borderRadius: 9, fontSize: small ? 12.5 : 13.5, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1.5px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap" }}>{children}</span>;
   const Switch = ({ on, onClick }) => <span onClick={onClick} style={{ cursor: "pointer", width: 44, height: 26, borderRadius: 13, background: on ? C.good : "#cbd5e1", position: "relative", display: "inline-block", flexShrink: 0, transition: "background .15s" }}><span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} /></span>;
   const Card = ({ children }) => <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px", minWidth: 0, overflow: "hidden" }}>{children}</div>;
@@ -1204,7 +1204,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
         <div style={{ padding: "16px 24px 12px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div>
             <div style={{ fontSize: 21, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>Set up this screen</div>
-            <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>Screen {screenKey} · {siblings.length} screen{siblings.length === 1 ? "" : "s"} at this store</div>
+            <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>Screen {screenKey} · {siblings.length} screen{siblings.length === 1 ? "" : "s"} at this store{others.length ? " · " + others.map((x) => (x.label || "Screen " + x.screen_key) + (x.station ? " (" + x.station + ")" : "")).join(", ") : ""}</div>
           </div>
           <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 11, padding: 3 }}>
             <Tab v="setup">This screen</Tab>
@@ -1215,11 +1215,11 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
 
         {tab === "setup" && (
         <div style={{ overflowY: "auto", padding: "16px 24px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)", gap: 16, alignItems: "start", maxWidth: 1500, margin: "0 auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2.4fr)", gap: 18, alignItems: "start", maxWidth: 1900, margin: "0 auto" }}>
             {/* LEFT: identity, printer, preview */}
             <div style={{ display: "grid", gap: 14, position: "sticky", top: 0, minWidth: 0 }}>
               <Card>
-                <Step n="1" title="Name and station" />
+                <Step n="🖥" title="This screen" />
                 <label style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>NAME<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Hot Kitchen" style={{ ...inp, marginTop: 6 }} /></label>
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>STATION</div>
@@ -1231,7 +1231,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
                 </div>
               </Card>
               <Card>
-                <Step n="2" title="Printer" />
+                <Step n="🖨" title="Prints to" />
                 {printers === null && <div style={{ fontSize: 13, color: C.muted }}>Loading printers…</div>}
                 {printers && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
@@ -1242,7 +1242,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
                 )}
               </Card>
               <Card>
-                <Step n="4" title="Live preview" right={preview.length ? showing.length + "/" + preview.length + " open tickets" : "no open tickets"} />
+                <Step n="👀" title="Preview" right={preview.length ? showing.length + " of " + preview.length + " open tickets would show" : "no open tickets"} />
                 <div style={{ fontSize: 12, color: C.muted, marginBottom: 8, lineHeight: 1.45 }}>The tickets open right now, filtered by your unsaved selection: which lines would show on this screen, and which wouldn't.</div>
                 {preview.length === 0 && <div style={{ fontSize: 12.5, color: C.muted }}>No open tickets at the moment — place one and it will appear here.</div>}
                 {preview.length > 0 && (
@@ -1261,7 +1261,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
             {/* RIGHT: routing */}
             <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
               <Card>
-                <Step n="3" title="What this screen shows" right={total ? total + " selected" : "nothing selected = everything"} />
+                <Step n="🍽" title="What it shows" right={total ? total + " selected" : "nothing selected = everything"} />
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
                   <span style={{ fontSize: 12, color: C.muted }}>Quick set:</span>
                   {PRESETS.map(([l, st, fn]) => <Chip key={l} small onClick={() => { preset(fn); if (st) setStation(st); }}>{l}</Chip>)}
@@ -1269,20 +1269,25 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
                 </div>
                 {!cat && <div style={{ color: C.muted, fontSize: 13 }}>Loading menu…</div>}
                 {cat && menuGroups.map(([g, ms]) => (
-                  <div key={g} style={{ marginBottom: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 900, letterSpacing: ".1em", color: C.muted, margin: "6px 0 6px 2px" }}>{g.toUpperCase()}</div>
+                  <div key={g} style={{ marginBottom: 14 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0 8px 2px" }}>
+                      <span style={{ fontSize: 11.5, fontWeight: 900, letterSpacing: ".12em", color: C.muted }}>{g.toUpperCase()}</span>
+                      <span style={{ flex: 1, height: 1, background: C.line }} />
+                      <span onClick={() => setRouting((r) => { const ids = ms.map((m) => m.id); const allOn = ids.every((id) => r.menus.includes(id)); return { ...r, menus: allOn ? r.menus.filter((x) => !ids.includes(x)) : [...new Set([...r.menus, ...ids])], categories: r.categories.filter((cid) => !cats.some((c) => c.id === cid && ids.includes(c.menu_id))) }; })} style={{ fontSize: 12, fontWeight: 800, color: C.muted, cursor: "pointer" }}>{ms.every((m) => has("menus", m.id)) ? "all off" : "all on"}</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 10 }}>
                     {ms.map((m) => {
                       const mcats = cats.filter((c) => c.menu_id === m.id);
                       const menuOn = has("menus", m.id);
                       const picked = mcats.filter((c) => has("categories", c.id)).length;
                       const el = claimedElsewhere("menus", m.id);
                       return (
-                        <div key={m.id} style={{ border: "1.5px solid " + (menuOn || picked ? C.ink : C.line), borderRadius: 14, marginBottom: 8, overflow: "hidden", background: menuOn ? "#f8fafc" : "#fff" }}>
+                        <div key={m.id} style={{ border: "1.5px solid " + (menuOn || picked ? C.ink : C.line), borderRadius: 14, overflow: "hidden", background: menuOn ? "#f8fafc" : "#fff" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px" }}>
                             <Switch on={menuOn} onClick={() => { setRouting((r) => ({ ...r, menus: menuOn ? r.menus.filter((x) => x !== m.id) : [...r.menus, m.id], categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) })); }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontWeight: 900, fontSize: 14.5 }}>{m.name}</div>
-                              <div style={{ fontSize: 12, color: C.muted }}>{menuOn ? "Whole menu" : picked ? picked + " of " + mcats.length + " categories" : "Off — tap a category to pick part of it"}{el.length ? " · also on " + el.join(", ") : ""}</div>
+                              <div style={{ fontSize: 12, color: C.muted }}>{menuOn ? "Whole menu on this screen" : picked ? picked + " of " + mcats.length + " categories" : "Off · or tap categories below"}{el.length ? " · also on " + el.join(", ") : ""}</div>
                             </div>
                             {!menuOn && picked > 0 && <span onClick={() => setRouting((r) => ({ ...r, categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) }))} style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, cursor: "pointer" }}>clear</span>}
                           </div>
@@ -1294,6 +1299,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
                         </div>
                       );
                     })}
+                    </div>
                   </div>
                 ))}
                 <div style={{ borderTop: "1px solid " + C.line, paddingTop: 12, marginTop: 4 }}>
