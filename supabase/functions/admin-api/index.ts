@@ -1353,10 +1353,14 @@ Deno.serve(async (req) => {
         const { location_id, screen_key, fingerprint, app_version } = data || {};
         if (!location_id || !screen_key) return json({ ok: false, error: "location_id and screen_key required" }, 400);
         const { data: d } = await admin.from("kds_screens").select("*").eq("location_id", location_id).eq("screen_key", String(screen_key)).maybeSingle();
-        if (d && d.device_secret_hash) return json({ ok: false, error: "already_claimed" }, 409);
-        if (d && d.status === "revoked") return json({ ok: false, error: "revoked" }, 409);
+        // Only screens registered before licensing may claim themselves; an
+        // unknown browser with the URL must activate with a code.
+        if (!d) return json({ ok: false, error: "not_registered" }, 404);
+        if (d.device_secret_hash) return json({ ok: false, error: "already_claimed" }, 409);
+        if (d.status === "revoked") return json({ ok: false, error: "revoked" }, 409);
+        if (d.status === "unassigned" && d.licence_code) return json({ ok: false, error: "needs_code" }, 409);
         const secret = randSecret();
-        const row = { location_id, screen_key: String(screen_key), kind: d?.kind || "kds+pos", status: "active", device_secret_hash: await sha256(secret), activated_at: new Date().toISOString(), activated_by: "legacy", fingerprint: fingerprint ? String(fingerprint).slice(0, 300) : null, app_version: app_version ? String(app_version).slice(0, 40) : null, last_seen_at: new Date().toISOString(), label: d?.label || ("Screen " + screen_key) };
+        const row = { location_id, screen_key: String(screen_key), kind: d.kind || "kds+pos", status: "active", device_secret_hash: await sha256(secret), activated_at: new Date().toISOString(), activated_by: "legacy", fingerprint: fingerprint ? String(fingerprint).slice(0, 300) : null, app_version: app_version ? String(app_version).slice(0, 40) : null, last_seen_at: new Date().toISOString(), label: d.label || ("Screen " + screen_key) };
         const { error } = await admin.from("kds_screens").upsert(row, { onConflict: "location_id,screen_key" });
         if (error) throw error;
         await admin.from("device_events").insert({ location_id, screen_key: String(screen_key), event: "activated", detail: { legacy: true } });

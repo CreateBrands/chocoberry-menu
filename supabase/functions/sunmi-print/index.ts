@@ -649,35 +649,9 @@ async function printOrder(
   const anyHardFailed = attempted.some((r) => r.printed === false && r.pending !== true);
   try {
     if (anyHardFailed) {
-      // Say WHY, not just that it failed: which printer, is it online, and what
-      // Sunmi actually said — so staff know whether to check the plug, the
-      // Wi-Fi, the paper, or call it in.
-      const bad = attempted.filter((r) => r.printed === false && r.pending !== true);
-      const reasons: string[] = [];
-      for (const r of bad) {
-        const sn = String(r.printer || "");
-        const label = (r.station ? String(r.station) : "printer") + " printer …" + sn.slice(-4);
-        let online: boolean | null = null;
-        try {
-          const st = await sunmi.onlineStatus(sn);
-          const list: any[] = (st as any)?.data?.list ?? [];
-          const row = list.find((x: any) => String(x?.sn ?? x?.msn ?? "") === sn) ?? list[0];
-          const v = String(row?.is_online);
-          online = v === "1" || v === "true" ? true : v === "0" || v === "false" ? false : null;
-        } catch { online = null; }
-        const msg = r.sunmi?.msg ? String(r.sunmi.msg) : "";
-        if (online === false) reasons.push(label + " is OFFLINE — check power and Wi‑Fi");
-        else if (/paper/i.test(msg)) reasons.push(label + " is out of paper");
-        else if (/cover|lid/i.test(msg)) reasons.push(label + " cover is open");
-        else if (/bind|unbound|shop/i.test(msg)) reasons.push(label + " is not linked to the store (Sunmi: " + msg + ")");
-        else if (/limit|frequen|too many|rate/i.test(msg)) reasons.push("Sunmi is throttling " + label + " — tap Retry in a minute");
-        else if (online === true) reasons.push(label + " is online but rejected the job" + (msg ? " (Sunmi: " + msg + ")" : "") + " — tap Retry");
-        else reasons.push(label + " could not be reached" + (msg ? " (Sunmi: " + msg + ")" : "") + " — check it is on and connected");
-        try { await supabase.from("printers").update({ online, ...(online ? { last_online_at: new Date().toISOString() } : {}) }).eq("sn", sn); } catch { /* best effort */ }
-      }
-      await supabase.from("menu_orders").update({ print_failed: true, print_error: reasons.join("; ").slice(0, 300), print_failed_at: new Date().toISOString() }).eq("id", orderId);
+      await supabase.from("menu_orders").update({ print_failed: true }).eq("id", orderId);
     } else if (attempted.length > 0 && attempted.every((r) => r.printed)) {
-      await supabase.from("menu_orders").update({ print_failed: false, print_error: null }).eq("id", orderId);
+      await supabase.from("menu_orders").update({ print_failed: false }).eq("id", orderId);
     }
   } catch (e) { console.error("print_failed flag update error:", e); }
 
@@ -890,7 +864,7 @@ Deno.serve(async (req) => {
         const missingIds = new Set(missing.map((o: any) => o.id));
         const staleFlagged = candidates.filter((o: any) => o.print_failed === true && !missingIds.has(o.id)).map((o: any) => o.id);
         if (staleFlagged.length) {
-          try { await supabase.from("menu_orders").update({ print_failed: false, print_error: null }).in("id", staleFlagged); } catch { /* best effort */ }
+          try { await supabase.from("menu_orders").update({ print_failed: false }).in("id", staleFlagged); } catch { /* best effort */ }
         }
 
         // Auto-cancel stale EMPTY orders (incl. abandoned pay-first "hold"
@@ -930,96 +904,44 @@ Deno.serve(async (req) => {
       }
 
       case "print-summary": {
-        // Closing report (Z-report). Prints on the store's own printers.
+        // store (or all printers if we can't resolve one).
         const s = body.summary || {};
         const storeName = String(body.store_name || "");
-        const fmtDT = (iso: string) => new Date(iso).toLocaleString("en-GB", { timeZone: "Europe/London", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-        const fmtT = (iso: string) => new Date(iso).toLocaleTimeString("en-GB", { timeZone: "Europe/London", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
-        const when = fmtDT(s.closed_at || new Date().toISOString());
+        const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
         const money = (n: number) => "GBP " + (Number(n) || 0).toFixed(2);
         const W = 48;
         const r = new Receipt();
-        r.align(1).size(1, 1).bold(true).line(s.reprint ? "Z-REPORT (COPY)" : "Z-REPORT").bold(false).size(0, 0);
+        r.align(1).size(1, 1).bold(true).line("END OF DAY").bold(false).size(0, 0);
         if (storeName) r.line(storeName);
-        r.line("Closed " + when);
-        if (s.mode === "trading_day" && s.cutoff) r.line("Trading day to " + fmtDT(s.cutoff));
-        if (s.first_order && s.last_order) r.line("Orders " + fmtT(s.first_order) + " - " + fmtT(s.last_order));
-        r.feed(1).align(0).divider("=");
-        // ---- SALES ----
+        r.line("Z-REPORT").feed(1);
+        r.align(0).line(when).divider("-").feed(1);
         r.size(0, 1).leftRight("TOTAL TAKEN", money(s.total), W).size(0, 0);
         r.divider("-");
-        r.leftRight("Gross sales", money(s.gross), W);
-        if ((s.discount_total ?? 0) > 0) { r.leftRight("Discounts", "-" + money(s.discount_total), W); r.leftRight("Net sales", money(s.net), W); }
-        r.leftRight("Orders", String(s.order_count ?? 0), W);
-        if ((s.avg_ticket ?? 0) > 0) r.leftRight("Average order", money(s.avg_ticket), W);
-        if ((s.items_sold ?? 0) > 0) r.leftRight("Items sold", String(s.items_sold), W);
-        if ((s.cancelled_count ?? 0) > 0) r.leftRight("Cancelled (" + s.cancelled_count + ")", money(s.cancelled_total || 0), W);
-        if (s.peak_hour) r.leftRight("Busiest hour", s.peak_hour.hour + ":00  " + money(s.peak_hour.amount), W);
-        // ---- TENDERS ----
-        r.divider("=").bold(true).line("TENDERS").bold(false);
-        const tc = s.tenders || {};
-        r.leftRight("Cash" + (tc.cash ? " (" + tc.cash + ")" : ""), money(s.cash), W);
-        r.leftRight("Card" + (tc.card ? " (" + tc.card + ")" : ""), money(s.card), W);
-        if ((s.other ?? 0) > 0) r.leftRight("Other" + (tc.other ? " (" + tc.other + ")" : ""), money(s.other), W);
+        r.leftRight("Cash", money(s.cash), W);
+        r.leftRight("Card", money(s.card), W);
+        r.leftRight("Paid orders", String(s.paid_count ?? 0), W);
+        if ((s.discount_total ?? 0) > 0) r.leftRight("Discounts given", money(s.discount_total), W);
+        r.divider("-");
         if ((s.unpaid_count ?? 0) > 0) {
           r.bold(true).leftRight("UNPAID (" + s.unpaid_count + ")", money(s.unpaid_total), W).bold(false);
-          const list = (s.unpaid || []).slice(0, 8).map((u: any) => "#" + u.order_no).join(" ");
-          if (list) r.line("  " + list + ((s.unpaid || []).length > 8 ? " ..." : ""));
+          r.divider("-");
         }
-        // ---- CASH DRAWER ----
+        if ((s.other ?? 0) > 0) r.leftRight("Other tenders", money(s.other), W);
         if (s.cash_counted != null) {
-          r.divider("=").bold(true).line("CASH DRAWER").bold(false);
+          r.feed(1).bold(true).line("CASH DRAWER").bold(false);
           if (s.float_amount != null) r.leftRight("Float", money(s.float_amount), W);
           r.leftRight("Cash taken", money(s.cash), W);
-          r.leftRight("Expected", money(s.cash_expected), W);
+          r.leftRight("Expected in drawer", money(s.cash_expected), W);
           r.leftRight("Counted", money(s.cash_counted), W);
           const v = Number(s.cash_variance || 0);
-          r.size(0, 1).bold(true).leftRight(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", (v < 0 ? "-" : "") + money(Math.abs(v)), W).bold(false).size(0, 0);
+          r.bold(true).leftRight(v === 0 ? "Variance" : v > 0 ? "OVER" : "SHORT", (v < 0 ? "-" : "") + money(Math.abs(v)), W).bold(false);
+          r.divider("-");
         }
-        // ---- MIX ----
-        const bt = s.by_type || {}, bs = s.by_source || {};
-        const typeLabel: Record<string, string> = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
-        if (Object.keys(bt).length) {
-          r.divider("=").bold(true).line("ORDERS BY TYPE").bold(false);
-          for (const [k, v] of Object.entries(bt) as any) r.leftRight((typeLabel[k] || k) + " (" + v.count + ")", money(v.amount), W);
-        }
-        if (Object.keys(bs).length > 1) {
-          r.bold(true).line("BY SOURCE").bold(false);
-          for (const [k, v] of Object.entries(bs) as any) r.leftRight(k + " (" + v.count + ")", money(v.amount), W);
-        }
-        // ---- KITCHEN ----
-        if (s.kitchen && s.kitchen.tickets) {
-          const k = s.kitchen;
-          const mm = (sec: number) => sec >= 3600 ? Math.floor(sec / 3600) + "h " + String(Math.floor((sec % 3600) / 60)).padStart(2, "0") + "m" : Math.floor(sec / 60) + ":" + String(Math.floor(sec % 60)).padStart(2, "0");
-          r.divider("=").bold(true).line("KITCHEN SPEED").bold(false);
-          r.leftRight("Tickets", String(k.tickets), W);
-          r.leftRight("On-time (" + k.target_min + " min)", k.on_time_pct + "%", W);
-          r.leftRight("Typical (median)", mm(k.median_secs), W);
-          r.leftRight("Average", mm(k.avg_secs), W);
-          r.leftRight("90th percentile", mm(k.p90_secs), W);
-          if (k.over_hour) r.leftRight("Over an hour (forgotten?)", String(k.over_hour), W);
-        }
-        // ---- TOP ITEMS ----
-        if ((s.top_items || []).length) {
-          r.divider("=").bold(true).line("TOP SELLERS").bold(false);
-          for (const it of s.top_items.slice(0, 8)) r.leftRight(String(it.qty) + "x " + String(it.name).slice(0, 28), money(it.sales), W);
-        }
-        // ---- SIGN OFF ----
-        r.divider("=");
-        if (s.previous && s.previous.total != null) {
-          const d = Number(s.total || 0) - Number(s.previous.total || 0);
-          r.leftRight("Previous close", money(s.previous.total), W);
-          r.leftRight("  change", (d < 0 ? "-" : "+") + money(Math.abs(d)), W);
-        }
-        if (s.last_week && s.last_week.total != null) {
-          const d = Number(s.total || 0) - Number(s.last_week.total || 0);
-          r.leftRight("Same day last week", money(s.last_week.total), W);
-          r.leftRight("  change", (d < 0 ? "-" : "+") + money(Math.abs(d)), W);
-        }
+        r.leftRight("Orders archived", String(s.order_count ?? s.paid_count ?? 0), W);
+        if ((s.cancelled_count ?? 0) > 0) r.leftRight("Cancelled", String(s.cancelled_count), W);
         if (s.closed_by) r.leftRight("Closed by", String(s.closed_by).slice(0, 24), W);
-        if (s.note) r.line("Note: " + String(s.note).slice(0, 90));
-        r.feed(1).line("Signed: ______________________").feed(1);
-        r.align(1).line(s.reprint ? "Reprint" : "Day closed").feed(2).cut();
+        if (s.note) r.feed(1).line("Note: " + String(s.note).slice(0, 90));
+        r.feed(1).align(1).line("Day closed").feed(2).cut();
         const hex = r.toHex();
         // Print on THIS store's printers only (fall back to all if none are mapped).
         let pq = supabase.from("printers").select("sn, station, location_id");

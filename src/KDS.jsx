@@ -192,6 +192,7 @@ export default function KDS({ surface = "kds" }) {
         if (ok && j.ok) { setDevice(j.device); setLicence("ok"); }
         else if (j.error === "revoked") setLicence("revoked");
         else if (j.error === "already_claimed") setLicence("unclaimed"); // another device holds this screen's licence
+        else if (j.error === "not_registered" || j.error === "needs_code") setLicence("needs_code");
         return;
       }
       const { ok, j } = await call("device_heartbeat", { location_id: d.location_id, key: d.key, secret: d.secret, app_version: APP_VERSION });
@@ -1041,8 +1042,8 @@ export default function KDS({ surface = "kds" }) {
         <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(15,23,42,.92)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
           <div style={{ textAlign: "center", maxWidth: 560 }}>
             <div style={{ fontSize: 56 }}>🔒</div>
-            <div style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Poppins',sans-serif", marginTop: 8 }}>{licence === "revoked" ? "This screen's licence was revoked" : "This screen is active on another device"}</div>
-            <div style={{ fontSize: 15, color: "#cbd5e1", marginTop: 10, lineHeight: 1.5 }}>{licence === "revoked" ? "A manager can issue a new code from Admin → Store → Devices." : "Screen " + getScreenId() + " at this store is already licensed to a different device. Revoke or replace it in the admin, then activate here."}</div>
+            <div style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Poppins',sans-serif", marginTop: 8 }}>{licence === "revoked" ? "This screen's licence was revoked" : licence === "needs_code" ? "This device isn't licensed" : "This screen is active on another device"}</div>
+            <div style={{ fontSize: 15, color: "#cbd5e1", marginTop: 10, lineHeight: 1.5 }}>{licence === "revoked" ? "A manager can issue a new code from Admin → Store → Devices." : licence === "needs_code" ? "Create a device in Admin → Store → Devices and enter its licence code here." : "Screen " + getScreenId() + " at this store is already licensed to a different device. Revoke or replace it in the admin, then activate here."}</div>
             <a href="/activate" style={{ display: "inline-block", marginTop: 22, padding: "14px 26px", borderRadius: 12, background: "#fff", color: "#0f172a", fontWeight: 900, textDecoration: "none" }}>Enter a licence code</a>
           </div>
         </div>
