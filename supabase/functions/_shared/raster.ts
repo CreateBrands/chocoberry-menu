@@ -89,7 +89,9 @@ function receiptTree(o: ReceiptOrder): Node {
           { fontWeight: 700, fontSize: big ? 30 : 27, maxWidth: "430px" },
           { fontWeight: 700, fontSize: big ? 30 : 27 }),
         ...(it.modifiers ?? []).map((m) => el("div", { paddingLeft: 26, fontSize: 23 }, m)),
-        ...(it.note ? [el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **")] : []),
+        ...(it.note ? [(/allerg|gluten|vegan|halal|intoler|coeliac|celiac/i.test(it.note)
+          ? el("div", { paddingLeft: 26, fontSize: 30, fontWeight: 900, background: "#000", color: "#fff", padding: "4px 8px", display: "inline-block" }, "!! " + it.note.toUpperCase() + " !!")
+          : el("div", { paddingLeft: 26, fontSize: 25, fontWeight: 700 }, "** " + it.note + " **"))] : []),
         el("div", { height: 6 }),
       ];
       // Group a list of items by master category, preserving first-seen order,

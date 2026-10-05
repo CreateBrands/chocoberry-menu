@@ -688,6 +688,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const chosen = groups.flatMap((g) => (g.options || []).filter((o) => (modSel[g.id] || []).includes(o.id)).map((o) => ({ group: g.name, name: o.name, price_delta: Number(o.price_delta || 0), option_id: o.id })));
     const unit = modItem.price + chosen.reduce((s, x) => s + x.price_delta, 0);
     const note = modNote.trim();
+    if (note && modItem) { try { const k = "pos_recent_notes_" + modItem.id; const cur = JSON.parse(localStorage.getItem(k) || "[]"); const parts = note.split(",").map((x) => x.trim()).filter(Boolean); localStorage.setItem(k, JSON.stringify([...parts, ...cur.filter((x) => !parts.includes(x))].slice(0, 6))); } catch {} }
     if (editKey) {
       // Update the existing line in place (keep its qty).
       setTicket((prev) => prev.map((l) => l.key === editKey
@@ -1757,31 +1758,47 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             })}
 
             {/* kitchen note */}
-            <div style={{ background: "#fffbf4", border: "1px solid #f0e2cc", borderRadius: 16, padding: "16px 18px", marginBottom: 18 }}>
-              <div style={{ fontSize: 15.5, fontWeight: 700, marginBottom: 11 }}>📝 Kitchen note <span style={{ fontSize: 14, color: "#b0a48a", fontWeight: 500 }}>(optional)</span></div>
-              <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 11 }}>
-                {(() => {
-                  const name = (modItem.name || "").toLowerCase();
-                  const isDrink = /shake|coffee|latte|tea|juice|smoothie|drink|frapp|mocha|chai|hot choc/.test(name);
-                  const chips = isDrink ? ["No ice", "Extra hot", "Less sweet", "Oat milk"] : ["No onion", "Well done", "On the side", "Extra sauce"];
-                  chips.push("⚠ Allergy");
-                  return chips.map((c) => {
-                    const active = (modNote || "").split(",").map((s) => s.trim()).includes(c.replace("⚠ ", ""));
-                    const isAl = c.includes("Allergy");
-                    return (
-                      <span key={c} onClick={() => {
-                        const val = c.replace("⚠ ", "");
-                        const parts = (modNote || "").split(",").map((s) => s.trim()).filter(Boolean);
-                        if (parts.includes(val)) setModNote(parts.filter((p) => p !== val).join(", "));
-                        else setModNote([...parts, val].join(", "));
-                      }} style={{ fontSize: 14.5, fontWeight: 700, cursor: "pointer", padding: "8px 14px", borderRadius: 20, border: "1.5px solid " + (isAl ? "#e6b8b0" : "#ead9bd"), background: active ? (isAl ? "#f7e0dc" : "#f6ead2") : "#fff", color: isAl ? "#c0392b" : "#9a6a2c" }}>{c}{active ? " ✓" : ""}</span>
-                    );
-                  });
-                })()}
-              </div>
-              <input type="text" value={modNote} onChange={(e) => setModNote(e.target.value)} placeholder="Add a note for the kitchen…"
-                style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1px solid #ead9bd", borderRadius: 11, padding: "13px 15px", fontSize: 16, color: "#5b5540", fontFamily: "inherit", outline: "none" }} />
-            </div>
+            {(() => {
+              const name = (modItem.name || "").toLowerCase();
+              const cat = String(modItem.category || "").toLowerCase();
+              const isDrink = /shake|coffee|latte|tea|juice|smoothie|drink|frapp|mocha|chai|hot choc|mocktail|cooler|matcha/.test(name + " " + cat);
+              const isDessert = /dessert|waffle|crepe|cake|cookie|ice cream|sundae|kanafeh|kunafa|churro|falooda|pudding|brownie|cheesecake/.test(name + " " + cat);
+              const presets = isDrink
+                ? ["No ice", "Extra ice", "Extra hot", "Less sweet", "No sugar", "Oat milk", "Decaf", "Take away cup"]
+                : isDessert
+                  ? ["No cream", "No sauce", "Sauce on side", "No nuts", "Extra sauce", "To share", "Candle"]
+                  : ["No onion", "No salad", "Sauce on side", "Extra sauce", "Well done", "Medium", "Spicy", "Mild", "No egg", "Kids portion"];
+              const allergyPresets = ["Nut allergy", "Dairy allergy", "Gluten free", "Egg allergy", "Vegan", "Halal only"];
+              let recent = []; try { recent = JSON.parse(localStorage.getItem("pos_recent_notes_" + modItem.id) || "[]"); } catch {}
+              const parts = (modNote || "").split(",").map((x) => x.trim()).filter(Boolean);
+              const has = (v) => parts.includes(v);
+              const toggle = (v) => setModNote(has(v) ? parts.filter((x) => x !== v).join(", ") : [...parts, v].join(", "));
+              const isAllergy = /allerg|gluten|vegan|halal|intoler/i.test(modNote || "");
+              const Chip = ({ v, tone }) => <span onClick={() => toggle(v)} style={{ fontSize: 15, fontWeight: 700, cursor: "pointer", padding: "9px 15px", borderRadius: 20, border: "1.5px solid " + (has(v) ? (tone === "al" ? "#c0392b" : "#3a5730") : (tone === "al" ? "#e6b8b0" : "#ead9bd")), background: has(v) ? (tone === "al" ? "#c0392b" : "#3a5730") : "#fff", color: has(v) ? "#fff" : (tone === "al" ? "#8a2a1e" : "#5b5540"), userSelect: "none", whiteSpace: "nowrap" }}>{has(v) ? "✓ " : ""}{v}</span>;
+              return (
+                <div style={{ background: isAllergy ? "#fff4f2" : "#fffbf4", border: "1.5px solid " + (isAllergy ? "#e6b8b0" : "#f0e2cc"), borderRadius: 16, padding: "16px 18px", marginBottom: 18 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+                    <div style={{ fontSize: 15.5, fontWeight: 700 }}>📝 Kitchen note <span style={{ fontSize: 14, color: "#b0a48a", fontWeight: 500 }}>(optional)</span></div>
+                    {isAllergy && <span style={{ fontSize: 12.5, fontWeight: 800, color: "#c0392b", letterSpacing: ".05em" }}>⚠ PRINTS AS ALLERGY</span>}
+                  </div>
+                  {recent.length > 0 && (
+                    <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: 9 }}>
+                      <span style={{ fontSize: 12.5, color: "#b0a48a", fontWeight: 700 }}>Recent</span>
+                      {recent.slice(0, 4).map((v) => <Chip key={"r" + v} v={v} tone={/allerg|gluten|vegan|halal/i.test(v) ? "al" : undefined} />)}
+                    </div>
+                  )}
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 9 }}>
+                    {presets.map((v) => <Chip key={v} v={v} />)}
+                  </div>
+                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: 11 }}>
+                    <span style={{ fontSize: 12.5, color: "#8a2a1e", fontWeight: 800 }}>⚠</span>
+                    {allergyPresets.map((v) => <Chip key={v} v={v} tone="al" />)}
+                  </div>
+                  <input type="text" value={modNote} onChange={(e) => setModNote(e.target.value)} placeholder="Anything else for the kitchen…"
+                    style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1.5px solid " + (isAllergy ? "#e6b8b0" : "#ead9bd"), borderRadius: 11, padding: "13px 15px", fontSize: 16, color: isAllergy ? "#8a2a1e" : "#5b5540", fontWeight: isAllergy ? 700 : 500, fontFamily: "inherit", outline: "none" }} />
+                </div>
+              );
+            })()}
 
             {/* footer */}
             <div style={{ display: "flex", gap: 12, marginTop: 4 }}>

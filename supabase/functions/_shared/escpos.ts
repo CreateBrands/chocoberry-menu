@@ -202,8 +202,10 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
       for (const l of wrap("+ " + m, LINE_WIDTH - 2)) r.line("  " + l);
     }
     if (it.note) {
+      const allergy = /allerg|gluten|vegan|halal|intoler|coeliac|celiac/i.test(it.note);
       r.bold(true);
-      for (const l of wrap("** " + it.note + " **", LINE_WIDTH - 2)) r.line("  " + l);
+      if (allergy) { r.size(1, 1); for (const l of wrap("!! " + it.note.toUpperCase() + " !!", Math.floor(LINE_WIDTH / 2) - 1)) r.line(" " + l); r.size(0, 0); }
+      else for (const l of wrap("** " + it.note + " **", LINE_WIDTH - 2)) r.line("  " + l);
       r.bold(false);
     }
   };
