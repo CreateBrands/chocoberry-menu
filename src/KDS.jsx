@@ -197,7 +197,7 @@ export default function KDS({ surface = "kds" }) {
       }
       const { ok, j } = await call("device_heartbeat", { location_id: d.location_id, key: d.key, secret: d.secret, app_version: APP_VERSION });
       if (!alive) return;
-      if (ok && j.ok) { setLicence("ok"); if (j.kind && j.kind !== d.kind) setDevice({ ...d, kind: j.kind, label: j.label }); }
+      if (ok && j.ok) { setLicence("ok"); if (j.kind && j.kind !== d.kind) setDevice({ ...d, kind: j.kind, label: j.label }); if (j.reload) setTimeout(() => window.location.reload(), 2000); }
       else if (j.status === "revoked" || j.status === "unassigned") { clearDevice(); setLicence("revoked"); }
     };
     beatRef.current = beat;
@@ -243,6 +243,25 @@ export default function KDS({ surface = "kds" }) {
   const kind = device ? device.kind : "kds+pos"; // unlicensed legacy screens keep everything until claimed
   const [licence, setLicence] = useState("ok"); // ok | revoked | unclaimed | needs_code
   const beatRef = useRef(null);      // licence heartbeat, driven by the orders poll
+  // Self-update: when Vercel ships a new build, the module script hash in
+  // index.html changes. Check every 2 minutes and reload (after a short grace
+  // so we never cut off a tap mid-action).
+  useEffect(() => {
+    const mine = Array.from(document.querySelectorAll('script[type="module"]')).map((x) => x.getAttribute("src")).find((x) => x && x.includes("/assets/"));
+    if (!mine) return;
+    let alive = true;
+    const check = async () => {
+      try {
+        const r = await fetch("/index.html?u=" + Date.now(), { cache: "no-store" });
+        if (!r.ok) return;
+        const html = await r.text();
+        const m = html.match(/src="(\/assets\/index-[^"]+\.js)"/);
+        if (alive && m && m[1] && !mine.endsWith(m[1])) setTimeout(() => window.location.reload(), 5000);
+      } catch {}
+    };
+    const id = setInterval(check, 120000);
+    return () => { alive = false; clearInterval(id); };
+  }, []);
   const lastBeatRef = useRef(0);
   const [orderFilter, setOrderFilter] = useState("unpaid"); // unpaid | paid | all
   const [payFor, setPayFor] = useState(null);       // order awaiting payment action

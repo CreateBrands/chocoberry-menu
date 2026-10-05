@@ -1371,8 +1371,10 @@ Deno.serve(async (req) => {
         const { location_id, key, secret, app_version } = data || {};
         const d = await verifyDevice(location_id, key, secret);
         if (!d) { const { data: row } = await admin.from("kds_screens").select("status").eq("location_id", location_id || "").eq("screen_key", String(key || "")).maybeSingle(); return json({ ok: false, status: row?.status || "unknown" }, 401); }
-        await admin.from("kds_screens").update({ last_seen_at: new Date().toISOString(), ...(app_version ? { app_version: String(app_version).slice(0, 40) } : {}) }).eq("location_id", location_id).eq("screen_key", String(key));
-        return json({ ok: true, kind: d.kind, label: d.label });
+        const { data: full } = await admin.from("kds_screens").select("reload_requested_at, last_seen_at").eq("location_id", location_id).eq("screen_key", String(key)).maybeSingle();
+        const reload = !!(full?.reload_requested_at && (!full.last_seen_at || new Date(full.reload_requested_at) > new Date(full.last_seen_at)));
+        await admin.from("kds_screens").update({ last_seen_at: new Date().toISOString(), ...(app_version ? { app_version: String(app_version).slice(0, 40) } : {}), ...(reload ? { reload_requested_at: null } : {}) }).eq("location_id", location_id).eq("screen_key", String(key));
+        return json({ ok: true, kind: d.kind, label: d.label, reload });
       }
       // ---- Admin: devices ----
       case "device_create": {
@@ -1416,6 +1418,13 @@ Deno.serve(async (req) => {
         if (["kds", "pos", "kds+pos"].includes(kind)) row.kind = kind;
         if (label !== undefined) row.label = label ? String(label).slice(0, 40) : null;
         const { error } = await admin.from("kds_screens").update(row).eq("location_id", location_id).eq("screen_key", String(screen_key));
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      case "device_reload": {
+        const { location_id, screen_key } = data || {};
+        if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
+        const { error } = await admin.from("kds_screens").update({ reload_requested_at: new Date().toISOString() }).eq("location_id", location_id).eq("screen_key", String(screen_key));
         if (error) throw error;
         return json({ ok: true });
       }
