@@ -938,7 +938,7 @@ export default function KDS() {
 
       {view === "kitchen" && tab === "completed" && (
         <div style={{ padding: F(16) }}>
-          <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Recently bumped {DOT} tap Recall to bring one back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
+          <div style={{ fontSize: F(14), color: "#64748b", marginBottom: 12 }}>Recently bumped {DOT} tap a face to log how the guest left, ⚑ Flag for the full form, Recall to bring a ticket back.{bumpedToday.length ? "  Avg today " + avgLabel + (onTimePct !== null ? " " + DOT + " " + onTimePct + "% on-time" : "") : ""}</div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(" + F(268) + "px, 1fr))", gap: F(12), alignItems: "start" }}>
             {completed.slice(0, 40).map((o) => {
               // Identical structure to an ACTIVE ticket — same header, table
@@ -985,11 +985,12 @@ export default function KDS() {
                     ))}
                     {note && <div style={{ marginTop: F(8) }}>{noteBox(note, F)}</div>}
                   </div>
-                  {!quickLogged[o.id] && (
-                    <div style={{ display: "flex", gap: 3, padding: "0 4px 2px", justifyContent: "space-between" }}>
-                      {[[1, "😠"], [2, "🙁"], [3, "😐"], [4, "🙂"], [5, "😄"]].map(([v, f]) => <span key={v} onClick={() => quickMood(o, v)} className="kbtn" title="One-tap: how did the guest leave?" style={{ flex: 1, textAlign: "center", fontSize: F(17), padding: F(4) + "px 0", borderRadius: 8, background: "rgba(255,255,255,.7)", cursor: "pointer" }}>{f}</span>)}
-                    </div>
-                  )}
+                  <div style={{ margin: "0 6px 6px", background: quickLogged[o.id] ? "#dcfce7" : "rgba(255,255,255,.75)", border: "1px solid rgba(15,23,42,.08)", borderRadius: 11, padding: "5px 8px", display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ fontSize: F(10.5), fontWeight: 800, letterSpacing: ".05em", color: "#64748b", whiteSpace: "nowrap" }}>{quickLogged[o.id] ? "GUEST LEFT" : "GUEST LEFT?"}</span>
+                    {quickLogged[o.id]
+                      ? <span style={{ fontSize: F(16), fontWeight: 800, color: "#166534" }}>{["", "😠 Upset", "🙁 Unhappy", "😐 OK", "🙂 Happy", "😄 Delighted"][quickLogged[o.id]]} <span style={{ fontSize: F(11), color: "#15803d" }}>· logged</span></span>
+                      : [[1, "😠"], [2, "🙁"], [3, "😐"], [4, "🙂"], [5, "😄"]].map(([v, f]) => <span key={v} onClick={() => quickMood(o, v)} className="kbtn" title="One tap — uses your remembered PIN, or opens the sheet" style={{ flex: 1, textAlign: "center", fontSize: F(19), padding: F(3) + "px 0", borderRadius: 8, cursor: "pointer" }}>{f}</span>)}
+                  </div>
                   <div style={{ display: "flex", gap: 2, padding: 2 }}>
                     <div onClick={(e) => printSlip(o, e)} className="kbtn" style={{ width: F(46), textAlign: "center", padding: F(11) + "px 0", background: "#ffffff", border: "1px solid #94a3b8", borderRadius: 9, fontWeight: 800, fontSize: F(15), cursor: "pointer", color: "#334155", opacity: printingId === o.id ? .5 : 1 }} title="Print slip">
                       {printingId === o.id ? "\u2026" : PRINTER}
@@ -998,7 +999,7 @@ export default function KDS() {
                     {!myStation || !["pass", "front", "expo", "counter"].includes(String(myStation).toLowerCase()) ? null : (
                       <div onClick={() => !(o.served_at || servedIds.has(o.id)) && markServed(o)} className="kbtn" style={{ flex: 1.2, textAlign: "center", padding: F(11) + "px 0", background: (o.served_at || servedIds.has(o.id)) ? "#dcfce7" : "#16a34a", color: (o.served_at || servedIds.has(o.id)) ? "#166534" : "#fff", borderRadius: 9, fontWeight: 800, fontSize: F(14), cursor: "pointer" }}>{(o.served_at || servedIds.has(o.id)) ? "Served ✓" : "Served"}</div>
                     )}
-                    <div onClick={() => setFeedbackFor(o)} className="kbtn" title="Log how this table went" style={{ width: F(52), textAlign: "center", padding: F(11) + "px 0", background: quickLogged[o.id] ? "#dcfce7" : "#fff", border: "1px solid #94a3b8", borderRadius: 9, fontSize: F(18), cursor: "pointer" }}>{quickLogged[o.id] ? ["", "😠", "🙁", "😐", "🙂", "😄"][quickLogged[o.id]] : "🙂"}</div>
+                    <div onClick={() => setFeedbackFor(o)} className="kbtn" title="Full feedback — what happened, which dish, what was done" style={{ minWidth: F(64), textAlign: "center", padding: F(11) + "px " + F(8) + "px", background: "#fff", border: "1px solid #94a3b8", borderRadius: 9, fontSize: F(13), fontWeight: 800, cursor: "pointer", color: "#0f172a" }}>⚑ Flag</div>
                   </div>
                 </div>
               );
