@@ -1131,6 +1131,7 @@ export const stationMeta = (st) => STATION_META[String(st || "").trim().toLowerC
 function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, orders, onClose, onSaved }) {
   // A manager can set up any screen at the store from this device.
   const [screenKey, setScreenKey] = useState(ownKey);
+  const zoom = typeof window !== "undefined" ? (window.innerWidth >= 2000 ? 1.5 : window.innerWidth >= 1600 ? 1.35 : window.innerWidth >= 1300 ? 1.2 : 1.05) : 1;
   const current = screenKey === ownKey ? ownCurrent : (siblings.find((x) => x.screen_key === screenKey) || null);
   const [label, setLabel] = useState(current?.label || "");
   const [station, setStation] = useState(current?.station || "");
@@ -1201,8 +1202,8 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   const C = { ink: "#0f172a", muted: "#64748b", line: "#e2e8f0", soft: "#f1f5f9", brand: "#ec4899", good: "#16a34a", warn: "#b45309" };
   const inp = { padding: "11px 12px", fontSize: 15, fontWeight: 600, border: "1.5px solid " + C.line, borderRadius: 11, outline: "none", width: "100%", boxSizing: "border-box", background: "#fff" };
   const Step = ({ n, title, right }) => <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, gap: 10 }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 18 }}>{n}</span><span style={{ fontSize: 15.5, fontWeight: 900 }}>{title}</span></div>{right && <span style={{ fontSize: 12.5, color: C.muted, textAlign: "right" }}>{right}</span>}</div>;
-  const Chip = ({ on, children, onClick, dim, small, tone }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: small ? "5px 10px" : "8px 13px", borderRadius: 9, fontSize: small ? 12.5 : 13.5, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1.5px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap" }}>{children}</span>;
-  const Switch = ({ on, onClick }) => <span onClick={onClick} style={{ cursor: "pointer", width: 44, height: 26, borderRadius: 13, background: on ? C.good : "#cbd5e1", position: "relative", display: "inline-block", flexShrink: 0, transition: "background .15s" }}><span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} /></span>;
+  const Chip = ({ on, children, onClick, dim, small, tone }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: small ? "8px 13px" : "10px 16px", borderRadius: 10, fontSize: small ? 14 : 15, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1.5px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap" }}>{children}</span>;
+  const Switch = ({ on, onClick }) => <span onClick={onClick} style={{ cursor: "pointer", width: 58, height: 34, borderRadius: 17, background: on ? C.good : "#cbd5e1", position: "relative", display: "inline-block", flexShrink: 0, transition: "background .15s", boxShadow: "inset 0 1px 2px rgba(0,0,0,.15)" }}><span style={{ position: "absolute", top: 4, left: on ? 28 : 4, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />{on && <span style={{ position: "absolute", left: 10, top: 7, color: "#fff", fontSize: 13, fontWeight: 900 }}>✓</span>}</span>;
   const Card = ({ children }) => <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px", minWidth: 0, overflow: "hidden" }}>{children}</div>;
   const itemMatches = q.trim() ? items.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 30) : [];
   const summary = total === 0 ? "Everything" : [...routing.menus.map((id) => nameOf("menus", id) + " (all)"), ...routing.categories.map((id) => nameOf("categories", id)), ...routing.items.map((id) => nameOf("items", id))].join(" · ");
@@ -1211,7 +1212,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   const Tab = ({ v, children }) => <span onClick={() => setTab(v)} className="kbtn" style={{ cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontSize: 13, fontWeight: 800, background: tab === v ? C.ink : "transparent", color: tab === v ? "#fff" : C.muted }}>{children}</span>;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 80, background: "#f8fafc" }}>
-      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", overflow: "hidden", color: C.ink }}>
+      <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", overflow: "hidden", color: C.ink, zoom }}>
         {/* header */}
         <div style={{ padding: "16px 24px 12px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div>
@@ -1236,7 +1237,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>STATION</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
-                    {STATIONS.map(([v, l]) => { const m = stationMeta(v); const on = station.trim().toLowerCase() === v; return <span key={v} onClick={() => setStation(v)} className="kbtn" style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 10, fontSize: 13, fontWeight: 800, background: on ? m.color : m.bg, color: on ? "#fff" : m.color, border: "1.5px solid " + (on ? m.color : "transparent") }}>{m.icon} {l}</span>; })}
+                    {STATIONS.map(([v, l]) => { const m = stationMeta(v); const on = station.trim().toLowerCase() === v; return <span key={v} onClick={() => setStation(v)} className="kbtn" style={{ cursor: "pointer", padding: "10px 15px", borderRadius: 11, fontSize: 14.5, fontWeight: 800, background: on ? m.color : m.bg, color: on ? "#fff" : m.color, border: "2px solid " + (on ? m.color : "transparent") }}>{m.icon} {l}</span>; })}
                     <input value={STATIONS.some(([v]) => v === station.trim().toLowerCase()) ? "" : station} onChange={(e) => setStation(e.target.value)} placeholder="other…" style={{ ...inp, width: 96, padding: "5px 10px", fontSize: 12.5 }} />
                   </div>
                   <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.45, color: isPass ? C.warn : C.muted }}>{isPass ? "Pass screen — serves and clears only; its bumps won't count as cooking time." : station.trim() ? "Production station — its bumps define when food is done." : "No station — this screen won't count for ticket timing."}{dupStation && <span style={{ color: C.warn }}> Another screen already uses this station.</span>}</div>
@@ -1299,12 +1300,12 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                       const picked = mcats.filter((c) => has("categories", c.id)).length;
                       const el = claimedElsewhere("menus", m.id);
                       return (
-                        <div key={m.id} style={{ border: "1.5px solid " + (menuOn || picked ? C.ink : C.line), borderRadius: 14, overflow: "hidden", background: menuOn ? "#f8fafc" : "#fff" }}>
+                        <div key={m.id} style={{ border: "2px solid " + (menuOn ? C.good : picked ? C.ink : C.line), borderRadius: 14, overflow: "hidden", background: menuOn ? "#f0fdf4" : "#fff" }}>
                           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "10px 14px" }}>
                             <Switch on={menuOn} onClick={() => { setRouting((r) => ({ ...r, menus: menuOn ? r.menus.filter((x) => x !== m.id) : [...r.menus, m.id], categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) })); }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontWeight: 900, fontSize: 14.5 }}>{m.name}</div>
-                              <div style={{ fontSize: 12, color: C.muted }}>{menuOn ? "Whole menu on this screen" : picked ? picked + " of " + mcats.length + " categories" : "Off · or tap categories below"}{el.length ? " · also on " + el.join(", ") : (!menuOn && !picked && !mcats.some((c) => claimedElsewhere("categories", c.id).length) ? " · unclaimed, shows on every screen" : "")}</div>
+                              <div style={{ fontWeight: 900, fontSize: 16 }}>{m.name}</div>
+                              <div style={{ fontSize: 12.5, color: menuOn ? C.good : C.muted, fontWeight: menuOn ? 700 : 500 }}>{menuOn ? "✓ Whole menu on this screen" : picked ? picked + " of " + mcats.length + " categories" : "Off · or tap categories below"}{el.length ? " · also on " + el.join(", ") : (!menuOn && !picked && !mcats.some((c) => claimedElsewhere("categories", c.id).length) ? " · unclaimed, shows on every screen" : "")}</div>
                             </div>
                             {!menuOn && picked > 0 && <span onClick={() => setRouting((r) => ({ ...r, categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) }))} style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, cursor: "pointer" }}>clear</span>}
                           </div>
@@ -1365,7 +1366,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
 
         {/* footer */}
         <div style={{ padding: "12px 24px 16px", background: "#fff", borderTop: "1px solid " + C.line }}>
-          <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b style={{ color: C.ink }}>{label.trim() || "Screen " + screenKey}</b>{station.trim() ? " · " + station.trim() : ""}{printer ? " · printer …" + String(printer).slice(-4) : ""} · shows: {summary}</div>
+          <div style={{ fontSize: 14, color: C.muted, marginBottom: 10, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b style={{ color: C.ink }}>{label.trim() || "Screen " + screenKey}</b>{station.trim() ? " · " + station.trim() : ""}{printer ? " · printer …" + String(printer).slice(-4) : ""} · shows: {summary}</div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
             <div onClick={onClose} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: C.soft, fontWeight: 800, cursor: "pointer" }}>{dirty ? "Discard" : "Close"}</div>
             {dirty && <div onClick={reset} className="kbtn" style={{ padding: "14px 16px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, fontWeight: 800, cursor: "pointer", fontSize: 13 }}>Reset</div>}
