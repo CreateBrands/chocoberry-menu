@@ -1733,6 +1733,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.08 }}>{modItem.name}</div>
                 <div style={{ fontSize: 15, color: "#9aa1ac", marginTop: 4, fontWeight: 600 }}>{gbp(modItem.price)} · {(modItem.modifiers || []).length ? (editKey ? "editing" : "customise") : "note for the kitchen"}</div>
+                {modItem.description && <div style={{ fontSize: 13.5, color: "#6b7280", marginTop: 6, lineHeight: 1.4, maxWidth: 520 }}>{modItem.description}</div>}
               </div>
             </div>
 
