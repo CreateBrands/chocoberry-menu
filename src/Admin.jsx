@@ -1493,6 +1493,16 @@ export default function Admin() {
   const [showMods, setShowMods] = useState(false);
   const [nav, setNav] = useState("menus");
   const [showStores, setShowStores] = useState(false);
+  // Device health is live: refresh kds_screens every 30s while the stores view is open.
+  useEffect(() => {
+    if (!showStores) return;
+    let alive = true;
+    const load = () => fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=*", { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY }, cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null)).then((rows) => { if (alive && Array.isArray(rows)) setState((st) => ({ ...st, kdsScreens: rows })); }).catch(() => {});
+    load();
+    const id = setInterval(load, 30000);
+    return () => { alive = false; clearInterval(id); };
+  }, [showStores]); // eslint-disable-line
   const [showPrinters, setShowPrinters] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
