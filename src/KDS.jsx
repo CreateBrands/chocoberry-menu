@@ -1401,6 +1401,7 @@ function PerformanceView({ loc, F, lateMin }) {
   const [drillOpen, setDrillOpen] = useState({});
   const [staff, setStaff] = useState(null); // punches in the period (null = not available)
   const [svc, setSvc] = useState([]); // service_log rows in the period
+  const [svcPrev, setSvcPrev] = useState([]); // previous period, for deltas
   const [fbFor, setFbFor] = useState(null); // ticket row → feedback sheet from the Service view
   const [fuAll, setFuAll] = useState(false);
   const [quickDone, setQuickDone] = useState({});
@@ -1434,6 +1435,7 @@ function PerformanceView({ loc, F, lateMin }) {
     const rpc = (from, to) => fetch(SUPABASE_URL + "/rest/v1/rpc/kds_ticket_times", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: from.toISOString(), p_to: to.toISOString() }), cache: "no-store" }).then(async (r) => { if (r.ok) return r.json(); let msg = String(r.status); try { const j = await r.json(); msg += " " + (j.message || j.hint || j.details || JSON.stringify(j)).slice(0, 200); } catch {} throw new Error(msg); });
     const t0 = tradingDayStart();
     const svc = fetch(SUPABASE_URL + "/rest/v1/service_log?select=*&location_id=eq." + loc + "&created_at=gte." + range.from.toISOString() + "&created_at=lt." + range.to.toISOString() + "&order=created_at.desc&limit=1000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []).catch(() => []);
+    const svcPrev = fetch(SUPABASE_URL + "/rest/v1/service_log?select=id,order_id,rating,tags,category,severity,resolved,action_value,created_at&location_id=eq." + loc + "&created_at=gte." + range.prevFrom.toISOString() + "&created_at=lt." + range.prevTo.toISOString() + "&limit=1000", { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []).catch(() => []);
     const staffing = fetch(SUPABASE_URL + "/rest/v1/rpc/kds_staffing", { method: "POST", headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify({ p_location: loc, p_from: range.from.toISOString(), p_to: range.to.toISOString() }), cache: "no-store" }).then((r) => r.ok ? r.json() : null).catch(() => null);
     Promise.all([
       rpc(range.from, range.to),
@@ -1441,11 +1443,12 @@ function PerformanceView({ loc, F, lateMin }) {
       rpc(new Date(t0.getTime() - 13 * 86400000), new Date(t0.getTime() + 86400000)),
       staffing,
       svc,
+      svcPrev,
       fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,label,station&location_id=eq." + loc, { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
       fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=value&key=eq." + encodeURIComponent("kds_target_minutes:" + loc), { headers: H, cache: "no-store" }).then((r) => r.ok ? r.json() : []),
-    ]).then(([r, p, tr, st, sv, sc, tg]) => {
+    ]).then(([r, p, tr, st, sv, svp, sc, tg]) => {
       if (!alive) return;
-      setRows(r || []); setPrev(p || []); setTrend(tr || []); setStaff(Array.isArray(st) ? st : null); setSvc(Array.isArray(sv) ? sv : []); setScreens(sc || []); setUpdatedAt(new Date());
+      setRows(r || []); setPrev(p || []); setTrend(tr || []); setStaff(Array.isArray(st) ? st : null); setSvc(Array.isArray(sv) ? sv : []); setSvcPrev(Array.isArray(svp) ? svp : []); setScreens(sc || []); setUpdatedAt(new Date());
       if (tg && tg[0] && Number(tg[0].value) > 0) setTarget(Number(tg[0].value));
     }).catch((e) => alive && setErr("Could not load performance data: " + (e && e.message ? e.message : e) + " — if it mentions kds_ticket_times, run db/kds_perf.sql"));
     return () => { alive = false; };
@@ -1753,12 +1756,30 @@ function PerformanceView({ loc, F, lateMin }) {
     // kitchen tickets over 2x target with no feedback logged → unknown outcomes
     const silentSlow = done.filter((o) => tt(o) > T * 2 && !rows.some((r) => r.order_id === (o.order_id || "").split(":")[0])).length;
     const moodDist = [1, 2, 3, 4, 5].map((v) => ({ v, n: rated.filter((r) => r.rating === v).length, rows: rated.filter((r) => r.rating === v) }));
+    // previous period comparison
+    const prevRows = svcPrev || []; const prevIssues = prevRows.filter(isIssue); const prevDone = (prev || []).length;
+    const prevPer100 = prevDone ? prevIssues.length / prevDone * 100 : null;
+    const prevRated = prevRows.filter((r) => r.rating != null); const prevMood = prevRated.length ? avg(prevRated.map((r) => r.rating)) : null;
+    const prevResolved = (() => { const x = prevIssues.filter((r) => r.resolved != null); return x.length ? Math.round(x.filter((r) => r.resolved).length / x.length * 100) : null; })();
+    // issue × item matrix (top items by issues × issue categories)
+    const itemCats = (() => { const m = {}; for (const r of issues) for (const it of (r.item_names || [])) { const c = r.category ? (SVC_CAT[r.category] || r.category) : "Other"; (m[it] ||= { it, total: 0, by: {}, rows: [] }); m[it].total++; m[it].by[c] = (m[it].by[c] || 0) + 1; m[it].rows.push(r); } const cats = [...new Set(issues.map((r) => r.category ? (SVC_CAT[r.category] || r.category) : "Other"))]; return { items: Object.values(m).sort((a, b) => b.total - a.total).slice(0, 10), cats }; })();
+    // recovery effectiveness: action → left happy %
+    const recovery = (() => { const m = {}; for (const r of issues) { if (!r.action || r.resolved == null) continue; (m[r.action] ||= { k: r.action, n: 0, happy: 0, value: 0, rows: [] }); m[r.action].n++; if (r.resolved) m[r.action].happy++; m[r.action].value += Number(r.action_value) || 0; m[r.action].rows.push(r); } return Object.values(m).map((x) => ({ ...x, pct: Math.round(x.happy / x.n * 100), label: ({ none: "Nothing", apology: "Apology", remake: "Remade", discount: "Discount", comp: "Comped", manager: "Manager", voucher: "Voucher" })[x.k] || x.k })).sort((a, b) => b.n - a.n); })();
+    // issue rate by kitchen ticket time band
+    const bandOf = (secs) => secs == null ? null : secs < 600 ? "< 10" : secs < 1200 ? "10–20" : secs < 1800 ? "20–30" : "30+";
+    const byBand = ["< 10", "10–20", "20–30", "30+"].map((b) => { const tk = done.filter((o) => bandOf(tt(o)) === b); const ids = new Set(tk.map((o) => (o.order_id || "").split(":")[0])); const iss = issues.filter((r) => ids.has(r.order_id)); return { k: b + " min", tickets: tk.length, issues: iss.length, per100: tk.length ? iss.length / tk.length * 100 : 0, rows: iss }; });
+    // table grid
+    const tableGrid = (() => { const m = {}; for (const o of done) { const t = o.table_label; if (!t) continue; (m[t] ||= { t, tickets: 0, issues: 0, pos: 0, rows: [] }).tickets++; } for (const r of rows) { const t = r.table_label; if (!t) continue; const e = (m[t] ||= { t, tickets: 0, issues: 0, pos: 0, rows: [] }); if (isIssue(r)) e.issues++; else e.pos++; e.rows.push(r); } return Object.values(m).sort((a, b) => a.t.localeCompare(b.t, undefined, { numeric: true })); })();
+    // watchlist: items with 2+ issues
+    const watchlist = itemCats.items.filter((x) => x.total >= 2).map((x) => ({ ...x, top: Object.entries(x.by).sort((a, b) => b[1] - a[1])[0] }));
+    // comps by category
+    const compsByCat = (() => { const m = {}; for (const r of rows) { const v = Number(r.action_value) || 0; if (!v) continue; const c = r.category ? (SVC_CAT[r.category] || r.category) : "Other"; m[c] = (m[c] || 0) + v; } return Object.entries(m).map(([k, v]) => ({ k, v })).sort((a, b) => b.v - a.v); })();
     const byDay = (() => { if (period === "today" || period === "yesterday") return []; const m = {}; for (const o of done) { const k = tradingDayStart(new Date(o.created_at)); const kk = k.toDateString(); (m[kk] ||= { d: k, tickets: 0, issues: 0, pos: 0, rated: [] }).tickets++; } for (const r of rows) { const kk = tradingDayStart(new Date(r.created_at)).toDateString(); const e = (m[kk] ||= { d: tradingDayStart(new Date(r.created_at)), tickets: 0, issues: 0, pos: 0, rated: [] }); if (isIssue(r)) e.issues++; else if (positives.includes(r)) e.pos++; if (r.rating != null) e.rated.push(r.rating); } return Object.values(m).sort((a, b) => a.d - b.d).map((e) => ({ ...e, per100: e.tickets ? e.issues / e.tickets * 100 : 0, mood: e.rated.length ? avg(e.rated) : null })); })();
     // serve time: kitchen done → on the table (pass-screen Served tap)
     const followUp = done.filter((o) => tt(o) > T * 2 && !rows.some((r) => r.order_id === (o.order_id || "").split(":")[0])).sort((a, b) => tt(b) - tt(a));
     const serveTimes = done.filter((o) => o.served_at && o._done).map((o) => (new Date(o.served_at).getTime() - o._done) / 1000).filter((x) => x >= 0 && x < 3600);
     const serveAvg = avg(serveTimes);
-    return { rows, issues, positives, rated, avgRating, per100, resolvedRate, compValue, byCategory, byTag, byItem, byTable, byStaff, byHour, byShift, byAction, ticketOf, slowIssues, silentSlow, serveTimes, serveAvg, followUp, moodDist, byDay };
+    return { rows, issues, positives, rated, avgRating, per100, resolvedRate, compValue, byCategory, byTag, byItem, byTable, byStaff, byHour, byShift, byAction, ticketOf, slowIssues, silentSlow, serveTimes, serveAvg, followUp, moodDist, byDay, prevPer100, prevMood, prevResolved, itemCats, recovery, byBand, tableGrid, watchlist, compsByCat };
   })();
 
   // ---- weekday pattern (7d / 30d) ----
@@ -2141,8 +2162,19 @@ function PerformanceView({ loc, F, lateMin }) {
           {updatedAt && <span style={{ fontSize: F(11), color: C.muted }}>updated {updatedAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</span>}
           <Seg value={view2} options={[["kitchen", "Kitchen"], ["service", "Service" + (service.issues.length ? " " + service.issues.length : "")]]} onChange={setView2} />
           {view2 === "kitchen" && <Seg value={mode} options={[["basic", "Basic"], ["advanced", "Advanced"]]} onChange={setMode} />}
+          {view2 === "service" && service.rows.length > 0 && <div onClick={() => { const esc = (v) => '"' + String(v == null ? "" : v).replace(/"/g, '""') + '"'; const head = ["when", "order_no", "table", "rating", "tags", "category", "severity", "items", "action", "value", "left_happy", "note", "logged_by", "source", "kitchen_secs"]; const lines = [head.join(",")].concat(service.rows.map((r) => [new Date(r.created_at).toISOString(), r.order_no, r.table_label, r.rating, (r.tags || []).join("; "), r.category, r.severity, (r.item_names || []).join("; "), r.action, r.action_value, r.resolved, r.note, r.logged_by, r.source, r.ticket_secs].map(esc).join(","))); const blob = new Blob([lines.join("\n")], { type: "text/csv" }); const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = "service-feedback-" + range.label.replace(/[^a-z0-9]+/gi, "-").toLowerCase() + ".csv"; a.click(); }} className="kbtn" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800 }}>⇩ CSV</div>}
           {adv && <div onClick={() => openDrill("All tickets · " + range.label, live)} className="kbtn" title="Open every ticket in the period (CSV export is in the panel)" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800 }}>All tickets</div>}
-          <div onClick={() => !printing && printSummary([
+          <div onClick={() => !printing && (view2 === "service" ? printSummary([
+            range.label,
+            "Feedback entries: " + service.rows.length + "   Tickets: " + done.length,
+            "Issues: " + service.issues.length + (service.per100 != null ? " (" + service.per100.toFixed(1) + "/100)" : ""),
+            "Guest mood: " + (service.avgRating != null ? service.avgRating.toFixed(1) + "/5" : "-") + "   Left happy: " + (service.resolvedRate != null ? service.resolvedRate + "%" : "-"),
+            "Comps/discounts: GBP " + service.compValue.toFixed(2),
+            "",
+            ...service.byTag.slice(0, 6).map((r) => r.k.slice(0, 22).padEnd(22) + String(r.n).padStart(4)),
+            "",
+            ...service.watchlist.slice(0, 4).map((x) => "! " + x.it.slice(0, 24) + " x" + x.total),
+          ], "SERVICE SUMMARY") : printSummary([
             range.label + (period === "today" ? " to " + new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : ""),
             "Tickets: " + done.length + "   Target: " + target + " min",
             "On-time: " + (onTimePct == null ? "-" : onTimePct + "%") + (grade ? "   Grade " + grade : ""),
@@ -2153,7 +2185,7 @@ function PerformanceView({ loc, F, lateMin }) {
             ...byScreen.slice(0, 4).map((r) => r.k.slice(0, 18).padEnd(18) + " " + String(r.n).padStart(4) + " " + mmss(r.avg).padStart(7) + " " + (r.on + "%").padStart(5)),
             "",
             ...insights.slice(0, 3).map((x) => "* " + x.title),
-          ], "KITCHEN SPEED")} className="kbtn" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800 }}>{printing ? "Printing…" : "🖨 Print"}</div>
+          ], "KITCHEN SPEED"))} className="kbtn" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800 }}>{printing ? "Printing…" : "🖨 Print"}</div>
           <Seg value={period} options={[["today", "Today"], ["yesterday", "Yesterday"], ["7d", "7 days"], ["30d", "30 days"]]} onChange={setPeriod} />
           <div onClick={() => setEditTarget(editTarget == null ? target : null)} className="kbtn" style={{ cursor: "pointer", background: "#fff", border: "1px solid " + C.line, borderRadius: 11, padding: "7px 13px", fontSize: F(13), fontWeight: 800, display: "flex", alignItems: "center", gap: 8 }}>
             <span style={{ color: C.muted, fontWeight: 700 }}>Target</span> {target} min <span style={{ color: C.muted }}>✎</span>
@@ -2177,9 +2209,9 @@ function PerformanceView({ loc, F, lateMin }) {
           <b>{range.label}:</b> {service.rows.length === 0 ? "nothing logged yet on " + done.length + " tickets." : service.rows.length + " feedback entr" + (service.rows.length === 1 ? "y" : "ies") + " on " + done.length + " tickets — "}{service.rows.length > 0 && <><b style={{ color: service.issues.length ? C.bad : C.good }}>{service.issues.length} issue{service.issues.length === 1 ? "" : "s"}</b>{service.per100 != null ? " (" + service.per100.toFixed(1) + " per 100 tickets)" : ""}, {service.positives.length} positive{service.positives.length === 1 ? "" : "s"}.{service.avgRating != null ? " Average guest mood " + service.avgRating.toFixed(1) + " / 5." : ""}{service.resolvedRate != null ? " " + service.resolvedRate + "% of issues ended with the guest leaving happy." : ""}{service.compValue ? " £" + service.compValue.toFixed(2) + " given back in comps and discounts." : ""}</>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: F(10) }}>
-          <Tile onClick={() => openServiceDrill("All issues", service.issues)} big label="ISSUES" value={String(service.issues.length)} tone={service.issues.length ? "bad" : "good"} sub={service.per100 != null ? service.per100.toFixed(1) + " per 100 tickets" : ""} />
-          <Tile label="GUEST MOOD" value={service.avgRating != null ? service.avgRating.toFixed(1) + " / 5" : "—"} tone={service.avgRating == null ? undefined : service.avgRating >= 4 ? "good" : service.avgRating >= 3 ? "warn" : "bad"} sub={service.rated.length + " rated"} />
-          <Tile onClick={() => openServiceDrill("Unresolved issues", service.issues.filter((r) => r.resolved === false))} label="LEFT HAPPY" value={service.resolvedRate != null ? service.resolvedRate + "%" : "—"} tone={service.resolvedRate == null ? undefined : service.resolvedRate >= 80 ? "good" : service.resolvedRate >= 60 ? "warn" : "bad"} sub={service.issues.filter((r) => r.resolved === false).length + " left unhappy"} />
+          <Tile onClick={() => openServiceDrill("All issues", service.issues)} big label="ISSUES" value={String(service.issues.length)} tone={service.issues.length ? "bad" : "good"} sub={(service.per100 != null ? service.per100.toFixed(1) + " per 100 tickets" : "") + (service.prevPer100 != null && service.per100 != null ? " · " + (service.per100 <= service.prevPer100 ? "▼" : "▲") + " vs " + service.prevPer100.toFixed(1) + " last time" : "")} />
+          <Tile label="GUEST MOOD" value={service.avgRating != null ? service.avgRating.toFixed(1) + " / 5" : "—"} tone={service.avgRating == null ? undefined : service.avgRating >= 4 ? "good" : service.avgRating >= 3 ? "warn" : "bad"} sub={service.rated.length + " rated" + (service.prevMood != null && service.avgRating != null ? " · " + (service.avgRating >= service.prevMood ? "▲" : "▼") + " vs " + service.prevMood.toFixed(1) : "")} />
+          <Tile onClick={() => openServiceDrill("Unresolved issues", service.issues.filter((r) => r.resolved === false))} label="LEFT HAPPY" value={service.resolvedRate != null ? service.resolvedRate + "%" : "—"} tone={service.resolvedRate == null ? undefined : service.resolvedRate >= 80 ? "good" : service.resolvedRate >= 60 ? "warn" : "bad"} sub={service.issues.filter((r) => r.resolved === false).length + " left unhappy" + (service.prevResolved != null && service.resolvedRate != null ? " · " + (service.resolvedRate >= service.prevResolved ? "▲" : "▼") + " vs " + service.prevResolved + "%" : "")} />
           <Tile onClick={() => openServiceDrill("Positives", service.positives)} label="POSITIVES" value={String(service.positives.length)} tone="good" sub="compliments, regulars, occasions" />
           <Tile onClick={() => openDrill("Served tickets", done.filter((o) => o.served_at))} label="SERVE TIME" value={service.serveAvg != null ? mmss(service.serveAvg) : "—"} tone={service.serveAvg == null ? undefined : service.serveAvg <= 180 ? "good" : service.serveAvg <= 360 ? "warn" : "bad"} sub={service.serveTimes.length ? "kitchen done → table · " + service.serveTimes.length + " tapped" : "needs the Served tap on a pass screen"} />
           <Tile onClick={() => openServiceDrill("High severity", service.issues.filter((r) => r.severity === "high"))} label="HIGH SEVERITY" value={String(service.issues.filter((r) => r.severity === "high").length)} tone={service.issues.some((r) => r.severity === "high") ? "bad" : undefined} sub={"£" + service.compValue.toFixed(0) + " comps / discounts"} />
@@ -2249,6 +2281,70 @@ function PerformanceView({ loc, F, lateMin }) {
                 <div key={i} style={{ background: toneBg(x.tone), borderRadius: 14, padding: F(12) + "px " + F(14) + "px" }}>
                   <div style={{ fontSize: F(13.5), fontWeight: 800, color: toneFg(x.tone), fontFamily: PF }}>{x.title}</div>
                   <div style={{ fontSize: F(12.5), color: C.ink, marginTop: 4, lineHeight: 1.45 }}>{x.body}</div>
+                </div>
+              ))}
+            </div>
+          </Card>
+        )}
+        {service.issues.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: F(14) }}>
+            <Card title="KITCHEN TIME → ISSUES" right={<span style={{ fontSize: F(11), color: C.muted }}>issues per 100 tickets by how long the kitchen took</span>}>
+              <div style={{ display: "flex", gap: 8, alignItems: "flex-end", height: F(110) }}>
+                {service.byBand.map((b) => { const max = Math.max(1, ...service.byBand.map((x) => x.per100)); return (
+                  <div key={b.k} onClick={() => openServiceDrill("Issues on " + b.k + " tickets", b.rows)} className="kbtn" style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%", cursor: b.issues ? "pointer" : "default" }}>
+                    <div style={{ fontSize: F(12), fontWeight: 900, fontFamily: PF, color: b.per100 > 10 ? C.bad : C.ink }}>{b.tickets ? b.per100.toFixed(0) : ""}</div>
+                    <div style={{ width: "70%", height: (b.per100 / max * 65) + "%", minHeight: b.issues ? 4 : 0, background: b.per100 > 10 ? "#fca5a5" : "#cbd5e1", borderRadius: "6px 6px 0 0" }} />
+                    <div style={{ fontSize: F(11.5), fontWeight: 800, color: C.muted, marginTop: 4 }}>{b.k}</div>
+                    <div style={{ fontSize: F(10), color: C.muted }}>{b.tickets} tkts</div>
+                  </div>
+                ); })}
+              </div>
+              {(() => { const a = service.byBand[0], z = service.byBand[3]; return a && z && a.tickets >= 5 && z.tickets >= 5 ? <div style={{ fontSize: F(12.5), color: C.ink, marginTop: 8 }}>{z.per100 > a.per100 * 2 ? <>Tickets over 30 min draw <b>{(z.per100 / Math.max(.1, a.per100)).toFixed(1)}×</b> the issue rate of fast ones — speed is the lever.</> : <>Issue rate barely moves with kitchen time — these are about the food or the floor, not speed.</>}</div> : null; })()}
+            </Card>
+            <Card title="DOES RECOVERY WORK?" right={<span style={{ fontSize: F(11), color: C.muted }}>what was done → % left happy</span>}>
+              {service.recovery.length ? service.recovery.map((r) => (
+                <div key={r.k} onClick={() => openServiceDrill(r.label + " — outcomes", r.rows)} className="kbtn" style={{ cursor: "pointer", padding: "7px 0", borderTop: "1px solid " + C.line }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: F(13.5), alignItems: "baseline" }}><span style={{ fontWeight: 700 }}>{r.label} <span style={{ color: C.muted, fontWeight: 500 }}>· {r.n}{r.value ? " · £" + r.value.toFixed(0) : ""}</span></span><b style={{ fontFamily: PF, color: r.pct >= 80 ? C.good : r.pct >= 50 ? C.warn : C.bad }}>{r.pct}% happy</b></div>
+                  <div style={{ height: 6, background: C.soft, borderRadius: 3, marginTop: 4 }}><div style={{ width: r.pct + "%", height: "100%", borderRadius: 3, background: r.pct >= 80 ? "#86efac" : r.pct >= 50 ? "#fde68a" : "#fca5a5" }} /></div>
+                </div>
+              )) : <div style={{ fontSize: F(13), color: C.muted }}>Needs issues with an action and a "left happy?" answer</div>}
+              {service.compsByCat.length > 0 && <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>Comps & discounts: {service.compsByCat.map((x) => x.k + " £" + x.v.toFixed(0)).join(" · ")}</div>}
+            </Card>
+            <Card title="WATCHLIST" right={<span style={{ fontSize: F(11), color: C.muted }}>dishes with 2+ issues</span>}>
+              {service.watchlist.length ? service.watchlist.map((x) => (
+                <div key={x.it} onClick={() => openServiceDrill("Issues on " + x.it, x.rows)} className="kbtn" style={{ cursor: "pointer", display: "flex", justifyContent: "space-between", gap: 8, padding: "7px 0", borderTop: "1px solid " + C.line, fontSize: F(13.5), alignItems: "baseline" }}>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>{x.it}</b> <span style={{ color: C.muted }}>· mostly {x.top[0].toLowerCase()}</span></span>
+                  <span style={{ fontWeight: 900, fontFamily: PF, color: C.bad, flexShrink: 0 }}>{x.total}</span>
+                </div>
+              )) : <div style={{ fontSize: F(13), color: C.muted }}>No dish has been flagged twice</div>}
+            </Card>
+          </div>
+        )}
+        {service.issues.length > 0 && service.itemCats.items.length > 0 && (
+          <Card title="DISH × ISSUE TYPE" right={<span style={{ fontSize: F(11), color: C.muted }}>which problems attach to which dishes · tap a cell</span>}>
+            <div style={{ overflowX: "auto" }}>
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(160px, 1.4fr) repeat(" + service.itemCats.cats.length + ", minmax(80px, 1fr)) 60px", gap: 4, fontSize: F(12.5), minWidth: 480 }}>
+                <span />
+                {service.itemCats.cats.map((c) => <span key={c} style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, letterSpacing: ".05em", textAlign: "center", paddingBottom: 4 }}>{c.toUpperCase()}</span>)}
+                <span style={{ fontSize: F(10.5), fontWeight: 800, color: C.muted, textAlign: "right" }}>ALL</span>
+                {service.itemCats.items.map((x) => (
+                  <React.Fragment key={x.it}>
+                    <span style={{ fontWeight: 700, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", alignSelf: "center" }}>{x.it}</span>
+                    {service.itemCats.cats.map((c) => { const n = x.by[c] || 0; return <span key={c} onClick={() => n && openServiceDrill(x.it + " · " + c, x.rows.filter((r) => (r.category ? (SVC_CAT[r.category] || r.category) : "Other") === c))} className="kbtn" style={{ cursor: n ? "pointer" : "default", textAlign: "center", padding: "7px 0", borderRadius: 8, background: n >= 3 ? "#fecaca" : n === 2 ? "#fee2e2" : n === 1 ? "#fff1f2" : C.soft, color: n ? C.bad : "#cbd5e1", fontWeight: 900, fontFamily: PF }}>{n || "·"}</span>; })}
+                    <span style={{ textAlign: "right", fontWeight: 900, fontFamily: PF, alignSelf: "center" }}>{x.total}</span>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          </Card>
+        )}
+        {service.tableGrid.length > 0 && service.rows.length > 0 && (
+          <Card title="TABLES" right={<span style={{ fontSize: F(11), color: C.muted }}>red = issues · green = positives · number = tickets · tap a table</span>}>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(84px, 1fr))", gap: 6 }}>
+              {service.tableGrid.map((t) => (
+                <div key={t.t} onClick={() => t.rows.length && openServiceDrill("Table " + t.t, t.rows)} className="kbtn" style={{ cursor: t.rows.length ? "pointer" : "default", borderRadius: 11, padding: "8px 4px", textAlign: "center", background: t.issues >= 2 ? "#fecaca" : t.issues === 1 ? "#fee2e2" : t.pos ? C.goodBg : C.soft, color: t.issues ? C.bad : t.pos ? C.good : C.muted }}>
+                  <div style={{ fontWeight: 900, fontFamily: PF, fontSize: F(15) }}>{t.t}</div>
+                  <div style={{ fontSize: F(10.5), fontWeight: 700 }}>{t.tickets} tkts{t.issues ? " · " + t.issues + "!" : ""}{t.pos ? " · " + t.pos + "★" : ""}</div>
                 </div>
               ))}
             </div>
