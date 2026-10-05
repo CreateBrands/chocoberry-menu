@@ -1207,7 +1207,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   line={{ name: l.item.name, qty: l.qty, unitPrice: l.unit, image_url: l.item.image_url, category: l.item.category, mods: l.mods.map((m) => m.name), note: l.note }}
                   onDec={() => setQty(l.key, -1)}
                   onInc={() => setQty(l.key, 1)}
-                  onEdit={hasMods ? () => editLine(l) : undefined}
+                  onEdit={() => editLine(l)}
+                  editLabel={hasMods ? (l.note ? "✎ Edit · note" : "✎ Edit") : (l.note ? "✎ Note" : "+ Note")}
                   onRemove={() => removeLine(l.key)}
                 />
               );
@@ -1705,7 +1706,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               <div style={{ width: 70, height: 70, borderRadius: 20, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, color: "#fff", background: modItem.image_url ? "#f0f1f3" : "linear-gradient(135deg," + catColor(modItem.category || (master && master.name)).bar + "," + catColor(modItem.category || (master && master.name)).ink + ")", backgroundImage: modItem.image_url ? "url(" + modItem.image_url + ")" : undefined, backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 6px 16px rgba(0,0,0,.18)" }}>{!modItem.image_url && fallbackFor(modItem.name, modItem.category || "").icon}</div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.08 }}>{modItem.name}</div>
-                <div style={{ fontSize: 15, color: "#9aa1ac", marginTop: 4, fontWeight: 600 }}>{gbp(modItem.price)} · {editKey ? "editing" : "customise"}</div>
+                <div style={{ fontSize: 15, color: "#9aa1ac", marginTop: 4, fontWeight: 600 }}>{gbp(modItem.price)} · {(modItem.modifiers || []).length ? (editKey ? "editing" : "customise") : "note for the kitchen"}</div>
               </div>
             </div>
 

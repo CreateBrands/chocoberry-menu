@@ -27,7 +27,7 @@ export function cartFallback(name = "", cat = "") {
   return { icon: "🍽", grad: "linear-gradient(140deg,#f6eedc,#dec89d)" };
 }
 
-export default function CartLine({ line, onDec, onInc, onEdit, onRemove, last = false }) {
+export default function CartLine({ line, onDec, onInc, onEdit, onRemove, last = false, editLabel }) {
   const l = line || {};
   const qty = l.qty || 1;
   const unit = Number(l.unitPrice != null ? l.unitPrice : (l.lineTotal || 0) / (qty || 1));
@@ -69,7 +69,7 @@ export default function CartLine({ line, onDec, onInc, onEdit, onRemove, last = 
                 <span onClick={onInc} style={{ width: 34, height: 34, borderRadius: 9, background: "#fff", display: "inline-flex", alignItems: "center", justifyContent: "center", color: "#5E7A4D", cursor: "pointer", fontSize: 20, fontWeight: 700, boxShadow: "0 1px 3px rgba(0,0,0,.08)" }}>+</span>
               </div>
             )}
-            {canEdit && <span onClick={onEdit} style={{ fontSize: 14, color: "#3a5730", fontWeight: 700, cursor: "pointer", background: "#eef4e8", padding: "7px 12px", borderRadius: 9 }}>✎ Edit</span>}
+            {canEdit && <span onClick={onEdit} style={{ fontSize: 14, color: "#3a5730", fontWeight: 700, cursor: "pointer", background: "#eef4e8", padding: "7px 12px", borderRadius: 9 }}>{editLabel || "✎ Edit"}</span>}
             {showRemove && <span onClick={onRemove} style={{ marginLeft: "auto", color: "#c94a4a", cursor: "pointer", fontSize: 15, fontWeight: 600, padding: "8px 4px" }}>Remove</span>}
           </div>
         )}
