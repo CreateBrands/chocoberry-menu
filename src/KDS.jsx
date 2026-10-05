@@ -709,8 +709,8 @@ export default function KDS() {
           {/* ALWAYS shown. Previously this rendered only when ?screen= was
               present, so an unlabelled screen displayed no identity at all —
               exactly the screens most likely to be misconfigured. */}
-          <div onClick={() => setSetupOpen(true)} className="kbtn" style={{ cursor: "pointer", fontSize: 12, fontWeight: 800, color: myStation ? "#052e16" : "#cbd5e1", background: myStation ? "#4ade80" : "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }} title="Tap to set this screen's name, station and what it shows">
-            {(myName || ("Screen " + getScreenId())) + (myStation ? " \u00B7 " + myStation : " \u00B7 no station") + (mySettings && mySettings.routing ? " \u00B7 filtered" : "")} ⚙
+          <div onClick={() => setSetupOpen(true)} className="kbtn" style={{ cursor: "pointer", fontSize: 12, fontWeight: 800, color: myStation ? stationMeta(myStation).color : "#cbd5e1", background: myStation ? stationMeta(myStation).bg : "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }} title="Tap to set this screen's name, station and what it shows">
+            {stationMeta(myStation).icon} {(myName || ("Screen " + getScreenId())) + (myStation ? " \u00B7 " + myStation : " \u00B7 no station") + (mySettings && mySettings.routing ? " \u00B7 filtered" : "")} ⚙
           </div>
         </div>
       </div>
@@ -1120,7 +1120,18 @@ const avg = (arr) => arr.length ? arr.reduce((t, x) => t + x, 0) / arr.length : 
 // screen shows (menus / categories / items). Saved to kds_screens so every
 // screen at the store sees the routing.
 // ============================================================================
-function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSaved }) {
+export const STATION_META = {
+  kitchen: { icon: "🍳", color: "#ea580c", bg: "#ffedd5" }, "hot kitchen": { icon: "🍳", color: "#ea580c", bg: "#ffedd5" }, grill: { icon: "🔥", color: "#dc2626", bg: "#fee2e2" },
+  "cold kitchen": { icon: "🥗", color: "#16a34a", bg: "#dcfce7" }, cold: { icon: "🥗", color: "#16a34a", bg: "#dcfce7" }, desserts: { icon: "🍰", color: "#db2777", bg: "#fce7f3" },
+  drinks: { icon: "🥤", color: "#2563eb", bg: "#dbeafe" }, coffee: { icon: "☕", color: "#92400e", bg: "#fef3c7" }, bar: { icon: "🍸", color: "#7c3aed", bg: "#ede9fe" },
+  pass: { icon: "🛎", color: "#475569", bg: "#e2e8f0" }, front: { icon: "🛎", color: "#475569", bg: "#e2e8f0" }, expo: { icon: "🛎", color: "#475569", bg: "#e2e8f0" }, counter: { icon: "🛎", color: "#475569", bg: "#e2e8f0" },
+};
+export const stationMeta = (st) => STATION_META[String(st || "").trim().toLowerCase()] || { icon: "🖥", color: "#0f172a", bg: "#f1f5f9" };
+
+function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, orders, onClose, onSaved }) {
+  // A manager can set up any screen at the store from this device.
+  const [screenKey, setScreenKey] = useState(ownKey);
+  const current = screenKey === ownKey ? ownCurrent : (siblings.find((x) => x.screen_key === screenKey) || null);
   const [label, setLabel] = useState(current?.label || "");
   const [station, setStation] = useState(current?.station || "");
   const [printer, setPrinter] = useState(current?.printer_sn || "");
@@ -1131,6 +1142,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [tab, setTab] = useState("setup"); // setup | store
+  useEffect(() => { setLabel(current?.label || ""); setStation(current?.station || ""); setPrinter(current?.printer_sn || ""); setRouting({ menus: [...(current?.routing?.menus || [])], categories: [...(current?.routing?.categories || [])], items: [...(current?.routing?.items || [])] }); }, [screenKey]); // eslint-disable-line
   const initial = JSON.stringify({ label: current?.label || "", station: current?.station || "", printer: current?.printer_sn || "", routing: { menus: [...(current?.routing?.menus || [])], categories: [...(current?.routing?.categories || [])], items: [...(current?.routing?.items || [])] } });
   const dirty = JSON.stringify({ label, station, printer, routing }) !== initial;
   const reset = () => { const i = JSON.parse(initial); setLabel(i.label); setStation(i.station); setPrinter(i.printer); setRouting(i.routing); };
@@ -1181,8 +1193,8 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "kds_screen_self", data: { location_id: loc, screen_key: screenKey, label: label.trim(), station: station.trim(), routing, printer_sn: printer || null } }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || "Save failed");
-      try { if (label.trim()) localStorage.setItem("kds_name", label.trim()); if (station.trim()) localStorage.setItem("kds_station", station.trim()); } catch {}
-      onSaved(printer || ""); onClose();
+      if (screenKey === ownKey) { try { if (label.trim()) localStorage.setItem("kds_name", label.trim()); if (station.trim()) localStorage.setItem("kds_station", station.trim()); } catch {} }
+      onSaved(screenKey === ownKey ? (printer || "") : undefined); onClose();
     } catch (e) { setErr(e.message || "Save failed"); } finally { setBusy(false); }
   }
   const total = routing.menus.length + routing.categories.length + routing.items.length;
@@ -1203,7 +1215,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
         {/* header */}
         <div style={{ padding: "16px 24px 12px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div>
-            <div style={{ fontSize: 21, fontWeight: 900, fontFamily: "'Poppins',sans-serif" }}>Set up this screen</div>
+            <div style={{ fontSize: 21, fontWeight: 900, fontFamily: "'Poppins',sans-serif", display: "flex", alignItems: "center", gap: 10 }}><span style={{ width: 34, height: 34, borderRadius: 10, background: stationMeta(station).bg, color: stationMeta(station).color, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>{stationMeta(station).icon}</span>{screenKey === ownKey ? "Set up this screen" : "Set up " + (current?.label || "Screen " + screenKey)}{screenKey !== ownKey && <span onClick={() => setScreenKey(ownKey)} style={{ fontSize: 12.5, fontWeight: 800, color: C.muted, cursor: "pointer", textDecoration: "underline" }}>back to this screen</span>}</div>
             <div style={{ fontSize: 12.5, color: C.muted, marginTop: 2 }}>Screen {screenKey} · {siblings.length} screen{siblings.length === 1 ? "" : "s"} at this store{others.length ? " · " + others.map((x) => (x.label || "Screen " + x.screen_key) + (x.station ? " (" + x.station + ")" : "")).join(", ") : ""}</div>
           </div>
           <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 11, padding: 3 }}>
@@ -1224,7 +1236,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
                 <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>STATION</div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6, alignItems: "center" }}>
-                    {STATIONS.map(([v, l]) => <Chip key={v} small on={station.trim().toLowerCase() === v} onClick={() => setStation(v)}>{l}</Chip>)}
+                    {STATIONS.map(([v, l]) => { const m = stationMeta(v); const on = station.trim().toLowerCase() === v; return <span key={v} onClick={() => setStation(v)} className="kbtn" style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 10, fontSize: 13, fontWeight: 800, background: on ? m.color : m.bg, color: on ? "#fff" : m.color, border: "1.5px solid " + (on ? m.color : "transparent") }}>{m.icon} {l}</span>; })}
                     <input value={STATIONS.some(([v]) => v === station.trim().toLowerCase()) ? "" : station} onChange={(e) => setStation(e.target.value)} placeholder="other…" style={{ ...inp, width: 96, padding: "5px 10px", fontSize: 12.5 }} />
                   </div>
                   <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.45, color: isPass ? C.warn : C.muted }}>{isPass ? "Pass screen — serves and clears only; its bumps won't count as cooking time." : station.trim() ? "Production station — its bumps define when food is done." : "No station — this screen won't count for ticket timing."}{dupStation && <span style={{ color: C.warn }}> Another screen already uses this station.</span>}</div>
@@ -1248,9 +1260,14 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
                 {preview.length > 0 && (
                   <div style={{ display: "grid", gap: 4 }}>
                     {preview.slice(0, 8).map(({ o, total: t, mine }) => (
-                      <div key={o.id} style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12.5, padding: "5px 0", borderTop: "1px solid " + C.soft, color: mine.length ? C.ink : "#94a3b8" }}>
-                        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b>#{o.order_no}</b>{o.menu_tables?.label ? " " + o.menu_tables.label : ""} · {mine.length ? mine.map((it) => it.name_snapshot).join(", ") : "nothing"}</span>
-                        <span style={{ flexShrink: 0, fontWeight: 800, color: mine.length === t ? C.good : mine.length ? C.warn : "#94a3b8" }}>{mine.length}/{t}</span>
+                      <div key={o.id} style={{ padding: "6px 0", borderTop: "1px solid " + C.soft, fontSize: 12.5 }}>
+                        <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
+                          <b style={{ color: mine.length ? C.ink : "#94a3b8" }}>#{o.order_no}{o.menu_tables?.label ? " · " + o.menu_tables.label : ""}</b>
+                          <span style={{ flexShrink: 0, fontWeight: 800, color: mine.length === t ? C.good : mine.length ? C.warn : "#94a3b8" }}>{mine.length}/{t} lines</span>
+                        </div>
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 3 }}>
+                          {(o.menu_order_items || []).map((it, i) => { const on = mine.includes(it); return <span key={i} style={{ fontSize: 11.5, padding: "2px 7px", borderRadius: 6, background: on ? C.ink : "transparent", color: on ? "#fff" : "#94a3b8", textDecoration: on ? "none" : "line-through", border: on ? "none" : "1px solid " + C.line }}>{it.name_snapshot}</span>; })}
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -1287,7 +1304,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
                             <Switch on={menuOn} onClick={() => { setRouting((r) => ({ ...r, menus: menuOn ? r.menus.filter((x) => x !== m.id) : [...r.menus, m.id], categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) })); }} />
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontWeight: 900, fontSize: 14.5 }}>{m.name}</div>
-                              <div style={{ fontSize: 12, color: C.muted }}>{menuOn ? "Whole menu on this screen" : picked ? picked + " of " + mcats.length + " categories" : "Off · or tap categories below"}{el.length ? " · also on " + el.join(", ") : ""}</div>
+                              <div style={{ fontSize: 12, color: C.muted }}>{menuOn ? "Whole menu on this screen" : picked ? picked + " of " + mcats.length + " categories" : "Off · or tap categories below"}{el.length ? " · also on " + el.join(", ") : (!menuOn && !picked && !mcats.some((c) => claimedElsewhere("categories", c.id).length) ? " · unclaimed, shows on every screen" : "")}</div>
                             </div>
                             {!menuOn && picked > 0 && <span onClick={() => setRouting((r) => ({ ...r, categories: r.categories.filter((cid) => !mcats.some((c) => c.id === cid)) }))} style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, cursor: "pointer" }}>clear</span>}
                           </div>
@@ -1336,9 +1353,9 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
           <Card>
             <div style={{ fontSize: 14.5, fontWeight: 900, marginBottom: 8 }}>Screens</div>
             {draftScreens.map((sc) => { const src = sc.key === screenKey ? { label: label.trim() || current?.label, station: station.trim(), printer_sn: printer } : others.find((x) => x.screen_key === sc.key); const st = (src?.station || "").toLowerCase(); return (
-              <div key={sc.key} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "8px 0", borderTop: "1px solid " + C.soft, fontSize: 13 }}>
-                <span><b>{screenName(sc.key)}</b> <span style={{ color: C.muted }}>· screen {sc.key}</span></span>
-                <span style={{ color: C.muted }}>{st ? (PASS.includes(st) ? "pass screen · no timing" : st + " · counts for timing") : "no station · no timing"}{src?.printer_sn ? " · printer …" + String(src.printer_sn).slice(-4) : " · all printers"}</span>
+              <div key={sc.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid " + C.soft, fontSize: 13 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ width: 26, height: 26, borderRadius: 8, background: stationMeta(st).bg, color: stationMeta(st).color, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{stationMeta(st).icon}</span><b>{screenName(sc.key)}</b> <span style={{ color: C.muted }}>· screen {sc.key}{sc.key === ownKey ? " · this device" : ""}</span></span>
+                <span style={{ display: "flex", alignItems: "center", gap: 10, color: C.muted }}>{st ? (PASS.includes(st) ? "pass screen · no timing" : st + " · counts for timing") : "no station · no timing"}{src?.printer_sn ? " · printer …" + String(src.printer_sn).slice(-4) : " · all printers"}{sc.key !== screenKey && <span onClick={() => { setScreenKey(sc.key); setTab("setup"); }} className="kbtn" style={{ cursor: "pointer", padding: "5px 10px", borderRadius: 8, background: C.ink, color: "#fff", fontWeight: 800, fontSize: 12 }}>Set up ›</span>}</span>
               </div>
             ); })}
             {uncovered.length > 0 && <div style={{ marginTop: 10, fontSize: 12.5, color: C.muted }}>Not claimed by any screen (so shown everywhere): {uncovered.join(", ")}.</div>}
