@@ -1011,7 +1011,7 @@ export default function KDS() {
       {view === "perf" && <PerformanceView loc={loc} F={F} lateMin={LATE_MIN} />}
       {feedbackFor && <ServiceFeedback order={feedbackFor} prefill={feedbackFor._prefillRating ? { rating: feedbackFor._prefillRating } : null} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="kds" onClose={() => setFeedbackFor(null)} onSaved={(j) => { setQuickLogged((m) => ({ ...m, [feedbackFor.id]: feedbackFor._prefillRating || 3 })); showToast("Feedback logged for #" + feedbackFor.order_no + (j && j.logged_by ? " as " + j.logged_by : "")); }} />}
       {toast && <div style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 95, background: "#0f172a", color: "#fff", padding: "11px 18px", borderRadius: 12, fontWeight: 800, fontSize: 14, boxShadow: "0 10px 30px rgba(0,0,0,.3)" }}>{toast}</div>}
-      {setupOpen && <ScreenSetup loc={loc} screenKey={getScreenId()} current={mySettings} siblings={allScreens} orders={orders.filter((o) => o.status !== "cancelled")} onClose={() => setSetupOpen(false)} onSaved={(sn) => { setScreensTick((t) => t + 1); if (sn !== undefined) { setMyPrinter(sn || null); try { sn ? localStorage.setItem("kds_printer", sn) : localStorage.removeItem("kds_printer"); } catch {} } }} />}
+      {setupOpen && <ScreenSetup loc={loc} screenKey={getScreenId()} current={mySettings} siblings={allScreens} orders={orders.filter((o) => o.status !== "cancelled" && !myBumps.has(o.id))} onClose={() => setSetupOpen(false)} onSaved={(sn) => { setScreensTick((t) => t + 1); if (sn !== undefined) { setMyPrinter(sn || null); try { sn ? localStorage.setItem("kds_printer", sn) : localStorage.removeItem("kds_printer"); } catch {} } }} />}
 
       {view === "pos" && (
         <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables} />
@@ -1191,7 +1191,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
   const Step = ({ n, title, right }) => <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8, gap: 10 }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ width: 24, height: 24, borderRadius: "50%", background: C.ink, color: "#fff", fontSize: 12.5, fontWeight: 900, display: "inline-flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{n}</span><span style={{ fontSize: 14.5, fontWeight: 900 }}>{title}</span></div>{right && <span style={{ fontSize: 12, color: C.muted, textAlign: "right" }}>{right}</span>}</div>;
   const Chip = ({ on, children, onClick, dim, small, tone }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: small ? "5px 10px" : "8px 13px", borderRadius: 9, fontSize: small ? 12.5 : 13.5, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1.5px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap" }}>{children}</span>;
   const Switch = ({ on, onClick }) => <span onClick={onClick} style={{ cursor: "pointer", width: 44, height: 26, borderRadius: 13, background: on ? C.good : "#cbd5e1", position: "relative", display: "inline-block", flexShrink: 0, transition: "background .15s" }}><span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} /></span>;
-  const Card = ({ children }) => <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px" }}>{children}</div>;
+  const Card = ({ children }) => <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px", minWidth: 0, overflow: "hidden" }}>{children}</div>;
   const itemMatches = q.trim() ? items.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 30) : [];
   const summary = total === 0 ? "Everything" : [...routing.menus.map((id) => nameOf("menus", id) + " (all)"), ...routing.categories.map((id) => nameOf("categories", id)), ...routing.items.map((id) => nameOf("items", id))].join(" · ");
   const dupStation = station.trim() && others.some((x) => (x.station || "").toLowerCase() === station.trim().toLowerCase());
@@ -1215,9 +1215,9 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
 
         {tab === "setup" && (
         <div style={{ overflowY: "auto", padding: "16px 24px" }}>
-          <div style={{ display: "grid", gridTemplateColumns: "minmax(300px, 1fr) minmax(420px, 2fr)", gap: 16, alignItems: "start", maxWidth: 1500, margin: "0 auto" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2fr)", gap: 16, alignItems: "start", maxWidth: 1500, margin: "0 auto" }}>
             {/* LEFT: identity, printer, preview */}
-            <div style={{ display: "grid", gap: 14, position: "sticky", top: 0 }}>
+            <div style={{ display: "grid", gap: 14, position: "sticky", top: 0, minWidth: 0 }}>
               <Card>
                 <Step n="1" title="Name and station" />
                 <label style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>NAME<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Hot Kitchen" style={{ ...inp, marginTop: 6 }} /></label>
@@ -1259,7 +1259,7 @@ function ScreenSetup({ loc, screenKey, current, siblings, orders, onClose, onSav
             </div>
 
             {/* RIGHT: routing */}
-            <div style={{ display: "grid", gap: 14 }}>
+            <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
               <Card>
                 <Step n="3" title="What this screen shows" right={total ? total + " selected" : "nothing selected = everything"} />
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
