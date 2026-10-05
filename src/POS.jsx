@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { OrdersList, OrderDetailPanel } from "./OrdersStrip.jsx";
 import ServiceFeedback from "./ServiceFeedback.jsx";
+import { deviceToken } from "./device.js";
 import CartLine from "./CartLine.jsx";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -245,7 +246,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action, data: dataObj }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action, data: dataObj }),
       });
       await loadOrders();
       return r.ok;
@@ -258,7 +259,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action, data: dataObj }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action, data: dataObj }),
       });
       const j = await r.json().catch(() => ({}));
       await loadOrders();
@@ -602,7 +603,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action: "merges_list" }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action: "merges_list" }),
       });
       const j = await r.json();
       if (Array.isArray(j.merges)) setMerges(j.merges);
@@ -614,7 +615,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action: "merge_save", data: { id, menu_id, new_name, category_ids } }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action: "merge_save", data: { id, menu_id, new_name, category_ids } }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j.error) { alert("Merge failed: " + (j.error || ("HTTP " + r.status))); return false; }
@@ -629,7 +630,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action: "merge_delete", data: { id } }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action: "merge_delete", data: { id } }),
       });
       await loadMerges();
     } catch { /* ignore */ }

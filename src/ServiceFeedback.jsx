@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { deviceToken } from "./device.js";
 
 // ============================================================================
 // FOH SERVICE FEEDBACK — a 20-second sheet a server fills against an order:
@@ -87,14 +88,14 @@ export default function ServiceFeedback({ order, locationId, supabaseUrl, header
     if (lookupTimer.current) clearTimeout(lookupTimer.current);
     if (p.length < 4) return;
     lookupTimer.current = setTimeout(async () => {
-      try { const r = await fetch(supabaseUrl + "/functions/v1/admin-api", { method: "POST", headers, body: JSON.stringify({ pos: true, action: "staff_lookup", data: { pin: p, location_id: locationId } }) }); const j = await r.json(); setStaff(j.ok ? { name: j.name } : { unknown: true }); } catch { setStaff({ unknown: true }); }
+      try { const r = await fetch(supabaseUrl + "/functions/v1/admin-api", { method: "POST", headers, body: JSON.stringify({ pos: true, device: deviceToken(), action: "staff_lookup", data: { pin: p, location_id: locationId } }) }); const j = await r.json(); setStaff(j.ok ? { name: j.name } : { unknown: true }); } catch { setStaff({ unknown: true }); }
     }, 300);
   }
   async function save() {
     if (!canSave || busy) return;
     setBusy(true); setErr("");
     try {
-      const body = { pos: true, action: "service_log_add", data: { location_id: locationId, order_id: o.id, staff_pin: pin, rating, tags: [...tags], category: autoCategory, severity: hasIssue ? severity : null, note: note.trim() || null, action: hasIssue ? action : null, action_value: hasIssue && (action === "discount" || action === "comp" || action === "voucher") && actionValue ? Number(actionValue) : null, resolved: hasIssue ? resolved : null, item_names: [...itemSel], source, ticket_secs: ticketSecs } };
+      const body = { pos: true, device: deviceToken(), action: "service_log_add", data: { location_id: locationId, order_id: o.id, staff_pin: pin, rating, tags: [...tags], category: autoCategory, severity: hasIssue ? severity : null, note: note.trim() || null, action: hasIssue ? action : null, action_value: hasIssue && (action === "discount" || action === "comp" || action === "voucher") && actionValue ? Number(actionValue) : null, resolved: hasIssue ? resolved : null, item_names: [...itemSel], source, ticket_secs: ticketSecs } };
       const r = await fetch(supabaseUrl + "/functions/v1/admin-api", { method: "POST", headers, body: JSON.stringify(body) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || "Could not save");

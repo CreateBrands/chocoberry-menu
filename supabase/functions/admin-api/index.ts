@@ -38,8 +38,14 @@ Deno.serve(async (req) => {
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
+    "device_activate", "device_heartbeat", "device_claim_legacy",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
+  // Device enforcement: when the caller sends a device token it must be active,
+  // and a kitchen-only licence cannot do till actions. (Calls without a token
+  // still work during rollout; the admin shows which devices never activated.)
+  const deviceTok = (payload && (payload as any).device) || null;
+  let callerDevice: any = null;
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -170,6 +176,20 @@ Deno.serve(async (req) => {
     const wall = Date.UTC(y, m, d, TRADING_DAY_END_HOUR);
     return new Date(wall - tzOffsetMinutes(wall, "Europe/London") * 60000).toISOString();
   }
+  // ---- Device licences ----
+  async function sha256(s: string) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join(""); }
+  const randCode = (n: number) => { const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; const r = crypto.getRandomValues(new Uint8Array(n)); return Array.from(r).map((x) => A[x % A.length]).join(""); };
+  const randSecret = () => { const r = crypto.getRandomValues(new Uint8Array(24)); return Array.from(r).map((x) => x.toString(16).padStart(2, "0")).join(""); };
+  async function storeCode(location_id: string) { const { data: l } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle(); const n = String(l?.name || "ST").replace(/[^A-Za-z]/g, "").toUpperCase(); return (n.slice(0, 2) || "ST"); }
+  // Verify a device token {key, secret} against the row; returns the row or null.
+  async function verifyDevice(location_id: string, key: string, secret: string) {
+    if (!location_id || !key || !secret) return null;
+    const { data: d } = await admin.from("kds_screens").select("screen_key, kind, status, device_secret_hash, label").eq("location_id", location_id).eq("screen_key", String(key)).maybeSingle();
+    if (!d || d.status !== "active" || !d.device_secret_hash) return null;
+    if ((await sha256(secret)) !== d.device_secret_hash) return null;
+    return d;
+  }
+  const POS_ONLY = new Set(["mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "set_kds_target", "print_kitchen_summary", "kds_screen_self", "service_log_delete"]);
   // Kitchen speed for the closing report, same definition as the KDS Performance tab:
   // completion = latest bump within 30 min of the first bump (later bumps are housekeeping).
   async function kitchenStats(location_id: string, from: string, to: string, targetMin: number) {
@@ -296,6 +316,14 @@ Deno.serve(async (req) => {
     };
   }
 
+    if (isPosCall && deviceTok && deviceTok.key && deviceTok.secret && deviceTok.location_id && !["device_activate", "device_claim_legacy", "device_heartbeat"].includes(action)) {
+      callerDevice = await verifyDevice(deviceTok.location_id, deviceTok.key, deviceTok.secret);
+      if (!callerDevice) return json({ error: "device_not_active", message: "This device's licence is not active. Ask a manager." }, 403);
+      if (callerDevice.kind === "kds" && POS_ONLY.has(action)) {
+        await admin.from("device_events").insert({ location_id: deviceTok.location_id, screen_key: String(deviceTok.key), event: "refused", detail: { action } });
+        return json({ error: "not_allowed_for_device", message: "A kitchen-screen licence can't do till actions." }, 403);
+      }
+    }
     switch (action) {
       // ---- READ: everything the admin UI needs in one call ----
       case "load": {
@@ -1266,6 +1294,7 @@ Deno.serve(async (req) => {
           item_names: clean(d.item_names),
           logged_by: who ? who.name : (d.logged_by ? String(d.logged_by).slice(0, 60) : null),
           logged_by_member_id: who ? who.id : null,
+          device_key: deviceTok?.key ? String(deviceTok.key) : null,
           source: ["pos", "kds", "app"].includes(d.source) ? d.source : "pos",
           ticket_secs: d.ticket_secs != null ? Math.round(Number(d.ticket_secs)) : null,
         };
@@ -1303,6 +1332,96 @@ Deno.serve(async (req) => {
           admin.from("menu_items").select("*").order("name", { ascending: true }),
         ]);
         return json({ ok: true, menus: menus || [], categories: cats || [], items: (items || []).filter((i: any) => i.active !== false && i.is_active !== false).map((i: any) => ({ id: i.id, name: i.name, category_id: i.category_id })) });
+      }
+
+      // ---- Devices: activate with a one-time licence code ----
+      case "device_activate": {
+        const { code, fingerprint, app_version } = data || {};
+        if (!code) return json({ ok: false, error: "Enter the licence code" }, 400);
+        const { data: d } = await admin.from("kds_screens").select("*").eq("licence_code", String(code).trim().toUpperCase()).maybeSingle();
+        if (!d) return json({ ok: false, error: "Code not recognised" }, 404);
+        if (d.status === "active") return json({ ok: false, error: "Already active on \"" + (d.label || "Screen " + d.screen_key) + "\" since " + new Date(d.activated_at).toLocaleString("en-GB") + ". Revoke or replace it in the admin first." }, 409);
+        if (d.status === "revoked") return json({ ok: false, error: "This licence was revoked. Ask a manager for a new code." }, 409);
+        const secret = randSecret();
+        const { error } = await admin.from("kds_screens").update({ status: "active", device_secret_hash: await sha256(secret), activated_at: new Date().toISOString(), fingerprint: fingerprint ? String(fingerprint).slice(0, 300) : null, app_version: app_version ? String(app_version).slice(0, 40) : null, last_seen_at: new Date().toISOString() }).eq("location_id", d.location_id).eq("screen_key", d.screen_key);
+        if (error) throw error;
+        await admin.from("device_events").insert({ location_id: d.location_id, screen_key: d.screen_key, event: "activated", detail: { fingerprint, app_version } });
+        return json({ ok: true, device: { location_id: d.location_id, key: d.screen_key, kind: d.kind || "kds", label: d.label, secret } });
+      }
+      // ---- Devices: a screen that was set up before licences claims its row once ----
+      case "device_claim_legacy": {
+        const { location_id, screen_key, fingerprint, app_version } = data || {};
+        if (!location_id || !screen_key) return json({ ok: false, error: "location_id and screen_key required" }, 400);
+        const { data: d } = await admin.from("kds_screens").select("*").eq("location_id", location_id).eq("screen_key", String(screen_key)).maybeSingle();
+        if (d && d.device_secret_hash) return json({ ok: false, error: "already_claimed" }, 409);
+        if (d && d.status === "revoked") return json({ ok: false, error: "revoked" }, 409);
+        const secret = randSecret();
+        const row = { location_id, screen_key: String(screen_key), kind: d?.kind || "kds+pos", status: "active", device_secret_hash: await sha256(secret), activated_at: new Date().toISOString(), activated_by: "legacy", fingerprint: fingerprint ? String(fingerprint).slice(0, 300) : null, app_version: app_version ? String(app_version).slice(0, 40) : null, last_seen_at: new Date().toISOString(), label: d?.label || ("Screen " + screen_key) };
+        const { error } = await admin.from("kds_screens").upsert(row, { onConflict: "location_id,screen_key" });
+        if (error) throw error;
+        await admin.from("device_events").insert({ location_id, screen_key: String(screen_key), event: "activated", detail: { legacy: true } });
+        return json({ ok: true, device: { location_id, key: String(screen_key), kind: row.kind, label: row.label, secret } });
+      }
+      // ---- Devices: heartbeat; also tells a revoked device to stop ----
+      case "device_heartbeat": {
+        const { location_id, key, secret, app_version } = data || {};
+        const d = await verifyDevice(location_id, key, secret);
+        if (!d) { const { data: row } = await admin.from("kds_screens").select("status").eq("location_id", location_id || "").eq("screen_key", String(key || "")).maybeSingle(); return json({ ok: false, status: row?.status || "unknown" }, 401); }
+        await admin.from("kds_screens").update({ last_seen_at: new Date().toISOString(), ...(app_version ? { app_version: String(app_version).slice(0, 40) } : {}) }).eq("location_id", location_id).eq("screen_key", String(key));
+        return json({ ok: true, kind: d.kind, label: d.label });
+      }
+      // ---- Admin: devices ----
+      case "device_create": {
+        const { location_id, kind, label } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const k = ["kds", "pos", "kds+pos"].includes(kind) ? kind : "kds";
+        const { data: existing } = await admin.from("kds_screens").select("screen_key").eq("location_id", location_id);
+        const used = new Set((existing ?? []).map((r: any) => String(r.screen_key)));
+        let n = 1; const prefix = k === "pos" ? "pos-" : "";
+        while (used.has(prefix + n)) n++;
+        const sc = await storeCode(location_id);
+        const code = sc + "-" + (k === "pos" ? "POS" : "KDS") + "-" + randCode(4);
+        const { error } = await admin.from("kds_screens").insert({ location_id, screen_key: prefix + n, kind: k, label: label ? String(label) : (k === "pos" ? "Till " + n : "Screen " + n), status: "unassigned", licence_code: code });
+        if (error) throw error;
+        return json({ ok: true, screen_key: prefix + n, licence_code: code });
+      }
+      case "device_revoke": {
+        const { location_id, screen_key } = data || {};
+        if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
+        const { error } = await admin.from("kds_screens").update({ status: "revoked", revoked_at: new Date().toISOString(), device_secret_hash: null }).eq("location_id", location_id).eq("screen_key", String(screen_key));
+        if (error) throw error;
+        await admin.from("device_events").insert({ location_id, screen_key: String(screen_key), event: "revoked" });
+        return json({ ok: true });
+      }
+      case "device_replace": {
+        // New code, same row: settings/history kept, old hardware logged out.
+        const { location_id, screen_key } = data || {};
+        if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
+        const { data: d } = await admin.from("kds_screens").select("kind").eq("location_id", location_id).eq("screen_key", String(screen_key)).maybeSingle();
+        const sc = await storeCode(location_id);
+        const code = sc + "-" + (d?.kind === "pos" ? "POS" : "KDS") + "-" + randCode(4);
+        const { error } = await admin.from("kds_screens").update({ status: "unassigned", licence_code: code, device_secret_hash: null, activated_at: null, fingerprint: null, revoked_at: null }).eq("location_id", location_id).eq("screen_key", String(screen_key));
+        if (error) throw error;
+        await admin.from("device_events").insert({ location_id, screen_key: String(screen_key), event: "replaced" });
+        return json({ ok: true, licence_code: code });
+      }
+      case "device_set_kind": {
+        const { location_id, screen_key, kind, label } = data || {};
+        if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
+        const row: Record<string, unknown> = {};
+        if (["kds", "pos", "kds+pos"].includes(kind)) row.kind = kind;
+        if (label !== undefined) row.label = label ? String(label).slice(0, 40) : null;
+        const { error } = await admin.from("kds_screens").update(row).eq("location_id", location_id).eq("screen_key", String(screen_key));
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      case "device_events": {
+        const { location_id, screen_key } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        let q = admin.from("device_events").select("*").eq("location_id", location_id).order("created_at", { ascending: false }).limit(100);
+        if (screen_key) q = q.eq("screen_key", String(screen_key));
+        const { data: rows } = await q;
+        return json({ ok: true, events: rows || [] });
       }
 
       // ---- KDS: print the performance summary on the kitchen printer ----
@@ -1365,6 +1484,7 @@ Deno.serve(async (req) => {
         const expected = counted == null ? null : round2((flt || 0) + summary.cash);
         const variance = counted == null ? null : round2(counted - (expected as number));
         const { data: closure, error: cErr } = await admin.from("till_closures").insert({
+          device_key: deviceTok?.key ? String(deviceTok.key) : null,
           location_id, closed_at: now,
           total_taken: summary.total, cash_total: summary.cash, card_total: summary.card,
           paid_count: summary.paid_count, unpaid_total: summary.unpaid_total, unpaid_count: summary.unpaid_count,

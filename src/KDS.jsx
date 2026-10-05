@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import POS from "./POS.jsx";
 import ServiceFeedback, { TAGS as SVC_TAGS, CATEGORY_LABEL as SVC_CAT } from "./ServiceFeedback.jsx";
+import { getDevice, setDevice, clearDevice, deviceToken, fingerprint, APP_VERSION } from "./device.js";
 
 // ============================================================================
 // Create Brands / Chocoberry — Kitchen Display System (v2, comprehensive)
@@ -101,7 +102,7 @@ function fmtClock(iso, now) {
   return m + ":" + String(ss).padStart(2, "0");
 }
 
-export default function KDS() {
+export default function KDS({ surface = "kds" }) {
   const [orders, setOrders] = useState([]);
   const [now, setNow] = useState(Date.now());
   // Remember the linked location: URL (?loc= or resolved from ?store=) sets it,
@@ -177,6 +178,31 @@ export default function KDS() {
     const id = setInterval(load, 60000);
     return () => { alive = false; clearInterval(id); };
   }, [loc, screensTick]);
+  // Licence: a screen without a device token (set up before licensing) claims
+  // its row once; then every screen heartbeats and stops if revoked.
+  useEffect(() => {
+    if (!loc) return;
+    let alive = true;
+    const call = (action, data) => fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action, data }) }).then(async (r) => ({ ok: r.ok, j: await r.json().catch(() => ({})) }));
+    const beat = async () => {
+      const d = getDevice();
+      if (!d) {
+        const { ok, j } = await call("device_claim_legacy", { location_id: loc, screen_key: getScreenId(), fingerprint: fingerprint(), app_version: APP_VERSION });
+        if (!alive) return;
+        if (ok && j.ok) { setDevice(j.device); setLicence("ok"); }
+        else if (j.error === "revoked") setLicence("revoked");
+        else if (j.error === "already_claimed") setLicence("unclaimed"); // another device holds this screen's licence
+        return;
+      }
+      const { ok, j } = await call("device_heartbeat", { location_id: d.location_id, key: d.key, secret: d.secret, app_version: APP_VERSION });
+      if (!alive) return;
+      if (ok && j.ok) { setLicence("ok"); if (j.kind && j.kind !== d.kind) setDevice({ ...d, kind: j.kind, label: j.label }); }
+      else if (j.status === "revoked" || j.status === "unassigned") { clearDevice(); setLicence("revoked"); }
+    };
+    beat();
+    const id = setInterval(beat, 60000);
+    return () => { alive = false; clearInterval(id); };
+  }, [loc]); // eslint-disable-line
   const mySettings = allScreens.find((x) => x.screen_key === getScreenId()) || null;
   const myName = (mySettings && mySettings.label) || myNameSeed;
   const [setupOpen, setSetupOpen] = useState(false);
@@ -192,7 +218,7 @@ export default function KDS() {
     setQuickLogged((m) => ({ ...m, [o.id]: rating }));
     try {
       const b = o.kds_bumped_at || o.served_at; const secs = b ? Math.round((new Date(b) - new Date(o.created_at)) / 1000) : null;
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "service_log_add", data: { location_id: loc, order_id: o.id, staff_pin: rem.pin, rating, tags: [], source: "kds", ticket_secs: secs } }) });
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "service_log_add", data: { location_id: loc, order_id: o.id, staff_pin: rem.pin, rating, tags: [], source: "kds", ticket_secs: secs } }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || "failed");
       showToast("Logged " + ["", "😠", "🙁", "😐", "🙂", "😄"][rating] + " for #" + o.order_no + " as " + (j.logged_by || rem.name));
@@ -200,7 +226,7 @@ export default function KDS() {
   }
   async function markServed(o) {
     setServedIds((p) => new Set(p).add(o.id));
-    try { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "mark_served", data: { order_id: o.id } }) }); } catch {}
+    try { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "mark_served", data: { order_id: o.id } }) }); } catch {}
   }
   const myStation = (mySettings && mySettings.station) || myStationSeed;
   const [soundOn, setSoundOn] = useState(true);
@@ -211,7 +237,10 @@ export default function KDS() {
   const [armedBump, setArmedBump] = useState(null); // {id, timer} — first tap arms, second confirms
   const [rushIds, setRushIds] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("kds_rush") || "[]")); } catch { return new Set(); } });
   // Orders/payment view state
-  const [view, setView] = useState("kitchen");      // "kitchen" | "pos" (the old "orders" screen was removed — payments live on the POS)
+  const [view, setView] = useState(surface === "pos" ? "pos" : "kitchen");      // "kitchen" | "perf" | "pos"
+  const device = getDevice();
+  const kind = device ? device.kind : "kds+pos"; // unlicensed legacy screens keep everything until claimed
+  const [licence, setLicence] = useState("ok"); // ok | revoked | unclaimed
   const [orderFilter, setOrderFilter] = useState("unpaid"); // unpaid | paid | all
   const [payFor, setPayFor] = useState(null);       // order awaiting payment action
   const [payPin, setPayPin] = useState("");         // PIN entered to confirm payment
@@ -521,7 +550,7 @@ export default function KDS() {
     setRetryingPrint(true);
     try {
       for (const o of list.slice(0, 10)) {
-        await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "retry_print", data: { order_id: o.id } }) });
+        await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "retry_print", data: { order_id: o.id } }) });
       }
       await load();
     } catch {} finally { setRetryingPrint(false); }
@@ -529,7 +558,7 @@ export default function KDS() {
   async function dismissPrint(list) {
     try {
       for (const o of list.slice(0, 20)) {
-        await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "clear_print_flag", data: { order_id: o.id } }) });
+        await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "clear_print_flag", data: { order_id: o.id } }) });
       }
       setOrders((prev) => prev.map((o) => list.some((x) => x.id === o.id) ? { ...o, print_failed: false, print_error: null } : o));
     } catch {}
@@ -666,7 +695,7 @@ export default function KDS() {
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
           <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
           <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
-            {[["kitchen", "Kitchen"], ["perf", "Performance"], ["pos", "POS"]].map(([v, label]) => (
+            {[["kitchen", "Kitchen"], ["perf", "Performance"], ["pos", "POS"]].filter(([v]) => kind === "kds+pos" || (kind === "pos" ? v === "pos" : v !== "pos")).map(([v, label]) => (
               <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#475569" }}>
                 {label}
               </div>
@@ -1008,6 +1037,16 @@ export default function KDS() {
         </div>
       )}
 
+      {licence !== "ok" && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(15,23,42,.92)", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
+          <div style={{ textAlign: "center", maxWidth: 560 }}>
+            <div style={{ fontSize: 56 }}>🔒</div>
+            <div style={{ fontSize: 28, fontWeight: 900, fontFamily: "'Poppins',sans-serif", marginTop: 8 }}>{licence === "revoked" ? "This screen's licence was revoked" : "This screen is active on another device"}</div>
+            <div style={{ fontSize: 15, color: "#cbd5e1", marginTop: 10, lineHeight: 1.5 }}>{licence === "revoked" ? "A manager can issue a new code from Admin → Store → Devices." : "Screen " + getScreenId() + " at this store is already licensed to a different device. Revoke or replace it in the admin, then activate here."}</div>
+            <a href="/activate" style={{ display: "inline-block", marginTop: 22, padding: "14px 26px", borderRadius: 12, background: "#fff", color: "#0f172a", fontWeight: 900, textDecoration: "none" }}>Enter a licence code</a>
+          </div>
+        </div>
+      )}
       {view === "perf" && <PerformanceView loc={loc} F={F} lateMin={LATE_MIN} />}
       {feedbackFor && <ServiceFeedback order={feedbackFor} prefill={feedbackFor._prefillRating ? { rating: feedbackFor._prefillRating } : null} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="kds" onClose={() => setFeedbackFor(null)} onSaved={(j) => { setQuickLogged((m) => ({ ...m, [feedbackFor.id]: feedbackFor._prefillRating || 3 })); showToast("Feedback logged for #" + feedbackFor.order_no + (j && j.logged_by ? " as " + j.logged_by : "")); }} />}
       {toast && <div style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 95, background: "#0f172a", color: "#fff", padding: "11px 18px", borderRadius: 12, fontWeight: 800, fontSize: 14, boxShadow: "0 10px 30px rgba(0,0,0,.3)" }}>{toast}</div>}
@@ -1149,8 +1188,8 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   const reset = () => { const i = JSON.parse(initial); setLabel(i.label); setStation(i.station); setPrinter(i.printer); setRouting(i.routing); };
   useEffect(() => { const h = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []); // eslint-disable-line
   useEffect(() => {
-    fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "menu_catalog" }) }).then((r) => r.json()).then((j) => setCat(j.ok ? j : { menus: [], categories: [], items: [] })).catch(() => setCat({ menus: [], categories: [], items: [] }));
-    fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "printers_list", data: { location_id: loc } }) }).then((r) => r.json()).then((j) => setPrinters(j.ok ? j.printers : [])).catch(() => setPrinters([]));
+    fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "menu_catalog" }) }).then((r) => r.json()).then((j) => setCat(j.ok ? j : { menus: [], categories: [], items: [] })).catch(() => setCat({ menus: [], categories: [], items: [] }));
+    fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "printers_list", data: { location_id: loc } }) }).then((r) => r.json()).then((j) => setPrinters(j.ok ? j.printers : [])).catch(() => setPrinters([]));
   }, [loc]);
   const toggle = (kind, id) => setRouting((r) => { const set = new Set(r[kind]); set.has(id) ? set.delete(id) : set.add(id); return { ...r, [kind]: [...set] }; });
   const has = (kind, id) => routing[kind].includes(id);
@@ -1191,7 +1230,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   async function save() {
     setBusy(true); setErr("");
     try {
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "kds_screen_self", data: { location_id: loc, screen_key: screenKey, label: label.trim(), station: station.trim(), routing, printer_sn: printer || null } }) });
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "kds_screen_self", data: { location_id: loc, screen_key: screenKey, label: label.trim(), station: station.trim(), routing, printer_sn: printer || null } }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || "Save failed");
       if (screenKey === ownKey) { try { if (label.trim()) localStorage.setItem("kds_name", label.trim()); if (station.trim()) localStorage.setItem("kds_station", station.trim()); } catch {} }
@@ -1436,7 +1475,7 @@ function PerformanceView({ loc, F, lateMin }) {
     if (!rem) { setFbFor({ ...ord, _prefillRating: rating }); return; }
     setQuickDone((m) => ({ ...m, [ord.id]: rating }));
     try {
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "service_log_add", data: { location_id: loc, order_id: ord.id, staff_pin: rem.pin, rating, tags: rating <= 2 ? ["slow_food"] : [], item_names: [], source: "kds", ticket_secs: Math.round(tt(o)) } }) });
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "service_log_add", data: { location_id: loc, order_id: ord.id, staff_pin: rem.pin, rating, tags: rating <= 2 ? ["slow_food"] : [], item_names: [], source: "kds", ticket_secs: Math.round(tt(o)) } }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error();
       setTimeout(() => setTick((t) => t + 1), 800);
@@ -1483,11 +1522,11 @@ function PerformanceView({ loc, F, lateMin }) {
   const [updatedAt, setUpdatedAt] = useState(null);
   async function printSummary(lines, title) {
     setPrinting(true);
-    try { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "print_kitchen_summary", data: { location_id: loc, title, lines } }) }); }
+    try { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "print_kitchen_summary", data: { location_id: loc, title, lines } }) }); }
     catch {} finally { setTimeout(() => setPrinting(false), 1500); }
   }
   async function saveTarget(m) {
-    const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "set_kds_target", data: { location_id: loc, minutes: m } }) }).then((x) => x.json()).catch(() => ({}));
+    const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "set_kds_target", data: { location_id: loc, minutes: m } }) }).then((x) => x.json()).catch(() => ({}));
     if (r.ok) setTarget(r.minutes);
     setEditTarget(null);
   }

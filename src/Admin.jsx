@@ -1953,7 +1953,7 @@ export default function Admin() {
                   {isOpen && (
                     <div style={{ borderTop: "1px solid " + T.line, padding: "18px", background: T.bg }}>
                       <div style={{ display: "flex", gap: 4, marginBottom: 17, background: "#ecebe3", padding: 4, borderRadius: 12, width: "fit-content" }}>
-                        {[["tablets", "Tablets", tokens.length], ["tables", "Tables", diningTables.length], ["kitchen", "Kitchen", null], ["menus", "Menus", null]].map(([key, lbl, count]) => (
+                        {[["tablets", "Tablets", tokens.length], ["tables", "Tables", diningTables.length], ["kitchen", "Devices", (state.kdsScreens || []).filter((k) => k.location_id === loc.id).length], ["menus", "Menus", null]].map(([key, lbl, count]) => (
                           <span key={key} onClick={() => setStoreTab(key)} style={{ padding: "8px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: storeTab === key ? T.ink : T.muted, background: storeTab === key ? "#fff" : "transparent", boxShadow: storeTab === key ? "0 2px 6px rgba(40,36,25,.09)" : "none", letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 7 }}>
                             {lbl}{count != null && <span style={{ fontSize: 10.5, background: storeTab === key ? "#e7f2e0" : "#e0ded4", color: storeTab === key ? "#3c5a2e" : "#8a8272", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{count}</span>}
                           </span>
@@ -2014,66 +2014,69 @@ export default function Admin() {
 
                       {/* KITCHEN TAB */}
                       {storeTab === "kitchen" && (() => {
-                        // ONE QR PER SCREEN. The QR previously carried only
-                        // ?loc=, so every screen at a store opened as "main" —
-                        // they shared one identity and could not target
-                        // different printers. Each screen now gets its own QR
-                        // with &screen=N, which matches kds_screens.screen_key
-                        // and therefore its printer_sn.
-                        const screens = (state.kdsScreens || [])
+                        // DEVICES. Every KDS screen and till is a licensed
+                        // device: created here with a one-time code, activated
+                        // once on the hardware, revocable at any time.
+                        const devices = (state.kdsScreens || [])
                           .filter((k) => k.location_id === loc.id)
                           .sort((a, b) => String(a.screen_key).localeCompare(String(b.screen_key), undefined, { numeric: true }));
-                        const rows = screens.length ? screens : [{ screen_key: "1", label: "Kitchen display", printer_sn: null }];
+                        const KIND = { kds: ["🍳", "Kitchen screen"], pos: ["🧾", "Till"], "kds+pos": ["🍳🧾", "Kitchen + till"] };
+                        const ago = (iso) => { if (!iso) return "never"; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 2 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
+                        const online = (k) => k.last_seen_at && Date.now() - new Date(k.last_seen_at) < 3 * 60000;
                         return (
                           <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Kitchen displays (KDS)</div>
-                            <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 11 }}>Scan a screen's own QR on that screen. It stays linked, and prints go to the printer set for it.</div>
-                            {rows.map((k) => {
-                              const url = window.location.origin + "/kds?loc=" + loc.id + "&screen=" + encodeURIComponent(k.screen_key);
-                              const qr = "https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(url);
-                              const printer = (state.printers || []).find((p) => p.sn === k.printer_sn);
+                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Devices · kitchen screens and tills</div>
+                            <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 11 }}>Create a device, then on that screen open <b>{window.location.origin}/activate</b> and enter its code (or scan the QR). A code works once. Revoke to lock a device out; Replace to move the licence to new hardware.</div>
+                            {devices.map((k) => {
+                              const [icon, kindLabel] = KIND[k.kind || "kds"] || KIND.kds;
+                              const st = k.status || (k.device_secret_hash ? "active" : "unassigned");
+                              const actUrl = window.location.origin + "/activate?code=" + encodeURIComponent(k.licence_code || "");
+                              const qr = "https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(actUrl);
+                              const dot = st === "active" ? (online(k) ? "#2e8b4e" : "#d79b2c") : st === "revoked" ? "#b4462f" : "#9a9381";
+                              const routing = k.routing && (k.routing.menus?.length || k.routing.categories?.length || k.routing.items?.length);
                               return (
-                                <div key={k.screen_key} style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, border: "1px solid " + T.line, borderRadius: 12, background: T.card, marginBottom: 10 }}>
-                                  <img src={qr} alt={"KDS QR screen " + k.screen_key} width={80} height={80} style={{ borderRadius: 8, background: "#fff", flexShrink: 0 }} />
+                                <div key={k.screen_key} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: 14, border: "1px solid " + T.line, borderRadius: 12, background: T.card, marginBottom: 10 }}>
+                                  {st === "unassigned" && k.licence_code
+                                    ? <img src={qr} alt="Activation QR" width={88} height={88} style={{ borderRadius: 8, background: "#fff", flexShrink: 0 }} />
+                                    : <div style={{ width: 88, height: 88, borderRadius: 12, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, flexShrink: 0 }}>{icon}</div>}
                                   <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ fontSize: 13, fontWeight: 700, color: T.ink, marginBottom: 3 }}>{(k.label || "Screen " + k.screen_key) + " \u00B7 screen " + k.screen_key}</div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 6 }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+                                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: dot, flexShrink: 0 }} />
+                                      <input defaultValue={k.label || ""} placeholder={"Screen " + k.screen_key} onBlur={(e) => { if ((e.target.value || "") !== (k.label || "")) act("device_set_kind", { location_id: loc.id, screen_key: k.screen_key, label: e.target.value }); }} style={{ fontSize: 13.5, fontWeight: 700, color: T.ink, border: "1px solid transparent", background: "transparent", borderRadius: 6, padding: "2px 6px", minWidth: 120 }} />
+                                      <select value={k.kind || "kds"} onChange={(e) => act("device_set_kind", { location_id: loc.id, screen_key: k.screen_key, kind: e.target.value })} style={{ fontSize: 11.5, fontWeight: 600, border: "1px solid " + T.line, borderRadius: 8, padding: "4px 8px", background: T.bg, color: T.ink }}>
+                                        <option value="kds">Kitchen screen</option><option value="pos">Till</option><option value="kds+pos">Kitchen + till</option>
+                                      </select>
+                                      <span style={{ fontSize: 11, color: T.faint }}>· id {k.screen_key}{k.station ? " · " + k.station : ""}{routing ? " · filtered" : ""}</span>
+                                    </div>
+                                    <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 8 }}>
+                                      {st === "active" ? <><b style={{ color: online(k) ? "#2e8b4e" : "#8a6a1c" }}>{online(k) ? "Online" : "Offline"}</b> · last seen {ago(k.last_seen_at)} · activated {k.activated_at ? new Date(k.activated_at).toLocaleDateString("en-GB") : "—"}{k.activated_by === "legacy" ? " (migrated)" : ""}{k.app_version ? " · v" + k.app_version : ""}{k.fingerprint ? " · " + String(k.fingerprint).split(" | ")[0] : ""}</>
+                                        : st === "revoked" ? <b style={{ color: T.danger }}>Revoked {k.revoked_at ? ago(k.revoked_at) : ""} · the device is locked out</b>
+                                        : <span><b>Not activated yet</b> · code <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 800, color: T.ink, letterSpacing: ".06em", fontSize: 13 }}>{k.licence_code || "—"}</span></span>}
+                                    </div>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
                                       <span style={{ fontSize: 11.5, color: T.faint }}>Prints to</span>
-                                      <select
-                                        value={k.printer_sn || ""}
-                                        onChange={(e) => act("set_kds_printer", {
-                                          location_id: loc.id,
-                                          screen_key: k.screen_key,
-                                          label: k.label || null,
-                                          printer_sn: e.target.value || null,
-                                        })}
-                                        style={{ fontSize: 11.5, fontWeight: 600, border: "1px solid " + (k.printer_sn ? T.line : "#b4462f"), borderRadius: 8, padding: "5px 8px", background: T.bg, color: k.printer_sn ? T.ink : "#b4462f" }}>
+                                      <select value={k.printer_sn || ""} onChange={(e) => act("set_kds_printer", { location_id: loc.id, screen_key: k.screen_key, label: k.label || null, printer_sn: e.target.value || null })} style={{ fontSize: 11.5, fontWeight: 600, border: "1px solid " + T.line, borderRadius: 8, padding: "5px 8px", background: T.bg, color: T.ink }}>
                                         <option value="">Every printer (none set)</option>
-                                        {(state.printers || [])
-                                          .filter((p) => p.location_id === loc.id && p.active)
-                                          .map((p) => <option key={p.sn} value={p.sn}>{p.label}</option>)}
+                                        {(state.printers || []).filter((p) => p.location_id === loc.id && p.active).map((p) => <option key={p.sn} value={p.sn}>{p.label}</option>)}
                                       </select>
                                     </div>
-                                    <input readOnly value={url} onClick={(e) => e.target.select()} style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 7, padding: "7px 9px", fontSize: 11, background: T.bg, color: T.ink }} />
-                                    <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                                      <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: "#eef3ea", border: "1px solid #d9e6d2" }}>Copy link</span>
-                                      <a href={url} target="_blank" rel="noreferrer" style={{ fontSize: 11.5, color: T.muted, fontWeight: 600, textDecoration: "none", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Open KDS</a>
-                                      {screens.length > 1 && (
-                                        <span onClick={() => { if (window.confirm("Remove " + (k.label || "screen " + k.screen_key) + "? Any device still on its link will stop receiving orders.")) act("kds_screen_remove", { location_id: loc.id, screen_key: k.screen_key }); }}
-                                          style={{ fontSize: 11.5, color: T.danger, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line, marginLeft: "auto" }}>Remove</span>
-                                      )}
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                      {st === "unassigned" && k.licence_code && <span onClick={() => navigator.clipboard?.writeText(k.licence_code)} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Copy code</span>}
+                                      {st === "unassigned" && k.licence_code && <span onClick={() => navigator.clipboard?.writeText(actUrl)} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Copy activation link</span>}
+                                      {st === "active" && <span onClick={() => { if (window.confirm("Revoke " + (k.label || "device " + k.screen_key) + "? It will lock within a minute. Its settings are kept.")) act("device_revoke", { location_id: loc.id, screen_key: k.screen_key }); }} style={{ fontSize: 11.5, color: T.danger, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Revoke</span>}
+                                      {st !== "unassigned" && <span onClick={() => { if (window.confirm("Issue a new code for " + (k.label || "device " + k.screen_key) + "? The current hardware is logged out; settings and history are kept.")) act("device_replace", { location_id: loc.id, screen_key: k.screen_key }); }} style={{ fontSize: 11.5, color: T.muted, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Replace / new code</span>}
+                                      <span onClick={() => { if (window.confirm("Remove " + (k.label || "device " + k.screen_key) + " entirely? Use Revoke if you may want it back.")) act("kds_screen_remove", { location_id: loc.id, screen_key: k.screen_key }); }} style={{ fontSize: 11.5, color: T.danger, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line, marginLeft: "auto" }}>Remove</span>
                                     </div>
                                   </div>
                                 </div>
                               );
                             })}
-                            {!screens.length && (
-                              <div style={{ fontSize: 11.5, color: T.faint }}>No screens registered yet — showing screen 1. Add one to give it its own QR and printer.</div>
-                            )}
-                            <button onClick={() => act("kds_screen_add", { location_id: loc.id, label: "Screen " + (screens.length + 1) })}
-                              style={{ fontSize: 12.5, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 700, marginTop: 6, padding: 8 }}>
-                              + New KDS screen
-                            </button>
+                            {!devices.length && <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 8 }}>No devices yet.</div>}
+                            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                              <button onClick={() => act("device_create", { location_id: loc.id, kind: "kds" })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kitchen screen</button>
+                              <button onClick={() => act("device_create", { location_id: loc.id, kind: "pos" })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Till</button>
+                              <button onClick={() => act("device_create", { location_id: loc.id, kind: "kds+pos" })} style={{ fontSize: 12.5, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kitchen + till</button>
+                            </div>
                           </div>
                         );
                       })()}
