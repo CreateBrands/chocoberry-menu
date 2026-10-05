@@ -1498,7 +1498,8 @@ export default function Admin() {
   const [showPricing, setShowPricing] = useState(false);
   const [storeView, setStoreView] = useState(null); // store id for price editor
   const [openStore, setOpenStore] = useState(null);  // which store row is expanded (one at a time)
-  const [storeTab, setStoreTab] = useState("tablets"); // active tab in the expanded store
+  const [storeTab, setStoreTab] = useState("tablets");
+  const [storeQuery, setStoreQuery] = useState(""); // active tab in the expanded store
   const [storePins, setStorePins] = useState([]);      // master-only: per-store manager PINs
   const loadStorePins = async () => { try { const r = await callAdmin(pin, "store_pin_list", {}); setStorePins(r.pins || []); } catch { /* ignore */ } };
   useEffect(() => { if (showStores && state?.scope !== "store") loadStorePins(); /* eslint-disable-next-line */ }, [showStores]);
@@ -1896,9 +1897,26 @@ export default function Admin() {
                 <span onClick={() => setShowStores(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
               </div>
             </div>
-            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>Each store has its own tablet link and its own prices. Configure a tablet once with its link and it remembers the store.</div>
+            {(() => {
+              const locs = state.locations || [];
+              const devs = state.kdsScreens || [];
+              const isOn = (k) => k.last_seen_at && Date.now() - new Date(k.last_seen_at) < 3 * 60000;
+              const paused = locs.filter((l) => (state.settings || []).some((x) => x.key === "accepting_orders:" + l.id && x.value === "off")).length;
+              const onlineDevs = devs.filter(isOn).length;
+              const activeDevs = devs.filter((k) => (k.status || "active") === "active").length;
+              const Stat = ({ n, l, tone }) => <div style={{ display: "flex", flexDirection: "column", gap: 2, padding: "10px 16px", borderRadius: 12, background: T.card, border: "1px solid " + T.line, minWidth: 92 }}><span style={{ fontSize: 20, fontWeight: 800, color: tone || T.ink, lineHeight: 1 }}>{n}</span><span style={{ fontSize: 10, color: T.faint, fontWeight: 700, letterSpacing: ".04em", textTransform: "uppercase" }}>{l}</span></div>;
+              return (
+                <div style={{ display: "flex", gap: 10, alignItems: "stretch", flexWrap: "wrap", marginBottom: 16 }}>
+                  <Stat n={locs.length} l="Stores" />
+                  <Stat n={locs.filter((l) => l.active).length} l="Active" tone="#2e7d52" />
+                  <Stat n={onlineDevs + " / " + activeDevs} l="Devices online" tone={activeDevs && onlineDevs < activeDevs ? "#8a6a1c" : "#2e7d52"} />
+                  <Stat n={paused} l="Ordering paused" tone={paused ? "#b4462f" : T.ink} />
+                  <input value={storeQuery} onChange={(e) => setStoreQuery(e.target.value)} placeholder="Find a store…" style={{ flex: 1, minWidth: 180, padding: "10px 14px", fontSize: 13.5, border: "1px solid " + T.line, borderRadius: 12, background: T.card, color: T.ink, outline: "none" }} />
+                </div>
+              );
+            })()}
 
-            {(state.locations || []).map((loc) => {
+            {(state.locations || []).filter((l) => !storeQuery.trim() || String(l.name || "").toLowerCase().includes(storeQuery.trim().toLowerCase())).sort((a, b) => String(a.name).localeCompare(String(b.name))).map((loc) => {
               const tokens = (state.tables || []).filter((t) => t.location_id === loc.id && t.is_table === false);
               const diningTables = (state.tables || []).filter((t) => t.location_id === loc.id && t.is_table !== false)
                 .sort((a, b) => (parseInt(String(a.label).replace(/\D/g, "")) || 0) - (parseInt(String(b.label).replace(/\D/g, "")) || 0));
@@ -1920,6 +1938,18 @@ export default function Admin() {
                       </span>
                     </div>
                     <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+                      {(() => {
+                        const devs = (state.kdsScreens || []).filter((k) => k.location_id === loc.id);
+                        const isOn = (k) => k.last_seen_at && Date.now() - new Date(k.last_seen_at) < 3 * 60000;
+                        if (!devs.length) return null;
+                        const on = devs.filter(isOn).length;
+                        return (
+                          <div onClick={(e) => { e.stopPropagation(); setOpenStore(loc.id); setStoreTab("kitchen"); }} title={devs.map((k) => (k.label || "Screen " + k.screen_key) + ": " + ((k.status || "active") !== "active" ? k.status : isOn(k) ? "online" : "offline")).join("\n")} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, minWidth: 64, padding: "6px 10px", borderRadius: 10, cursor: "pointer" }}>
+                            <div style={{ display: "flex", gap: 3 }}>{devs.map((k) => <span key={k.screen_key} style={{ width: 9, height: 9, borderRadius: "50%", background: (k.status || "active") === "revoked" ? "#b4462f" : (k.status || "active") === "unassigned" ? "#c3bcab" : isOn(k) ? "#2e7d52" : "#d79b2c" }} />)}</div>
+                            <span style={{ fontSize: 9.5, color: on === devs.length ? "#2e7d52" : T.faint, fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase" }}>{on}/{devs.length} online</span>
+                          </div>
+                        );
+                      })()}
                       {[["Tablets", tokens.length], ["Tables", diningTables.length], ["Prices", ovCount]].map(([lbl, n]) => (
                         <div key={lbl} onClick={lbl === "Prices" ? (e) => { e.stopPropagation(); setStoreView(loc.id); } : undefined} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 2, minWidth: 52, padding: "7px 4px", borderRadius: 10, background: T.bg, cursor: lbl === "Prices" ? "pointer" : "default" }}>
                           <span style={{ fontSize: 16, fontWeight: 800, color: T.ink, lineHeight: 1, letterSpacing: "-.02em" }}>{n}</span>
