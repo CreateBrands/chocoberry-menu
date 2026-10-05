@@ -1204,7 +1204,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   const Step = ({ n, title, right }) => <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10, gap: 10 }}><div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 18 }}>{n}</span><span style={{ fontSize: 15.5, fontWeight: 900 }}>{title}</span></div>{right && <span style={{ fontSize: 12.5, color: C.muted, textAlign: "right" }}>{right}</span>}</div>;
   const Chip = ({ on, children, onClick, dim, small, tone }) => <span onClick={onClick} className="kbtn" style={{ cursor: "pointer", padding: small ? "8px 13px" : "10px 16px", borderRadius: 10, fontSize: small ? 14 : 15, fontWeight: 700, background: on ? (tone || C.ink) : "#fff", color: on ? "#fff" : dim ? "#94a3b8" : C.ink, border: "1.5px solid " + (on ? (tone || C.ink) : C.line), userSelect: "none", whiteSpace: "nowrap" }}>{children}</span>;
   const Switch = ({ on, onClick }) => <span onClick={onClick} style={{ cursor: "pointer", width: 58, height: 34, borderRadius: 17, background: on ? C.good : "#cbd5e1", position: "relative", display: "inline-block", flexShrink: 0, transition: "background .15s", boxShadow: "inset 0 1px 2px rgba(0,0,0,.15)" }}><span style={{ position: "absolute", top: 4, left: on ? 28 : 4, width: 26, height: 26, borderRadius: "50%", background: "#fff", boxShadow: "0 1px 3px rgba(0,0,0,.3)", transition: "left .15s" }} />{on && <span style={{ position: "absolute", left: 10, top: 7, color: "#fff", fontSize: 13, fontWeight: 900 }}>✓</span>}</span>;
-  const Card = ({ children }) => <div style={{ background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px", minWidth: 0, overflow: "hidden" }}>{children}</div>;
+  const cardStyle = { background: "#fff", border: "1px solid " + C.line, borderRadius: 16, padding: "14px 16px", minWidth: 0, overflow: "hidden" };
   const itemMatches = q.trim() ? items.filter((i) => i.name.toLowerCase().includes(q.trim().toLowerCase())).slice(0, 30) : [];
   const summary = total === 0 ? "Everything" : [...routing.menus.map((id) => nameOf("menus", id) + " (all)"), ...routing.categories.map((id) => nameOf("categories", id)), ...routing.items.map((id) => nameOf("items", id))].join(" · ");
   const dupStation = station.trim() && others.some((x) => (x.station || "").toLowerCase() === station.trim().toLowerCase());
@@ -1231,7 +1231,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
           <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 2.4fr)", gap: 18, alignItems: "start", maxWidth: 1900, margin: "0 auto" }}>
             {/* LEFT: identity, printer, preview */}
             <div style={{ display: "grid", gap: 14, position: "sticky", top: 0, minWidth: 0 }}>
-              <Card>
+              <div style={cardStyle}>
                 <Step n="🖥" title="This screen" />
                 <label style={{ fontSize: 11.5, fontWeight: 800, color: C.muted, letterSpacing: ".06em" }}>NAME<input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Hot Kitchen" style={{ ...inp, marginTop: 6 }} /></label>
                 <div style={{ marginTop: 12 }}>
@@ -1242,8 +1242,8 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                   </div>
                   <div style={{ fontSize: 12, marginTop: 8, lineHeight: 1.45, color: isPass ? C.warn : C.muted }}>{isPass ? "Pass screen — serves and clears only; its bumps won't count as cooking time." : station.trim() ? "Production station — its bumps define when food is done." : "No station — this screen won't count for ticket timing."}{dupStation && <span style={{ color: C.warn }}> Another screen already uses this station.</span>}</div>
                 </div>
-              </Card>
-              <Card>
+              </div>
+              <div style={cardStyle}>
                 <Step n="🖨" title="Prints to" />
                 {printers === null && <div style={{ fontSize: 13, color: C.muted }}>Loading printers…</div>}
                 {printers && (
@@ -1253,8 +1253,8 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                     {!printers.length && <span style={{ fontSize: 12.5, color: C.muted }}>No printers registered for this store.</span>}
                   </div>
                 )}
-              </Card>
-              <Card>
+              </div>
+              <div style={cardStyle}>
                 <Step n="👀" title="Preview" right={preview.length ? showing.length + " of " + preview.length + " open tickets would show" : "no open tickets"} />
                 <div style={{ fontSize: 12, color: C.muted, marginBottom: 8, lineHeight: 1.45 }}>The tickets open right now, filtered by your unsaved selection: which lines would show on this screen, and which wouldn't.</div>
                 {preview.length === 0 && <div style={{ fontSize: 12.5, color: C.muted }}>No open tickets at the moment — place one and it will appear here.</div>}
@@ -1273,12 +1273,12 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                     ))}
                   </div>
                 )}
-              </Card>
+              </div>
             </div>
 
             {/* RIGHT: routing */}
             <div style={{ display: "grid", gap: 14, minWidth: 0 }}>
-              <Card>
+              <div style={cardStyle}>
                 <Step n="🍽" title="What it shows" right={total ? total + " selected" : "nothing selected = everything"} />
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
                   <span style={{ fontSize: 12, color: C.muted }}>Quick set:</span>
@@ -1326,7 +1326,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                   {itemMatches.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>{itemMatches.map((i) => <Chip key={i.id} small on={has("items", i.id)} onClick={() => { toggle("items", i.id); setQ(""); }}>{has("items", i.id) ? "✓ " : "+ "}{i.name}</Chip>)}</div>}
                   {routing.items.length > 0 && <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 10 }}>{routing.items.map((id) => <Chip key={id} small on onClick={() => toggle("items", id)}>{nameOf("items", id)} ✕</Chip>)}</div>}
                 </div>
-              </Card>
+              </div>
               {err && <div style={{ color: "#b91c1c", fontWeight: 700 }}>{err}</div>}
             </div>
           </div>
@@ -1335,7 +1335,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
 
         {tab === "store" && (
         <div style={{ overflowY: "auto", padding: "16px 24px", display: "grid", gap: 14 }}>
-          <Card>
+          <div style={cardStyle}>
             <div style={{ fontSize: 14.5, fontWeight: 900, marginBottom: 4 }}>Who shows what (including your unsaved changes)</div>
             <div style={{ fontSize: 12.5, color: C.muted, marginBottom: 12 }}>● whole menu · ◐ some categories · — not on this screen. A menu nobody claims shows on every screen.</div>
             <div style={{ overflowX: "auto" }}>
@@ -1350,8 +1350,8 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                 ))}
               </div>
             </div>
-          </Card>
-          <Card>
+          </div>
+          <div style={cardStyle}>
             <div style={{ fontSize: 14.5, fontWeight: 900, marginBottom: 8 }}>Screens</div>
             {draftScreens.map((sc) => { const src = sc.key === screenKey ? { label: label.trim() || current?.label, station: station.trim(), printer_sn: printer } : others.find((x) => x.screen_key === sc.key); const st = (src?.station || "").toLowerCase(); return (
               <div key={sc.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid " + C.soft, fontSize: 13 }}>
@@ -1360,7 +1360,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
               </div>
             ); })}
             {uncovered.length > 0 && <div style={{ marginTop: 10, fontSize: 12.5, color: C.muted }}>Not claimed by any screen (so shown everywhere): {uncovered.join(", ")}.</div>}
-          </Card>
+          </div>
         </div>
         )}
 
