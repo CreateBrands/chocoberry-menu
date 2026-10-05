@@ -107,6 +107,31 @@ function tapFeedback() {
   try { if (navigator.vibrate) navigator.vibrate(8); } catch { /* not supported */ }
 }
 
+
+// Pull the components of a dish out of its menu description so the kitchen-note
+// chips say "No mushrooms" rather than a generic "No onion".
+// "Two eggs any style, served with mushrooms, hash browns & baked beans" →
+// ["eggs", "mushrooms", "hash browns", "baked beans"]
+const STOP_WORDS = /^(a|an|the|of|with|and|or|our|your|served|topped|drizzled|finished|fresh|freshly|house|homemade|home-made|made|delicious|classic|signature|choice|side|style|any|two|three|one|in|on|to|for|from|&|plus|all|day|perfect|rich|creamy|crispy|warm|hot|cold|chilled|iced|sweet|light|large|small|regular|mini|big|new)$/i;
+function ingredientsFromDescription(desc, name) {
+  if (!desc) return [];
+  let d = String(desc).toLowerCase().replace(/\([^)]*\)/g, " ");
+  d = d.replace(/\b(served|topped|finished|drizzled|filled|stuffed|layered|garnished|paired|comes|accompanied)\s+(with|by)\b/g, ",").replace(/\bwith\b/g, ",").replace(/\s*&\s*/g, ",").replace(/\b(and|plus)\b/g, ",").replace(/[.;:!\/]/g, ",");
+  const parts = d.split(",").map((x) => x.trim()).filter(Boolean);
+  const out = [];
+  for (let part of parts) {
+    part = part.replace(/\b(a|an|the|of|our|your|choice of|side of|fresh|freshly|house|homemade|home-made|crispy|creamy|warm|hot|cold|rich|delicious|classic|signature|two|three|one|double|triple|large|small|mini|big|new|your choice)\b/g, " ").replace(/\s+/g, " ").trim();
+    const words = part.split(" ").filter((w) => w && !STOP_WORDS.test(w));
+    if (!words.length || words.length > 3) continue;
+    const phrase = words.join(" ");
+    if (phrase.length < 3 || phrase.length > 24) continue;
+    if (name && name.toLowerCase().includes(phrase)) continue; // the dish itself isn't a component
+    if (!out.includes(phrase)) out.push(phrase);
+  }
+  return out.slice(0, 8);
+}
+const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
 export default function POS({ loc, storeToken, tablesList = [] }) {
   const [cats, setCats] = useState(null);   // masters: [{id,name,subs:[{id,name,items:[...]}]}]
   const [activeCat, setActiveCat] = useState(0);   // master index
@@ -561,7 +586,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           sc.items.push({ id: row.item_id, name: row.item_name,
             // What the button shows. Falls back to the real name.
             posName: posNames.get(row.item_id) || row.item_name,
-            price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [], available: row.available !== false });
+            price: Number(row.price), image_url: row.image_url, category: row.category_name, description: row.description || "", modifiers: row.modifiers || [], available: row.available !== false });
         }
         const masters = [...menuMap.values()].sort((a, b) => a.sort - b.sort)
           .map((m) => ({ id: m.id, name: m.name, posName: m.posName, subs: [...m.subMap.values()].sort((a, b) => a.sort - b.sort) }));
@@ -1763,11 +1788,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               const cat = String(modItem.category || "").toLowerCase();
               const isDrink = /shake|coffee|latte|tea|juice|smoothie|drink|frapp|mocha|chai|hot choc|mocktail|cooler|matcha/.test(name + " " + cat);
               const isDessert = /dessert|waffle|crepe|cake|cookie|ice cream|sundae|kanafeh|kunafa|churro|falooda|pudding|brownie|cheesecake/.test(name + " " + cat);
-              const presets = isDrink
+              const ingredients = ingredientsFromDescription(modItem.description, modItem.name);
+              const fromDesc = ingredients.flatMap((ing) => ["No " + ing, "Extra " + ing]);
+              const generic = isDrink
                 ? ["No ice", "Extra ice", "Extra hot", "Less sweet", "No sugar", "Oat milk", "Decaf", "Take away cup"]
                 : isDessert
-                  ? ["No cream", "No sauce", "Sauce on side", "No nuts", "Extra sauce", "To share", "Candle"]
-                  : ["No onion", "No salad", "Sauce on side", "Extra sauce", "Well done", "Medium", "Spicy", "Mild", "No egg", "Kids portion"];
+                  ? ["No cream", "No sauce", "Sauce on side", "No nuts", "To share", "Candle"]
+                  : ["Sauce on side", "Well done", "Medium", "Spicy", "Mild", "Kids portion", "No salad", "No onion"];
+              const presets = [...fromDesc, ...generic.filter((g) => !fromDesc.some((f) => f.toLowerCase() === g.toLowerCase()))];
               const allergyPresets = ["Nut allergy", "Dairy allergy", "Gluten free", "Egg allergy", "Vegan", "Halal only"];
               let recent = []; try { recent = JSON.parse(localStorage.getItem("pos_recent_notes_" + modItem.id) || "[]"); } catch {}
               const parts = (modNote || "").split(",").map((x) => x.trim()).filter(Boolean);
@@ -1787,8 +1815,22 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                       {recent.slice(0, 4).map((v) => <Chip key={"r" + v} v={v} tone={/allerg|gluten|vegan|halal/i.test(v) ? "al" : undefined} />)}
                     </div>
                   )}
+                  {ingredients.length > 0 && (
+                    <div style={{ marginBottom: 9 }}>
+                      <div style={{ fontSize: 12.5, color: "#b0a48a", fontWeight: 700, marginBottom: 6 }}>In this dish · tap to leave out or add extra</div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 6 }}>
+                        {ingredients.map((ing) => (
+                          <div key={ing} style={{ display: "flex", alignItems: "center", gap: 4, background: "#fff", border: "1.5px solid #ead9bd", borderRadius: 12, padding: "4px 6px 4px 10px" }}>
+                            <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, color: "#5b5540", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cap1(ing)}</span>
+                            <span onClick={() => { const no = "No " + ing, ex = "Extra " + ing; const p = parts.filter((x) => x !== ex); setModNote(has(no) ? p.filter((x) => x !== no).join(", ") : [...p, no].join(", ")); }} style={{ cursor: "pointer", fontSize: 13, fontWeight: 800, padding: "6px 9px", borderRadius: 8, background: has("No " + ing) ? "#c0392b" : "#fdf2f0", color: has("No " + ing) ? "#fff" : "#8a2a1e" }}>None</span>
+                            <span onClick={() => { const no = "No " + ing, ex = "Extra " + ing; const p = parts.filter((x) => x !== no); setModNote(has(ex) ? p.filter((x) => x !== ex).join(", ") : [...p, ex].join(", ")); }} style={{ cursor: "pointer", fontSize: 13, fontWeight: 800, padding: "6px 9px", borderRadius: 8, background: has("Extra " + ing) ? "#3a5730" : "#eef4e8", color: has("Extra " + ing) ? "#fff" : "#3a5730" }}>Extra</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 9 }}>
-                    {presets.map((v) => <Chip key={v} v={v} />)}
+                    {generic.map((v) => <Chip key={v} v={v} />)}
                   </div>
                   <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: 11 }}>
                     <span style={{ fontSize: 12.5, color: "#8a2a1e", fontWeight: 800 }}>⚠</span>
