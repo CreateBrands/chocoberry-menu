@@ -1727,14 +1727,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       {/* MODIFIER POPUP */}
       {modItem && (
         <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.45)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, padding: 26, width: 560, maxWidth: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 70px rgba(18,21,28,.28)" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, padding: 28, width: (modItem.modifiers || []).length ? 1180 : 820, maxWidth: "100%", maxHeight: "92vh", overflowY: "auto", boxShadow: "0 24px 70px rgba(18,21,28,.28)" }}>
             {/* header */}
             <div style={{ display: "flex", alignItems: "center", gap: 17 }}>
               <div style={{ width: 70, height: 70, borderRadius: 20, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, color: "#fff", background: modItem.image_url ? "#f0f1f3" : "linear-gradient(135deg," + catColor(modItem.category || (master && master.name)).bar + "," + catColor(modItem.category || (master && master.name)).ink + ")", backgroundImage: modItem.image_url ? "url(" + modItem.image_url + ")" : undefined, backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 6px 16px rgba(0,0,0,.18)" }}>{!modItem.image_url && fallbackFor(modItem.name, modItem.category || "").icon}</div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.08 }}>{modItem.name}</div>
                 <div style={{ fontSize: 15, color: "#9aa1ac", marginTop: 4, fontWeight: 600 }}>{gbp(modItem.price)} · {(modItem.modifiers || []).length ? (editKey ? "editing" : "customise") : "note for the kitchen"}</div>
-                {modItem.description && <div style={{ fontSize: 13.5, color: "#6b7280", marginTop: 6, lineHeight: 1.4, maxWidth: 520 }}>{modItem.description}</div>}
+                {modItem.description && <div style={{ fontSize: 14, color: "#6b7280", marginTop: 6, lineHeight: 1.4, maxWidth: 760 }}>{modItem.description}</div>}
               </div>
             </div>
 
@@ -1751,6 +1751,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             )}
 
             {/* groups */}
+            <div style={{ display: "grid", gridTemplateColumns: (modItem.modifiers || []).length ? "1.15fr 1fr" : "1fr", gap: 22, alignItems: "start", marginTop: 18 }}>
+              <div style={{ minWidth: 0 }}>
             {(modItem.modifiers || []).map((g) => {
               const chosen = modSel[g.id] || [];
               const single = (g.max_select || 1) === 1;
@@ -1784,6 +1786,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               );
             })}
 
+              </div>
+              <div style={{ minWidth: 0, position: "sticky", top: 0 }}>
             {/* kitchen note */}
             {(() => {
               const name = (modItem.name || "").toLowerCase();
@@ -1804,13 +1808,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               const has = (v) => parts.includes(v);
               const toggle = (v) => setModNote(has(v) ? parts.filter((x) => x !== v).join(", ") : [...parts, v].join(", "));
               const isAllergy = /allerg|gluten|vegan|halal|intoler/i.test(modNote || "");
-              const Chip = ({ v, tone }) => <span onClick={() => toggle(v)} style={{ fontSize: 15, fontWeight: 700, cursor: "pointer", padding: "9px 15px", borderRadius: 20, border: "1.5px solid " + (has(v) ? (tone === "al" ? "#c0392b" : "#3a5730") : (tone === "al" ? "#e6b8b0" : "#ead9bd")), background: has(v) ? (tone === "al" ? "#c0392b" : "#3a5730") : "#fff", color: has(v) ? "#fff" : (tone === "al" ? "#8a2a1e" : "#5b5540"), userSelect: "none", whiteSpace: "nowrap" }}>{has(v) ? "✓ " : ""}{v}</span>;
+              const Chip = ({ v, tone }) => <span onClick={() => toggle(v)} style={{ fontSize: 16, fontWeight: 700, cursor: "pointer", padding: "11px 18px", borderRadius: 22, border: "1.5px solid " + (has(v) ? (tone === "al" ? "#c0392b" : "#3a5730") : (tone === "al" ? "#e6b8b0" : "#ead9bd")), background: has(v) ? (tone === "al" ? "#c0392b" : "#3a5730") : "#fff", color: has(v) ? "#fff" : (tone === "al" ? "#8a2a1e" : "#5b5540"), userSelect: "none", whiteSpace: "nowrap" }}>{has(v) ? "✓ " : ""}{v}</span>;
               return (
                 <div style={{ background: isAllergy ? "#fff4f2" : "#fffbf4", border: "1.5px solid " + (isAllergy ? "#e6b8b0" : "#f0e2cc"), borderRadius: 16, padding: "16px 18px", marginBottom: 18 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
-                    <div style={{ fontSize: 15.5, fontWeight: 700 }}>📝 Kitchen note <span style={{ fontSize: 14, color: "#b0a48a", fontWeight: 500 }}>(optional)</span></div>
+                    <div style={{ fontSize: 18, fontWeight: 800 }}>📝 Kitchen note <span style={{ fontSize: 14, color: "#b0a48a", fontWeight: 500 }}>(optional)</span></div>
                     {isAllergy && <span style={{ fontSize: 12.5, fontWeight: 800, color: "#c0392b", letterSpacing: ".05em" }}>⚠ PRINTS AS ALLERGY</span>}
                   </div>
+                  {parts.length > 0 && <div style={{ marginBottom: 10, padding: "9px 12px", borderRadius: 11, background: isAllergy ? "#c0392b" : "#3d3829", color: "#fff", fontSize: 15, fontWeight: 700, lineHeight: 1.35 }}>Ticket will say: {isAllergy ? "!! " + (modNote || "").toUpperCase() + " !!" : "** " + modNote + " **"}</div>}
                   {recent.length > 0 && (
                     <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: 9 }}>
                       <span style={{ fontSize: 12.5, color: "#b0a48a", fontWeight: 700 }}>Recent</span>
@@ -1819,31 +1824,34 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   )}
                   {ingredients.length > 0 && (
                     <div style={{ marginBottom: 9 }}>
-                      <div style={{ fontSize: 12.5, color: "#b0a48a", fontWeight: 700, marginBottom: 6 }}>In this dish · tap to leave out or add extra</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 6 }}>
+                      <div style={{ fontSize: 13.5, color: "#8a7f66", fontWeight: 800, letterSpacing: ".04em", marginBottom: 8 }}>IN THIS DISH <span style={{ fontWeight: 500, letterSpacing: 0 }}>· tap to leave out or add extra</span></div>
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 8 }}>
                         {ingredients.map((ing) => (
-                          <div key={ing} style={{ display: "flex", alignItems: "center", gap: 4, background: "#fff", border: "1.5px solid #ead9bd", borderRadius: 12, padding: "4px 6px 4px 10px" }}>
-                            <span style={{ flex: 1, fontSize: 14.5, fontWeight: 700, color: "#5b5540", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cap1(ing)}</span>
-                            <span onClick={() => { const no = "No " + ing, ex = "Extra " + ing; const p = parts.filter((x) => x !== ex); setModNote(has(no) ? p.filter((x) => x !== no).join(", ") : [...p, no].join(", ")); }} style={{ cursor: "pointer", fontSize: 13, fontWeight: 800, padding: "6px 9px", borderRadius: 8, background: has("No " + ing) ? "#c0392b" : "#fdf2f0", color: has("No " + ing) ? "#fff" : "#8a2a1e" }}>None</span>
-                            <span onClick={() => { const no = "No " + ing, ex = "Extra " + ing; const p = parts.filter((x) => x !== no); setModNote(has(ex) ? p.filter((x) => x !== ex).join(", ") : [...p, ex].join(", ")); }} style={{ cursor: "pointer", fontSize: 13, fontWeight: 800, padding: "6px 9px", borderRadius: 8, background: has("Extra " + ing) ? "#3a5730" : "#eef4e8", color: has("Extra " + ing) ? "#fff" : "#3a5730" }}>Extra</span>
+                          <div key={ing} style={{ display: "flex", alignItems: "center", gap: 5, background: has("No " + ing) ? "#fdf2f0" : has("Extra " + ing) ? "#eef4e8" : "#fff", border: "1.5px solid " + (has("No " + ing) ? "#e6b8b0" : has("Extra " + ing) ? "#b9ceab" : "#ead9bd"), borderRadius: 14, padding: "6px 6px 6px 12px" }}>
+                            <span style={{ flex: 1, fontSize: 16, fontWeight: 700, color: "#3d3829", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", textDecoration: has("No " + ing) ? "line-through" : "none" }}>{cap1(ing)}</span>
+                            <span onClick={() => { const no = "No " + ing, ex = "Extra " + ing; const p = parts.filter((x) => x !== ex); setModNote(has(no) ? p.filter((x) => x !== no).join(", ") : [...p, no].join(", ")); }} style={{ cursor: "pointer", fontSize: 14, fontWeight: 800, padding: "9px 12px", borderRadius: 10, background: has("No " + ing) ? "#c0392b" : "#fdf2f0", color: has("No " + ing) ? "#fff" : "#8a2a1e", userSelect: "none" }}>None</span>
+                            <span onClick={() => { const no = "No " + ing, ex = "Extra " + ing; const p = parts.filter((x) => x !== no); setModNote(has(ex) ? p.filter((x) => x !== ex).join(", ") : [...p, ex].join(", ")); }} style={{ cursor: "pointer", fontSize: 14, fontWeight: 800, padding: "9px 12px", borderRadius: 10, background: has("Extra " + ing) ? "#3a5730" : "#eef4e8", color: has("Extra " + ing) ? "#fff" : "#3a5730", userSelect: "none" }}>Extra</span>
                           </div>
                         ))}
                       </div>
                     </div>
                   )}
-                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 9 }}>
+                  <div style={{ fontSize: 13.5, color: "#8a7f66", fontWeight: 800, letterSpacing: ".04em", margin: "4px 0 8px" }}>QUICK</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                     {generic.map((v) => <Chip key={v} v={v} />)}
                   </div>
-                  <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: 11 }}>
-                    <span style={{ fontSize: 12.5, color: "#8a2a1e", fontWeight: 800 }}>⚠</span>
+                  <div style={{ fontSize: 13.5, color: "#8a2a1e", fontWeight: 800, letterSpacing: ".04em", margin: "4px 0 8px" }}>⚠ ALLERGY & DIET</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
                     {allergyPresets.map((v) => <Chip key={v} v={v} tone="al" />)}
                   </div>
                   <input type="text" value={modNote} onChange={(e) => setModNote(e.target.value)} placeholder="Anything else for the kitchen…"
-                    style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1.5px solid " + (isAllergy ? "#e6b8b0" : "#ead9bd"), borderRadius: 11, padding: "13px 15px", fontSize: 16, color: isAllergy ? "#8a2a1e" : "#5b5540", fontWeight: isAllergy ? 700 : 500, fontFamily: "inherit", outline: "none" }} />
+                    style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1.5px solid " + (isAllergy ? "#e6b8b0" : "#ead9bd"), borderRadius: 13, padding: "15px 17px", fontSize: 17, color: isAllergy ? "#8a2a1e" : "#5b5540", fontWeight: isAllergy ? 700 : 500, fontFamily: "inherit", outline: "none" }} />
                 </div>
               );
             })()}
 
+              </div>
+            </div>
             {/* footer */}
             <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
               <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ padding: "19px 28px", borderRadius: 18, background: "#f4f6f8", color: "#5b6472", fontWeight: 700, cursor: "pointer", fontSize: 17 }}>Cancel</div>
