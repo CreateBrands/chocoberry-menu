@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { OrdersList, OrderDetailPanel } from "./OrdersStrip.jsx";
+import ServiceFeedback from "./ServiceFeedback.jsx";
+import { deviceToken } from "./device.js";
 import CartLine from "./CartLine.jsx";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -106,6 +108,32 @@ function tapFeedback() {
   try { if (navigator.vibrate) navigator.vibrate(8); } catch { /* not supported */ }
 }
 
+
+// Pull the components of a dish out of its menu description so the kitchen-note
+// chips say "No mushrooms" rather than a generic "No onion".
+// "Two eggs any style, served with mushrooms, hash browns & baked beans" →
+// ["eggs", "mushrooms", "hash browns", "baked beans"]
+const STOP_WORDS = /^(a|an|the|of|with|and|or|our|your|served|topped|drizzled|finished|fresh|freshly|house|homemade|home-made|made|delicious|classic|signature|choice|side|style|any|two|three|one|in|on|to|for|from|&|plus|all|day|perfect|rich|creamy|crispy|warm|hot|cold|chilled|iced|sweet|light|large|small|regular|mini|big|new)$/i;
+function ingredientsFromDescription(desc, name) {
+  if (!desc) return [];
+  let d = String(desc).toLowerCase().replace(/\([^)]*\)/g, " ");
+  d = d.replace(/\b(served|topped|finished|drizzled|filled|stuffed|layered|garnished|paired|comes|accompanied)\s+(with|by)\b/g, ",").replace(/\bwith\b/g, ",").replace(/\s*&\s*/g, ",").replace(/\b(and|plus)\b/g, ",").replace(/[.;:!\/|•·\-–—]/g, ",").replace(/\n+/g, ",");
+  const parts = d.split(",").map((x) => x.trim()).filter(Boolean);
+  const out = [];
+  for (let part of parts) {
+    part = part.replace(/\b(a|an|the|of|our|your|choice of|side of|fresh|freshly|house|homemade|home-made|crispy|creamy|warm|hot|cold|rich|delicious|classic|signature|two|three|one|double|triple|large|small|mini|big|new|your choice|hearty|generous|tasty|yummy|famous|favourite|favorite|best|loaded|ultimate|special|premium|authentic|traditional)\b/g, " ").replace(/\s+/g, " ").trim();
+    if (/\b(breakfast|lunch|dinner|meal|dish|platter|plate|combo|feast|treat|dessert|experience|selection)\b/.test(part) && part.split(" ").length <= 2) continue; // "hearty breakfast" is not a component
+    const words = part.split(" ").filter((w) => w && !STOP_WORDS.test(w));
+    if (!words.length || words.length > 3) continue;
+    const phrase = words.join(" ");
+    if (phrase.length < 3 || phrase.length > 24) continue;
+    if (name && name.toLowerCase().includes(phrase)) continue; // the dish itself isn't a component
+    if (!out.includes(phrase)) out.push(phrase);
+  }
+  return out.slice(0, 8);
+}
+const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+
 export default function POS({ loc, storeToken, tablesList = [] }) {
   const [cats, setCats] = useState(null);   // masters: [{id,name,subs:[{id,name,items:[...]}]}]
   const [activeCat, setActiveCat] = useState(0);   // master index
@@ -177,6 +205,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [payNowOrder, setPayNowOrder] = useState(null); // locally-built order for instant panel
   const [now, setNow] = useState(Date.now());
   const [posPin, setPosPin] = useState(""); // PIN captured once for order actions
+  const [feedbackFor, setFeedbackFor] = useState(null); // order → FOH feedback sheet
 
   // On first mount, honour the saved default view for this tablet.
   useEffect(() => { setMode(defaultView === "orders" ? "orders" : "new"); }, []); // eslint-disable-line
@@ -193,7 +222,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const myReq = ++ordersReqRef.current;
     setOrdersBusy(true);
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,print_failed,total,paid_method,paid_amount,amount_paid,is_split,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,print_failed,print_error,total,paid_method,paid_amount,amount_paid,is_split,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
         + (loc ? "&location_id=eq." + loc : "")
         + "&closed_at=is.null&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
@@ -217,7 +246,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action, data: dataObj }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action, data: dataObj }),
       });
       await loadOrders();
       return r.ok;
@@ -230,7 +259,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action, data: dataObj }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action, data: dataObj }),
       });
       const j = await r.json().catch(() => ({}));
       await loadOrders();
@@ -242,20 +271,54 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // PIN, then admin-api close_day archives the open orders, writes
   // till_closures and prints the Z-report on this store's printer.
   const [closeTill, setCloseTill] = useState(null); // null | { step: "summary"|"done", summary, counted, float, pin, by, note, busy, err, result }
-  async function openCloseTill() {
-    setCloseTill({ step: "summary", summary: null, counted: "", float: "", pin: "", by: "", note: "", busy: true, err: "" });
-    const r = await ordActionJson("day_summary", { location_id: loc });
-    setCloseTill((c) => c && { ...c, busy: false, summary: r.summary || null, err: r.summary ? "" : (r.error || "Could not load today's totals") });
+  // Trading day ends 04:00: after 4am the default is to close up to 4am only,
+  // so this morning's orders stay open; before 4am (end of night) close all.
+  async function loadCloseTillSummary(mode) {
+    const r = await ordActionJson("day_summary", { location_id: loc, mode });
+    return r.summary || null;
   }
-  async function confirmCloseTill() {
+  async function openCloseTill() {
+    setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "" });
+    let sm = await loadCloseTillSummary("trading_day");
+    let mode = "trading_day";
+    // Nothing before the cutoff (or we're before 4am) → close everything up to now.
+    if (!sm || !sm.before_cutoff_count) { mode = "all"; sm = await loadCloseTillSummary("all"); }
+    const prevFloat = sm && sm.previous && sm.previous.float_amount != null ? String(Number(sm.previous.float_amount).toFixed(2)) : "";
+    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, float: c.float || prevFloat, err: sm ? "" : "Could not load today's totals" });
+  }
+  // Look the PIN up as it's typed so the sheet can greet the closer by name.
+  const staffLookupTimer = useRef(null);
+  function lookupStaffPin(pin) {
+    if (staffLookupTimer.current) clearTimeout(staffLookupTimer.current);
+    if (!pin || pin.length < 4) { setCloseTill((c) => c && { ...c, staff: null }); return; }
+    staffLookupTimer.current = setTimeout(async () => {
+      const r = await ordActionJson("staff_lookup", { pin, location_id: loc });
+      setCloseTill((c) => c && c.pin === pin ? { ...c, staff: r.ok ? { name: r.name } : { unknown: true, reason: r.reason } } : c);
+    }, 350);
+  }
+  async function reprintClosure() {
+    const c = closeTill; if (!c || !c.result || !c.result.closure_id) return;
+    setCloseTill((x) => x && { ...x, reprinting: true });
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, action: "reprint_closure", data: { closure_id: c.result.closure_id } }) });
+      const j = await r.json().catch(() => ({}));
+      setCloseTill((x) => x && { ...x, reprinting: false, reprinted: !!j.ok });
+    } catch { setCloseTill((x) => x && { ...x, reprinting: false, reprinted: false }); }
+  }
+  async function switchCloseTillMode(mode) {
     setCloseTill((c) => c && { ...c, busy: true, err: "" });
-    const c = closeTill;
+    const sm = await loadCloseTillSummary(mode);
+    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, err: sm ? "" : "Could not load totals" });
+  }
+  async function confirmCloseTill(overrides = {}) {
+    setCloseTill((c) => c && { ...c, ...overrides, busy: true, err: "" });
+    const c = { ...closeTill, ...overrides };
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, action: "close_day", data: {
-        location_id: loc, cash_counted: c.counted === "" ? null : Number(c.counted), float_amount: c.float === "" ? null : Number(c.float), closed_by: c.by.trim() || null, note: c.note.trim() || null,
+        location_id: loc, mode: c.mode, staff_pin: c.pin, cash_counted: c.counted === "" ? null : Number(c.counted), float_amount: c.float === "" ? null : Number(c.float), note: c.note.trim() || null,
       } }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok) throw new Error(j.error === "unauthorized" ? "Wrong PIN" : (j.error || "Close failed"));
+      if (!r.ok) throw new Error(j.error === "unauthorized" ? "PIN not recognised" : (j.message || j.error || "Close failed"));
       setCloseTill((x) => x && { ...x, busy: false, step: "done", result: j });
       await loadOrders();
       setSelOrderId(null); setPayNowOrder(null);
@@ -525,7 +588,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           sc.items.push({ id: row.item_id, name: row.item_name,
             // What the button shows. Falls back to the real name.
             posName: posNames.get(row.item_id) || row.item_name,
-            price: Number(row.price), image_url: row.image_url, category: row.category_name, modifiers: row.modifiers || [], available: row.available !== false });
+            price: Number(row.price), image_url: row.image_url, category: row.category_name, description: row.description || "", modifiers: row.modifiers || [], available: row.available !== false });
         }
         const masters = [...menuMap.values()].sort((a, b) => a.sort - b.sort)
           .map((m) => ({ id: m.id, name: m.name, posName: m.posName, subs: [...m.subMap.values()].sort((a, b) => a.sort - b.sort) }));
@@ -540,7 +603,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action: "merges_list" }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action: "merges_list" }),
       });
       const j = await r.json();
       if (Array.isArray(j.merges)) setMerges(j.merges);
@@ -552,7 +615,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action: "merge_save", data: { id, menu_id, new_name, category_ids } }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action: "merge_save", data: { id, menu_id, new_name, category_ids } }),
       });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || j.error) { alert("Merge failed: " + (j.error || ("HTTP " + r.status))); return false; }
@@ -567,7 +630,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     try {
       await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pos: true, action: "merge_delete", data: { id } }),
+        body: JSON.stringify({ pos: true, device: deviceToken(), action: "merge_delete", data: { id } }),
       });
       await loadMerges();
     } catch { /* ignore */ }
@@ -652,6 +715,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const chosen = groups.flatMap((g) => (g.options || []).filter((o) => (modSel[g.id] || []).includes(o.id)).map((o) => ({ group: g.name, name: o.name, price_delta: Number(o.price_delta || 0), option_id: o.id })));
     const unit = modItem.price + chosen.reduce((s, x) => s + x.price_delta, 0);
     const note = modNote.trim();
+    if (note && modItem) { try { const k = "pos_recent_notes_" + modItem.id; const cur = JSON.parse(localStorage.getItem(k) || "[]"); const parts = note.split(",").map((x) => x.trim()).filter(Boolean); localStorage.setItem(k, JSON.stringify([...parts, ...cur.filter((x) => !parts.includes(x))].slice(0, 6))); } catch {} }
     if (editKey) {
       // Update the existing line in place (keep its qty).
       setTicket((prev) => prev.map((l) => l.key === editKey
@@ -875,9 +939,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               {failedPrintOrders.length === 1
                 ? "ORDER #" + failedPrintOrders[0].order_no + " DID NOT PRINT"
                 : failedPrintOrders.length + " ORDERS DID NOT PRINT"}
-              <span style={{ fontWeight: 600, opacity: .9 }}> — check the printer (paper / power / jam)</span>
+              <span style={{ fontWeight: 600, opacity: .95, display: "block", fontSize: 13.5, marginTop: 2 }}>
+                {(() => { const reasons = [...new Set(failedPrintOrders.map((o) => o.print_error).filter(Boolean))]; return reasons.length ? reasons.join(" · ") : "Printer did not accept the job — check it is on, connected and has paper"; })()}
+              </span>
             </span>
-            <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "center" }}>
+              <span onClick={async () => { for (const o of failedPrintOrders.slice(0, 20)) await ordAction("clear_print_flag", { order_id: o.id }); loadOrders(); }} title="Dismiss the alarm"
+                style={{ cursor: "pointer", background: "rgba(255,255,255,.14)", border: "1px solid rgba(255,255,255,.4)", borderRadius: 9, padding: "6px 12px", fontWeight: 800, fontSize: 13 }}>Dismiss</span>
               {failedPrintOrders.slice(0, 4).map((o) => (
                 <span key={o.id} onClick={() => ordReprint(o)} title={"Reprint order #" + o.order_no}
                   style={{ cursor: "pointer", background: "rgba(255,255,255,.2)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "6px 12px", fontWeight: 800, fontSize: 14 }}>
@@ -912,6 +980,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
         </div>
       )}
+      {feedbackFor && <ServiceFeedback order={feedbackFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="pos" onClose={() => setFeedbackFor(null)} onSaved={(j) => setMsg("Feedback logged for #" + feedbackFor.order_no + (j && j.logged_by ? " as " + j.logged_by : ""))} />}
       {paidBanner && (
         <div onClick={() => setPaidBanner(null)}
           style={{ position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)", zIndex: 9999,
@@ -1099,6 +1168,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               onSetType={ordSetType}
               onVoidFired={ordVoidFired}
               onReprint={ordReprint}
+              onFeedback={(o) => setFeedbackFor(o)}
             />
           ) : (
           <>
@@ -1165,7 +1235,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   line={{ name: l.item.name, qty: l.qty, unitPrice: l.unit, image_url: l.item.image_url, category: l.item.category, mods: l.mods.map((m) => m.name), note: l.note }}
                   onDec={() => setQty(l.key, -1)}
                   onInc={() => setQty(l.key, 1)}
-                  onEdit={hasMods ? () => editLine(l) : undefined}
+                  onEdit={() => editLine(l)}
+                  editLabel={hasMods ? (l.note ? "✎ Edit · note" : "✎ Edit") : (l.note ? "✎ Note" : "+ Note")}
                   onRemove={() => removeLine(l.key)}
                 />
               );
@@ -1286,93 +1357,346 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         </div>
       </div>
 
-      {/* CLOSE TILL */}
-      {closeTill && (
-        <div onClick={() => !closeTill.busy && setCloseTill(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.5)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 22, width: 520, maxWidth: "100%", maxHeight: "90vh", overflowY: "auto", padding: 26, boxShadow: "0 24px 70px rgba(18,21,28,.3)" }}>
-            {closeTill.step === "summary" && (() => {
-              const sm = closeTill.summary;
-              const counted = closeTill.counted === "" ? null : Number(closeTill.counted);
-              const flt = closeTill.float === "" ? 0 : Number(closeTill.float);
-              const expected = sm ? Math.round(((flt || 0) + Number(sm.cash || 0)) * 100) / 100 : 0;
-              const variance = counted == null ? null : Math.round((counted - expected) * 100) / 100;
-              const Row = ({ l, v, strong, warn }) => <div style={{ display: "flex", justifyContent: "space-between", fontSize: strong ? 17 : 14.5, fontWeight: strong ? 800 : 500, color: warn ? "#9a3412" : "#22271f", padding: "5px 0" }}><span style={{ color: warn ? "#9a3412" : "#6b7a60" }}>{l}</span><span>{v}</span></div>;
-              return (
-                <>
-                  <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.02em" }}>Close till</div>
-                  <div style={{ fontSize: 13.5, color: "#6b7a60", marginTop: 3 }}>Archives today's orders, records the cash count and prints the Z-report.</div>
-                  {closeTill.busy && !sm && <div style={{ padding: "30px 0", textAlign: "center", color: "#6b7a60" }}>Loading today's totals…</div>}
-                  {sm && (
-                    <>
-                      <div style={{ marginTop: 18, background: "#f6f7f3", borderRadius: 14, padding: "12px 16px" }}>
-                        <Row l="Total taken" v={gbp(sm.total)} strong />
-                        <Row l="Cash" v={gbp(sm.cash)} />
-                        <Row l="Card" v={gbp(sm.card)} />
-                        {sm.other > 0 && <Row l="Other" v={gbp(sm.other)} />}
-                        <Row l={"Paid orders"} v={String(sm.paid_count)} />
-                        {sm.cancelled_count > 0 && <Row l="Cancelled" v={String(sm.cancelled_count)} />}
-                        {sm.unpaid_count > 0 && <Row l={"Unpaid orders (" + sm.unpaid_count + ")"} v={gbp(sm.unpaid_total)} warn />}
-                      </div>
-                      {sm.unpaid_count > 0 && (
-                        <div style={{ marginTop: 10, fontSize: 13, color: "#9a3412", background: "#fff4ec", border: "1px solid #f3d3c0", borderRadius: 10, padding: "9px 12px", lineHeight: 1.45 }}>
-                          {sm.unpaid_count} order{sm.unpaid_count === 1 ? "" : "s"} still unpaid ({(sm.unpaid || []).slice(0, 6).map((u) => "#" + u.order_no).join(", ")}{sm.unpaid_count > 6 ? "…" : ""}). Take payment or cancel them first, or they'll be archived as unpaid.
-                        </div>
-                      )}
-                      <div style={{ marginTop: 18, fontSize: 12, fontWeight: 800, letterSpacing: ".08em", color: "#6b7a60" }}>CASH COUNT</div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 8 }}>
-                        <label style={{ fontSize: 13, color: "#6b7a60" }}>Float left in drawer
-                          <input inputMode="decimal" value={closeTill.float} onChange={(e) => setCloseTill((c) => ({ ...c, float: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="e.g. 100.00" style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 5, padding: "12px 13px", fontSize: 18, fontWeight: 700, border: "1.5px solid #e2e4e8", borderRadius: 11, outline: "none" }} />
-                        </label>
-                        <label style={{ fontSize: 13, color: "#6b7a60" }}>Cash counted (total in drawer)
-                          <input inputMode="decimal" value={closeTill.counted} onChange={(e) => setCloseTill((c) => ({ ...c, counted: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="0.00" style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 5, padding: "12px 13px", fontSize: 18, fontWeight: 700, border: "1.5px solid #e2e4e8", borderRadius: 11, outline: "none" }} />
-                        </label>
-                      </div>
-                      <div style={{ marginTop: 8, display: "flex", justifyContent: "space-between", fontSize: 14, padding: "8px 2px" }}>
-                        <span style={{ color: "#6b7a60" }}>Expected in drawer (float + cash taken)</span><span style={{ fontWeight: 700 }}>{gbp(expected)}</span>
-                      </div>
-                      {variance != null && (
-                        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, fontWeight: 800, padding: "6px 2px", color: variance === 0 ? "#166534" : variance > 0 ? "#1d4ed8" : "#b91c1c" }}>
-                          <span>{variance === 0 ? "Drawer balances" : variance > 0 ? "Over" : "Short"}</span><span>{variance < 0 ? "-" : ""}{gbp(Math.abs(variance))}</span>
-                        </div>
-                      )}
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 14 }}>
-                        <input value={closeTill.by} onChange={(e) => setCloseTill((c) => ({ ...c, by: e.target.value }))} placeholder="Closed by (name)" style={{ padding: "12px 13px", fontSize: 15, border: "1.5px solid #e2e4e8", borderRadius: 11, outline: "none" }} />
-                        <input type="password" inputMode="numeric" value={closeTill.pin} onChange={(e) => setCloseTill((c) => ({ ...c, pin: e.target.value }))} placeholder="Manager PIN" style={{ padding: "12px 13px", fontSize: 15, border: "1.5px solid " + (closeTill.err === "Wrong PIN" ? "#dc2626" : "#e2e4e8"), borderRadius: 11, outline: "none", letterSpacing: ".2em" }} />
-                      </div>
-                      <input value={closeTill.note} onChange={(e) => setCloseTill((c) => ({ ...c, note: e.target.value }))} placeholder="Note (optional — e.g. reason for variance)" style={{ display: "block", width: "100%", boxSizing: "border-box", marginTop: 10, padding: "12px 13px", fontSize: 14, border: "1.5px solid #e2e4e8", borderRadius: 11, outline: "none" }} />
-                    </>
-                  )}
-                  {closeTill.err && <div style={{ marginTop: 12, color: "#b91c1c", fontWeight: 700, fontSize: 14 }}>{closeTill.err}</div>}
-                  <div style={{ display: "flex", gap: 10, marginTop: 20 }}>
-                    <div onClick={() => !closeTill.busy && setCloseTill(null)} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#f3f4ef", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</div>
-                    <div onClick={() => { if (closeTill.busy || !sm) return; if (!closeTill.pin) { setCloseTill((c) => ({ ...c, err: "Enter the manager PIN" })); return; } confirmCloseTill(); }}
-                      style={{ flex: 2, textAlign: "center", padding: "14px 0", borderRadius: 12, background: closeTill.busy || !sm ? "#9aa1ac" : "#22271f", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>
-                      {closeTill.busy && sm ? "Closing…" : "Close till & print Z-report"}
+      {/* CLOSE TILL — guided closing report: Review → Cash → Sign off → Done */}
+      {closeTill && (() => {
+        const DENOMS = [50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01];
+        const dLabel = (d) => d >= 1 ? "£" + d : (d * 100).toFixed(0) + "p";
+        const denomTotal = Math.round(DENOMS.reduce((t, d) => t + d * (Number(closeTill.denoms?.[d]) || 0), 0) * 100) / 100;
+        const denomsTouched = Object.values(closeTill.denoms || {}).some((v) => v !== "" && v != null);
+        const countedVal = closeTill.countMode === "denoms" ? (denomsTouched ? denomTotal : null) : (closeTill.counted === "" ? null : Number(closeTill.counted));
+        const sm = closeTill.summary;
+        const flt = closeTill.float === "" ? 0 : Number(closeTill.float);
+        const expected = sm ? Math.round(((flt || 0) + Number(sm.cash || 0)) * 100) / 100 : 0;
+        const variance = countedVal == null ? null : Math.round((countedVal - expected) * 100) / 100;
+        const VARIANCE_NOTE_FROM = 5; // £ — beyond this a note is required
+        const C = { ink: "#22271f", muted: "#6b7a60", line: "#e6e8e1", soft: "#f6f7f3", brand: "#5E7A4D", good: "#166534", bad: "#b91c1c", over: "#1d4ed8", warn: "#9a3412" };
+        const F = "'Poppins',sans-serif";
+        const typeLabel = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
+        const fmtT = (iso) => iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
+        const fmtD = (iso) => iso ? new Date(iso).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }) : "";
+        const delta = (a, b) => { if (b == null) return null; const d = Math.round((a - b) * 100) / 100; const pct = b ? Math.round((d / b) * 100) : null; return { d, pct }; };
+        const Delta = ({ a, b, label }) => { const x = delta(a, b); if (!x) return null; const up = x.d >= 0; return <span style={{ fontSize: 11.5, fontWeight: 700, color: up ? C.good : C.bad }}>{up ? "▲" : "▼"} {gbp(Math.abs(x.d))}{x.pct != null && " (" + Math.abs(x.pct) + "%)"} <span style={{ color: C.muted, fontWeight: 500 }}>{label}</span></span>; };
+        const Section = ({ title, right, children, style }) => (
+          <div style={{ marginTop: 18, ...style }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+              <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".09em", color: C.muted }}>{title}</span>{right}
+            </div>
+            {children}
+          </div>
+        );
+        const Line = ({ l, v, sub, strong, color }) => (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", borderBottom: "1px solid " + C.line, fontSize: strong ? 16 : 14.5, fontWeight: strong ? 800 : 500, color: color || C.ink }}>
+            <span style={{ color: color || (strong ? C.ink : C.muted) }}>{l}{sub && <span style={{ fontSize: 12, color: "#9aa394", marginLeft: 6 }}>{sub}</span>}</span><span style={{ fontVariantNumeric: "tabular-nums", fontFamily: F }}>{v}</span>
+          </div>
+        );
+        const Bar = ({ label, value, max, right }) => (
+          <div style={{ display: "grid", gridTemplateColumns: "92px 1fr auto", gap: 10, alignItems: "center", padding: "4px 0", fontSize: 13.5 }}>
+            <span style={{ color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+            <div style={{ height: 9, background: C.soft, borderRadius: 5, overflow: "hidden" }}><div style={{ width: (max ? Math.max(3, (value / max) * 100) : 0) + "%", height: "100%", background: C.brand, borderRadius: 5, transition: "width .4s" }} /></div>
+            <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", fontFamily: F }}>{right}</span>
+          </div>
+        );
+        const input = (extra) => ({ display: "block", width: "100%", boxSizing: "border-box", padding: "12px 13px", fontSize: 17, fontWeight: 700, border: "1.5px solid " + C.line, borderRadius: 12, outline: "none", fontVariantNumeric: "tabular-nums", fontFamily: F, background: "#fff", ...extra });
+        const stages = ["Review", "Cash", "Sign off"];
+        const stage = closeTill.step === "done" ? 3 : closeTill.stage;
+        const canLeaveCash = true;
+        const varianceNeedsNote = variance != null && Math.abs(variance) >= VARIANCE_NOTE_FROM && !closeTill.note.trim();
+        const closer = closeTill.staff && closeTill.staff.name ? closeTill.staff.name : null;
+        const signoffOk = closeTill.pin.length >= 4 && !varianceNeedsNote;
+        const Btn = ({ children, onClick, primary, disabled, grow }) => (
+          <div onClick={() => !disabled && onClick && onClick()} style={{ flex: grow || 1, textAlign: "center", padding: "15px 0", borderRadius: 13, fontWeight: 800, fontSize: 15.5, cursor: disabled ? "default" : "pointer", background: primary ? (disabled ? "#b9bfb3" : C.ink) : C.soft, color: primary ? "#fff" : C.ink, transition: "background .15s", userSelect: "none" }}>{children}</div>
+        );
+        return (
+          <div onClick={() => !closeTill.busy && setCloseTill(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.58)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, width: 760, maxWidth: "100%", height: "min(92vh, 820px)", display: "flex", flexDirection: "column", boxShadow: "0 30px 80px rgba(18,21,28,.35)", overflow: "hidden", fontFamily: "inherit" }}>
+              {/* header */}
+              <div style={{ padding: "20px 26px 0" }}>
+                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: "-.02em", fontFamily: F }}>{closeTill.step === "done" ? "Till closed" : "Close till"}</div>
+                    <div style={{ fontSize: 13.5, color: C.muted, marginTop: 2 }}>
+                      {sm && sm.first_order ? (() => {
+                        const a = new Date(sm.first_order), b = new Date(sm.last_order || sm.first_order);
+                        const sameDay = a.toDateString() === b.toDateString();
+                        const short = (d) => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+                        return sameDay ? fmtD(sm.first_order) + " · " + fmtT(sm.first_order) + " – " + fmtT(sm.last_order)
+                          : short(a) + " " + fmtT(sm.first_order) + " – " + short(b) + " " + fmtT(sm.last_order);
+                      })() + (sm.mode === "trading_day" ? " · trading day to 04:00" : "") : "Closing report"}
                     </div>
                   </div>
-                </>
-              );
-            })()}
-            {closeTill.step === "done" && (() => {
-              const r = closeTill.result || {}; const sm = r.summary || {};
-              return (
-                <>
-                  <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.02em", color: "#166534" }}>Till closed</div>
-                  <div style={{ fontSize: 14, color: "#6b7a60", marginTop: 4 }}>{r.closed_orders} order{r.closed_orders === 1 ? "" : "s"} archived · Z-report {r.printed ? "printed" : r.printed === false ? "could not print — check the printer" : "not sent"}</div>
-                  <div style={{ marginTop: 16, background: "#f6f7f3", borderRadius: 14, padding: "12px 16px", fontSize: 15 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", fontWeight: 800, fontSize: 18, padding: "4px 0" }}><span>Total taken</span><span>{gbp(sm.total)}</span></div>
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span style={{ color: "#6b7a60" }}>Cash</span><span>{gbp(sm.cash)}</span></div>
-                    <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0" }}><span style={{ color: "#6b7a60" }}>Card</span><span>{gbp(sm.card)}</span></div>
-                    {sm.cash_counted != null && <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", fontWeight: 700, color: sm.cash_variance === 0 ? "#166534" : sm.cash_variance > 0 ? "#1d4ed8" : "#b91c1c" }}><span>Cash {sm.cash_variance === 0 ? "balances" : sm.cash_variance > 0 ? "over" : "short"}</span><span>{sm.cash_variance < 0 ? "-" : ""}{gbp(Math.abs(sm.cash_variance || 0))}</span></div>}
-                    {sm.unpaid_count > 0 && <div style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", color: "#9a3412" }}><span>Archived unpaid ({sm.unpaid_count})</span><span>{gbp(sm.unpaid_total)}</span></div>}
+                  {closeTill.step === "summary" && sm && sm.later_count > 0 && stage === 0 && (
+                    <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 12, padding: 4 }}>
+                      {[["trading_day", "To 4:00"], ["all", "Up to now"]].map(([m, label]) => {
+                        const on = closeTill.mode === m;
+                        return <div key={m} onClick={() => !closeTill.busy && m !== closeTill.mode && switchCloseTillMode(m)} style={{ padding: "8px 14px", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", background: on ? "#fff" : "transparent", boxShadow: on ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>{label}</div>;
+                      })}
+                    </div>
+                  )}
+                </div>
+                {/* stepper */}
+                <div style={{ display: "flex", gap: 6, marginTop: 16, marginBottom: 2 }}>
+                  {stages.map((n, i) => {
+                    const done = stage > i, on = stage === i;
+                    return (
+                      <div key={n} onClick={() => { if (closeTill.step === "summary" && i < stage) setCloseTill((c) => ({ ...c, stage: i, err: "" })); }} style={{ flex: 1, cursor: closeTill.step === "summary" && i < stage ? "pointer" : "default" }}>
+                        <div style={{ height: 4, borderRadius: 2, background: done || on ? C.brand : C.line, transition: "background .2s" }} />
+                        <div style={{ fontSize: 11.5, fontWeight: 700, marginTop: 6, color: on ? C.ink : done ? C.brand : "#aab1a4", letterSpacing: ".04em" }}>{i + 1}. {n}{done ? " ✓" : ""}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* body */}
+              <div style={{ flex: 1, overflowY: "auto", padding: "6px 26px 22px" }}>
+                {closeTill.busy && !sm && <div style={{ padding: "60px 0", textAlign: "center", color: C.muted }}>Loading the day's figures…</div>}
+                {closeTill.err && !sm && <div style={{ padding: "40px 0", textAlign: "center", color: C.bad, fontWeight: 700 }}>{closeTill.err}</div>}
+
+                {/* ---- STAGE 0: REVIEW ---- */}
+                {sm && closeTill.step === "summary" && stage === 0 && (
+                  <>
+                    {sm.mode === "trading_day" && sm.later_count > 0 && (
+                      <div style={{ marginTop: 12, fontSize: 13, color: C.muted, background: C.soft, borderRadius: 10, padding: "8px 12px" }}>{sm.later_count} order{sm.later_count === 1 ? "" : "s"} since 4:00 stay open for today's trade.</div>
+                    )}
+                    <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr 1fr", gap: 10, marginTop: 14 }}>
+                      <div style={{ background: C.ink, color: "#fff", borderRadius: 16, padding: "14px 16px" }}>
+                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", opacity: .65 }}>TOTAL TAKEN</div>
+                        <div style={{ fontSize: 30, fontWeight: 800, marginTop: 2, fontFamily: F, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums" }}>{gbp(sm.total)}</div>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6 }}>
+                          {sm.previous && <span style={{ fontSize: 11.5, opacity: .85 }}>{(() => { const x = delta(sm.total, sm.previous.total); return (x.d >= 0 ? "▲ " : "▼ ") + gbp(Math.abs(x.d)) + " vs last close"; })()}</span>}
+                          {sm.last_week && <span style={{ fontSize: 11.5, opacity: .85 }}>{(() => { const x = delta(sm.total, sm.last_week.total); return (x.d >= 0 ? "▲ " : "▼ ") + gbp(Math.abs(x.d)) + (x.pct != null ? " (" + Math.abs(x.pct) + "%)" : "") + " vs last " + new Date(sm.last_week.closed_at).toLocaleDateString("en-GB", { weekday: "short" }); })()}</span>}
+                        </div>
+                      </div>
+                      {[
+                        ["Orders", String(sm.order_count), sm.cancelled_count ? sm.cancelled_count + " cancelled" : (sm.last_week ? "last wk " + sm.last_week.orders : null)],
+                        ["Avg order", gbp(sm.avg_ticket), sm.items_sold ? sm.items_sold + " items sold" : null],
+                        ["Busiest hour", sm.peak_hour ? sm.peak_hour.hour + ":00" : "—", sm.peak_hour ? gbp(sm.peak_hour.amount) + " · " + sm.peak_hour.count + " orders" : null],
+                      ].map(([l, v, sub]) => (
+                        <div key={l} style={{ background: C.soft, borderRadius: 16, padding: "14px 16px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: C.muted }}>{l.toUpperCase()}</div>
+                          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2, fontFamily: F, fontVariantNumeric: "tabular-nums", letterSpacing: "-.02em" }}>{v}</div>
+                          {sub && <div style={{ fontSize: 11.5, marginTop: 4, color: C.muted }}>{sub}</div>}
+                        </div>
+                      ))}
+                    </div>
+                    {closeTill.step === "summary" && sm.kitchen && sm.kitchen.tickets > 0 && (
+                      <div style={{ marginTop: 12, display: "flex", gap: 14, alignItems: "center", background: C.soft, borderRadius: 13, padding: "10px 14px", fontSize: 13.5 }}>
+                        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", color: C.muted }}>KITCHEN</span>
+                        <span><b style={{ fontFamily: F }}>{sm.kitchen.on_time_pct}%</b> on-time at {sm.kitchen.target_min} min</span>
+                        <span>typical <b style={{ fontFamily: F }}>{Math.floor(sm.kitchen.median_secs / 60)}:{String(sm.kitchen.median_secs % 60).padStart(2, "0")}</b></span>
+                        <span>90th pct <b style={{ fontFamily: F }}>{Math.floor(sm.kitchen.p90_secs / 60)}:{String(sm.kitchen.p90_secs % 60).padStart(2, "0")}</b></span>
+                        <span style={{ color: C.muted }}>{sm.kitchen.tickets} tickets</span>
+                      </div>
+                    )}
+                    {sm.unpaid_count > 0 && (
+                      <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13.5, color: C.warn, background: "#fff4ec", border: "1px solid #f3d3c0", borderRadius: 13, padding: "11px 14px", lineHeight: 1.5 }}>
+                        <span style={{ fontSize: 18 }}>⚠</span>
+                        <div><b>{sm.unpaid_count} order{sm.unpaid_count === 1 ? "" : "s"} still unpaid — {gbp(sm.unpaid_total)}.</b> {(sm.unpaid || []).slice(0, 6).map((u) => "#" + u.order_no + " (" + gbp(u.due) + ")").join(", ")}{sm.unpaid_count > 6 ? "…" : ""}. Take payment or cancel them before closing, otherwise they'll be archived as unpaid.</div>
+                      </div>
+                    )}
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                      <div>
+                        <Section title="TENDERS">
+                          <Line l="Cash" sub={sm.tenders?.cash ? sm.tenders.cash + " payments" : ""} v={gbp(sm.cash)} />
+                          <Line l="Card" sub={sm.tenders?.card ? sm.tenders.card + " payments" : ""} v={gbp(sm.card)} />
+                          {sm.other > 0 && <Line l="Other" sub={sm.tenders?.other ? sm.tenders.other + " payments" : ""} v={gbp(sm.other)} />}
+                          {sm.discount_total > 0 && <Line l="Discounts given" v={"−" + gbp(sm.discount_total)} color={C.muted} />}
+                          {sm.cancelled_total > 0 && <Line l={"Cancelled (" + sm.cancelled_count + ")"} v={gbp(sm.cancelled_total)} color={C.muted} />}
+                          <Line l="Total taken" v={gbp(sm.total)} strong />
+                        </Section>
+                        <Section title="ORDERS BY TYPE">
+                          {(() => { const e = Object.entries(sm.by_type || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; return e.map(([k, v]) => <Bar key={k} label={typeLabel[k] || k} value={v.amount} max={max} right={v.count + " · " + gbp(v.amount)} />); })()}
+                        </Section>
+                        {Object.keys(sm.by_source || {}).length > 1 && (
+                          <Section title="BY SOURCE">
+                            {(() => { const e = Object.entries(sm.by_source || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; return e.map(([k, v]) => <Bar key={k} label={k} value={v.amount} max={max} right={v.count + " · " + gbp(v.amount)} />); })()}
+                          </Section>
+                        )}
+                      </div>
+                      <div>
+                        <Section title="SALES BY HOUR">
+                          {(() => {
+                            const hrs = Object.entries(sm.by_hour || {}).sort((a, b) => a[0].localeCompare(b[0]));
+                            const max = Math.max(1, ...hrs.map(([, v]) => v.amount));
+                            return (
+                              <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 96, padding: "0 2px" }}>
+                                {hrs.map(([h, v]) => {
+                                  const peak = sm.peak_hour && sm.peak_hour.hour === h;
+                                  return (
+                                    <div key={h} title={h + ":00 · " + v.count + " orders · " + gbp(v.amount)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0 }}>
+                                      {peak && <span style={{ fontSize: 9.5, fontWeight: 800, color: C.ink, fontFamily: F }}>{gbp(v.amount).replace(/\.\d+$/, "")}</span>}
+                                      <div style={{ width: "100%", height: Math.max(3, (v.amount / max) * 64), background: peak ? C.ink : "#b7cba9", borderRadius: 3, transition: "height .4s" }} />
+                                      <span style={{ fontSize: 9.5, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{h}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })()}
+                        </Section>
+                        <Section title="TOP SELLERS">
+                          {(sm.top_items || []).slice(0, 7).map((it, i) => (
+                            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "5px 0", borderBottom: "1px solid " + C.line, fontSize: 13.5 }}>
+                              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b style={{ fontVariantNumeric: "tabular-nums", marginRight: 8, fontFamily: F }}>{it.qty}×</b>{it.name}</span>
+                              <span style={{ color: C.muted, fontVariantNumeric: "tabular-nums", marginLeft: 10, fontFamily: F }}>{gbp(it.sales)}</span>
+                            </div>
+                          ))}
+                          {!(sm.top_items || []).length && <div style={{ fontSize: 13, color: C.muted }}>No items</div>}
+                        </Section>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+                {/* ---- STAGE 1: CASH ---- */}
+                {sm && closeTill.step === "summary" && stage === 1 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1.25fr", gap: 24, marginTop: 14 }}>
+                    <div>
+                      <Section title="DRAWER" style={{ marginTop: 4 }}>
+                        <label style={{ fontSize: 12.5, color: C.muted }}>Float left in drawer for tomorrow
+                          <input inputMode="decimal" value={closeTill.float} onChange={(e) => setCloseTill((c) => ({ ...c, float: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="100.00" style={input({ marginTop: 5 })} />
+                        </label>
+                        <div style={{ marginTop: 14, background: C.soft, borderRadius: 14, padding: "10px 14px" }}>
+                          <Line l="Cash taken today" v={gbp(sm.cash)} />
+                          <Line l="+ Float" v={gbp(flt)} />
+                          <Line l="Expected in drawer" v={gbp(expected)} strong />
+                          <Line l="Counted" v={countedVal == null ? "—" : gbp(countedVal)} />
+                        </div>
+                        <div style={{ marginTop: 12, borderRadius: 16, padding: "16px 18px", textAlign: "center", background: variance == null ? C.soft : variance === 0 ? "#eef7ea" : variance > 0 ? "#eaf0fb" : "#fdeeee", transition: "background .25s" }}>
+                          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".08em", color: variance == null ? C.muted : variance === 0 ? C.good : variance > 0 ? C.over : C.bad }}>{variance == null ? "VARIANCE" : variance === 0 ? "DRAWER BALANCED" : variance > 0 ? "OVER" : "SHORT"}</div>
+                          <div style={{ fontSize: 34, fontWeight: 800, fontFamily: F, letterSpacing: "-.03em", marginTop: 2, color: variance == null ? "#aab1a4" : variance === 0 ? C.good : variance > 0 ? C.over : C.bad, fontVariantNumeric: "tabular-nums" }}>{variance == null ? "—" : (variance < 0 ? "−" : variance > 0 ? "+" : "") + gbp(Math.abs(variance))}</div>
+                          {variance != null && Math.abs(variance) >= VARIANCE_NOTE_FROM && <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>A note explaining this is required at sign-off.</div>}
+                        </div>
+                      </Section>
+                    </div>
+                    <div>
+                      <Section title="COUNT" style={{ marginTop: 4 }} right={
+                        <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 9, padding: 3 }}>
+                          {[["denoms", "Notes & coins"], ["total", "Enter total"]].map(([m, l]) => <div key={m} onClick={() => setCloseTill((c) => ({ ...c, countMode: m }))} style={{ padding: "5px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", background: closeTill.countMode === m ? "#fff" : "transparent", boxShadow: closeTill.countMode === m ? "0 1px 2px rgba(0,0,0,.12)" : "none" }}>{l}</div>)}
+                        </div>}>
+                        {closeTill.countMode === "denoms" ? (
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
+                            {DENOMS.map((d) => {
+                              const n = Number(closeTill.denoms?.[d]) || 0;
+                              return (
+                                <div key={d} style={{ display: "grid", gridTemplateColumns: "40px 1fr auto", alignItems: "center", gap: 8, background: n ? "#fff" : C.soft, border: "1.5px solid " + (n ? C.brand : "transparent"), borderRadius: 12, padding: "6px 10px", transition: "border-color .15s" }}>
+                                  <span style={{ fontSize: 13, fontWeight: 800, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: F }}>{dLabel(d)}</span>
+                                  <input inputMode="numeric" value={closeTill.denoms?.[d] ?? ""} onChange={(e) => setCloseTill((c) => ({ ...c, denoms: { ...(c.denoms || {}), [d]: e.target.value.replace(/[^0-9]/g, "") } }))} placeholder="0" style={{ width: "100%", minWidth: 0, padding: "8px 8px", fontSize: 17, fontWeight: 700, border: "none", borderBottom: "1.5px solid " + C.line, outline: "none", background: "transparent", fontVariantNumeric: "tabular-nums", fontFamily: F, textAlign: "center" }} />
+                                  <span style={{ fontSize: 12.5, color: n ? C.ink : "#b5bbb0", fontVariantNumeric: "tabular-nums", fontFamily: F, minWidth: 54, textAlign: "right" }}>{gbp(n * d)}</span>
+                                </div>
+                              );
+                            })}
+                            <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 4px 0" }}>
+                              <span style={{ fontSize: 12.5, color: C.muted }}>Counted total</span><b style={{ fontSize: 22, fontFamily: F, fontVariantNumeric: "tabular-nums", letterSpacing: "-.02em" }}>{gbp(denomTotal)}</b>
+                            </div>
+                          </div>
+                        ) : (
+                          <label style={{ fontSize: 12.5, color: C.muted }}>Cash counted (everything in the drawer)
+                            <input inputMode="decimal" autoFocus value={closeTill.counted} onChange={(e) => setCloseTill((c) => ({ ...c, counted: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="0.00" style={input({ marginTop: 5, fontSize: 28, padding: "16px 16px" })} />
+                          </label>
+                        )}
+                      </Section>
+                    </div>
                   </div>
-                  <div onClick={() => setCloseTill(null)} style={{ marginTop: 20, textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#22271f", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer" }}>Done</div>
-                </>
-              );
-            })()}
+                )}
+
+                {/* ---- STAGE 2: SIGN OFF ---- */}
+                {sm && closeTill.step === "summary" && stage === 2 && (
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginTop: 14 }}>
+                    <div>
+                      <Section title="WHAT WILL HAPPEN" style={{ marginTop: 4 }}>
+                        <div style={{ background: C.soft, borderRadius: 14, padding: "10px 14px" }}>
+                          <Line l="Orders archived" v={String(sm.order_count + (sm.cancelled_count || 0))} />
+                          <Line l="Total taken" v={gbp(sm.total)} strong />
+                          <Line l="Cash" v={gbp(sm.cash)} /><Line l="Card" v={gbp(sm.card)} />
+                          {sm.unpaid_count > 0 && <Line l={"Archived unpaid (" + sm.unpaid_count + ")"} v={gbp(sm.unpaid_total)} color={C.warn} />}
+                          <Line l="Cash counted" v={countedVal == null ? "not counted" : gbp(countedVal)} color={countedVal == null ? C.warn : undefined} />
+                          {variance != null && <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", fontSize: 16, fontWeight: 800, color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad }}><span>{variance === 0 ? "Drawer balanced" : variance > 0 ? "Over" : "Short"}</span><span style={{ fontFamily: F }}>{(variance < 0 ? "−" : "") + gbp(Math.abs(variance))}</span></div>}
+                        </div>
+                        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>The Z-report prints on this store's printer and the close is saved for head office. {sm.mode === "trading_day" && sm.later_count > 0 ? sm.later_count + " orders since 4:00 stay open." : ""}</div>
+                      </Section>
+                      <Section title="NOTE">
+                        <textarea value={closeTill.note} onChange={(e) => setCloseTill((c) => ({ ...c, note: e.target.value }))} placeholder={varianceNeedsNote ? "Required: explain the cash variance" : "Note (optional — petty cash taken, reason for variance…)"} rows={3} style={input({ marginTop: 10, fontWeight: 500, fontSize: 14, fontFamily: "inherit", resize: "none", borderColor: varianceNeedsNote ? C.warn : C.line })} />
+                      </Section>
+                    </div>
+                    <div>
+                      <Section title="YOUR STAFF PIN" style={{ marginTop: 4 }}>
+                        <div style={{ textAlign: "center", minHeight: 24, marginBottom: 6, fontSize: 14.5, fontWeight: 700, color: closer ? C.good : closeTill.staff?.unknown ? C.warn : C.muted }}>
+                          {closer ? "✓ " + closer : closeTill.staff?.unknown ? (closeTill.staff.reason === "not_this_store" ? "That PIN isn't assigned to this store" : "PIN not recognised — a manager PIN also works") : closeTill.pin.length >= 4 ? "Checking…" : "Enter the PIN you use for the staff app"}
+                        </div>
+                        <div style={{ display: "flex", justifyContent: "center", gap: 10, margin: "6px 0 14px" }}>
+                          {[0, 1, 2, 3, 4, 5].map((i) => <span key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < closeTill.pin.length ? (closeTill.err === "Wrong PIN" ? C.bad : C.ink) : C.line, transition: "background .12s", display: i < 4 || closeTill.pin.length > 4 ? "block" : "none" }} />)}
+                        </div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                          {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "C"].map((k) => (
+                            <div key={k} onClick={() => { const next = k === "C" ? "" : k === "⌫" ? closeTill.pin.slice(0, -1) : (closeTill.pin + k).slice(0, 8); setCloseTill((c) => ({ ...c, err: "", pin: next, staff: next.length < 4 ? null : c.staff })); lookupStaffPin(next); }}
+                              style={{ textAlign: "center", padding: "15px 0", borderRadius: 13, background: k === "C" || k === "⌫" ? C.soft : "#fff", border: "1.5px solid " + C.line, fontSize: 21, fontWeight: 700, fontFamily: F, cursor: "pointer", userSelect: "none", color: k === "C" ? C.bad : C.ink }}>{k}</div>
+                          ))}
+                        </div>
+                        {closeTill.err && <div style={{ marginTop: 12, textAlign: "center", color: C.bad, fontWeight: 700, fontSize: 14 }}>{closeTill.err}</div>}
+                      </Section>
+                    </div>
+                  </div>
+                )}
+
+                {/* ---- DONE ---- */}
+                {closeTill.step === "done" && (() => {
+                  const r = closeTill.result || {}; const rs = r.summary || {};
+                  return (
+                    <>
+                      <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 14, background: "#eef7ea", border: "1px solid #cfe3c4", borderRadius: 16, padding: "14px 18px" }}>
+                        <span style={{ width: 40, height: 40, borderRadius: "50%", background: C.good, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 20, flexShrink: 0 }}>✓</span>
+                        <div style={{ fontSize: 14.5, lineHeight: 1.5 }}>
+                          <b>{r.closed_orders} order{r.closed_orders === 1 ? "" : "s"} archived</b> and the close saved{closer ? " by " + closer : ""}. Z-report {r.printed ? "printed on the store printer." : r.printed === false ? <span style={{ color: C.warn }}>could not print — check the printer, then tap Print again.</span> : "not sent."}
+                        </div>
+                      </div>
+                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
+                        <Section title="TAKINGS">
+                          <Line l="Cash" v={gbp(rs.cash)} /><Line l="Card" v={gbp(rs.card)} />{rs.other > 0 && <Line l="Other" v={gbp(rs.other)} />}
+                          <Line l="Total taken" v={gbp(rs.total)} strong />
+                          {rs.unpaid_count > 0 && <Line l={"Archived unpaid (" + rs.unpaid_count + ")"} v={gbp(rs.unpaid_total)} color={C.warn} />}
+                        </Section>
+                        <Section title="CASH DRAWER">
+                          {rs.cash_counted == null ? <div style={{ fontSize: 13.5, color: C.muted }}>No cash count recorded</div> : (
+                            <>
+                              <Line l="Expected" v={gbp(rs.cash_expected)} /><Line l="Counted" v={gbp(rs.cash_counted)} />
+                              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 18, fontWeight: 800, color: rs.cash_variance === 0 ? C.good : rs.cash_variance > 0 ? C.over : C.bad }}>
+                                <span>{rs.cash_variance === 0 ? "Balanced" : rs.cash_variance > 0 ? "Over" : "Short"}</span><span style={{ fontFamily: F }}>{rs.cash_variance < 0 ? "−" : ""}{gbp(Math.abs(rs.cash_variance || 0))}</span>
+                              </div>
+                            </>
+                          )}
+                        </Section>
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+
+              {/* footer */}
+              <div style={{ padding: "14px 26px 20px", borderTop: "1px solid " + C.line, display: "flex", gap: 10, background: "#fff" }}>
+                {closeTill.step === "summary" && stage === 0 && (<>
+                  <Btn onClick={() => !closeTill.busy && setCloseTill(null)}>Cancel</Btn>
+                  <Btn primary grow={2} disabled={closeTill.busy || !sm} onClick={() => setCloseTill((c) => ({ ...c, stage: 1 }))}>Next: count cash →</Btn>
+                </>)}
+                {closeTill.step === "summary" && stage === 1 && (<>
+                  <Btn onClick={() => setCloseTill((c) => ({ ...c, stage: 0 }))}>← Back</Btn>
+                  <Btn primary grow={2} onClick={() => setCloseTill((c) => ({ ...c, stage: 2, err: "" }))}>{countedVal == null ? "Skip count →" : "Next: sign off →"}</Btn>
+                </>)}
+                {closeTill.step === "summary" && stage === 2 && (<>
+                  <Btn onClick={() => !closeTill.busy && setCloseTill((c) => ({ ...c, stage: 1, err: "" }))}>← Back</Btn>
+                  <Btn primary grow={2} disabled={closeTill.busy || !signoffOk} onClick={() => confirmCloseTill({ counted: countedVal == null ? "" : String(countedVal) })}>
+                    {closeTill.busy ? "Closing…" : varianceNeedsNote ? "Add a note for the variance" : closeTill.pin.length < 4 ? "Enter your PIN" : closer ? "Close till as " + closer.split(" ")[0] : "Close till & print Z-report"}
+                  </Btn>
+                </>)}
+                {closeTill.step === "done" && (<>
+                  <Btn onClick={() => !closeTill.reprinting && reprintClosure()}>{closeTill.reprinting ? "Printing…" : closeTill.reprinted ? "Printed ✓" : "Print again"}</Btn>
+                  <Btn primary grow={2} onClick={() => setCloseTill(null)}>Done</Btn>
+                </>)}
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {/* TABLE PICKER SHEET */}
       {showTablePicker && (
@@ -1404,15 +1728,19 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       {/* MODIFIER POPUP */}
       {modItem && (
         <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.45)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, padding: 26, width: 560, maxWidth: "100%", maxHeight: "88vh", overflowY: "auto", boxShadow: "0 24px 70px rgba(18,21,28,.28)" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, padding: 0, width: (modItem.modifiers || []).length ? 1180 : 820, maxWidth: "100%", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 24px 70px rgba(18,21,28,.28)" }}>
+          <div style={{ padding: "24px 28px 0", flexShrink: 0 }}>
             {/* header */}
             <div style={{ display: "flex", alignItems: "center", gap: 17 }}>
               <div style={{ width: 70, height: 70, borderRadius: 20, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 36, color: "#fff", background: modItem.image_url ? "#f0f1f3" : "linear-gradient(135deg," + catColor(modItem.category || (master && master.name)).bar + "," + catColor(modItem.category || (master && master.name)).ink + ")", backgroundImage: modItem.image_url ? "url(" + modItem.image_url + ")" : undefined, backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 6px 16px rgba(0,0,0,.18)" }}>{!modItem.image_url && fallbackFor(modItem.name, modItem.category || "").icon}</div>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 27, fontWeight: 700, letterSpacing: "-.02em", lineHeight: 1.08 }}>{modItem.name}</div>
-                <div style={{ fontSize: 15, color: "#9aa1ac", marginTop: 4, fontWeight: 600 }}>{gbp(modItem.price)} · {editKey ? "editing" : "customise"}</div>
+                <div style={{ fontSize: 15, color: "#9aa1ac", marginTop: 4, fontWeight: 600 }}>{gbp(modItem.price)} · {(modItem.modifiers || []).length ? (editKey ? "editing" : "customise") : "note for the kitchen"}</div>
+                {modItem.description && <div style={{ fontSize: 14, color: "#6b7280", marginTop: 6, lineHeight: 1.4, maxWidth: 760 }}>{modItem.description}</div>}
               </div>
             </div>
+          </div>
+          <div style={{ flex: 1, minHeight: 0, overflowY: "auto", padding: "0 28px 10px" }}>
 
             {/* required progress */}
             {modReqGroups.length > 0 && (
@@ -1427,6 +1755,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             )}
 
             {/* groups */}
+            <div style={{ display: "grid", gridTemplateColumns: (modItem.modifiers || []).length ? "1.15fr 1fr" : "1fr", gap: 22, alignItems: "start", marginTop: 18 }}>
+              <div style={{ minWidth: 0 }}>
             {(modItem.modifiers || []).map((g) => {
               const chosen = modSel[g.id] || [];
               const single = (g.max_select || 1) === 1;
@@ -1460,35 +1790,75 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               );
             })}
 
-            {/* kitchen note */}
-            <div style={{ background: "#fffbf4", border: "1px solid #f0e2cc", borderRadius: 16, padding: "16px 18px", marginBottom: 18 }}>
-              <div style={{ fontSize: 15.5, fontWeight: 700, marginBottom: 11 }}>📝 Kitchen note <span style={{ fontSize: 14, color: "#b0a48a", fontWeight: 500 }}>(optional)</span></div>
-              <div style={{ display: "flex", gap: 7, flexWrap: "wrap", marginBottom: 11 }}>
-                {(() => {
-                  const name = (modItem.name || "").toLowerCase();
-                  const isDrink = /shake|coffee|latte|tea|juice|smoothie|drink|frapp|mocha|chai|hot choc/.test(name);
-                  const chips = isDrink ? ["No ice", "Extra hot", "Less sweet", "Oat milk"] : ["No onion", "Well done", "On the side", "Extra sauce"];
-                  chips.push("⚠ Allergy");
-                  return chips.map((c) => {
-                    const active = (modNote || "").split(",").map((s) => s.trim()).includes(c.replace("⚠ ", ""));
-                    const isAl = c.includes("Allergy");
-                    return (
-                      <span key={c} onClick={() => {
-                        const val = c.replace("⚠ ", "");
-                        const parts = (modNote || "").split(",").map((s) => s.trim()).filter(Boolean);
-                        if (parts.includes(val)) setModNote(parts.filter((p) => p !== val).join(", "));
-                        else setModNote([...parts, val].join(", "));
-                      }} style={{ fontSize: 14.5, fontWeight: 700, cursor: "pointer", padding: "8px 14px", borderRadius: 20, border: "1.5px solid " + (isAl ? "#e6b8b0" : "#ead9bd"), background: active ? (isAl ? "#f7e0dc" : "#f6ead2") : "#fff", color: isAl ? "#c0392b" : "#9a6a2c" }}>{c}{active ? " ✓" : ""}</span>
-                    );
-                  });
-                })()}
               </div>
-              <input type="text" value={modNote} onChange={(e) => setModNote(e.target.value)} placeholder="Add a note for the kitchen…"
-                style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1px solid #ead9bd", borderRadius: 11, padding: "13px 15px", fontSize: 16, color: "#5b5540", fontFamily: "inherit", outline: "none" }} />
-            </div>
+              <div style={{ minWidth: 0, position: "sticky", top: 0 }}>
+            {/* kitchen note */}
+            {(() => {
+              const name = (modItem.name || "").toLowerCase();
+              const cat = String(modItem.category || "").toLowerCase();
+              const isDrink = /shake|coffee|latte|tea|juice|smoothie|drink|frapp|mocha|chai|hot choc|mocktail|cooler|matcha/.test(name + " " + cat);
+              const isDessert = /dessert|waffle|crepe|cake|cookie|ice cream|sundae|kanafeh|kunafa|churro|falooda|pudding|brownie|cheesecake/.test(name + " " + cat);
+              const ingredients = ingredientsFromDescription(modItem.description, modItem.name);
+              const fromDesc = ingredients.flatMap((ing) => ["No " + ing, "Extra " + ing]);
+              const generic = isDrink
+                ? ["No ice", "Extra ice", "Extra hot", "Less sweet", "No sugar", "Oat milk", "Decaf", "Take away cup"]
+                : isDessert
+                  ? ["No cream", "No sauce", "Sauce on side", "No nuts", "To share", "Candle"]
+                  : ["Sauce on side", "Well done", "Medium", "Spicy", "Mild", "Kids portion", "No salad", "No onion"];
+              const presets = [...fromDesc, ...generic.filter((g) => !fromDesc.some((f) => f.toLowerCase() === g.toLowerCase()))];
+              const allergyPresets = ["Nut allergy", "Dairy allergy", "Gluten free", "Egg allergy", "Vegan", "Halal only"];
+              let recent = []; try { recent = JSON.parse(localStorage.getItem("pos_recent_notes_" + modItem.id) || "[]"); } catch {}
+              const parts = (modNote || "").split(",").map((x) => x.trim()).filter(Boolean);
+              const has = (v) => parts.includes(v);
+              const toggle = (v) => setModNote(has(v) ? parts.filter((x) => x !== v).join(", ") : [...parts, v].join(", "));
+              const isAllergy = /allerg|gluten|vegan|halal|intoler/i.test(modNote || "");
+              const Chip = ({ v, tone }) => <span onClick={() => toggle(v)} style={{ fontSize: 16, fontWeight: 700, cursor: "pointer", padding: "11px 18px", borderRadius: 22, border: "1.5px solid " + (has(v) ? (tone === "al" ? "#c0392b" : "#3a5730") : (tone === "al" ? "#e6b8b0" : "#ead9bd")), background: has(v) ? (tone === "al" ? "#c0392b" : "#3a5730") : "#fff", color: has(v) ? "#fff" : (tone === "al" ? "#8a2a1e" : "#5b5540"), userSelect: "none", whiteSpace: "nowrap" }}>{has(v) ? "✓ " : ""}{v}</span>;
+              return (
+                <div style={{ background: isAllergy ? "#fff4f2" : "#fffbf4", border: "1.5px solid " + (isAllergy ? "#e6b8b0" : "#f0e2cc"), borderRadius: 16, padding: "16px 18px", marginBottom: 18 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 10 }}>
+                    <div style={{ fontSize: 18, fontWeight: 800 }}>📝 Kitchen note <span style={{ fontSize: 14, color: "#b0a48a", fontWeight: 500 }}>(optional)</span></div>
+                    {isAllergy && <span style={{ fontSize: 12.5, fontWeight: 800, color: "#c0392b", letterSpacing: ".05em" }}>⚠ PRINTS AS ALLERGY</span>}
+                  </div>
+                  {parts.length > 0 && <div style={{ marginBottom: 10, padding: "9px 12px", borderRadius: 11, background: isAllergy ? "#c0392b" : "#3d3829", color: "#fff", fontSize: 15, fontWeight: 700, lineHeight: 1.35, display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}><span>Ticket will say: {isAllergy ? "!! " + (modNote || "").toUpperCase() + " !!" : "** " + modNote + " **"}</span><span onClick={() => setModNote("")} style={{ cursor: "pointer", fontSize: 12.5, fontWeight: 800, opacity: .85, whiteSpace: "nowrap", background: "rgba(255,255,255,.18)", padding: "4px 9px", borderRadius: 7 }}>Clear</span></div>}
+                  {recent.filter((v) => !has(v)).length > 0 && (
+                    <div style={{ display: "flex", gap: 7, flexWrap: "wrap", alignItems: "center", marginBottom: 9 }}>
+                      <span style={{ fontSize: 12.5, color: "#b0a48a", fontWeight: 700 }}>Recent</span>
+                      {recent.filter((v) => !has(v)).slice(0, 4).map((v) => <Chip key={"r" + v} v={v} tone={/allerg|gluten|vegan|halal/i.test(v) ? "al" : undefined} />)}
+                    </div>
+                  )}
+                  {ingredients.length > 0 && (
+                    <div style={{ marginBottom: 9 }}>
+                      <div style={{ fontSize: 13.5, color: "#8a7f66", fontWeight: 800, letterSpacing: ".04em", marginBottom: 8 }}>IN THIS DISH <span style={{ fontWeight: 500, letterSpacing: 0 }}>· tap to leave out or add extra</span></div>
+                      <div style={{ display: "grid", gridTemplateColumns: ingredients.some((x) => x.length > 13) ? "1fr" : "repeat(auto-fill, minmax(230px, 1fr))", gap: 8 }}>
+                        {ingredients.map((ing) => (
+                          <div key={ing} style={{ display: "flex", alignItems: "center", gap: 5, background: has("No " + ing) ? "#fdf2f0" : has("Extra " + ing) ? "#eef4e8" : "#fff", border: "1.5px solid " + (has("No " + ing) ? "#e6b8b0" : has("Extra " + ing) ? "#b9ceab" : "#ead9bd"), borderRadius: 14, padding: "6px 6px 6px 12px" }}>
+                            <span style={{ flex: 1, fontSize: 16, fontWeight: 700, color: "#3d3829", lineHeight: 1.2, textDecoration: has("No " + ing) ? "line-through" : "none" }}>{cap1(ing)}</span>
+                            <span onClick={() => { const no = "No " + ing, ex = "Extra " + ing; const p = parts.filter((x) => x !== ex); setModNote(has(no) ? p.filter((x) => x !== no).join(", ") : [...p, no].join(", ")); }} style={{ cursor: "pointer", fontSize: 14, fontWeight: 800, padding: "9px 12px", borderRadius: 10, background: has("No " + ing) ? "#c0392b" : "#fdf2f0", color: has("No " + ing) ? "#fff" : "#8a2a1e", userSelect: "none" }}>None</span>
+                            <span onClick={() => { const no = "No " + ing, ex = "Extra " + ing; const p = parts.filter((x) => x !== no); setModNote(has(ex) ? p.filter((x) => x !== ex).join(", ") : [...p, ex].join(", ")); }} style={{ cursor: "pointer", fontSize: 14, fontWeight: 800, padding: "9px 12px", borderRadius: 10, background: has("Extra " + ing) ? "#3a5730" : "#eef4e8", color: has("Extra " + ing) ? "#fff" : "#3a5730", userSelect: "none" }}>Extra</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div style={{ fontSize: 13.5, color: "#8a7f66", fontWeight: 800, letterSpacing: ".04em", margin: "4px 0 8px" }}>QUICK</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                    {generic.map((v) => <Chip key={v} v={v} />)}
+                  </div>
+                  <div style={{ fontSize: 13.5, color: "#8a2a1e", fontWeight: 800, letterSpacing: ".04em", margin: "4px 0 8px" }}>⚠ ALLERGY & DIET</div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12 }}>
+                    {allergyPresets.map((v) => <Chip key={v} v={v} tone="al" />)}
+                  </div>
+                  <input type="text" value={modNote} onChange={(e) => setModNote(e.target.value)} placeholder="Type anything else — or edit the note above"
+                    style={{ width: "100%", boxSizing: "border-box", background: "#fff", border: "1.5px solid " + (isAllergy ? "#e6b8b0" : "#ead9bd"), borderRadius: 13, padding: "15px 17px", fontSize: 17, color: isAllergy ? "#8a2a1e" : "#5b5540", fontWeight: isAllergy ? 700 : 500, fontFamily: "inherit", outline: "none" }} />
+                </div>
+              );
+            })()}
 
+              </div>
+            </div>
+          </div>
             {/* footer */}
-            <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
+            <div style={{ display: "flex", gap: 12, padding: "14px 28px 22px", borderTop: "1px solid #eef0f3", flexShrink: 0, background: "#fff" }}>
               <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ padding: "19px 28px", borderRadius: 18, background: "#f4f6f8", color: "#5b6472", fontWeight: 700, cursor: "pointer", fontSize: 17 }}>Cancel</div>
               <div onClick={() => !modMissing && confirmMods()} style={{ flex: 1, textAlign: "center", padding: "19px 0", borderRadius: 18, background: modMissing ? "#dde1e5" : grad, color: modMissing ? "#8a929c" : "#fff", fontWeight: 700, fontSize: 19, letterSpacing: "-.01em", cursor: modMissing ? "default" : "pointer", boxShadow: modMissing ? "none" : "0 10px 26px rgba(13,148,136,.34)" }}>{modMissing ? "Choose required options" : (editKey ? "Update · " : "Add · ") + gbp(modUnit)}</div>
             </div>
