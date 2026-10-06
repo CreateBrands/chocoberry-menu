@@ -229,7 +229,9 @@ export default function KDS({ surface = "kds" }) {
     setServedIds((p) => new Set(p).add(o.id));
     try { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "mark_served", data: { order_id: o.id } }) }); } catch {}
   }
-  const myStation = (mySettings && mySettings.station) || myStationSeed;
+  // Once the screen's row has loaded, its saved station is the truth; the
+  // URL/localStorage seed only matters for a brand-new, never-registered screen.
+  const myStation = mySettings ? (mySettings.station || "") : myStationSeed;
   const [soundOn, setSoundOn] = useState(true);
   const [connected, setConnected] = useState(true);
   const [size, setSize] = useState(() => localStorage.getItem("kds_size") || "M");
@@ -434,7 +436,7 @@ export default function KDS({ surface = "kds" }) {
           action: "print-order", order_id: o.id, force: true,
           // Target THIS screen's printer. Omitted when the screen has no
           // station set, which preserves the old all-printers behaviour.
-          ...(myPrinter ? { printer_sn: myPrinter } : myStation ? { station: myStation } : {}),
+          ...(myPrinter ? { printer_sn: myPrinter } : (!mySettings && myStation) ? { station: myStation } : {}),
         }),
       });
       if (!r.ok) throw new Error("http " + r.status);
