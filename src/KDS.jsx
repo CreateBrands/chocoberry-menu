@@ -230,6 +230,18 @@ export default function KDS({ surface = "kds" }) {
       showToast("Logged " + ["", "😠", "🙁", "😐", "🙂", "😄"][rating] + " for #" + o.order_no + " as " + (j.logged_by || rem.name));
     } catch { setQuickLogged((m) => { const n = { ...m }; delete n[o.id]; return n; }); setFeedbackFor({ ...o, _prefillRating: rating }); }
   }
+  const [clearingQueue, setClearingQueue] = useState(false);
+  useEffect(() => { const h = () => clearPrintQueue(); window.addEventListener("kds:clear-queue", h); return () => window.removeEventListener("kds:clear-queue", h); }); // eslint-disable-line
+  async function clearPrintQueue() {
+    if (clearingQueue) return;
+    if (!window.confirm("Clear the print queue? Pending jobs on this store's printers are dropped and today's open orders stop being re-pushed. Tickets already on screen are unaffected.")) return;
+    setClearingQueue(true);
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "clear_print_queue", data: { location_id: loc } }) });
+      const j = await r.json().catch(() => ({}));
+      showToast(j.ok ? "Queue cleared on " + ((j.printers || []).filter((p) => p.ok).length) + " printer" + ((j.printers || []).filter((p) => p.ok).length === 1 ? "" : "s") + " · " + (j.orders_marked || 0) + " orders marked printed" : (j.message || j.error || "Could not clear the queue"));
+    } catch { showToast("Could not clear the queue"); } finally { setClearingQueue(false); }
+  }
   async function markServed(o) {
     setServedIds((p) => new Set(p).add(o.id));
     try { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "mark_served", data: { order_id: o.id } }) }); } catch {}
@@ -800,6 +812,7 @@ export default function KDS({ surface = "kds" }) {
           <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
             <span onClick={() => retryPrint(failedOrders)} className="kbtn" style={{ cursor: "pointer", background: "#fff", color: "#991b1b", borderRadius: 9, padding: "8px 14px", fontWeight: 900, fontSize: F(13) }}>{retryingPrint ? "Retrying…" : "⟳ Retry " + (failedOrders.length === 1 ? "print" : "all")}</span>
             <span onClick={() => dismissPrint(failedOrders)} className="kbtn" style={{ cursor: "pointer", background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: F(13) }}>Dismiss</span>
+            <span onClick={clearPrintQueue} className="kbtn" title="Wipe the printers' pending jobs and stop re-pushing today's open orders" style={{ cursor: "pointer", background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: F(13) }}>{clearingQueue ? "Clearing…" : "🧹 Clear queue"}</span>
           </div>
         </div>
       )}
@@ -1358,6 +1371,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
               <div style={cardStyle}>
                 <Step n="🖨" title="Prints to" />
                 {printers === null && <div style={{ fontSize: 13, color: C.muted }}>Loading printers…</div>}
+                <div onClick={() => { onClose(); setTimeout(() => window.dispatchEvent(new CustomEvent("kds:clear-queue")), 50); }} className="kbtn" style={{ display: "inline-block", marginBottom: 10, padding: "7px 12px", borderRadius: 9, background: C.soft, fontSize: 13, fontWeight: 800, cursor: "pointer" }}>🧹 Clear this store's print queue</div>
                 {printers && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     <Chip small on={!printer} onClick={() => setPrinter("")}>Every printer</Chip>

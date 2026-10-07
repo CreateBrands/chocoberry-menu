@@ -949,6 +949,38 @@ Deno.serve(async (req) => {
       }
       // Generic message chit — used for VOID notices to the kitchen and any
       // short staff message. body: { title, lines[], location_id? }
+      // ---- CLEAR QUEUE: drop pending jobs on the Sunmi cloud for this store's
+      // printers (the backlog a printer spews when it comes back online), and
+      // mark every open order as printed so the sweep won't re-push them. ----
+      case "clear-queue": {
+        const locationId = body.location_id ? String(body.location_id) : null;
+        let q = supabase.from("printers").select("sn, label, station, location_id").eq("active", true);
+        if (locationId) q = q.eq("location_id", locationId);
+        const { data: printers } = await q;
+        const results: any[] = [];
+        for (const pr of printers || []) {
+          try { const res = await sunmi.clearPrintJob(String(pr.sn)); results.push({ sn: pr.sn, label: pr.label, ok: ok(res) }); }
+          catch (e) { results.push({ sn: pr.sn, label: pr.label, ok: false, error: String(e) }); }
+        }
+        // Open orders at this store: record a 'sent' job for each printer at the
+        // order's current round, so sweep-unprinted sees them as caught up.
+        let marked = 0;
+        if (locationId && (printers || []).length) {
+          const { data: orders } = await supabase.from("menu_orders").select("id").eq("location_id", locationId).is("closed_at", null).gte("created_at", new Date(Date.now() - 24 * 3600000).toISOString());
+          const ids = (orders || []).map((o: any) => o.id);
+          if (ids.length) {
+            const { data: its } = await supabase.from("menu_order_items").select("order_id, added_batch").in("order_id", ids);
+            const maxB = new Map<string, number>();
+            for (const it of its || []) { const b = (it as any).added_batch ?? 0; const c = maxB.get((it as any).order_id); if (c === undefined || b > c) maxB.set((it as any).order_id, b); }
+            const rows: any[] = [];
+            for (const id of ids) for (const pr of printers || []) rows.push({ order_id: id, printer_sn: String(pr.sn), status: "sent", max_batch: maxB.get(id) ?? 0, note: "queue cleared" });
+            for (let i = 0; i < rows.length; i += 200) { await supabase.from("print_jobs").upsert(rows.slice(i, i + 200), { onConflict: "order_id,printer_sn" }).then(() => {}, () => supabase.from("print_jobs").insert(rows.slice(i, i + 200))); }
+            await supabase.from("menu_orders").update({ print_failed: false, print_error: null }).in("id", ids);
+            marked = ids.length;
+          }
+        }
+        return json({ ok: true, printers: results, orders_marked: marked });
+      }
       case "print-message": {
         const title = String(body.title || "NOTICE").slice(0, 40);
         const msgLines: string[] = Array.isArray(body.lines) ? body.lines.map((l: unknown) => String(l).slice(0, 46)) : [];

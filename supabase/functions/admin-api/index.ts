@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     "set_order_type",
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
-    "sweep_unprinted", "retry_print", "clear_print_flag",
+    "sweep_unprinted", "retry_print", "clear_print_flag", "clear_print_queue",
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
@@ -190,7 +190,7 @@ Deno.serve(async (req) => {
     return d;
   }
   // Till-only actions. Screen setup (kds_screen_self), targets and kitchen prints are KDS actions and stay allowed for kitchen licences.
-  const POS_ONLY = new Set(["mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "service_log_delete"]);
+  const POS_ONLY = new Set(["mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "service_log_delete", "clear_print_queue"]);
   // Kitchen speed for the closing report, same definition as the KDS Performance tab:
   // completion = latest bump within 30 min of the first bump (later bumps are housekeeping).
   async function kitchenStats(location_id: string, from: string, to: string, targetMin: number) {
@@ -1484,6 +1484,13 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      // ---- PRINT QUEUE: wipe pending cloud jobs + mark open orders as printed ----
+      case "clear_print_queue": {
+        const { location_id } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const r = await callSunmi({ action: "clear-queue", location_id });
+        return json({ ok: r.ok, ...(r.body || {}) });
+      }
       // ---- PRINT SAFETY NET: staff-triggered re-push of any unprinted orders ----
       case "sweep_unprinted": {
         const r = await callSunmi({ action: "sweep-unprinted", since_minutes: (data && data.since_minutes) || 180 });
