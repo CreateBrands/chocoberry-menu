@@ -1218,6 +1218,20 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const [tab, setTab] = useState("setup"); // setup | store
+  // Manager PIN gate: nothing is shown or saved until a store manager (or master) PIN is entered.
+  const [gatePin, setGatePin] = useState("");
+  const [gateOk, setGateOk] = useState(() => { try { const j = JSON.parse(sessionStorage.getItem("kds_setup_pin") || "null"); return j && Date.now() - j.t < 10 * 60000 ? j.pin : null; } catch { return null; } });
+  const [gateErr, setGateErr] = useState("");
+  const [gateBusy, setGateBusy] = useState(false);
+  async function checkGate(p) {
+    setGateBusy(true); setGateErr("");
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "manager_pin_check", data: { location_id: loc, manager_pin: p } }) });
+      const j = await r.json().catch(() => ({}));
+      if (j.ok) { setGateOk(p); try { sessionStorage.setItem("kds_setup_pin", JSON.stringify({ pin: p, t: Date.now() })); } catch {} }
+      else { setGateErr("Not a manager PIN for this store"); setGatePin(""); }
+    } catch { setGateErr("Could not check the PIN"); } finally { setGateBusy(false); }
+  }
   useEffect(() => { setLabel(current?.label || ""); setStation(current?.station || ""); setPrinter(current?.printer_sn || ""); setRouting({ menus: [...(current?.routing?.menus || [])], categories: [...(current?.routing?.categories || [])], items: [...(current?.routing?.items || [])] }); }, [screenKey]); // eslint-disable-line
   const initial = JSON.stringify({ label: current?.label || "", station: current?.station || "", printer: current?.printer_sn || "", routing: { menus: [...(current?.routing?.menus || [])], categories: [...(current?.routing?.categories || [])], items: [...(current?.routing?.items || [])] } });
   const dirty = JSON.stringify({ label, station, printer, routing }) !== initial;
@@ -1266,7 +1280,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   async function save() {
     setBusy(true); setErr("");
     try {
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "kds_screen_self", data: { location_id: loc, screen_key: screenKey, label: label.trim(), station: station.trim(), routing, printer_sn: printer || null } }) });
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "kds_screen_self", data: { location_id: loc, screen_key: screenKey, label: label.trim(), station: station.trim(), routing, printer_sn: printer || null, manager_pin: gateOk } }) });
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.message || j.error || "Save failed");
       if (screenKey === ownKey) { try { if (label.trim()) localStorage.setItem("kds_name", label.trim()); if (station.trim()) localStorage.setItem("kds_station", station.trim()); } catch {} }
@@ -1287,6 +1301,23 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   const Tab = ({ v, children }) => <span onClick={() => setTab(v)} className="kbtn" style={{ cursor: "pointer", padding: "8px 14px", borderRadius: 9, fontSize: 13, fontWeight: 800, background: tab === v ? C.ink : "transparent", color: tab === v ? "#fff" : C.muted }}>{children}</span>;
   return (
     <div style={{ position: "fixed", inset: 0, zIndex: 80, background: "#f8fafc" }}>
+      {!gateOk && (
+        <div style={{ position: "absolute", inset: 0, zIndex: 2, background: "#0f172a", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", padding: 24, zoom }}>
+          <div style={{ textAlign: "center", width: 420, maxWidth: "100%" }}>
+            <div style={{ fontSize: 44 }}>🔐</div>
+            <div style={{ fontSize: 24, fontWeight: 900, fontFamily: "'Poppins',sans-serif", marginTop: 6 }}>Screen setup</div>
+            <div style={{ fontSize: 14, color: "#94a3b8", marginTop: 6 }}>Enter the store manager PIN to change this screen's name, station, printer or what it shows.</div>
+            <div style={{ display: "flex", gap: 10, justifyContent: "center", margin: "22px 0 16px" }}>{[0, 1, 2, 3].map((i) => <span key={i} style={{ width: 18, height: 18, borderRadius: "50%", background: i < gatePin.length ? (gateErr ? "#f87171" : "#fff") : "#334155" }} />)}{gatePin.length > 4 && <span style={{ color: "#94a3b8", fontSize: 13 }}>+{gatePin.length - 4}</span>}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 84px)", gap: 10, justifyContent: "center" }}>
+              {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "✓"].map((k) => (
+                <span key={k} onClick={() => { if (gateBusy) return; if (k === "⌫") { setGatePin((p) => p.slice(0, -1)); setGateErr(""); } else if (k === "✓") { if (gatePin.length >= 4) checkGate(gatePin); } else { const n = (gatePin + k).slice(0, 8); setGatePin(n); setGateErr(""); } }} className="kbtn" style={{ height: 64, borderRadius: 14, background: k === "✓" ? (gatePin.length >= 4 ? "#16a34a" : "#1e293b") : k === "⌫" ? "#1e293b" : "#1e293b", color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800, cursor: "pointer", userSelect: "none", border: "1px solid #334155" }}>{k}</span>
+              ))}
+            </div>
+            {gateErr && <div style={{ color: "#fca5a5", fontWeight: 700, marginTop: 14 }}>{gateErr}</div>}
+            <div onClick={onClose} style={{ marginTop: 22, color: "#94a3b8", fontWeight: 700, cursor: "pointer" }}>Cancel</div>
+          </div>
+        </div>
+      )}
       <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", overflow: "hidden", color: C.ink, zoom }}>
         {/* header */}
         <div style={{ padding: "16px 24px 12px", background: "#fff", borderBottom: "1px solid " + C.line, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>

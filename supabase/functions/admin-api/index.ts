@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
-    "device_activate", "device_heartbeat", "device_claim_legacy",
+    "device_activate", "device_heartbeat", "device_claim_legacy", "manager_pin_check",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   // Device enforcement: when the caller sends a device token it must be active,
@@ -1261,8 +1261,14 @@ Deno.serve(async (req) => {
 
       // ---- KDS: a screen names itself, picks its station and what it shows ----
       case "kds_screen_self": {
-        const { location_id, screen_key, label, station, routing, printer_sn } = data || {};
+        const { location_id, screen_key, label, station, routing, printer_sn, manager_pin } = data || {};
         if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
+        // Screen setup is manager-only: the store's manager PIN (store_pins) or the master PIN.
+        if (!manager_pin) return json({ ok: false, error: "pin_required", message: "Manager PIN required" }, 401);
+        if (String(manager_pin) !== String(ADMIN_PIN)) {
+          const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
+          if (!sp || sp.location_id !== location_id) return json({ ok: false, error: "bad_pin", message: "That PIN isn't a manager PIN for this store" }, 403);
+        }
         const clean = (arr: unknown) => Array.isArray(arr) ? arr.map((x) => String(x)).filter(Boolean).slice(0, 500) : [];
         const r = routing && typeof routing === "object" ? { menus: clean((routing as any).menus), categories: clean((routing as any).categories), items: clean((routing as any).items) } : null;
         const row: Record<string, unknown> = { location_id, screen_key: String(screen_key), updated_at: new Date().toISOString() };
@@ -1378,6 +1384,13 @@ Deno.serve(async (req) => {
         return json({ ok: true, kind: d.kind, label: d.label, reload });
       }
       // ---- Admin: devices ----
+      case "manager_pin_check": {
+        const { location_id, manager_pin } = data || {};
+        if (!location_id || !manager_pin) return json({ ok: false }, 400);
+        if (String(manager_pin) === String(ADMIN_PIN)) return json({ ok: true, scope: "master" });
+        const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
+        return json({ ok: !!(sp && sp.location_id === location_id), scope: "store" });
+      }
       case "device_create": {
         const { location_id, kind, label } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
