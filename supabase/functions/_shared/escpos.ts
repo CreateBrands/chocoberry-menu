@@ -147,6 +147,7 @@ export interface ReceiptOrder {
   total?: number;
   notes?: string;
   storeName?: string;
+  brandName?: string;
   batchTimes?: string[]; // pre-formatted local time per round; batchTimes[0]=original, [1]=2nd round ...
 }
 

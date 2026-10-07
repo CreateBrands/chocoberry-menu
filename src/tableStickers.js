@@ -4,7 +4,7 @@
 // QRs are generated locally with the `qrcode` package — nothing external.
 import QRCode from "qrcode";
 
-export async function openTableStickerSheet({ storeName, tables, origin }) {
+export async function openTableStickerSheet({ storeName, tables, origin, brandName }) {
   const rows = tables.filter((t) => t.qr_token);
   const cards = await Promise.all(rows.map(async (t) => {
     const url = origin + "/?store=" + t.qr_token;
@@ -33,7 +33,7 @@ export async function openTableStickerSheet({ storeName, tables, origin }) {
 </style></head><body>
 <div class="bar"><div><b>${esc(storeName)}</b> · ${cards.length} table sticker${cards.length === 1 ? "" : "s"} · 60 × 78 mm, 9 per A4 sheet</div><button onclick="window.print()">Print</button></div>
 <div class="grid">
-${cards.map((c) => `<div class="card"><div class="brand">Chocoberry</div><div class="store">${esc(storeName)}</div><div class="qr"><img src="${c.png}" alt="QR for ${esc(c.label)}"></div><div class="label">${esc(c.label)}</div><div class="hint">Scan to see the menu &amp; order to your table</div></div>`).join("\n")}
+${cards.map((c) => `<div class="card"><div class="brand">${esc(brandName || "Chocoberry")}</div><div class="store">${esc(storeName)}</div><div class="qr"><img src="${c.png}" alt="QR for ${esc(c.label)}"></div><div class="label">${esc(c.label)}</div><div class="hint">Scan to see the menu &amp; order to your table</div></div>`).join("\n")}
 </div></body></html>`;
   const w = window.open("", "_blank");
   if (!w) { alert("Pop-up blocked — allow pop-ups for this site and try again."); return; }

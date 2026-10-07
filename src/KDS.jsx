@@ -249,6 +249,12 @@ export default function KDS({ surface = "kds" }) {
   const device = getDevice();
   const kind = device ? device.kind : "kds+pos"; // unlicensed legacy screens keep everything until claimed
   const [licence, setLicence] = useState("ok"); // ok | revoked | unclaimed | needs_code
+  const [brand, setBrand] = useState({ name: "Chocoberry", accent: "#f472b6", logo: null });
+  useEffect(() => {
+    if (!loc) return;
+    fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=key,value&key=in.(" + ["brand_name", "brand_primary", "brand_logo_url", "brand_button_text"].map((k) => '"' + k + ":" + loc + '"').join(",") + ")", { headers: H, cache: "no-store" })
+      .then((r) => r.ok ? r.json() : []).then((rows) => { const m = Object.fromEntries((rows || []).map((r) => [r.key.split(":")[0], r.value])); if (m.brand_name) setBrand({ name: m.brand_name, accent: m.brand_button_text || m.brand_primary || "#344d42", logo: m.brand_logo_url || null }); }).catch(() => {});
+  }, [loc]);
   const beatRef = useRef(null);      // licence heartbeat, driven by the orders poll
   // Self-update: when Vercel ships a new build, the module script hash in
   // index.html changes. Check every 2 minutes and reload (after a short grace
@@ -729,7 +735,7 @@ export default function KDS({ surface = "kds" }) {
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "#ffffff", borderBottom: "1px solid #d8dce2", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-          <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em" }}>Chocoberry <span style={{ color: "#f472b6" }}>KDS</span></span>
+          <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em", display: "inline-flex", alignItems: "center", gap: 8 }}>{brand.logo && <img src={brand.logo} alt="" style={{ height: 26, width: "auto" }} />}{brand.name} <span style={{ color: brand.accent }}>{surface === "pos" ? "POS" : "KDS"}</span></span>
           <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
             {[["kitchen", "Kitchen"], ["perf", "Performance"], ["pos", "POS"]].filter(([v]) => kind === "kds+pos" || (kind === "pos" ? v === "pos" : v !== "pos")).map(([v, label]) => (
               <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#475569" }}>

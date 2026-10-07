@@ -17,7 +17,23 @@ const THEMES = {
     "--ink": "#3A2E26", "--muted": "#6B5D4F", "--accent": "#844429",
     "--chip": "#E8DCC6", "--accent-soft": "#EADFCB", "--line": "#E8DCC6",
   },
+  // Tove — celadon on warm cream (from the brand's Apetito palette).
+  tove: {
+    "--bg": "#FFFBF2", "--bg2": "#F6F1E4", "--bg3": "#FFFFFF",
+    "--ink": "#1F2A24", "--muted": "#5F6B63", "--accent": "#344D42",
+    "--chip": "#B3D2AE", "--accent-soft": "#DCEBD8", "--line": "rgba(52,77,66,.14)",
+  },
 };
+// Per-store settings: a key saved as "<key>:<location_id>" overrides the global
+// "<key>" for that store only. That's how Tove gets its own theme, welcome
+// screen, hero slides and app banner while every Chocoberry store keeps the defaults.
+function applyStoreOverrides(settings, locationId) {
+  if (!locationId) return settings;
+  const out = { ...settings };
+  const suffix = ":" + locationId;
+  for (const k of Object.keys(settings)) if (k.endsWith(suffix)) out[k.slice(0, -suffix.length)] = settings[k];
+  return out;
+}
 const VARS = THEMES.still; // default; overridden at runtime by theme setting
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
@@ -208,14 +224,14 @@ function GetAppBanner({ settings, table }) {
   const [dismissed, setDismissed] = useState(() => { try { return sessionStorage.getItem("getapp_dismissed") === "1"; } catch { return false; } });
   const ios = /iPhone|iPad/i.test(navigator.userAgent || "");
   const url = ios ? settings.app_store_url : settings.play_store_url;
-  if (dismissed || !url || !isPhoneBrowser()) return null;
+  if (dismissed || !url || !isPhoneBrowser() || settings.app_banner === "off") return null;
   // Carry the current table/store link through so the app can restore the table
   // after install (Android App Links / iOS Universal Links read it back).
   const target = url + (ios ? "" : (url.includes("?") ? "&" : "?") + "referrer=" + encodeURIComponent("store=" + (getStoreToken() || "")));
   return (
     <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 9998, padding: "10px 12px calc(10px + env(safe-area-inset-bottom))", background: "#8F4123", color: "#F9EDDC", fontFamily: "'Poppins',sans-serif", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -6px 20px rgba(0,0,0,.18)" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 700, fontSize: 14 }}>Order in the Chocoberry app</div>
+        <div style={{ fontWeight: 700, fontSize: 14 }}>Order in the {settings.brand_name || "Chocoberry"} app</div>
         <div style={{ fontSize: 12, opacity: .85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{table ? `Earn Berries on every order at ${table.label}` : "Earn Berries on every order"}</div>
       </div>
       <a href={target} target="_blank" rel="noreferrer" style={{ background: "#F9EDDC", color: "#8F4123", fontWeight: 700, fontSize: 13, padding: "9px 14px", borderRadius: 999, textDecoration: "none", whiteSpace: "nowrap" }}>Get the app</a>
@@ -1984,8 +2000,10 @@ export default function App() {
   const openItem = (it) => { setSelItem(it); setScreen("item"); };
 
   let heroSlides = [];
-  try { heroSlides = settings.hero_slides ? (typeof settings.hero_slides === "string" ? JSON.parse(settings.hero_slides) : settings.hero_slides) : []; } catch { heroSlides = []; }
-  const themeVars = THEMES[settings.theme] || THEMES.still;
+  try { heroSlides = settingsEff.hero_slides ? (typeof settingsEff.hero_slides === "string" ? JSON.parse(settingsEff.hero_slides) : settingsEff.hero_slides) : []; } catch { heroSlides = []; }
+  const storeLocId = store && (store.id || store.location_id);
+  const settingsEff = applyStoreOverrides(settings, storeLocId);
+  const themeVars = THEMES[settingsEff.theme] || THEMES.still;
   const themeBg = settings.theme === "chocoberry"
     ? "linear-gradient(160deg,#F3EADA,#F4E9DD)"
     : "linear-gradient(160deg,#EEF2E4,#E1E8D2)";
@@ -2008,7 +2026,7 @@ export default function App() {
           ● Offline — showing saved menu
         </div>
       )}
-      <GetAppBanner settings={settings} table={table} />
+      <GetAppBanner settings={settingsEff} table={table} />
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}
@@ -2024,7 +2042,7 @@ export default function App() {
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
-            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settings.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settings} /></div>
+            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {

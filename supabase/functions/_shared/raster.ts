@@ -141,7 +141,7 @@ function receiptTree(o: ReceiptOrder): Node {
           "-- newest round at the bottom --")]
       : []),
     el("div", { justifyContent: "center", width: "100%", fontSize: 22 },
-      `Chocoberry${o.storeName ? " - " + o.storeName : ""} - thank you!`),
+      `${o.brandName || "Chocoberry"}${o.storeName ? " - " + o.storeName : ""} - thank you!`),
   );
 }
 

@@ -287,6 +287,13 @@ async function loadReceiptOrder(
     }
   }
 
+  // Brand name for the receipt footer: per-store setting, default Chocoberry.
+  let brandName = "Chocoberry";
+  if (rec.location_id) {
+    const { data: bn } = await supabase.from("menu_app_settings").select("value").eq("key", "brand_name:" + String(rec.location_id)).maybeSingle();
+    if (bn?.value) brandName = String(bn.value);
+  }
+
   const orderType =
     rec.order_type === "dine_in"
       ? `DINE-IN${tableLabel ? " - " + tableLabel : ""}`
@@ -313,6 +320,7 @@ async function loadReceiptOrder(
     notes: rec.customer_note ? String(rec.customer_note) : undefined,
     tabletNo: rec.tablet_no ? String(rec.tablet_no) : undefined,
     storeName,
+    brandName,
     hasAdditions,
     batchTimes,
   };
@@ -926,28 +934,11 @@ Deno.serve(async (req) => {
           r.bold(true).leftRight("UNPAID (" + s.unpaid_count + ")", money(s.unpaid_total), W).bold(false);
           r.divider("-");
         }
-        if ((s.other ?? 0) > 0) r.leftRight("Other tenders", money(s.other), W);
-        if (s.cash_counted != null) {
-          r.feed(1).bold(true).line("CASH DRAWER").bold(false);
-          if (s.float_amount != null) r.leftRight("Float", money(s.float_amount), W);
-          r.leftRight("Cash taken", money(s.cash), W);
-          r.leftRight("Expected in drawer", money(s.cash_expected), W);
-          r.leftRight("Counted", money(s.cash_counted), W);
-          const v = Number(s.cash_variance || 0);
-          r.bold(true).leftRight(v === 0 ? "Variance" : v > 0 ? "OVER" : "SHORT", (v < 0 ? "-" : "") + money(Math.abs(v)), W).bold(false);
-          r.divider("-");
-        }
         r.leftRight("Orders archived", String(s.order_count ?? s.paid_count ?? 0), W);
-        if ((s.cancelled_count ?? 0) > 0) r.leftRight("Cancelled", String(s.cancelled_count), W);
-        if (s.closed_by) r.leftRight("Closed by", String(s.closed_by).slice(0, 24), W);
-        if (s.note) r.feed(1).line("Note: " + String(s.note).slice(0, 90));
         r.feed(1).align(1).line("Day closed").feed(2).cut();
         const hex = r.toHex();
-        // Print on THIS store's printers only (fall back to all if none are mapped).
-        let pq = supabase.from("printers").select("sn, station, location_id");
-        if (body.location_id) pq = pq.eq("location_id", body.location_id);
-        let { data: printers } = await pq;
-        if (!printers || !printers.length) ({ data: printers } = await supabase.from("printers").select("sn, station, location_id"));
+        // Print to all kitchen printers (day-close is a store-level report).
+        const { data: printers } = await supabase.from("printers").select("sn, station");
         const targets = (printers || []).filter((p: any) => (p.station || "kitchen") === "kitchen");
         const results = [];
         for (const pr of (targets.length ? targets : (printers || []))) {

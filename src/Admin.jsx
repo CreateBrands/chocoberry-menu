@@ -1993,7 +1993,7 @@ export default function Admin() {
                   {isOpen && (
                     <div style={{ borderTop: "1px solid " + T.line, padding: "18px", background: T.bg }}>
                       <div style={{ display: "flex", gap: 4, marginBottom: 17, background: "#ecebe3", padding: 4, borderRadius: 12, width: "fit-content" }}>
-                        {[["tablets", "Tablets", tokens.length], ["tables", "Tables", diningTables.length], ["kitchen", "Devices", (state.kdsScreens || []).filter((k) => k.location_id === loc.id).length], ["menus", "Menus", null]].map(([key, lbl, count]) => (
+                        {[["tablets", "Tablets", tokens.length], ["tables", "Tables", diningTables.length], ["kitchen", "Devices", (state.kdsScreens || []).filter((k) => k.location_id === loc.id).length], ["menus", "Menus", null], ["branding", "Branding", null]].map(([key, lbl, count]) => (
                           <span key={key} onClick={() => setStoreTab(key)} style={{ padding: "8px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: storeTab === key ? T.ink : T.muted, background: storeTab === key ? "#fff" : "transparent", boxShadow: storeTab === key ? "0 2px 6px rgba(40,36,25,.09)" : "none", letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 7 }}>
                             {lbl}{count != null && <span style={{ fontSize: 10.5, background: storeTab === key ? "#e7f2e0" : "#e0ded4", color: storeTab === key ? "#3c5a2e" : "#8a8272", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{count}</span>}
                           </span>
@@ -2037,7 +2037,7 @@ export default function Admin() {
                           <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Dining tables · {diningTables.length}</div>
                           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 11 }}>
                             <div style={{ fontSize: 11.5, color: T.faint }}>Each has its own QR for the table sticker. Click a name to rename, ▦ to preview one.</div>
-                            {diningTables.length > 0 && <button onClick={() => openTableStickerSheet({ storeName: loc.name, tables: diningTables, origin: window.location.origin })} style={{ fontSize: 12.5, fontWeight: 700, color: "#fff", background: T.accent, border: "none", borderRadius: 10, padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap" }}>Print QR stickers</button>}
+                            {diningTables.length > 0 && <button onClick={() => openTableStickerSheet({ storeName: loc.name, tables: diningTables, origin: window.location.origin , brandName: getSetting("brand_name:" + loc.id) || "Chocoberry" })} style={{ fontSize: 12.5, fontWeight: 700, color: "#fff", background: T.accent, border: "none", borderRadius: 10, padding: "8px 14px", cursor: "pointer", whiteSpace: "nowrap" }}>Print QR stickers</button>}
                           </div>
                           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                             {diningTables.map((tb) => (
@@ -2117,6 +2117,60 @@ export default function Admin() {
                               <button onClick={() => act("device_create", { location_id: loc.id, kind: "kds" })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kitchen screen</button>
                               <button onClick={() => act("device_create", { location_id: loc.id, kind: "pos" })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Till</button>
                               <button onClick={() => act("device_create", { location_id: loc.id, kind: "kds+pos" })} style={{ fontSize: 12.5, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kitchen + till</button>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {storeTab === "branding" && (() => {
+                        // Per-store branding. Each field writes "<key>:<location_id>";
+                        // empty = inherit the global setting (Chocoberry).
+                        const K = (k) => k + ":" + loc.id;
+                        const g = (k) => getSetting(K(k));
+                        const setK = (k, v) => act("set_setting", { key: K(k), value: v });
+                        const Field = ({ k, label, placeholder, hint }) => (
+                          <label style={{ display: "block", marginBottom: 10 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
+                            <input defaultValue={g(k)} placeholder={placeholder} onBlur={(e) => { if (e.target.value !== g(k)) setK(k, e.target.value); }} style={{ width: "100%", boxSizing: "border-box", padding: "9px 11px", fontSize: 13, border: "1px solid " + T.line, borderRadius: 9, background: T.card, color: T.ink }} />
+                            {hint && <div style={{ fontSize: 11, color: T.faint, marginTop: 3 }}>{hint}</div>}
+                          </label>
+                        );
+                        const theme = g("theme") || "";
+                        return (
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Branding · this store only</div>
+                            <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 12 }}>Leave a field empty to inherit the global Chocoberry branding. Changes reach tablets on their next menu refresh and KDS/POS screens within a minute.</div>
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>Colour theme</div>
+                                <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                                  {[["", "Inherit"], ["chocoberry", "Chocoberry"], ["tove", "Tove"], ["still", "still."]].map(([v, l]) => <span key={v} onClick={() => setK("theme", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: theme === v ? T.ink : T.bg, color: theme === v ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>)}
+                                </div>
+                                <Field k="brand_name" label="Brand name" placeholder="Chocoberry" hint="Shown on the KDS/POS header, receipts, QR stickers and the get-the-app strip." />
+                                <Field k="brand_tagline" label="Tagline" placeholder="Desserts, beautifully done." />
+                                <Field k="welcome_eyebrow" label="Welcome · eyebrow" placeholder="WELCOME TO" />
+                                <Field k="welcome_subtitle" label="Welcome · subtitle" placeholder="Tap below to start your order" />
+                                <Field k="welcome_button" label="Welcome · button" placeholder="Menu" />
+                                <Field k="welcome_footer" label="Welcome · footer" placeholder="" />
+                              </div>
+                              <div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>Logo</div>
+                                <ImageUpload value={g("welcome_logo_url")} prefix={"branding/" + loc.id} onChange={(url) => { setK("welcome_logo_url", url || ""); setK("brand_logo_url", url || ""); }} />
+                                <div style={{ height: 10 }} />
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>Welcome background</div>
+                                <ImageUpload value={g("welcome_bg_url")} prefix={"branding/" + loc.id} onChange={(url) => setK("welcome_bg_url", url || "")} />
+                                <div style={{ height: 12 }} />
+                                <Field k="brand_primary" label="Primary colour" placeholder="#b3d2ae" />
+                                <Field k="brand_button_text" label="Accent / button text colour" placeholder="#344d42" />
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>Hero slides on the menu</div>
+                                <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
+                                  {[["", "Inherit global"], ["[]", "None"]].map(([v, l]) => <span key={v} onClick={() => setK("hero_slides", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: (g("hero_slides") || "") === v ? T.ink : T.bg, color: (g("hero_slides") || "") === v ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>)}
+                                </div>
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>"Get the app" strip</div>
+                                <div style={{ display: "flex", gap: 6 }}>
+                                  {[["", "Show (Chocoberry app)"], ["off", "Hide — no app for this brand"]].map(([v, l]) => <span key={v} onClick={() => setK("app_banner", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: (g("app_banner") || "") === v ? T.ink : T.bg, color: (g("app_banner") || "") === v ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>)}
+                                </div>
+                              </div>
                             </div>
                           </div>
                         );
