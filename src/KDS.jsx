@@ -79,7 +79,12 @@ function getParam(k) { try { return new URLSearchParams(window.location.search).
 // recovery, tab reopened) silently reverted the screen to "main" — losing its
 // identity and, with it, its kds_screens printer preference.
 function getScreenId() {
+  // A licensed device IS its licence: the key issued at activation wins over
+  // anything in the URL or remembered from before, so an old kiosk link with
+  // ?screen=3 can no longer turn this tablet into screen 3.
   try {
+    const d = getDevice();
+    if (d && d.key) { localStorage.setItem("kds_screen", d.key); return d.key; }
     const url = getParam("screen");
     if (url) { localStorage.setItem("kds_screen", url); return url; }
     return localStorage.getItem("kds_screen") || "main";
@@ -107,7 +112,7 @@ export default function KDS({ surface = "kds" }) {
   const [now, setNow] = useState(Date.now());
   // Remember the linked location: URL (?loc= or resolved from ?store=) sets it,
   // then the screen remembers it — so you scan the KDS QR once and it stays linked.
-  const [loc, setLoc] = useState(getParam("loc") || (() => { try { return localStorage.getItem("kds_loc"); } catch { return null; } })());
+  const [loc, setLoc] = useState((getDevice() && getDevice().location_id) || getParam("loc") || (() => { try { return localStorage.getItem("kds_loc"); } catch { return null; } })());
   const [tab, setTab] = useState("active");
   const [station, setStation] = useState("all");
   // This screen's own identity (not the item-filter dropdown above).

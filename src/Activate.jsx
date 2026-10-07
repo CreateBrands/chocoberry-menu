@@ -24,7 +24,7 @@ export default function Activate({ reason }) {
       const j = await r.json().catch(() => ({}));
       if (!r.ok || !j.ok) throw new Error(j.error || "Activation failed");
       setDevice(j.device);
-      try { localStorage.setItem("kds_loc", j.device.location_id); localStorage.setItem("kds_screen", j.device.key); if (j.device.label) localStorage.setItem("kds_name", j.device.label); } catch {}
+      try { localStorage.setItem("kds_loc", j.device.location_id); localStorage.setItem("kds_screen", j.device.key); localStorage.removeItem("kds_station"); localStorage.removeItem("kds_printer"); localStorage.removeItem("kds_allday_cat"); if (j.device.label) localStorage.setItem("kds_name", j.device.label); else localStorage.removeItem("kds_name"); } catch {}
       setDone(j.device);
       setTimeout(() => { window.location.href = j.device.kind === "pos" ? "/pos" : "/kds"; }, 1200);
     } catch (e) { setErr(e.message || "Activation failed"); } finally { setBusy(false); }
