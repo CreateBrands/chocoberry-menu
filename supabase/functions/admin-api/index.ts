@@ -189,7 +189,8 @@ Deno.serve(async (req) => {
     if ((await sha256(secret)) !== d.device_secret_hash) return null;
     return d;
   }
-  const POS_ONLY = new Set(["mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "set_kds_target", "print_kitchen_summary", "kds_screen_self", "service_log_delete"]);
+  // Till-only actions. Screen setup (kds_screen_self), targets and kitchen prints are KDS actions and stay allowed for kitchen licences.
+  const POS_ONLY = new Set(["mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "service_log_delete"]);
   // Kitchen speed for the closing report, same definition as the KDS Performance tab:
   // completion = latest bump within 30 min of the first bump (later bumps are housekeeping).
   async function kitchenStats(location_id: string, from: string, to: string, targetMin: number) {

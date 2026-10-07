@@ -1263,7 +1263,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "kds_screen_self", data: { location_id: loc, screen_key: screenKey, label: label.trim(), station: station.trim(), routing, printer_sn: printer || null } }) });
       const j = await r.json().catch(() => ({}));
-      if (!r.ok || !j.ok) throw new Error(j.error || "Save failed");
+      if (!r.ok || !j.ok) throw new Error(j.message || j.error || "Save failed");
       if (screenKey === ownKey) { try { if (label.trim()) localStorage.setItem("kds_name", label.trim()); if (station.trim()) localStorage.setItem("kds_station", station.trim()); } catch {} }
       onSaved(screenKey === ownKey ? (printer || "") : undefined); onClose();
     } catch (e) { setErr(e.message || "Save failed"); } finally { setBusy(false); }
