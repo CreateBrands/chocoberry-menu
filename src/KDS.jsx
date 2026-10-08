@@ -1262,6 +1262,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   const [routing, setRouting] = useState(() => ({ menus: [...(current?.routing?.menus || [])], categories: [...(current?.routing?.categories || [])], items: [...(current?.routing?.items || [])] }));
   const [cat, setCat] = useState(null);
   const [printers, setPrinters] = useState(null);
+  const [usbMsg, setUsbMsg] = useState("");
   const [q, setQ] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -1407,16 +1408,24 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                     {screenKey === ownKey && usbPrinter.supported() && (
                       <Chip small on={printer === "usb:" + screenKey} tone="#2563eb" onClick={async () => {
                         try {
+                          setUsbMsg("Pairing…");
                           const d = await usbPrinter.pair();
                           const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "usb_printer_register", data: { location_id: loc, screen_key: screenKey, label: (label.trim() || "Screen " + screenKey) + " · USB", station: station.trim() || "kitchen", manager_pin: gateOk, vendor_id: d.vendorId, product_id: d.productId, product_name: d.productName } }) });
                           const j = await r.json().catch(() => ({}));
-                          if (!r.ok || !j.ok) throw new Error(j.message || j.error || "Could not register the printer");
+                          if (!r.ok || !j.ok) throw new Error(j.message || j.error || "Could not register the printer (HTTP " + r.status + ")");
                           setPrinter("usb:" + screenKey); setPrinters((ps) => (ps || []).some((p) => p.sn === "usb:" + screenKey) ? ps : [...(ps || []), { sn: "usb:" + screenKey, name: (label.trim() || "Screen " + screenKey) + " · USB", online: true }]);
+                          setUsbMsg(d.openError ? "Paired " + (d.productName || "printer") + ", but it can't be opened yet: " + d.openError + ". Usually Android's print service holds it — see the note below." : "Paired " + (d.productName || "printer") + " ✓ — tap Test print. Remember to Save.");
                           setErr("");
-                        } catch (e) { setErr(e.message || "USB pairing cancelled"); }
+                        } catch (e) { setUsbMsg("USB: " + (e.message || "pairing cancelled")); }
                       }}>🔌 USB printer on this device{printer === "usb:" + screenKey && usbPrinter.info() ? " · " + (usbPrinter.info().productName || "connected") : ""}</Chip>
                     )}
-                    {printer === "usb:" + screenKey && <Chip small onClick={async () => { const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "usb_printer_test", data: { sn: "usb:" + screenKey, location_id: loc } }) }); const j = await r.json().catch(() => ({})); setErr(j.ok ? "" : "Test print failed to queue"); }}>Test print</Chip>}
+                    {printer === "usb:" + screenKey && <Chip small onClick={async () => { const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "usb_printer_test", data: { sn: "usb:" + screenKey, location_id: loc } }) }); const j = await r.json().catch(() => ({})); setUsbMsg(j.ok ? "Test slip queued — it prints within a few seconds once the printer is connected." : "Test print failed to queue: " + (j.error || j.message || ("HTTP " + r.status))); }}>Test print</Chip>}
+                  </div>
+                )}
+                {usbMsg && <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: /can't|failed|cancel|USB:/.test(usbMsg) ? C.warn : C.good, lineHeight: 1.45 }}>{usbMsg}</div>}
+                {printer === "usb:" + screenKey && <div style={{ marginTop: 8, fontSize: 12, color: C.muted, lineHeight: 1.45 }}>If the printer won't open: on the D3 Pro go to Settings → Printing and turn off any print service, unplug and replug the printer, then pair again. Chrome must stay open for jobs to print.</div>}
+                {false && (
+                  <div>
                     {printers.map((p) => <Chip key={p.sn} small on={printer === p.sn} onClick={() => setPrinter(p.sn)}>{p.name || p.station || "Printer"} <span style={{ opacity: .6, fontWeight: 600 }}>…{String(p.sn).slice(-4)}</span>{p.online === false ? <span style={{ color: printer === p.sn ? "#fecaca" : "#b91c1c", marginLeft: 6, fontSize: 11 }}>offline</span> : null}</Chip>)}
                     {!printers.length && <span style={{ fontSize: 12.5, color: C.muted }}>No printers registered for this store.</span>}
                   </div>

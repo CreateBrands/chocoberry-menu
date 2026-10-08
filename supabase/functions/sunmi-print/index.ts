@@ -400,9 +400,11 @@ async function findPrinters(locationId?: string): Promise<Array<Record<string, u
 // over WebUSB, then marks the job sent/failed.
 const isLocalSn = (sn: string) => String(sn).startsWith("usb:");
 const usedTradeFor = (t: string, copy: number) => (t + (copy ? "c" + copy : "")).slice(0, 32);
+let lastEnqueueError = "";
 async function enqueueLocal(sn: string, hex: string, meta: Record<string, unknown>) {
   const { error } = await supabase.from("print_jobs").insert({ printer_sn: sn, status: "queued", content_hex: hex, ...meta });
-  if (error) { console.error("local enqueue failed:", error.message); return false; }
+  if (error) { lastEnqueueError = error.message; console.error("local enqueue failed:", error.message); return false; }
+  lastEnqueueError = "";
   return true;
 }
 
@@ -807,7 +809,7 @@ Deno.serve(async (req) => {
       case "test": {
         if (body.sn && isLocalSn(String(body.sn))) {
           const q = await enqueueLocal(String(body.sn), buildTestReceipt(`${body.brand_name || "Chocoberry"} ${body.store_name || ""} · device printer`).toHex(), { slip: "test", max_batch: 0 });
-          return json({ ok: q, local: true });
+          return json({ ok: q, local: true, error: q ? null : lastEnqueueError }, q ? 200 : 500);
         }
         const receipt = buildTestReceipt(`SN ${body.sn}`);
         const res = await sunmi.pushContent(
