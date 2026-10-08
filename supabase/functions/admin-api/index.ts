@@ -1506,7 +1506,10 @@ Deno.serve(async (req) => {
           if (!sp || sp.location_id !== location_id) return json({ ok: false, error: "bad_pin", message: "That PIN isn't a manager PIN for this store" }, 403);
         }
         const sn = "usb:" + String(screen_key);
-        const row: Record<string, unknown> = { sn, location_id, label: label ? String(label).slice(0, 40) : "USB printer", station: station ? String(station).toLowerCase() : "kitchen", active: true, online: true, last_online_at: new Date().toISOString(), notes: ["USB", product_name, vendor_id != null ? "vid " + vendor_id : null, product_id != null ? "pid " + product_id : null].filter(Boolean).join(" · ") };
+        // store_id is a NOT NULL text column (a slug of the store name, as the admin derives it).
+        const { data: locRow } = await admin.from("menu_locations").select("name, slug").eq("id", location_id).maybeSingle();
+        const storeId = (locRow?.slug as string) || String(locRow?.name || "store").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        const row: Record<string, unknown> = { sn, store_id: storeId, shop_id: "1", location_id, label: label ? String(label).slice(0, 40) : "USB printer", station: station ? String(station).toLowerCase() : "kitchen", active: true, online: true, last_online_at: new Date().toISOString(), bound_at: new Date().toISOString(), notes: ["USB", product_name, vendor_id != null ? "vid " + vendor_id : null, product_id != null ? "pid " + product_id : null].filter(Boolean).join(" · ") };
         const { error } = await admin.from("printers").upsert(row, { onConflict: "sn" });
         if (error) throw error;
         await admin.from("kds_screens").update({ printer_sn: sn }).eq("location_id", location_id).eq("screen_key", String(screen_key));
