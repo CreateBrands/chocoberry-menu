@@ -1536,14 +1536,14 @@ Deno.serve(async (req) => {
       case "device_create": {
         const { location_id, kind, label } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
-        const k = ["kds", "pos", "kds+pos"].includes(kind) ? kind : "kds";
+        const k = ["kds", "pos", "kds+pos", "kiosk"].includes(kind) ? kind : "kds";
         const { data: existing } = await admin.from("kds_screens").select("screen_key").eq("location_id", location_id);
         const used = new Set((existing ?? []).map((r: any) => String(r.screen_key)));
-        let n = 1; const prefix = k === "pos" ? "pos-" : "";
+        let n = 1; const prefix = k === "pos" ? "pos-" : k === "kiosk" ? "kiosk-" : "";
         while (used.has(prefix + n)) n++;
         const sc = await storeCode(location_id);
-        const code = sc + "-" + (k === "pos" ? "POS" : "KDS") + "-" + randCode(4);
-        const { error } = await admin.from("kds_screens").insert({ location_id, screen_key: prefix + n, kind: k, label: label ? String(label) : (k === "pos" ? "Till " + n : "Screen " + n), status: "unassigned", licence_code: code });
+        const code = sc + "-" + (k === "pos" ? "POS" : k === "kiosk" ? "KSK" : "KDS") + "-" + randCode(4);
+        const { error } = await admin.from("kds_screens").insert({ location_id, screen_key: prefix + n, kind: k, label: label ? String(label) : (k === "kiosk" ? "Kiosk " + n : k === "pos" ? "Till " + n : "Screen " + n), status: "unassigned", licence_code: code });
         if (error) throw error;
         return json({ ok: true, screen_key: prefix + n, licence_code: code });
       }
@@ -1571,7 +1571,7 @@ Deno.serve(async (req) => {
         const { location_id, screen_key, kind, label } = data || {};
         if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
         const row: Record<string, unknown> = {};
-        if (["kds", "pos", "kds+pos"].includes(kind)) row.kind = kind;
+        if (["kds", "pos", "kds+pos", "kiosk"].includes(kind)) row.kind = kind;
         if (label !== undefined) row.label = label ? String(label).slice(0, 40) : null;
         const { error } = await admin.from("kds_screens").update(row).eq("location_id", location_id).eq("screen_key", String(screen_key));
         if (error) throw error;
