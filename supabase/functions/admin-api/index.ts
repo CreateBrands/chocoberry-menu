@@ -1319,7 +1319,7 @@ Deno.serve(async (req) => {
           newLabel = t.label;
         }
         const patch: Record<string, unknown> = { table_id: table_id || null };
-        if (table_id) patch.order_type = "dine-in"; else patch.order_type = "takeaway";
+        if (table_id) patch.order_type = "dine_in"; else patch.order_type = "takeaway";
         const { error } = await admin.from("menu_orders").update(patch).eq("id", order_id);
         if (error) throw error;
         // Tell the kitchen/pass so the plates go to the right table.
@@ -1332,7 +1332,7 @@ Deno.serve(async (req) => {
         const { order_id, order_type } = data || {};
         if (!order_id || !order_type) return json({ error: "order_id and order_type required" }, 400);
         const ot = String(order_type).toLowerCase();
-        const norm = ot.includes("dine") ? "dine-in" : "takeaway";
+        const norm = ot.includes("dine") ? "dine_in" : "takeaway";
         const { error: upErr } = await admin.from("menu_orders")
           .update({ order_type: norm }).eq("id", order_id);
         if (upErr) throw upErr;
