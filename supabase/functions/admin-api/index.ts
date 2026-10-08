@@ -35,6 +35,7 @@ Deno.serve(async (req) => {
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag", "clear_print_queue",
+    "local_print_jobs", "local_print_done", "usb_printer_register", "usb_printer_test",
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
@@ -1484,6 +1485,40 @@ Deno.serve(async (req) => {
         return json({ ok: true });
       }
 
+      // ---- DEVICE (USB) PRINTERS ----
+      case "local_print_jobs": {
+        const { sn } = data || {};
+        const r = await callSunmi({ action: "local-jobs", sn });
+        return json(r.body || { ok: false });
+      }
+      case "local_print_done": {
+        const { id, sn, ok: printed, error } = data || {};
+        const r = await callSunmi({ action: "local-job-done", id, sn, ok: !!printed, error });
+        return json(r.body || { ok: false });
+      }
+      case "usb_printer_register": {
+        // A till/KDS registers the printer plugged into it. Needs the manager PIN like screen setup.
+        const { location_id, screen_key, label, station, manager_pin, vendor_id, product_id, product_name } = data || {};
+        if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
+        if (!manager_pin) return json({ ok: false, error: "pin_required", message: "Manager PIN required" }, 401);
+        if (String(manager_pin) !== String(ADMIN_PIN)) {
+          const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
+          if (!sp || sp.location_id !== location_id) return json({ ok: false, error: "bad_pin", message: "That PIN isn't a manager PIN for this store" }, 403);
+        }
+        const sn = "usb:" + String(screen_key);
+        const row: Record<string, unknown> = { sn, location_id, label: label ? String(label).slice(0, 40) : "USB printer", station: station ? String(station).toLowerCase() : "kitchen", active: true, online: true, last_online_at: new Date().toISOString(), notes: ["USB", product_name, vendor_id != null ? "vid " + vendor_id : null, product_id != null ? "pid " + product_id : null].filter(Boolean).join(" · ") };
+        const { error } = await admin.from("printers").upsert(row, { onConflict: "sn" });
+        if (error) throw error;
+        await admin.from("kds_screens").update({ printer_sn: sn }).eq("location_id", location_id).eq("screen_key", String(screen_key));
+        return json({ ok: true, sn });
+      }
+      case "usb_printer_test": {
+        const { sn, location_id } = data || {};
+        const { data: bn } = await admin.from("menu_app_settings").select("value").eq("key", "brand_name:" + location_id).maybeSingle();
+        const { data: l } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle();
+        const r = await callSunmi({ action: "test", sn, store_name: l?.name || "", brand_name: bn?.value || "Chocoberry" });
+        return json(r.body || { ok: false });
+      }
       // ---- PRINT QUEUE: wipe pending cloud jobs + mark open orders as printed ----
       case "clear_print_queue": {
         const { location_id } = data || {};

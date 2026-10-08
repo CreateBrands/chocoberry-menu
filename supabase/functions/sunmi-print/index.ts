@@ -394,6 +394,18 @@ async function findPrinters(locationId?: string): Promise<Array<Record<string, u
   );
 }
 
+// DEVICE PRINTERS. A printer with sn "usb:<device key>" is plugged into a till
+// or KDS tablet by USB. We never push to Sunmi for it: the rendered ESC/POS
+// bytes are queued in print_jobs (status "queued") and the device prints them
+// over WebUSB, then marks the job sent/failed.
+const isLocalSn = (sn: string) => String(sn).startsWith("usb:");
+const usedTradeFor = (t: string, copy: number) => (t + (copy ? "c" + copy : "")).slice(0, 32);
+async function enqueueLocal(sn: string, hex: string, meta: Record<string, unknown>) {
+  const { error } = await supabase.from("print_jobs").insert({ printer_sn: sn, status: "queued", content_hex: hex, ...meta });
+  if (error) { console.error("local enqueue failed:", error.message); return false; }
+  return true;
+}
+
 async function logJob(fields: Record<string, unknown>) {
   const { error } = await supabase.from("print_jobs").insert(fields);
   if (error) console.error("print_jobs insert failed:", error.message);
@@ -586,6 +598,18 @@ async function printOrder(
 
       const tag = (force ? Date.now().toString(36) : "") + sn.slice(-5) + (copy > 0 ? "c" + copy : "");
       const tradeNo = (base + tag).slice(0, 32);
+
+      if (isLocalSn(sn)) {
+        // Already waiting in the device's queue for this round? Don't double up.
+        if (!force) {
+          const { data: q } = await supabase.from("print_jobs").select("id, max_batch").eq("order_id", orderId).eq("printer_sn", sn).eq("slip", slip).eq("status", "queued");
+          if ((q || []).some((j: any) => (j.max_batch ?? 0) >= maxBatchThisRun)) { results.push({ printer: sn, station, slip, skipped: true, reason: "already queued on device" }); continue; }
+        }
+        const queued = await enqueueLocal(sn, contentHex, { order_id: orderId, max_batch: maxBatchThisRun, slip, trade_no: usedTradeFor(tradeNo, copy), error: null });
+        results.push({ printer: sn, station, slip, queued, local: true });
+        if (!queued) { await supabase.from("menu_orders").update({ print_failed: true, print_error: "Could not queue for the device printer" }).eq("id", orderId); }
+        continue;
+      }
 
       // Push the ticket. Retry the PUSH a couple of times on transient API
       // errors (Sunmi's own cloud queue then durably holds it for the printer).
@@ -781,6 +805,10 @@ Deno.serve(async (req) => {
         return json({ hexLength: hex.length, sunmi: res }, ok(res) ? 200 : 502);
       }
       case "test": {
+        if (body.sn && isLocalSn(String(body.sn))) {
+          const q = await enqueueLocal(String(body.sn), buildTestReceipt(`${body.brand_name || "Chocoberry"} ${body.store_name || ""} · device printer`).toHex(), { slip: "test", max_batch: 0 });
+          return json({ ok: q, local: true });
+        }
         const receipt = buildTestReceipt(`SN ${body.sn}`);
         const res = await sunmi.pushContent(
           String(body.sn),
@@ -942,6 +970,7 @@ Deno.serve(async (req) => {
         const targets = (printers || []).filter((p: any) => (p.station || "kitchen") === "kitchen");
         const results = [];
         for (const pr of (targets.length ? targets : (printers || []))) {
+          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), hex, { slip: "zreport", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true }); continue; }
           const res = await sunmi.pushContent(String(pr.sn), "zrep" + Date.now() + String(pr.sn).slice(-4), hex);
           results.push({ sn: pr.sn, ok: ok(res) });
         }
@@ -959,6 +988,7 @@ Deno.serve(async (req) => {
         const { data: printers } = await q;
         const results: any[] = [];
         for (const pr of printers || []) {
+          if (isLocalSn(String(pr.sn))) { await supabase.from("print_jobs").delete().eq("printer_sn", String(pr.sn)).eq("status", "queued"); results.push({ sn: pr.sn, label: pr.label, ok: true, local: true }); continue; }
           try { const res = await sunmi.clearPrintJob(String(pr.sn)); results.push({ sn: pr.sn, label: pr.label, ok: ok(res) }); }
           catch (e) { results.push({ sn: pr.sn, label: pr.label, ok: false, error: String(e) }); }
         }
@@ -981,6 +1011,30 @@ Deno.serve(async (req) => {
         }
         return json({ ok: true, printers: results, orders_marked: marked });
       }
+      // ---- DEVICE PRINTER QUEUE (polled by the till/KDS over WebUSB) ----
+      case "local-jobs": {
+        const sn = String(body.sn || "");
+        if (!isLocalSn(sn)) return json({ error: "not a device printer" }, 400);
+        const { data: jobs } = await supabase.from("print_jobs").select("id, order_id, slip, max_batch, content_hex, created_at").eq("printer_sn", sn).eq("status", "queued").order("created_at", { ascending: true }).limit(10);
+        await supabase.from("printers").update({ online: true, last_online_at: new Date().toISOString() }).eq("sn", sn);
+        return json({ ok: true, jobs: jobs || [] });
+      }
+      case "local-job-done": {
+        const { id, sn, ok: printed, error: err } = body;
+        if (!id || !isLocalSn(String(sn || ""))) return json({ error: "id and device sn required" }, 400);
+        const { data: job } = await supabase.from("print_jobs").select("order_id").eq("id", id).maybeSingle();
+        await supabase.from("print_jobs").update({ status: printed ? "sent" : "failed", error: printed ? null : String(err || "device print failed"), content_hex: null }).eq("id", id);
+        if (job?.order_id) {
+          if (printed) {
+            // Clear the order's failure flag if every printer is now caught up (best effort).
+            const { data: fails } = await supabase.from("print_jobs").select("id").eq("order_id", job.order_id).in("status", ["failed", "queued"]);
+            if (!(fails || []).length) await supabase.from("menu_orders").update({ print_failed: false, print_error: null }).eq("id", job.order_id);
+          } else {
+            await supabase.from("menu_orders").update({ print_failed: true, print_error: "usb: " + String(err || "device print failed").slice(0, 120), print_failed_at: new Date().toISOString() }).eq("id", job.order_id);
+          }
+        }
+        return json({ ok: true });
+      }
       case "print-message": {
         const title = String(body.title || "NOTICE").slice(0, 40);
         const msgLines: string[] = Array.isArray(body.lines) ? body.lines.map((l: unknown) => String(l).slice(0, 46)) : [];
@@ -1001,6 +1055,7 @@ Deno.serve(async (req) => {
         }
         const results = [];
         for (const pr of (targets.length ? targets : (printers || []))) {
+          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), hex, { slip: "message", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true }); continue; }
           const res = await sunmi.pushContent(String(pr.sn), "msg" + Date.now() + String(pr.sn).slice(-4), hex);
           results.push({ sn: pr.sn, ok: ok(res) });
         }

@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import POS from "./POS.jsx";
 import ServiceFeedback, { TAGS as SVC_TAGS, CATEGORY_LABEL as SVC_CAT } from "./ServiceFeedback.jsx";
 import { getDevice, setDevice, clearDevice, deviceToken, fingerprint, APP_VERSION } from "./device.js";
+import * as usbPrinter from "./usbPrinter.js";
 
 // ============================================================================
 // Create Brands / Chocoberry — Kitchen Display System (v2, comprehensive)
@@ -230,6 +231,33 @@ export default function KDS({ surface = "kds" }) {
       showToast("Logged " + ["", "😠", "🙁", "😐", "🙂", "😄"][rating] + " for #" + o.order_no + " as " + (j.logged_by || rem.name));
     } catch { setQuickLogged((m) => { const n = { ...m }; delete n[o.id]; return n; }); setFeedbackFor({ ...o, _prefillRating: rating }); }
   }
+  // ---- Device (USB) printer: print queued ESC/POS jobs for "usb:<my key>" ----
+  const [usbState, setUsbState] = useState(null); // null | unpaired | ready | disconnected | error
+  const usbBusy = useRef(false);
+  const mySn = "usb:" + getScreenId();
+  const ownsUsb = !!(mySettings && mySettings.printer_sn === mySn);
+  useEffect(() => {
+    if (!loc || !ownsUsb) return;
+    let alive = true;
+    const tick = async () => {
+      if (usbBusy.current) return; usbBusy.current = true;
+      try {
+        const st = await usbPrinter.status(); if (alive) setUsbState(st);
+        if (st !== "ready") return;
+        const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "local_print_jobs", data: { sn: mySn } }) });
+        const j = await r.json().catch(() => ({}));
+        for (const job of (j.jobs || [])) {
+          let okp = false, err = null;
+          try { await usbPrinter.print(job.content_hex); okp = true; } catch (e) { err = String(e && e.message || e); }
+          await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "local_print_done", data: { id: job.id, sn: mySn, ok: okp, error: err } }) });
+          if (!okp) { if (alive) setUsbState("error"); break; }
+        }
+      } catch {} finally { usbBusy.current = false; }
+    };
+    tick();
+    const id = setInterval(tick, 3000);
+    return () => { alive = false; clearInterval(id); };
+  }, [loc, ownsUsb]); // eslint-disable-line
   const [clearingQueue, setClearingQueue] = useState(false);
   useEffect(() => { const h = () => clearPrintQueue(); window.addEventListener("kds:clear-queue", h); return () => window.removeEventListener("kds:clear-queue", h); }); // eslint-disable-line
   async function clearPrintQueue() {
@@ -792,6 +820,7 @@ export default function KDS({ surface = "kds" }) {
           {/* ALWAYS shown. Previously this rendered only when ?screen= was
               present, so an unlabelled screen displayed no identity at all —
               exactly the screens most likely to be misconfigured. */}
+          {ownsUsb && <div onClick={async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } }} className="kbtn" title={usbState === "ready" ? "USB printer connected" : "Tap to connect the USB printer"} style={{ cursor: "pointer", fontSize: 12, fontWeight: 800, padding: "5px 10px", borderRadius: 8, background: usbState === "ready" ? "#dcfce7" : usbState === "unpaired" ? "#fef3c7" : "#fee2e2", color: usbState === "ready" ? "#166534" : usbState === "unpaired" ? "#92400e" : "#991b1b" }}>🖨 {usbState === "ready" ? "USB printer" : usbState === "unpaired" ? "Connect printer" : usbState === "unsupported" ? "USB not supported" : "Printer disconnected"}</div>}
           <div onClick={() => setSetupOpen(true)} className="kbtn" style={{ cursor: "pointer", fontSize: 12, fontWeight: 800, color: myStation ? stationMeta(myStation).color : "#cbd5e1", background: myStation ? stationMeta(myStation).bg : "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }} title="Tap to set this screen's name, station and what it shows">
             {stationMeta(myStation).icon} {(myName || ("Screen " + getScreenId())) + (myStation ? " \u00B7 " + myStation : " \u00B7 no station") + (mySettings && mySettings.routing ? " \u00B7 filtered" : "")} ⚙
           </div>
@@ -1375,6 +1404,19 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                 {printers && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                     <Chip small on={!printer} onClick={() => setPrinter("")}>Every printer</Chip>
+                    {screenKey === ownKey && usbPrinter.supported() && (
+                      <Chip small on={printer === "usb:" + screenKey} tone="#2563eb" onClick={async () => {
+                        try {
+                          const d = await usbPrinter.pair();
+                          const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "usb_printer_register", data: { location_id: loc, screen_key: screenKey, label: (label.trim() || "Screen " + screenKey) + " · USB", station: station.trim() || "kitchen", manager_pin: gateOk, vendor_id: d.vendorId, product_id: d.productId, product_name: d.productName } }) });
+                          const j = await r.json().catch(() => ({}));
+                          if (!r.ok || !j.ok) throw new Error(j.message || j.error || "Could not register the printer");
+                          setPrinter("usb:" + screenKey); setPrinters((ps) => (ps || []).some((p) => p.sn === "usb:" + screenKey) ? ps : [...(ps || []), { sn: "usb:" + screenKey, name: (label.trim() || "Screen " + screenKey) + " · USB", online: true }]);
+                          setErr("");
+                        } catch (e) { setErr(e.message || "USB pairing cancelled"); }
+                      }}>🔌 USB printer on this device{printer === "usb:" + screenKey && usbPrinter.info() ? " · " + (usbPrinter.info().productName || "connected") : ""}</Chip>
+                    )}
+                    {printer === "usb:" + screenKey && <Chip small onClick={async () => { const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "usb_printer_test", data: { sn: "usb:" + screenKey, location_id: loc } }) }); const j = await r.json().catch(() => ({})); setErr(j.ok ? "" : "Test print failed to queue"); }}>Test print</Chip>}
                     {printers.map((p) => <Chip key={p.sn} small on={printer === p.sn} onClick={() => setPrinter(p.sn)}>{p.name || p.station || "Printer"} <span style={{ opacity: .6, fontWeight: 600 }}>…{String(p.sn).slice(-4)}</span>{p.online === false ? <span style={{ color: printer === p.sn ? "#fecaca" : "#b91c1c", marginLeft: 6, fontSize: 11 }}>offline</span> : null}</Chip>)}
                     {!printers.length && <span style={{ fontSize: 12.5, color: C.muted }}>No printers registered for this store.</span>}
                   </div>
