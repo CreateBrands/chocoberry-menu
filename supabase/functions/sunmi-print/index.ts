@@ -459,7 +459,17 @@ async function printOrder(
     target,
   );
   // Build the full order once (items now each carry a station).
-  const order = await loadReceiptOrder(rec);
+  // The INSERT webhook can arrive before the order's lines are written. If the
+  // order looks empty, give place-order a moment and read it again (3 tries)
+  // instead of skipping every printer and leaving it to the sweep.
+  let order = await loadReceiptOrder(rec);
+  for (let attempt = 0; attempt < 3 && (!order.items || order.items.length === 0); attempt++) {
+    await new Promise((r) => setTimeout(r, 1200));
+    order = await loadReceiptOrder(rec);
+  }
+  if (!order.items || order.items.length === 0) {
+    return { order_id: orderId, skipped: true, reason: "order has no lines yet" };
+  }
   const allItems = order.items as Array<ReceiptItem & { station?: string }>;
 
   // Which stations actually have printers here? If a printer's station has no
