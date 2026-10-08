@@ -377,7 +377,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const ordRemoveItem = (o, iid) => ordAction("remove_order_item", { order_id: o.id, order_item_id: iid });
   const ordSetQty = (o, iid, qty) => ordAction("set_order_item_qty", { order_id: o.id, order_item_id: iid, qty });
   const ordSetType = (o, order_type) => ordAction("set_order_type", { order_id: o.id, order_type });
-  const ordSetTable = (o, table_id) => ordAction("set_order_table", { order_id: o.id, table_id });
+  const ordSetTable = (o, table_id) => ordActionJson("set_order_table", { order_id: o.id, table_id });
   // Void a single already-fired item, with a reason (prints a VOID chit).
   const ordVoidFired = (o, iid, reason) => ordAction("void_fired_item", { order_id: o.id, order_item_id: iid, reason, location_id: loc || null });
   // A customer receipt belongs at the COUNTER, not on the kitchen printer.

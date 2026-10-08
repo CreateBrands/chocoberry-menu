@@ -1306,19 +1306,22 @@ Deno.serve(async (req) => {
       case "set_order_table": {
         const { order_id, table_id, notify_kitchen = true } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
-        const { data: ord } = await admin.from("menu_orders").select("id, order_no, location_id, table_id, status, menu_tables(label)").eq("id", order_id).maybeSingle();
+        const { data: ord, error: oErr } = await admin.from("menu_orders").select("id, order_no, location_id, table_id, status").eq("id", order_id).maybeSingle();
+        if (oErr) return json({ error: oErr.message }, 500);
         if (!ord) return json({ error: "order not found" }, 404);
+        let oldLabel: string | null = null;
+        if (ord.table_id) { const { data: ot } = await admin.from("menu_tables").select("label").eq("id", ord.table_id).maybeSingle(); oldLabel = ot?.label || null; }
         let newLabel: string | null = null;
         if (table_id) {
           const { data: t } = await admin.from("menu_tables").select("id, label, location_id").eq("id", table_id).maybeSingle();
-          if (!t || t.location_id !== ord.location_id) return json({ error: "table not found at this store" }, 400);
+          if (!t) return json({ error: "table not found" }, 400);
+          if (ord.location_id && t.location_id !== ord.location_id) return json({ error: "That table belongs to another store" }, 400);
           newLabel = t.label;
         }
         const patch: Record<string, unknown> = { table_id: table_id || null };
         if (table_id) patch.order_type = "dine-in"; else patch.order_type = "takeaway";
         const { error } = await admin.from("menu_orders").update(patch).eq("id", order_id);
         if (error) throw error;
-        const oldLabel = (ord as any).menu_tables?.label || null;
         // Tell the kitchen/pass so the plates go to the right table.
         if (notify_kitchen && (ord.status === "placed" || ord.status === "in_progress" || ord.status === "ready")) {
           try { await callSunmi({ action: "print-message", location_id: ord.location_id, title: "TABLE CHANGE", lines: ["Order #" + ord.order_no, (oldLabel ? "From: " + oldLabel : "Was: no table") + "  ->  " + (newLabel ? "To: " + newLabel : "Takeaway"), "Deliver to the new table"] }); } catch {}
