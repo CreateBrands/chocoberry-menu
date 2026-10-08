@@ -608,6 +608,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   const scrollH = Math.max(200, vh - 150);
 
   const [staffName, setStaffName] = useState(null); // set when unlocked with an employee punch-in PIN (staff level, not manager)
+  const staffPinRef = useRef("");
   async function submitPin() {
     if (!pin) return;
     setChecking(true); setPinErr("");
@@ -624,7 +625,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
       if (locationId) {
         const r2 = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "staff_lookup", data: { pin, location_id: locationId } }) });
         const j = await r2.json().catch(() => ({}));
-        if (j && j.ok) { setUnlocked(true); setStaffName(j.name || "Team member"); if (!items) loadItems(); sessionPinRef.current = ""; setPin(""); loadAllOrders(); return; }
+        if (j && j.ok) { setUnlocked(true); setStaffName(j.name || "Team member"); if (!items) loadItems(); sessionPinRef.current = ""; staffPinRef.current = pin; setPin(""); loadAllOrders(); return; }
         if (j && j.reason === "not_this_store") { setPinErr("That PIN belongs to a team member at another store."); return; }
       }
       throw new Error("bad");
@@ -749,9 +750,11 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin: sessionPinRef.current, action: "set_override", data: { item_id: it.id, location_id: locationId, price: null, available: next } }),
+        body: JSON.stringify(sessionPinRef.current
+          ? { pin: sessionPinRef.current, action: "set_override", data: { item_id: it.id, location_id: locationId, price: null, available: next } }
+          : { pos: true, action: "staff_set_stock", data: { item_id: it.id, location_id: locationId, available: next, staff_pin: staffPinRef.current } }),
       });
-      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error === "unauthorized" ? "PIN not accepted" : "save failed"); }
+      if (!r.ok) { const e = await r.json().catch(() => ({})); throw new Error(e.error === "unauthorized" || e.error === "bad_pin" ? "PIN not accepted" : "save failed"); }
     } catch (err) {
       // revert the optimistic flip and tell the user why
       setItems((prev) => prev.map((x) => x.id === it.id ? { ...x, effective: !next } : x));

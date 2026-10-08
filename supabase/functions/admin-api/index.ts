@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   // surface used by front-line staff, and gating every payment behind a PIN was
   // too much friction. Admin-panel actions still require the PIN below.
   const POS_ACTIONS = new Set([
-    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "refund_payment", "print_refund_receipt", "set_order_table",
+    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "refund_payment", "print_refund_receipt", "set_order_table", "staff_set_stock",
     "remove_order_item", "set_order_item_qty", "void_fired_item",
     "set_order_type",
     "day_summary",
@@ -461,6 +461,18 @@ Deno.serve(async (req) => {
       }
 
       // ---- OVERRIDE: set (upsert) per-store price/availability ----
+      // ---- STAFF: mark an item sold out / back on at this store (punch-in PIN) ----
+      case "staff_set_stock": {
+        const { item_id, location_id, available, staff_pin } = data || {};
+        if (!item_id || !location_id) return json({ error: "item_id and location_id required" }, 400);
+        const st = await staffForPin(staff_pin, location_id);
+        if (!st || !st.ok) { const mgr = await managerForPin(staff_pin, location_id); if (!mgr.ok) return json({ ok: false, error: "bad_pin", message: "PIN not recognised for this store" }, 403); }
+        const { data: cur } = await admin.from("menu_item_overrides").select("price").eq("item_id", item_id).eq("location_id", location_id).maybeSingle();
+        const { error } = await admin.from("menu_item_overrides")
+          .upsert({ item_id, location_id, price: cur?.price ?? null, available: available === false ? false : null, unavailable_until: null, updated_at: new Date().toISOString() }, { onConflict: "item_id,location_id" });
+        if (error) throw error;
+        return json({ ok: true });
+      }
       case "set_override": {
         const { item_id, location_id, price, available } = data;
         if (!item_id || !location_id) return json({ error: "item_id and location_id required" }, 400);
