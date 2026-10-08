@@ -24,6 +24,11 @@ public class Prefs {
     public void registered(boolean v) { sp.edit().putBoolean("registered", v).apply(); }
     public String lastStatus() { return sp.getString("status", "Not started"); }
     public void lastStatus(String v) { sp.edit().putString("status", v).apply(); }
+    /** "sunmi" (built-in via Sunmi service), "usb" (USB host), or "auto". */
+    public String backend() { return sp.getString("backend", "auto"); }
+    public void backend(String v) { sp.edit().putString("backend", v).apply(); }
+    public int paper() { return sp.getInt("paper", 80); }
+    public void paper(int v) { sp.edit().putInt("paper", v).apply(); }
     public int printed() { return sp.getInt("printed", 0); }
     public void printed(int v) { sp.edit().putInt("printed", v).apply(); }
 }

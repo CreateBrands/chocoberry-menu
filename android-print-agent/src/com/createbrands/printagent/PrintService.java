@@ -28,20 +28,31 @@ public class PrintService extends Service {
     }
 
     private void loop() {
-        Prefs prefs = new Prefs(this); UsbPrinter printer = new UsbPrinter(this); Api.init(this);
+        Prefs prefs = new Prefs(this); UsbPrinter usb = new UsbPrinter(this); SunmiPrinter sunmi = new SunmiPrinter(this); Api.init(this);
         long backoff = 3000;
         while (running) {
             try {
                 if (!prefs.registered()) { set(prefs, "Not registered — open Print Agent to set up"); sleep(5000); continue; }
-                android.hardware.usb.UsbDevice d = printer.find();
-                if (d == null) { set(prefs, "No printer found — check the printer is on / connected"); sleep(5000); continue; }
-                if (!printer.hasPermission(d)) { set(prefs, "Printer access not allowed — open Print Agent and tap Allow"); sleep(5000); continue; }
-                JSONArray jobs = Api.jobs(prefs.sn());
-                if (jobs.length() == 0) { set(prefs, "Online · " + printer.describe(d) + " · " + prefs.printed() + " printed"); sleep(3000); backoff = 3000; continue; }
+                // Which printer: the Sunmi service when this is a Sunmi device (V3 Mix, V2, D3…), else USB.
+                boolean useSunmi = !"usb".equals(prefs.backend()) && sunmi.available();
+                String name;
+                if (useSunmi) {
+                    if (!sunmi.ready()) { set(prefs, "Connecting to the Sunmi printer…"); sleep(2000); continue; }
+                    int pw = sunmi.paper(); if (pw > 0 && pw != prefs.paper()) prefs.paper(pw);
+                    name = "Sunmi printer " + prefs.paper() + "mm";
+                } else {
+                    android.hardware.usb.UsbDevice d = usb.find();
+                    if (d == null) { set(prefs, "No printer found — check the printer is on / connected"); sleep(5000); continue; }
+                    if (!usb.hasPermission(d)) { set(prefs, "Printer access not allowed — open Print Agent and tap Allow"); sleep(5000); continue; }
+                    name = usb.describe(d);
+                }
+                JSONArray jobs = Api.jobs(prefs.sn(), prefs.paper());
+                if (jobs.length() == 0) { set(prefs, "Online · " + name + " · " + prefs.printed() + " printed"); sleep(3000); backoff = 3000; continue; }
                 for (int i = 0; i < jobs.length(); i++) {
                     JSONObject j = jobs.getJSONObject(i); Object id = j.get("id");
                     try {
-                        printer.print(UsbPrinter.hexToBytes(j.getString("content_hex")));
+                        byte[] bytes = UsbPrinter.hexToBytes(j.getString("content_hex"));
+                        if (useSunmi) sunmi.print(bytes); else usb.print(bytes);
                         prefs.printed(prefs.printed() + 1);
                         Api.done(id, prefs.sn(), true, null);
                         set(prefs, "Printed " + j.optString("slip", "ticket") + " · " + prefs.printed() + " total");

@@ -1517,7 +1517,7 @@ Deno.serve(async (req) => {
       }
       case "device_printer_register": {
         // The Android print agent registers itself as a store printer (sn "agent:<id>").
-        const { location_id, sn, label, station, manager_pin, model } = data || {};
+        const { location_id, sn, label, station, manager_pin, model, paper_mm } = data || {};
         if (!location_id || !sn || !/^agent:/.test(String(sn))) return json({ error: "location_id and agent sn required" }, 400);
         if (!manager_pin) return json({ ok: false, error: "pin_required", message: "Manager PIN required" }, 401);
         if (String(manager_pin) !== String(ADMIN_PIN)) {
@@ -1526,7 +1526,7 @@ Deno.serve(async (req) => {
         }
         const { data: locRow } = await admin.from("menu_locations").select("name, slug").eq("id", location_id).maybeSingle();
         const storeId = (locRow?.slug as string) || String(locRow?.name || "store").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-        const { error } = await admin.from("printers").upsert({ sn: String(sn), store_id: storeId, shop_id: "1", location_id, label: label ? String(label).slice(0, 40) : "Print agent", station: station ? String(station).toLowerCase() : "kitchen", active: true, online: true, last_online_at: new Date().toISOString(), bound_at: new Date().toISOString(), notes: "agent · " + String(model || "") }, { onConflict: "sn" });
+        const { error } = await admin.from("printers").upsert({ sn: String(sn), store_id: storeId, shop_id: "1", location_id, label: label ? String(label).slice(0, 40) : "Print agent", station: station ? String(station).toLowerCase() : "kitchen", active: true, online: true, last_online_at: new Date().toISOString(), bound_at: new Date().toISOString(), notes: "agent · " + String(model || ""), paper_mm: Number(paper_mm) || 80 }, { onConflict: "sn" });
         if (error) throw error;
         return json({ ok: true, sn, store: locRow?.name || "" });
       }

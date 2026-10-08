@@ -1,10 +1,11 @@
 #!/bin/sh
 # Builds PrintAgent.apk with the stock Debian/Ubuntu Android tools (no Android Studio needed):
-#   apt install android-sdk-platform-23 aapt dalvik-exchange apksigner zipalign openjdk-17-jdk-headless
+#   apt install android-sdk-platform-23 aapt aidl dalvik-exchange apksigner zipalign openjdk-17-jdk-headless
 set -e
 AJ=/usr/lib/android-sdk/platforms/android-23/android.jar
 DX=/usr/lib/android-sdk/build-tools/debian/dx
 rm -rf gen obj && mkdir -p gen obj
+for f in $(find aidl -name "*.aidl"); do aidl -I aidl -p /usr/lib/android-sdk/platforms/android-23/framework.aidl -o gen $f || true; done
 aapt package -f -m -J gen -M AndroidManifest.xml -S res -I $AJ
 javac -encoding UTF-8 -source 8 -target 8 -Xlint:-options -bootclasspath $AJ -d obj $(find gen src -name "*.java")
 $DX --dex --min-sdk-version=23 --output=classes.dex obj

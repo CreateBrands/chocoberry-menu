@@ -20,7 +20,8 @@ import satori from "npm:satori@0.12.2";
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
 import type { ReceiptOrder } from "./escpos.ts";
 
-const W = 576; // NT311 printable width in dots (80mm)
+const W = 576; // NT311 printable width in dots (80mm); 58mm printers (Sunmi handhelds) are 384
+const dotsFor = (mm?: number) => (mm && mm <= 60 ? 384 : W);
 
 // ---- cold-start assets ----------------------------------------------------
 let ready: Promise<{ inter400: ArrayBuffer; inter700: ArrayBuffer }> | null = null;
@@ -148,9 +149,10 @@ function receiptTree(o: ReceiptOrder): Node {
 // ---- render to 1-bit ESC/POS raster hex -----------------------------------
 export async function buildOrderRasterHex(o: ReceiptOrder): Promise<string> {
   const { inter400, inter700 } = await loadAssets();
+  const width = dotsFor((o as any).paperMm);
 
   const svg = await satori(receiptTree(o) as never, {
-    width: W,
+    width,
     height: 2000, // generous canvas; trimmed to content below
     fonts: [
       { name: "Inter", data: inter400, weight: 400, style: "normal" },
@@ -158,7 +160,7 @@ export async function buildOrderRasterHex(o: ReceiptOrder): Promise<string> {
     ],
   });
 
-  const rendered = new Resvg(svg, { fitTo: { mode: "width", value: W }, background: "white" }).render();
+  const rendered = new Resvg(svg, { fitTo: { mode: "width", value: width }, background: "white" }).render();
   const { width, height } = rendered;
   const px = rendered.pixels; // RGBA
 

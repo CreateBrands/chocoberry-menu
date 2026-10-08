@@ -67,11 +67,11 @@ public class Api {
         return out;
     }
 
-    public static JSONObject register(String locationId, String sn, String label, String station, String pin, String model) throws Exception {
-        return post("device_printer_register", new JSONObject().put("location_id", locationId).put("sn", sn).put("label", label).put("station", station).put("manager_pin", pin).put("model", model));
+    public static JSONObject register(String locationId, String sn, String label, String station, String pin, String model, int paper) throws Exception {
+        return post("device_printer_register", new JSONObject().put("location_id", locationId).put("sn", sn).put("label", label).put("station", station).put("manager_pin", pin).put("model", model).put("paper_mm", paper));
     }
-    public static JSONArray jobs(String sn) throws Exception {
-        JSONObject j = post("local_print_jobs", new JSONObject().put("sn", sn).put("agent_version", VERSION));
+    public static JSONArray jobs(String sn, int paper) throws Exception {
+        JSONObject j = post("local_print_jobs", new JSONObject().put("sn", sn).put("agent_version", VERSION).put("paper_mm", paper));
         JSONArray a = j.optJSONArray("jobs"); return a == null ? new JSONArray() : a;
     }
     public static void done(Object id, String sn, boolean ok, String error) throws Exception {

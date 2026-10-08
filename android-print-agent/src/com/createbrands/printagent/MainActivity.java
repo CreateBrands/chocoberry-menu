@@ -54,10 +54,13 @@ public class MainActivity extends Activity {
             final String lbl = label.getText().toString().trim().isEmpty() ? "Till printer" : label.getText().toString().trim();
             final String st = station.getText().toString().trim().isEmpty() ? "kitchen" : station.getText().toString().trim();
             new Thread(new Runnable() { public void run() {
-                JSONObject r; try { r = Api.register(locId, prefs.sn(), lbl, st, p, Build.MODEL); } catch (Exception e) { r = new JSONObject(); try { r.put("error", e.getMessage()); } catch (Exception ignored) {} }
+                SunmiPrinter sp = new SunmiPrinter(MainActivity.this); int paper = 80;
+                if (sp.available()) { for (int k = 0; k < 12 && !sp.ready(); k++) { try { Thread.sleep(250); } catch (Exception ignored) {} } int pw = sp.paper(); if (pw > 0) paper = pw; }
+                prefs.paper(paper);
+                JSONObject r; try { r = Api.register(locId, prefs.sn(), lbl, st, p, Build.MODEL, paper); } catch (Exception e) { r = new JSONObject(); try { r.put("error", e.getMessage()); } catch (Exception ignored) {} }
                 final JSONObject res = r;
                 ui.post(new Runnable() { public void run() {
-                    if (res.optBoolean("ok")) { prefs.locationId(locId); prefs.storeName(storeName); prefs.registered(true); prefs.label(lbl); pin.setText(""); toast("Registered as " + lbl + " at " + storeName); PrintService.start(MainActivity.this); render(); askUsbPermission(); }
+                    if (res.optBoolean("ok")) { prefs.locationId(locId); prefs.storeName(storeName); prefs.registered(true); prefs.label(lbl); pin.setText(""); toast("Registered as " + lbl + " at " + storeName); PrintService.start(MainActivity.this); render(); if (!new SunmiPrinter(MainActivity.this).available()) askUsbPermission(); }
                     else toast(res.optString("message", res.optString("error", "Registration failed")));
                 }});
             }}).start();
@@ -95,9 +98,13 @@ public class MainActivity extends Activity {
         setupBox.setVisibility(reg ? View.GONE : View.VISIBLE);
         if (reg) {
             registeredText.setText(prefs.label() + " · " + prefs.storeName() + "\nSerial " + prefs.sn());
-            UsbDevice d = printer.find();
-            usbInfo.setText(d == null ? "Printer: none found on USB" : "Printer: " + printer.describe(d) + (printer.hasPermission(d) ? " · allowed" : " · NOT allowed yet"));
-            usbPerm.setVisibility(d != null && !printer.hasPermission(d) ? View.VISIBLE : View.GONE);
+            SunmiPrinter sp = new SunmiPrinter(this);
+            if (sp.available()) { usbInfo.setText("Printer: Sunmi built-in · " + prefs.paper() + " mm paper"); usbPerm.setVisibility(View.GONE); }
+            else {
+                UsbDevice d = printer.find();
+                usbInfo.setText(d == null ? "Printer: none found on USB" : "Printer: " + printer.describe(d) + (printer.hasPermission(d) ? " · allowed" : " · NOT allowed yet"));
+                usbPerm.setVisibility(d != null && !printer.hasPermission(d) ? View.VISIBLE : View.GONE);
+            }
             PrintService.start(this);
         }
     }

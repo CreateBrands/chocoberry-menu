@@ -603,7 +603,7 @@ async function printOrder(
       // reprint even though the kitchen ticket for the same order was printed
       // automatically minutes earlier.
       const isDuplicate = (force && printedBefore) || copy > 0;
-      let stationOrder: ReceiptOrder = { ...order, items: lines, reprint: isDuplicate };
+      let stationOrder: ReceiptOrder = { ...order, items: lines, reprint: isDuplicate, paperMm: Number((printer as any).paper_mm) || 80 } as ReceiptOrder;
       // A ticket carries no money. Same layout, figures removed.
       if (pass.mode === "ticket") stationOrder = asKitchenTicket(stationOrder);
       const contentHex = await receiptHexFor(stationOrder);
@@ -1028,7 +1028,7 @@ Deno.serve(async (req) => {
         const sn = String(body.sn || "");
         if (!isLocalSn(sn)) return json({ error: "not a device printer" }, 400);
         const { data: jobs } = await supabase.from("print_jobs").select("id, order_id, slip, max_batch, content_hex, created_at").eq("printer_sn", sn).eq("status", "queued").order("created_at", { ascending: true }).limit(10);
-        await supabase.from("printers").update({ online: true, last_online_at: new Date().toISOString(), ...(body.agent_version ? { notes: "agent " + String(body.agent_version).slice(0, 20) } : {}) }).eq("sn", sn);
+        await supabase.from("printers").update({ online: true, last_online_at: new Date().toISOString(), ...(body.agent_version ? { notes: "agent " + String(body.agent_version).slice(0, 20) } : {}), ...(body.paper_mm ? { paper_mm: Number(body.paper_mm) } : {}) }).eq("sn", sn);
         return json({ ok: true, jobs: jobs || [] });
       }
       case "local-job-done": {
