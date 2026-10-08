@@ -7,6 +7,17 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#E1E8D2" />
+    <!-- Installable: the manifest is swapped per surface (kiosk/kds/pos) at runtime so each installs as its own app. -->
+    <link rel="manifest" id="app-manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <script>
+      (function () {
+        var p = location.pathname.replace(/\/+$/, "");
+        var m = p === "/kds" ? "/manifest-kds.webmanifest" : p === "/pos" ? "/manifest-pos.webmanifest" : "/manifest.webmanifest";
+        var el = document.getElementById("app-manifest");
+        if (el) el.setAttribute("href", m);
+      })();
+    </script>
     <!-- iOS Smart App Banner: Safari shows a native "Open / View in App Store" strip on phones.
          Fill in the numeric App Store ID once the app is listed, then remove the comment markers.
          app-argument passes the scanned table link through to the app.
