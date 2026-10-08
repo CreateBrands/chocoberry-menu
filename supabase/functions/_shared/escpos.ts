@@ -149,6 +149,8 @@ export interface ReceiptOrder {
   storeName?: string;
   brandName?: string;
   paperMm?: number; // 80 (default) or 58
+  discount?: number;
+  discountLabel?: string;
   batchTimes?: string[]; // pre-formatted local time per round; batchTimes[0]=original, [1]=2nd round ...
 }
 
@@ -251,7 +253,8 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
     r.leftRight("Delivery", gbp(o.deliveryFee));
   }
   if (typeof o.total === "number") {
-    r.size(0, 1).bold(true).leftRight("TOTAL", gbp(o.total)).bold(false).size(0, 0);
+    if (typeof o.discount === "number" && o.discount > 0) r.leftRight("Discount" + (o.discountLabel ? " - " + o.discountLabel : ""), "-" + gbp(o.discount));
+    r.size(0, 1).bold(true).leftRight("TOTAL", gbp(Math.max(0, (o.total ?? 0) - (typeof o.discount === "number" ? o.discount : 0)))).bold(false).size(0, 0);
   }
 
   // Notes

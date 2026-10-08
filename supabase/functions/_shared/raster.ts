@@ -133,8 +133,11 @@ function receiptTree(o: ReceiptOrder): Node {
     ...(typeof o.deliveryFee === "number" && o.deliveryFee > 0
       ? [row("Delivery", gbp(o.deliveryFee))]
       : []),
+    ...(typeof o.discount === "number" && o.discount > 0
+      ? [row("Discount" + (o.discountLabel ? " · " + o.discountLabel : ""), "-" + gbp(o.discount))]
+      : []),
     ...(typeof o.total === "number"
-      ? [row("Amount due", gbp(o.total), { fontWeight: 700, fontSize: 30 }, { fontWeight: 700, fontSize: 30 })]
+      ? [row("Amount due", gbp(Math.max(0, o.total - (typeof o.discount === "number" ? o.discount : 0))), { fontWeight: 700, fontSize: 30 }, { fontWeight: 700, fontSize: 30 })]
       : []),
     rule(),
     ...(o.hasAdditions

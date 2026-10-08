@@ -222,7 +222,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const myReq = ++ordersReqRef.current;
     setOrdersBusy(true);
     try {
-      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,table_id,order_type,pickup_name,customer_note,print_failed,print_error,total,paid_method,paid_amount,amount_paid,is_split,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
+      const url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,discount_amount,discount_type,discount_value,discount_reason,refund_total,refund_reason,tablet_no,table_id,order_type,pickup_name,customer_note,print_failed,print_error,total,paid_method,paid_amount,amount_paid,is_split,created_at,status,menu_tables(label),menu_order_items(id,item_id,name_snapshot,qty,price_snapshot,modifiers_snapshot,line_total,note,menu_items(image_url))"
         + (loc ? "&location_id=eq." + loc : "")
         + "&closed_at=is.null&order=created_at.desc&limit=200";
       const r = await fetch(url, { headers: H });
@@ -378,6 +378,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       return { ok: false };
     } finally { setOrdersBusy(false); }
   }
+  const applyDiscount = (o, payload) => ordActionJson("apply_discount", { order_id: o.id, ...payload });
+  const removeDiscount = (o, pin) => ordActionJson("remove_discount", { order_id: o.id, staff_pin: pin });
+  const refundPayment = (o, payload) => ordActionJson("refund_payment", { order_id: o.id, ...payload });
   // Take a (possibly partial) payment. amount defaults to the full balance.
   const ordTakePayment = (o, method, amount, extra = {}) =>
     (method === "card" && teyaTerminal)
@@ -1134,7 +1137,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         {/* 3 — ORDER PANEL */}
         <div style={{ minWidth: 0, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(34,39,31,.05)" }}>
           {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
-            <OrderDetailPanel
+            <OrderDetailPanel onDiscount={applyDiscount} onRemoveDiscount={removeDiscount} onRefund={refundPayment}
               printingId={printingId}
               order={(payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : (orders || []).find((o) => o.id === selOrderId)}
               now={now}
@@ -1501,6 +1504,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                           <Line l="Card" sub={sm.tenders?.card ? sm.tenders.card + " payments" : ""} v={gbp(sm.card)} />
                           {sm.other > 0 && <Line l="Other" sub={sm.tenders?.other ? sm.tenders.other + " payments" : ""} v={gbp(sm.other)} />}
                           {sm.discount_total > 0 && <Line l="Discounts given" v={"−" + gbp(sm.discount_total)} color={C.muted} />}
+                          {sm.refund_total > 0 && <Line l={"Refunds (" + (sm.refund_count || 0) + ")"} v={"−" + gbp(sm.refund_total)} color="#b4462f" />}
                           {sm.cancelled_total > 0 && <Line l={"Cancelled (" + sm.cancelled_count + ")"} v={gbp(sm.cancelled_total)} color={C.muted} />}
                           <Line l="Total taken" v={gbp(sm.total)} strong />
                         </Section>

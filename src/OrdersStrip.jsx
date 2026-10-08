@@ -155,7 +155,7 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, printingId = null }) {
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onRefund, printingId = null }) {
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
@@ -181,10 +181,26 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   }, [oid, initialMode]); // eslint-disable-line
   if (!o) return null;
   const its = o.menu_order_items || [];
-  const total = Math.round(Number(o.total || 0) * 100) / 100;
+  const gross = Math.round(Number(o.total || 0) * 100) / 100;
+  const discount = Math.round(Number(o.discount_amount || 0) * 100) / 100;
+  const total = Math.round((gross - discount) * 100) / 100; // amount due after discount
   const paidSoFar = Math.round(Number(o.amount_paid || 0) * 100) / 100;
+  const refunded = Math.round(Number(o.refund_total || 0) * 100) / 100;
   const remaining = Math.round((total - paidSoFar) * 100) / 100;
   const isPaid = !!o.paid_method || remaining <= 0.001;
+  // Discount / refund sheets
+  const [dsc, setDsc] = useState(null);   // { type: "percent"|"amount", value, reason, pin }
+  const [rfd, setRfd] = useState(null);   // { amount, method, reason, pin }
+  const [sheetErr, setSheetErr] = useState("");
+  const [sheetBusy, setSheetBusy] = useState(false);
+  const PinPad = ({ value, onChange }) => (
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, maxWidth: 300, margin: "0 auto" }}>
+      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "C"].map((k) => (
+        <span key={k} onClick={() => onChange(k === "⌫" ? value.slice(0, -1) : k === "C" ? "" : (value + k).slice(0, 8))} style={{ padding: "14px 0", textAlign: "center", borderRadius: 10, background: "#f3f4f6", fontWeight: 800, fontSize: 18, cursor: "pointer", userSelect: "none" }}>{k}</span>
+      ))}
+    </div>
+  );
+  const Dots = ({ n }) => <div style={{ display: "flex", gap: 8, justifyContent: "center", margin: "10px 0 12px" }}>{[0, 1, 2, 3].map((i) => <span key={i} style={{ width: 12, height: 12, borderRadius: "50%", background: i < n ? C.ink : "#e5e7eb" }} />)}{n > 4 && <span style={{ fontSize: 12, color: C.sub }}>+{n - 4}</span>}</div>;
 
   async function pay(method, amount, extra) {
     // DOUBLE-TAP GUARD. `busy` was checked on some buttons but never set here,
@@ -452,6 +468,87 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     </>);
   }
 
+  // ── DISCOUNT SHEET ──
+  if (dsc) {
+    const preview = Math.min(gross, dsc.type === "percent" ? gross * Number(dsc.value || 0) / 100 : Number(dsc.value || 0));
+    const pct = gross > 0 ? preview / gross * 100 : 0;
+    const apply = async () => {
+      if (!(Number(dsc.value) > 0)) { setSheetErr("Choose a discount"); return; }
+      if (dsc.pin.length < 4) { setSheetErr("Enter your PIN"); return; }
+      setSheetBusy(true); setSheetErr("");
+      const r = await onDiscount(o, { discount_type: dsc.type, discount_value: Number(dsc.value), reason: dsc.reason, staff_pin: dsc.pin });
+      setSheetBusy(false);
+      if (r && r.ok) { setDsc(null); setNote("Discount applied" + (r.by ? " by " + r.by : "")); }
+      else setSheetErr((r && (r.message || r.error)) || "Could not apply the discount");
+    };
+    return Wrap(<>
+      {HeaderBar("Discount")}
+      <div style={{ padding: 16, flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}><span onClick={() => setDsc(null)} style={{ cursor: "pointer" }}>{Ico.back()}</span><span style={{ fontWeight: 700, fontSize: 15 }}>Apply a discount</span><span style={{ marginLeft: "auto", fontSize: 13, color: C.sub }}>Order {money(gross)}</span></div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Percent off</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 12 }}>
+          {[5, 10, 15, 20, 25, 50, 100].map((v) => <span key={v} onClick={() => setDsc({ ...dsc, type: "percent", value: v })} style={{ padding: "13px 0", textAlign: "center", borderRadius: 10, background: dsc.type === "percent" && Number(dsc.value) === v ? C.ink : "#f3f4f6", color: dsc.type === "percent" && Number(dsc.value) === v ? "#fff" : C.ink, fontWeight: 800, cursor: "pointer" }}>{v}%</span>)}
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Or £ off</div>
+        <input inputMode="decimal" placeholder="e.g. 2.50" value={dsc.type === "amount" ? dsc.value : ""} onChange={(e) => setDsc({ ...dsc, type: "amount", value: e.target.value.replace(/[^0-9.]/g, "") })} style={{ width: "100%", boxSizing: "border-box", padding: "12px 13px", fontSize: 16, border: "1.5px solid " + C.line, borderRadius: 10, marginBottom: 14 }} />
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Reason</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
+          {["Staff", "Complaint", "Loyal customer", "Manager's discretion", "Promotion", "Wrong item"].map((rs) => <span key={rs} onClick={() => setDsc({ ...dsc, reason: rs })} style={{ padding: "8px 12px", borderRadius: 999, background: dsc.reason === rs ? C.ink : "#fff", color: dsc.reason === rs ? "#fff" : C.ink, border: "1.5px solid " + (dsc.reason === rs ? C.ink : C.line), fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{rs}</span>)}
+        </div>
+        <div style={{ padding: "12px 14px", borderRadius: 12, background: "#f0f5ea", marginBottom: 14, display: "flex", justifyContent: "space-between", fontWeight: 800 }}><span>Discount {money(preview)}{pct > 25 && <span style={{ color: "#b4462f", fontWeight: 700, fontSize: 12 }}> · manager PIN needed</span>}</span><span>Due {money(Math.max(0, gross - preview))}</span></div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, textAlign: "center" }}>{pct > 25 ? "Manager PIN" : "Your punch-in PIN"}</div>
+        <Dots n={dsc.pin.length} />
+        <PinPad value={dsc.pin} onChange={(v) => { setDsc({ ...dsc, pin: v }); setSheetErr(""); }} />
+        {sheetErr && <div style={{ color: "#b4462f", fontWeight: 700, textAlign: "center", marginTop: 12 }}>{sheetErr}</div>}
+      </div>
+      <div style={{ padding: "12px 15px", borderTop: "1px solid #eef0f2", display: "flex", gap: 8 }}>
+        <span onClick={() => setDsc(null)} style={{ padding: "14px 18px", borderRadius: 13, background: "#fff", border: "1.5px solid " + C.line, fontWeight: 700, cursor: "pointer" }}>Cancel</span>
+        <span onClick={() => { if (!sheetBusy) apply(); }} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 13, background: C.ink, color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer", opacity: sheetBusy ? .6 : 1 }}>{sheetBusy ? "Applying…" : "Apply discount"}</span>
+      </div>
+    </>);
+  }
+  // ── REFUND SHEET ──
+  if (rfd) {
+    const refundable = Math.max(0, Math.round((paidSoFar - refunded) * 100) / 100);
+    const amt = Number(rfd.amount || 0);
+    const doRefund = async () => {
+      if (!(amt > 0) || amt > refundable + 0.001) { setSheetErr("Enter an amount up to " + money(refundable)); return; }
+      if (rfd.pin.length < 4) { setSheetErr("Manager PIN required"); return; }
+      setSheetBusy(true); setSheetErr("");
+      const r = await onRefund(o, { amount: amt, method: rfd.method, reason: rfd.reason, manager_pin: rfd.pin });
+      setSheetBusy(false);
+      if (r && r.ok) { setRfd(null); setNote("Refunded " + money(r.refunded) + (r.by ? " · " + r.by : "")); }
+      else setSheetErr((r && (r.message || r.error)) || "Could not refund");
+    };
+    return Wrap(<>
+      {HeaderBar("Refund")}
+      <div style={{ padding: 16, flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}><span onClick={() => setRfd(null)} style={{ cursor: "pointer" }}>{Ico.back()}</span><span style={{ fontWeight: 700, fontSize: 15 }}>Refund</span><span style={{ marginLeft: "auto", fontSize: 13, color: C.sub }}>Paid {money(paidSoFar)}{refunded > 0 ? " · refunded " + money(refunded) : ""}</span></div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+          <span onClick={() => setRfd({ ...rfd, amount: refundable.toFixed(2) })} style={{ padding: "14px 0", textAlign: "center", borderRadius: 10, background: amt === refundable ? C.ink : "#f3f4f6", color: amt === refundable ? "#fff" : C.ink, fontWeight: 800, cursor: "pointer" }}>Full · {money(refundable)}</span>
+          <input inputMode="decimal" placeholder="Part amount" value={rfd.amount} onChange={(e) => setRfd({ ...rfd, amount: e.target.value.replace(/[^0-9.]/g, "") })} style={{ padding: "12px 13px", fontSize: 16, border: "1.5px solid " + C.line, borderRadius: 10 }} />
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Refund to</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 6 }}>
+          {[["cash", "Cash from drawer"], ["card", "Card (on the terminal)"]].map(([m, l]) => <span key={m} onClick={() => setRfd({ ...rfd, method: m })} style={{ padding: "13px 0", textAlign: "center", borderRadius: 10, background: rfd.method === m ? C.ink : "#f3f4f6", color: rfd.method === m ? "#fff" : C.ink, fontWeight: 800, cursor: "pointer" }}>{l}</span>)}
+        </div>
+        {rfd.method === "card" && <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>Process the refund on the card machine as well — this records it on the till and the Z-report.</div>}
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, margin: "8px 0" }}>Reason</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
+          {["Wrong order", "Quality", "Long wait", "Customer changed mind", "Charged twice", "Other"].map((rs) => <span key={rs} onClick={() => setRfd({ ...rfd, reason: rs })} style={{ padding: "8px 12px", borderRadius: 999, background: rfd.reason === rs ? C.ink : "#fff", color: rfd.reason === rs ? "#fff" : C.ink, border: "1.5px solid " + (rfd.reason === rs ? C.ink : C.line), fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{rs}</span>)}
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, textAlign: "center" }}>Manager PIN</div>
+        <Dots n={rfd.pin.length} />
+        <PinPad value={rfd.pin} onChange={(v) => { setRfd({ ...rfd, pin: v }); setSheetErr(""); }} />
+        {sheetErr && <div style={{ color: "#b4462f", fontWeight: 700, textAlign: "center", marginTop: 12 }}>{sheetErr}</div>}
+      </div>
+      <div style={{ padding: "12px 15px", borderTop: "1px solid #eef0f2", display: "flex", gap: 8 }}>
+        <span onClick={() => setRfd(null)} style={{ padding: "14px 18px", borderRadius: 13, background: "#fff", border: "1.5px solid " + C.line, fontWeight: 700, cursor: "pointer" }}>Cancel</span>
+        <span onClick={() => { if (!sheetBusy) doRefund(); }} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 13, background: "#b4462f", color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer", opacity: sheetBusy ? .6 : 1 }}>{sheetBusy ? "Refunding…" : "Refund " + (amt > 0 ? money(amt) : "")}</span>
+      </div>
+    </>);
+  }
+
   // ── DETAIL (default) ──
   return Wrap(<>
     {HeaderBar()}
@@ -471,6 +568,12 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items.</div>}
     </div>
     <div style={{ padding: "13px 15px", borderTop: "1px solid #eef0f2", background: "#faf9f5", flexShrink: 0 }}>
+      {discount > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5, color: "#2f6b4f", fontWeight: 700, marginBottom: 6 }}><span>Discount{o.discount_reason ? " · " + o.discount_reason : ""}{o.discount_type === "percent" ? " (" + Number(o.discount_value) + "%)" : ""}</span><span>−{money(discount)}{!isPaid && onRemoveDiscount && <span onClick={() => { const pin = window.prompt("Your PIN to remove the discount"); if (pin) onRemoveDiscount(o, pin); }} style={{ marginLeft: 10, color: C.sub, cursor: "pointer", fontWeight: 700 }}>✕</span>}</span></div>
+      )}
+      {refunded > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#b4462f", fontWeight: 700, marginBottom: 6 }}><span>Refunded{o.refund_reason ? " · " + o.refund_reason : ""}</span><span>−{money(refunded)}</span></div>
+      )}
       {paidSoFar > 0 && !isPaid && (
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#C67A2C", fontWeight: 700, marginBottom: 6 }}><span>Part paid</span><span>{money(paidSoFar)} of {money(total)}</span></div>
       )}
@@ -482,6 +585,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ flex: 1, padding: "12px 13px", borderRadius: 12, background: "#e6ecdd", color: C.paidText, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 7 }}>{o.paid_method === "cash" ? Ico.cash(15) : Ico.card(15)} Paid{o.is_split ? " · Split" : o.paid_method === "cash" ? " · Cash" : " · Card"}</div>
           {onFeedback && <span onClick={() => onFeedback(o)} title="Log how this table went" style={{ padding: "12px 13px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, color: C.ink, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>🙂 Feedback</span>}
+          {onRefund && paidSoFar - refunded > 0.001 && <span onClick={() => { setRfd({ amount: "", method: o.paid_method === "card" ? "card" : "cash", reason: "", pin: "" }); setSheetErr(""); }} style={{ padding: "12px 14px", borderRadius: 12, background: "#fff", border: "1.5px solid #e4b4ab", color: "#b4462f", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Refund</span>}
           <span onClick={() => onUnpaid(o)} style={{ padding: "12px 15px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, color: C.ink, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Undo</span>
           {(() => {
             // A silent button is why staff pressed it repeatedly and got a
@@ -500,6 +604,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         <div style={{ display: "flex", gap: 8 }}>
           <span onClick={() => setMode("method")} style={{ flex: 1, textAlign: "center", background: "#5E7A4D", color: "#fff", padding: "14px 0", borderRadius: 13, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Take payment</span>
           <span onClick={() => setMode("edit")} style={{ padding: "14px 17px", background: "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>Edit</span>
+          {onDiscount && <span onClick={() => { setDsc({ type: "percent", value: discount > 0 ? Number(o.discount_value) : 0, reason: o.discount_reason || "", pin: "" }); setSheetErr(""); }} style={{ padding: "14px 14px", background: discount > 0 ? "#e6ecdd" : "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>{discount > 0 ? "−" + money(discount) : "Discount"}</span>}
           {onFeedback && <span onClick={() => onFeedback(o)} title="Log how this table went" style={{ padding: "14px 13px", background: "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>🙂</span>}
           <span onClick={() => { if (printingId !== o.id) onReprint(o); }}
             style={{ padding: "12px 14px", background: printingId === o.id ? "#e6ecdd" : "#fff", border: "1.5px solid " + C.line, borderRadius: 13, cursor: printingId === o.id ? "default" : "pointer", display: "flex", alignItems: "center", opacity: printingId === o.id ? .7 : 1 }}>{Ico.printer(17)}</span>

@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   // surface used by front-line staff, and gating every payment behind a PIN was
   // too much friction. Admin-panel actions still require the PIN below.
   const POS_ACTIONS = new Set([
-    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list",
+    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "refund_payment",
     "remove_order_item", "set_order_item_qty", "void_fired_item",
     "set_order_type",
     "day_summary",
@@ -70,6 +70,20 @@ Deno.serve(async (req) => {
     if (!m) return { ok: false, reason: "not_this_store" };
     const name = m.name || [m.first_name, m.last_name].filter(Boolean).join(" ") || m.full_name || m.email || "Team member";
     return { ok: true, id: m.id, name: String(name).trim(), role: m.role || null };
+  }
+  // Manager authority for sensitive till actions (refunds, big discounts): the master PIN,
+  // the store's manager PIN (store_pins), or a team member whose role says manager/supervisor.
+  async function managerForPin(pinIn: unknown, location_id: string | null): Promise<{ ok: boolean; name?: string; reason?: string }> {
+    const pinStr = String(pinIn || "").trim();
+    if (pinStr.length < 4) return { ok: false, reason: "pin_required" };
+    if (pinStr === String(ADMIN_PIN)) return { ok: true, name: "Master" };
+    if (location_id) {
+      const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", pinStr).eq("active", true).maybeSingle();
+      if (sp && sp.location_id === location_id) return { ok: true, name: "Store manager" };
+    }
+    const r = await staffForPin(pinStr, location_id);
+    if (r && r.ok && /manager|supervisor|owner|director|head/i.test(String(r.role || ""))) return { ok: true, name: r.name };
+    return { ok: false, reason: r && r.ok ? "not_manager" : "unknown" };
   }
   if (action === "staff_lookup") {
     const r = await staffForPin(data?.pin, data?.location_id);
@@ -224,7 +238,7 @@ Deno.serve(async (req) => {
     const cutoff = tradingDayCutoff();
     const { data: allRows, error } = await admin
       .from("menu_orders")
-      .select("id, order_no, order_type, tablet_no, external_channel, total, subtotal, amount_paid, paid_amount, app_discount, discount_type, status, created_at, kds_bumped_at, customer_note")
+      .select("id, order_no, order_type, tablet_no, external_channel, total, subtotal, amount_paid, paid_amount, app_discount, discount_amount, discount_type, status, created_at, kds_bumped_at, customer_note")
       .eq("location_id", location_id)
       .is("closed_at", null);
     if (error) throw error;
@@ -237,9 +251,10 @@ Deno.serve(async (req) => {
     const byMethod: Record<string, { amount: number; count: number }> = { cash: { amount: 0, count: 0 }, card: { amount: 0, count: 0 }, other: { amount: 0, count: 0 } };
     const paidByOrder: Record<string, number> = {};
     for (let i = 0; i < ids.length; i += 500) {
-      const { data: pays } = await admin.from("order_payments").select("order_id, method, amount").in("order_id", ids.slice(i, i + 500));
+      const { data: pays } = await admin.from("order_payments").select("order_id, method, amount, kind").in("order_id", ids.slice(i, i + 500));
       for (const p of pays || []) {
         const m = p.method === "cash" || p.method === "card" ? p.method : "other";
+        if ((p as any).kind === "refund") { refundTotal += Number(p.amount || 0); refundCount++; byMethod[m].amount -= Number(p.amount || 0); continue; }
         byMethod[m].amount += Number(p.amount || 0); byMethod[m].count++;
         paidByOrder[p.order_id] = (paidByOrder[p.order_id] || 0) + Number(p.amount || 0);
       }
@@ -259,7 +274,7 @@ Deno.serve(async (req) => {
     const topItems = Object.values(itemAgg).sort((a, b) => b.qty - a.qty || b.sales - a.sales).slice(0, 8).map((x) => ({ ...x, sales: round2(x.sales) }));
 
     // ---- order-level rollups ----
-    let paidCount = 0, unpaidTotal = 0, unpaidCount = 0, gross = 0, discountTotal = 0, cancelledTotal = 0;
+    let paidCount = 0, unpaidTotal = 0, unpaidCount = 0, gross = 0, discountTotal = 0, cancelledTotal = 0, refundTotal = 0, refundCount = 0;
     const unpaid: any[] = [];
     const byType: Record<string, { count: number; amount: number }> = {};
     const bySource: Record<string, { count: number; amount: number }> = {};
@@ -273,8 +288,9 @@ Deno.serve(async (req) => {
       gross += total;
       // Discounts: app membership/reward discounts, and till discounts (paid less than total but marked paid).
       if (o.app_discount) discountTotal += Number(o.app_discount);
+      if ((o as any).discount_amount) discountTotal += Number((o as any).discount_amount);
       if (o.discount_type && o.paid_amount != null && Number(o.paid_amount) < total) discountTotal += total - Number(o.paid_amount);
-      const settled = o.discount_type ? true : paid + 0.001 >= total;
+      const settled = o.discount_type && !(o as any).discount_amount ? true : paid + 0.001 >= total - Number((o as any).discount_amount || 0);
       if (total > 0 && settled) paidCount++;
       else if (total > 0) { unpaidCount++; unpaidTotal += total - paid; unpaid.push({ id: o.id, order_no: o.order_no, order_type: o.order_type, due: round2(total - paid), created_at: o.created_at }); }
       const t = o.order_type || "other"; (byType[t] ||= { count: 0, amount: 0 }); byType[t].count++; byType[t].amount += total;
@@ -300,7 +316,7 @@ Deno.serve(async (req) => {
       summary: {
         total: round2(taken), cash: round2(byMethod.cash.amount), card: round2(byMethod.card.amount), other: round2(byMethod.other.amount),
         tenders: { cash: byMethod.cash.count, card: byMethod.card.count, other: byMethod.other.count },
-        gross: round2(gross), net: round2(gross - discountTotal), discount_total: round2(discountTotal),
+        gross: round2(gross), net: round2(gross - discountTotal - refundTotal), discount_total: round2(discountTotal), refund_total: round2(refundTotal), refund_count: refundCount,
         paid_count: paidCount, tender_count: byMethod.cash.count + byMethod.card.count + byMethod.other.count,
         unpaid_total: round2(unpaidTotal), unpaid_count: unpaidCount, unpaid,
         order_count: live.length, cancelled_count: orders.length - live.length, cancelled_total: round2(cancelledTotal),
@@ -1075,10 +1091,10 @@ Deno.serve(async (req) => {
         const amt = Math.round(Number(amount) * 100) / 100;
         if (!(amt > 0)) return json({ error: "amount must be > 0" }, 400);
         const { data: ord, error: oErr } = await admin
-          .from("menu_orders").select("id, total, amount_paid, status").eq("id", order_id).single();
+          .from("menu_orders").select("id, total, amount_paid, status, discount_amount").eq("id", order_id).single();
         if (oErr || !ord) return json({ error: "order not found" }, 404);
         if (ord.status === "cancelled") return json({ error: "cancelled", message: "This order was cancelled." }, 409);
-        const total = Math.round(Number(ord.total || 0) * 100) / 100;
+        const total = Math.round((Number(ord.total || 0) - Number((ord as any).discount_amount || 0)) * 100) / 100; // amount due after discount
         const already = Math.round(Number(ord.amount_paid || 0) * 100) / 100;
         const remainingBefore = Math.round((total - already) * 100) / 100;
         if (remainingBefore <= 0) return json({ error: "already_paid", message: "This order is already fully paid." }, 409);
@@ -1092,7 +1108,8 @@ Deno.serve(async (req) => {
         });
         if (pErr) throw pErr;
         // Recompute running paid from the ledger (authoritative).
-        const { data: pays } = await admin.from("order_payments").select("amount, method").eq("order_id", order_id);
+        const { data: paysAll } = await admin.from("order_payments").select("amount, method, kind").eq("order_id", order_id);
+        const pays = (paysAll ?? []).filter((r: any) => r.kind !== "refund");
         const paidNow = Math.round((pays ?? []).reduce((s, r) => s + Number(r.amount || 0), 0) * 100) / 100;
         const remaining = Math.round((total - paidNow) * 100) / 100;
         const fullyPaid = remaining <= 0.001;
@@ -1123,11 +1140,78 @@ Deno.serve(async (req) => {
       }
 
       // ---- TILL: list the tenders recorded against an order ----
+      // ---- TILL: discount on an order (staff PIN; >25% needs a manager) ----
+      case "apply_discount": {
+        const { order_id, discount_type, discount_value, reason, staff_pin } = data || {};
+        if (!order_id || !["percent", "amount"].includes(String(discount_type))) return json({ error: "order_id and discount_type (percent|amount) required" }, 400);
+        const dv = Math.round(Number(discount_value) * 100) / 100;
+        if (!(dv > 0)) return json({ error: "discount_value must be > 0" }, 400);
+        const { data: ord } = await admin.from("menu_orders").select("id, total, amount_paid, status, location_id, paid_method").eq("id", order_id).maybeSingle();
+        if (!ord) return json({ error: "order not found" }, 404);
+        if (ord.status === "cancelled") return json({ error: "cancelled", message: "This order was cancelled." }, 409);
+        if (ord.paid_method) return json({ error: "already_paid", message: "This order is already paid — refund instead." }, 409);
+        const total = Math.round(Number(ord.total || 0) * 100) / 100;
+        const amount = Math.min(total, Math.round((discount_type === "percent" ? total * dv / 100 : dv) * 100) / 100);
+        const pct = total > 0 ? amount / total * 100 : 0;
+        // Who's authorising?
+        let by = "";
+        const mgr = await managerForPin(staff_pin, ord.location_id);
+        if (mgr.ok) by = mgr.name || "Manager";
+        else {
+          const st = await staffForPin(staff_pin, ord.location_id);
+          if (!st || !st.ok) return json({ ok: false, error: "bad_pin", message: st && (st as any).reason === "not_this_store" ? "That PIN is for another store" : "PIN not recognised" }, 403);
+          if (pct > 25) return json({ ok: false, error: "manager_required", message: "Discounts over 25% need a manager PIN" }, 403);
+          by = st.name;
+        }
+        const already = Math.round(Number(ord.amount_paid || 0) * 100) / 100;
+        const patch: Record<string, unknown> = { discount_type, discount_value: dv, discount_amount: amount, discount_reason: reason ? String(reason).slice(0, 80) : null, discount_by: by };
+        // If what's been paid already covers the discounted total, close it as paid.
+        if (already > 0 && already + 0.001 >= total - amount) { patch.paid_method = patch.paid_method || "cash"; patch.paid_amount = already; patch.paid_at = new Date().toISOString(); }
+        const { error } = await admin.from("menu_orders").update(patch).eq("id", order_id);
+        if (error) throw error;
+        return json({ ok: true, discount_amount: amount, due: Math.round((total - amount) * 100) / 100, by });
+      }
+      case "remove_discount": {
+        const { order_id, staff_pin } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const { data: ord } = await admin.from("menu_orders").select("id, location_id, paid_method").eq("id", order_id).maybeSingle();
+        if (!ord) return json({ error: "order not found" }, 404);
+        if (ord.paid_method) return json({ error: "already_paid", message: "Paid orders can't have the discount removed." }, 409);
+        const st = await staffForPin(staff_pin, ord.location_id); const mgr = st && st.ok ? null : await managerForPin(staff_pin, ord.location_id);
+        if (!(st && st.ok) && !(mgr && mgr.ok)) return json({ ok: false, error: "bad_pin", message: "PIN not recognised" }, 403);
+        const { error } = await admin.from("menu_orders").update({ discount_type: null, discount_value: null, discount_amount: null, discount_reason: null, discount_by: null }).eq("id", order_id);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      // ---- TILL: refund (manager PIN). Cash is handed back; card is recorded and done on the terminal. ----
+      case "refund_payment": {
+        const { order_id, amount, method, reason, manager_pin } = data || {};
+        if (!order_id || !["cash", "card", "other"].includes(String(method))) return json({ error: "order_id and method required" }, 400);
+        const amt = Math.round(Number(amount) * 100) / 100;
+        if (!(amt > 0)) return json({ error: "amount must be > 0" }, 400);
+        const { data: ord } = await admin.from("menu_orders").select("id, order_no, total, amount_paid, status, location_id, discount_amount, refund_total").eq("id", order_id).maybeSingle();
+        if (!ord) return json({ error: "order not found" }, 404);
+        const mgr = await managerForPin(manager_pin, ord.location_id);
+        if (!mgr.ok) return json({ ok: false, error: mgr.reason === "not_manager" ? "manager_required" : "bad_pin", message: mgr.reason === "not_manager" ? "Refunds need a manager PIN" : "PIN not recognised" }, 403);
+        const paid = Math.round(Number(ord.amount_paid || 0) * 100) / 100;
+        const refundedSoFar = Math.round(Number((ord as any).refund_total || 0) * 100) / 100;
+        const refundable = Math.round((paid - refundedSoFar) * 100) / 100;
+        if (amt > refundable + 0.001) return json({ ok: false, error: "too_much", message: "Only £" + refundable.toFixed(2) + " can be refunded on this order" }, 409);
+        const { error: pErr } = await admin.from("order_payments").insert({ order_id, method, amount: amt, kind: "refund", note: ("REFUND" + (reason ? ": " + String(reason).slice(0, 100) : "") + " · by " + (mgr.name || "manager")).slice(0, 120) });
+        if (pErr) throw pErr;
+        const newRefunded = Math.round((refundedSoFar + amt) * 100) / 100;
+        const full = newRefunded + 0.001 >= paid;
+        const { error } = await admin.from("menu_orders").update({ refund_total: newRefunded, refund_reason: reason ? String(reason).slice(0, 80) : null, refunded_at: new Date().toISOString(), refunded_by: mgr.name || "manager", ...(full ? { status: "refunded" } : {}) }).eq("id", order_id);
+        if (error) throw error;
+        // Refund slip to the receipt printers (best effort).
+        try { await callSunmi({ action: "print-message", location_id: ord.location_id, title: "REFUND", lines: ["Order #" + ord.order_no, "Refunded: £" + amt.toFixed(2) + " (" + method + ")", reason ? "Reason: " + String(reason) : "", "By: " + (mgr.name || "manager"), new Date().toLocaleString("en-GB", { timeZone: "Europe/London" })].filter(Boolean) }); } catch {}
+        return json({ ok: true, refunded: amt, refund_total: newRefunded, full, by: mgr.name });
+      }
       case "order_payments_list": {
         const { order_id } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
         const { data: pays, error } = await admin.from("order_payments")
-          .select("id, method, amount, tendered, note, created_at").eq("order_id", order_id).order("created_at", { ascending: true });
+          .select("id, method, amount, tendered, note, kind, created_at").eq("order_id", order_id).order("created_at", { ascending: true });
         if (error) throw error;
         return json({ ok: true, payments: pays ?? [] });
       }
@@ -1584,7 +1668,7 @@ Deno.serve(async (req) => {
           location_id, closed_at: now,
           total_taken: summary.total, cash_total: summary.cash, card_total: summary.card,
           paid_count: summary.paid_count, unpaid_total: summary.unpaid_total, unpaid_count: summary.unpaid_count,
-          discount_total: summary.discount_total, order_count: summary.order_count,
+          discount_total: summary.discount_total, refund_total: summary.refund_total, refund_count: summary.refund_count, order_count: summary.order_count,
           cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance,
           closed_by: closed_by ? String(closed_by).slice(0, 80) : null, note: note ? String(note).slice(0, 300) : null,
           other_total: summary.other, cancelled_count: summary.cancelled_count,

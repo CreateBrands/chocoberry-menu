@@ -317,6 +317,8 @@ async function loadReceiptOrder(
     items,
     subtotal: num(rec.subtotal),
     total: num(rec.total),
+    discount: num((rec as any).discount_amount) || undefined,
+    discountLabel: (rec as any).discount_reason ? String((rec as any).discount_reason) : ((rec as any).discount_type === "percent" ? Number((rec as any).discount_value) + "% off" : undefined),
     notes: rec.customer_note ? String(rec.customer_note) : undefined,
     tabletNo: rec.tablet_no ? String(rec.tablet_no) : undefined,
     storeName,
@@ -978,6 +980,7 @@ Deno.serve(async (req) => {
         r.leftRight("Card", money(s.card), W);
         r.leftRight("Paid orders", String(s.paid_count ?? 0), W);
         if ((s.discount_total ?? 0) > 0) r.leftRight("Discounts given", money(s.discount_total), W);
+        if ((s.refund_total ?? 0) > 0) r.leftRight("Refunds" + (s.refund_count ? " (" + s.refund_count + ")" : ""), "-" + money(s.refund_total), W);
         r.divider("-");
         if ((s.unpaid_count ?? 0) > 0) {
           r.bold(true).leftRight("UNPAID (" + s.unpaid_count + ")", money(s.unpaid_total), W).bold(false);
