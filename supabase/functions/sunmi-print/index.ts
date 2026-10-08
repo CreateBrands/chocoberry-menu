@@ -398,7 +398,7 @@ async function findPrinters(locationId?: string): Promise<Array<Record<string, u
 // or KDS tablet by USB. We never push to Sunmi for it: the rendered ESC/POS
 // bytes are queued in print_jobs (status "queued") and the device prints them
 // over WebUSB, then marks the job sent/failed.
-const isLocalSn = (sn: string) => String(sn).startsWith("usb:");
+const isLocalSn = (sn: string) => /^(usb|agent):/.test(String(sn));
 const usedTradeFor = (t: string, copy: number) => (t + (copy ? "c" + copy : "")).slice(0, 32);
 let lastEnqueueError = "";
 async function enqueueLocal(sn: string, hex: string, meta: Record<string, unknown>) {
@@ -1028,7 +1028,7 @@ Deno.serve(async (req) => {
         const sn = String(body.sn || "");
         if (!isLocalSn(sn)) return json({ error: "not a device printer" }, 400);
         const { data: jobs } = await supabase.from("print_jobs").select("id, order_id, slip, max_batch, content_hex, created_at").eq("printer_sn", sn).eq("status", "queued").order("created_at", { ascending: true }).limit(10);
-        await supabase.from("printers").update({ online: true, last_online_at: new Date().toISOString() }).eq("sn", sn);
+        await supabase.from("printers").update({ online: true, last_online_at: new Date().toISOString(), ...(body.agent_version ? { notes: "agent " + String(body.agent_version).slice(0, 20) } : {}) }).eq("sn", sn);
         return json({ ok: true, jobs: jobs || [] });
       }
       case "local-job-done": {

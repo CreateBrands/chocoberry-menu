@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag", "clear_print_queue",
-    "local_print_jobs", "local_print_done", "usb_printer_register", "usb_printer_test",
+    "local_print_jobs", "local_print_done", "usb_printer_register", "usb_printer_test", "device_printer_register",
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
@@ -1514,6 +1514,21 @@ Deno.serve(async (req) => {
         if (error) throw error;
         await admin.from("kds_screens").update({ printer_sn: sn }).eq("location_id", location_id).eq("screen_key", String(screen_key));
         return json({ ok: true, sn });
+      }
+      case "device_printer_register": {
+        // The Android print agent registers itself as a store printer (sn "agent:<id>").
+        const { location_id, sn, label, station, manager_pin, model } = data || {};
+        if (!location_id || !sn || !/^agent:/.test(String(sn))) return json({ error: "location_id and agent sn required" }, 400);
+        if (!manager_pin) return json({ ok: false, error: "pin_required", message: "Manager PIN required" }, 401);
+        if (String(manager_pin) !== String(ADMIN_PIN)) {
+          const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
+          if (!sp || sp.location_id !== location_id) return json({ ok: false, error: "bad_pin", message: "That PIN isn't a manager PIN for this store" }, 403);
+        }
+        const { data: locRow } = await admin.from("menu_locations").select("name, slug").eq("id", location_id).maybeSingle();
+        const storeId = (locRow?.slug as string) || String(locRow?.name || "store").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+        const { error } = await admin.from("printers").upsert({ sn: String(sn), store_id: storeId, shop_id: "1", location_id, label: label ? String(label).slice(0, 40) : "Print agent", station: station ? String(station).toLowerCase() : "kitchen", active: true, online: true, last_online_at: new Date().toISOString(), bound_at: new Date().toISOString(), notes: "agent · " + String(model || "") }, { onConflict: "sn" });
+        if (error) throw error;
+        return json({ ok: true, sn, store: locRow?.name || "" });
       }
       case "usb_printer_test": {
         const { sn, location_id } = data || {};
