@@ -1125,7 +1125,7 @@ function MenuBands({ state, T, act, money }) {
           No menu bands yet. A menu band is a format several stores share — "Dessert only", "Dessert + cafe".
           It is separate from a price band: a store can share this format and still charge its own prices.
         </div>
-        <span onClick={async () => { const n = window.prompt("Name the new format band, e.g. Dessert + cafe:"); if (n && n.trim()) await act("band_create", { name: n.trim(), band_kind: "menu" }); }}
+        <span onClick={async () => { const n = window.prompt("Name the new format band, e.g. Dessert + cafe:"); if (n && n.trim()) await act("band_create", { name: n.trim(), band_kind: "menu", brand_id: activeBrandId }); }}
           style={{ fontSize: 13.5, fontWeight: 700, color: "#fff", background: T.accent, cursor: "pointer", borderRadius: 9, padding: "11px 18px" }}>+ Create a menu band</span>
       </div>
     );
@@ -1146,7 +1146,7 @@ function MenuBands({ state, T, act, money }) {
             style={{ border: "1px solid " + T.line, borderRadius: 9, padding: "10px 13px", fontSize: 14, fontWeight: 600, background: T.bg, color: T.ink, minWidth: 220 }}>
             {bands.map((b) => <option key={b.id} value={b.id}>{b.name}</option>)}
           </select>
-          <span onClick={async () => { const n = window.prompt("Name the new format band, e.g. Dessert + cafe:"); if (n && n.trim()) await act("band_create", { name: n.trim(), band_kind: "menu" }); }}
+          <span onClick={async () => { const n = window.prompt("Name the new format band, e.g. Dessert + cafe:"); if (n && n.trim()) await act("band_create", { name: n.trim(), band_kind: "menu", brand_id: activeBrandId }); }}
             style={{ fontSize: 13, fontWeight: 700, color: T.accent, cursor: "pointer", border: "1px dashed " + T.line, borderRadius: 9, padding: "9px 14px" }}>+ New band</span>
         </div>
 
@@ -1488,7 +1488,42 @@ function PrintRouting({ state, T, act }) {
 
 export default function Admin() {
   const [pin, setPin] = useState(null);
-  const [state, setState] = useState(null);
+  const [rawState, setState] = useState(null);
+  // ---- Brand scope. Everything the admin shows is filtered to one brand; records with no
+  // brand_id belong to the default brand (Chocoberry). New menus/groups/stores take the brand.
+  const [brandId, setBrandId] = useState(() => { try { return localStorage.getItem("admin_brand") || ""; } catch { return ""; } });
+  const brands = (rawState && rawState.brands) || [];
+  const defaultBrandId = (brands.find((b) => /chocoberry/i.test(b.name || "")) || brands[0] || {}).id || null;
+  const activeBrandId = brandId || defaultBrandId;
+  useEffect(() => { try { if (brandId) localStorage.setItem("admin_brand", brandId); } catch {} }, [brandId]);
+  const state = useMemo(() => {
+    if (!rawState || !activeBrandId || brands.length < 2) return rawState;
+    const bOf = (x) => (x && x.brand_id) || defaultBrandId;
+    const menus = (rawState.menus || []).filter((m) => bOf(m) === activeBrandId);
+    const menuIds = new Set(menus.map((m) => m.id));
+    const categories = (rawState.categories || []).filter((c) => menuIds.has(c.menu_id) || (!c.menu_id && bOf(c) === activeBrandId));
+    const catIds = new Set(categories.map((c) => c.id));
+    const items = (rawState.items || []).filter((i) => catIds.has(i.category_id));
+    const itemIds = new Set(items.map((i) => i.id));
+    const modifierGroups = (rawState.modifierGroups || []).filter((g) => bOf(g) === activeBrandId);
+    const groupIds = new Set(modifierGroups.map((g) => g.id));
+    const locations = (rawState.locations || []).filter((l) => bOf(l) === activeBrandId);
+    const locIds = new Set(locations.map((l) => l.id));
+    const bandMenus = rawState.bandMenus || [];
+    const bandBrand = (b) => b.brand_id || (bandMenus.some((bm) => bm.band_id === b.id) ? (menuIds.has((bandMenus.find((bm) => bm.band_id === b.id) || {}).menu_id) ? activeBrandId : "other") : defaultBrandId);
+    const priceBands = (rawState.priceBands || []).filter((b) => bandBrand(b) === activeBrandId);
+    return {
+      ...rawState, menus, categories, items, modifierGroups, locations, priceBands,
+      modifierOptions: (rawState.modifierOptions || []).filter((o) => groupIds.has(o.group_id)),
+      itemModifiers: (rawState.itemModifiers || []).filter((im) => itemIds.has(im.item_id)),
+      overrides: (rawState.overrides || []).filter((o) => locIds.has(o.location_id)),
+      tables: (rawState.tables || []).filter((t) => locIds.has(t.location_id)),
+      locationMenus: (rawState.locationMenus || []).filter((lm) => locIds.has(lm.location_id)),
+      kdsScreens: (rawState.kdsScreens || []).filter((k) => locIds.has(k.location_id)),
+      printers: (rawState.printers || []).filter((p) => locIds.has(p.location_id)),
+      modifierOverrides: (rawState.modifierOverrides || []).filter((o) => locIds.has(o.location_id)),
+    };
+  }, [rawState, activeBrandId, defaultBrandId, brands.length]);
   const [level, setLevel] = useState("menus");
   const [menuId, setMenuId] = useState(null);
   const [catId, setCatId] = useState(null);
@@ -1562,7 +1597,16 @@ export default function Admin() {
 
       {/* SIDEBAR */}
       <div style={{ width: 210, flexShrink: 0, background: T.card, borderRight: "1px solid " + T.line, padding: "22px 14px", minHeight: "100vh", boxSizing: "border-box" }}>
-        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, padding: "0 10px 20px" }}>Menu Admin</div>
+        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, padding: "0 10px 12px" }}>Menu Admin</div>
+        {brands.length > 1 && state.scope !== "store" && (
+          <div style={{ margin: "0 6px 16px" }}>
+            <div style={{ fontSize: 10, fontWeight: 800, color: T.faint, letterSpacing: ".08em", textTransform: "uppercase", padding: "0 4px 6px" }}>Brand</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {brands.map((b) => <span key={b.id} onClick={() => setBrandId(b.id)} style={{ cursor: "pointer", padding: "8px 10px", borderRadius: 8, fontSize: 13, fontWeight: 800, background: activeBrandId === b.id ? T.ink : T.bg, color: activeBrandId === b.id ? T.card : T.muted, border: "1px solid " + (activeBrandId === b.id ? T.ink : T.line) }}>{b.name}</span>)}
+            </div>
+            <div style={{ fontSize: 10.5, color: T.faint, padding: "6px 4px 0", lineHeight: 1.35 }}>Menus, stores, bands and devices shown are this brand's only.</div>
+          </div>
+        )}
         {(() => {
           const isStore = state.scope === "store";
           const storeName = isStore ? ((state.locations || [])[0] || {}).name : null;
@@ -1658,7 +1702,7 @@ export default function Admin() {
                 onSetImage={() => setImgTarget({ kind: "menu", id: m.id })}
                 onDelete={() => { if (window.confirm("Delete menu '" + m.name + "'? Its sections must be empty.")) act("delete_menu", { id: m.id }); }} />
             ))}
-            <AddCard label="Add menu" onClick={() => { const n = window.prompt("Menu name?"); if (n) act("create_menu", { name: n }); }} />
+            <AddCard label="Add menu" onClick={() => { const n = window.prompt("Menu name?"); if (n) act("create_menu", { brand_id: activeBrandId, name: n }); }} />
           </div>
         )}
 
@@ -1855,7 +1899,7 @@ export default function Admin() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Modifier groups</div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                <button onClick={async () => { await act("create_mod_group", { name: "New group", required: false, min_select: 0, max_select: 1 }); }} style={{ background: T.accent || "#5E7A4D", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add modifier group</button>
+                <button onClick={async () => { await act("create_mod_group", { brand_id: activeBrandId, name: "New group", required: false, min_select: 0, max_select: 1 }); }} style={{ background: T.accent || "#5E7A4D", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add modifier group</button>
                 <span onClick={() => setShowMods(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
               </div>
             </div>
@@ -1913,7 +1957,7 @@ export default function Admin() {
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Stores</div>
               <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                {state.scope !== "store" && <button onClick={async () => { const n = window.prompt("Store name?"); if (n) await act("create_store", { name: n }); }} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add store</button>}
+                {state.scope !== "store" && <button onClick={async () => { const n = window.prompt("Store name?"); if (n) await act("create_store", { brand_id: activeBrandId, name: n }); }} style={{ background: T.accent, color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>+ Add store</button>}
                 <span onClick={() => setShowStores(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
               </div>
             </div>

@@ -391,6 +391,7 @@ Deno.serve(async (req) => {
           printers: only(printers.data),
           modifierOverrides: only(modOverrides.data),
           priceBands: bands.data ?? [],
+          brands: (await admin.from("menu_brands").select("*").order("name")).data ?? [],
           bandPrices: bandPrices.data ?? [],
           bandOptionPrices: bandOptPrices.data ?? [],
         });
@@ -787,10 +788,10 @@ Deno.serve(async (req) => {
 
       // ---- Create a band ----
       case "band_create": {
-        const { name, band_kind } = data || {};
+        const { name, band_kind, brand_id } = data || {};
         if (!name) return json({ error: "name required" }, 400);
         const { error } = await admin.from("menu_price_bands")
-          .insert({ name: String(name).trim(), band_kind: band_kind === "menu" ? "menu" : "price" });
+          .insert({ name: String(name).trim(), band_kind: band_kind === "menu" ? "menu" : "price", brand_id: brand_id ?? null });
         if (error) throw error;
         return json({ ok: true });
       }
@@ -1334,12 +1335,20 @@ Deno.serve(async (req) => {
       }
       // ---- KDS: menu structure for the routing picker ----
       case "menu_catalog": {
-        const [{ data: menus }, { data: cats }, { data: items }] = await Promise.all([
-          admin.from("menu_menus").select("id, name, sort_order").order("sort_order", { ascending: true }),
+        // Scope the catalog to the store's brand: a Tove screen never sees Chocoberry menus.
+        const catalogLoc = (data && data.location_id) ? String(data.location_id) : null;
+        const { data: locB } = catalogLoc ? await admin.from("menu_locations").select("brand_id").eq("id", catalogLoc).maybeSingle() : { data: null };
+        const { data: brandRows } = await admin.from("menu_brands").select("id, name").order("name");
+        const defaultBrand = (brandRows || []).find((b: any) => /chocoberry/i.test(String(b.name)))?.id || null;
+        const storeBrand = catalogLoc ? (locB?.brand_id || defaultBrand) : null;
+        const [{ data: menusAll }, { data: cats }, { data: items }] = await Promise.all([
+          admin.from("menu_menus").select("id, name, sort_order, brand_id").order("sort_order", { ascending: true }),
           admin.from("menu_categories").select("id, name, menu_id, sort_order").order("sort_order", { ascending: true }),
           admin.from("menu_items").select("*").order("name", { ascending: true }),
         ]);
-        return json({ ok: true, menus: menus || [], categories: cats || [], items: (items || []).filter((i: any) => i.active !== false && i.is_active !== false).map((i: any) => ({ id: i.id, name: i.name, category_id: i.category_id })) });
+        const menus = (menusAll || []).filter((m: any) => !storeBrand || (m.brand_id || defaultBrand) === storeBrand);
+        const menuIds = new Set(menus.map((m: any) => m.id));
+        return json({ ok: true, menus: menus || [], categories: (cats || []).filter((c: any) => menuIds.has(c.menu_id)), items: (items || []).filter((i: any) => i.active !== false && i.is_active !== false).map((i: any) => ({ id: i.id, name: i.name, category_id: i.category_id })) });
       }
 
       // ---- Devices: activate with a one-time licence code ----

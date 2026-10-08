@@ -1287,7 +1287,7 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
   const reset = () => { const i = JSON.parse(initial); setLabel(i.label); setStation(i.station); setPrinter(i.printer); setRouting(i.routing); };
   useEffect(() => { const h = (e) => { if (e.key === "Escape") onClose(); }; window.addEventListener("keydown", h); return () => window.removeEventListener("keydown", h); }, []); // eslint-disable-line
   useEffect(() => {
-    fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "menu_catalog" }) }).then((r) => r.json()).then((j) => setCat(j.ok ? j : { menus: [], categories: [], items: [] })).catch(() => setCat({ menus: [], categories: [], items: [] }));
+    fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "menu_catalog", data: { location_id: loc } }) }).then((r) => r.json()).then((j) => setCat(j.ok ? j : { menus: [], categories: [], items: [] })).catch(() => setCat({ menus: [], categories: [], items: [] }));
     fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "printers_list", data: { location_id: loc } }) }).then((r) => r.json()).then((j) => setPrinters(j.ok ? j.printers : [])).catch(() => setPrinters([]));
   }, [loc]);
   const toggle = (kind, id) => setRouting((r) => { const set = new Set(r[kind]); set.has(id) ? set.delete(id) : set.add(id); return { ...r, [kind]: [...set] }; });
