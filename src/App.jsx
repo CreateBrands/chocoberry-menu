@@ -528,7 +528,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
         method: "POST", headers: H,
-        body: JSON.stringify({ pin: sessionPinRef.current, action: "sweep_unprinted", data: { since_minutes: 180 } }),
+        body: JSON.stringify(sessionPinRef.current ? { pin: sessionPinRef.current, action: "sweep_unprinted", data: { since_minutes: 180 } } : { pos: true, action: "sweep_unprinted", data: { since_minutes: 180, location_id: locationId } }),
       });
       const j = await r.json();
       const n = j?.result?.repushed ?? 0;
@@ -607,22 +607,27 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   // Explicit pixel height for the scroll area: viewport minus header+tabs (~150px).
   const scrollH = Math.max(200, vh - 150);
 
+  const [staffName, setStaffName] = useState(null); // set when unlocked with an employee punch-in PIN (staff level, not manager)
   async function submitPin() {
     if (!pin) return;
     setChecking(true); setPinErr("");
     try {
-      // Verify the PIN via admin-api "load" (same gate the admin uses).
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
-        method: "POST", headers: H,
-        body: JSON.stringify({ pin, action: "load", data: {} }),
-      });
-      if (!r.ok) throw new Error("bad");
-      setUnlocked(true); if (!items) loadItems();
-      sessionPinRef.current = pin; // keep the verified PIN for authorized actions this session
-      setPin("");                   // clear the input (so the browser can't offer to save it)
-      loadAllOrders();
-      loadAccepting();
-      loadPrinters();
+      // 1) manager / master PIN → full drawer
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin, action: "load", data: {} }) });
+      if (r.ok) {
+        setUnlocked(true); setStaffName(null); if (!items) loadItems();
+        sessionPinRef.current = pin; setPin("");
+        loadAllOrders(); loadAccepting(); loadPrinters();
+        return;
+      }
+      // 2) employee punch-in PIN for this store → staff drawer (orders, reprints, table); no till controls
+      if (locationId) {
+        const r2 = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "staff_lookup", data: { pin, location_id: locationId } }) });
+        const j = await r2.json().catch(() => ({}));
+        if (j && j.ok) { setUnlocked(true); setStaffName(j.name || "Team member"); if (!items) loadItems(); sessionPinRef.current = ""; setPin(""); loadAllOrders(); return; }
+        if (j && j.reason === "not_this_store") { setPinErr("That PIN belongs to a team member at another store."); return; }
+      }
+      throw new Error("bad");
     } catch {
       setPinErr("Wrong PIN.");
     } finally { setChecking(false); }
@@ -791,7 +796,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
 
         {!unlocked ? (
           <div style={{ marginTop: 40, textAlign: "center" }}>
-            <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 18 }}>Enter staff PIN to view orders and manage items.</div>
+            <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 18 }}>Enter your punch-in PIN to view orders. The manager PIN also opens till controls.</div>
             <input type="text" value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && submitPin()} placeholder="PIN" autoFocus
               inputMode="numeric" autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
               name="staff-code-nosave" data-1p-ignore data-lpignore="true" data-form-type="other" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
@@ -802,7 +807,8 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
         ) : (
           <div>
 
-            {accepting !== null && (
+            {staffName && <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 10 }}>Signed in as <b style={{ color: "var(--ink)" }}>{staffName}</b> · staff view. Till controls need the manager PIN.</div>}
+            {accepting !== null && !staffName && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderRadius: 12, background: accepting ? "#eaf1e4" : "#f6e4e0", marginBottom: 14, flexShrink: 0 }}>
                 <div>
                   <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15, color: "var(--ink)" }}>Accept customer orders</div>
@@ -856,7 +862,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
 
             {view === "orders" && (
               <div style={{ overflowY: "auto", paddingBottom: 24, height: scrollH, WebkitOverflowScrolling: "touch" }}>
-                {summary && (
+                {summary && !staffName && (
                   <div style={{ borderRadius: 14, background: "var(--bg3)", padding: "14px 16px", marginBottom: 4 }}>
                     <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, color: "var(--ink)", marginBottom: 8 }}>Today's sales</div>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 3 }}><span style={{ color: "var(--muted)" }}>Total taken</span><span style={{ fontWeight: 700 }}>{money(summary.total)}</span></div>
@@ -1758,15 +1764,25 @@ export default function App() {
     if (tableUnlocked) { setShowTablePicker(true); return; }
     setTablePinValue(""); setTablePinErr(""); setTablePinPrompt(true);
   }
+  // Changing the table is a staff task: an employee's punch-in PIN (team member assigned to
+  // this store) unlocks it, and so does the store manager / master PIN.
   async function verifyTablePin() {
     if (!tablePinValue) return;
     setTablePinChecking(true); setTablePinErr("");
     try {
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
-        method: "POST", headers: H,
-        body: JSON.stringify({ pin: tablePinValue, action: "load", data: {} }),
-      });
-      if (!r.ok) throw new Error("bad");
+      let ok = false;
+      const locId = store && (store.id || store.location_id);
+      if (locId) {
+        const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "staff_lookup", data: { pin: tablePinValue, location_id: locId } }) });
+        const j = await r.json().catch(() => ({}));
+        if (j && j.ok) ok = true;
+        else if (j && j.reason === "not_this_store") { setTablePinErr("That PIN belongs to a team member at another store."); setTablePinChecking(false); return; }
+      }
+      if (!ok) {
+        const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: tablePinValue, action: "load", data: {} }) });
+        ok = r.ok;
+      }
+      if (!ok) throw new Error("bad");
       setTableUnlocked(true);
       setTablePinValue("");
       setTablePinPrompt(false);
@@ -2076,7 +2092,7 @@ export default function App() {
                 <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg2)", borderRadius: 20, padding: 28, maxWidth: 360, width: "100%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
                   <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
                   <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 19, color: "var(--ink)", marginBottom: 6 }}>Staff only</div>
-                  <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 18 }}>Enter the staff PIN to set or change the table number.</div>
+                  <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 18 }}>Enter your punch-in PIN (or the manager PIN) to set or change the table number.</div>
                   <input type="text" inputMode="numeric" value={tablePinValue} onChange={(e) => setTablePinValue(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && verifyTablePin()} placeholder="PIN" autoFocus
                     autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                     name="table-code-nosave" data-1p-ignore data-lpignore="true" data-form-type="other" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
