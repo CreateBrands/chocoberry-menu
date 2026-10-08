@@ -713,11 +713,15 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   async function loadItems() {
     try {
       // Items with image + category, plus their per-location override availability.
+      // Only this store's menu: the same brand-scoped catalog the KDS uses, so a
+      // Tove tablet lists Tove items and nothing from Chocoberry.
+      const rm = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "menu_catalog", data: { location_id: locationId } }) });
+      const cat = rm.ok ? await rm.json() : {};
+      const allowedCats = new Set((cat.categories || []).map((c) => c.id));
       const r = await fetch(SUPABASE_URL + "/rest/v1/menu_items?select=id,name,available,category_id,image_url&published=eq.true&order=name.asc", { headers: H });
-      const base = r.ok ? await r.json() : [];
+      const base = (r.ok ? await r.json() : []).filter((i) => !allowedCats.size || allowedCats.has(i.category_id));
       // Category names for grouping.
-      const rc = await fetch(SUPABASE_URL + "/rest/v1/menu_categories?select=id,name,sort_order", { headers: H });
-      const cats = rc.ok ? await rc.json() : [];
+      const cats = (cat.categories || []).map((c) => ({ id: c.id, name: c.name, sort_order: c.sort_order }));
       const catName = new Map(cats.map((c) => [c.id, c.name]));
       const catSort = new Map(cats.map((c) => [c.id, c.sort_order ?? 999]));
       let ov = [];
