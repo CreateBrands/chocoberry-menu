@@ -149,10 +149,10 @@ function receiptTree(o: ReceiptOrder): Node {
 // ---- render to 1-bit ESC/POS raster hex -----------------------------------
 export async function buildOrderRasterHex(o: ReceiptOrder): Promise<string> {
   const { inter400, inter700 } = await loadAssets();
-  const width = dotsFor((o as any).paperMm);
+  const paperDots = dotsFor((o as any).paperMm);
 
   const svg = await satori(receiptTree(o) as never, {
-    width,
+    width: paperDots,
     height: 2000, // generous canvas; trimmed to content below
     fonts: [
       { name: "Inter", data: inter400, weight: 400, style: "normal" },
@@ -160,7 +160,7 @@ export async function buildOrderRasterHex(o: ReceiptOrder): Promise<string> {
     ],
   });
 
-  const rendered = new Resvg(svg, { fitTo: { mode: "width", value: width }, background: "white" }).render();
+  const rendered = new Resvg(svg, { fitTo: { mode: "width", value: paperDots }, background: "white" }).render();
   const { width, height } = rendered;
   const px = rendered.pixels; // RGBA
 
