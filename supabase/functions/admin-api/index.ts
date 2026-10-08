@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   // surface used by front-line staff, and gating every payment behind a PIN was
   // too much friction. Admin-panel actions still require the PIN below.
   const POS_ACTIONS = new Set([
-    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "refund_payment", "print_refund_receipt",
+    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "refund_payment", "print_refund_receipt", "set_order_table",
     "remove_order_item", "set_order_item_qty", "void_fired_item",
     "set_order_type",
     "day_summary",
@@ -1289,6 +1289,29 @@ Deno.serve(async (req) => {
       }
 
       // ---- TILL: set the quantity on a single line of an UNPAID order ----
+      // ---- TILL/KDS: move an order to another table (customer moved) ----
+      case "set_order_table": {
+        const { order_id, table_id, notify_kitchen = true } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const { data: ord } = await admin.from("menu_orders").select("id, order_no, location_id, table_id, status, menu_tables(label)").eq("id", order_id).maybeSingle();
+        if (!ord) return json({ error: "order not found" }, 404);
+        let newLabel: string | null = null;
+        if (table_id) {
+          const { data: t } = await admin.from("menu_tables").select("id, label, location_id").eq("id", table_id).maybeSingle();
+          if (!t || t.location_id !== ord.location_id) return json({ error: "table not found at this store" }, 400);
+          newLabel = t.label;
+        }
+        const patch: Record<string, unknown> = { table_id: table_id || null };
+        if (table_id) patch.order_type = "dine-in"; else patch.order_type = "takeaway";
+        const { error } = await admin.from("menu_orders").update(patch).eq("id", order_id);
+        if (error) throw error;
+        const oldLabel = (ord as any).menu_tables?.label || null;
+        // Tell the kitchen/pass so the plates go to the right table.
+        if (notify_kitchen && (ord.status === "placed" || ord.status === "in_progress" || ord.status === "ready")) {
+          try { await callSunmi({ action: "print-message", location_id: ord.location_id, title: "TABLE CHANGE", lines: ["Order #" + ord.order_no, (oldLabel ? "From: " + oldLabel : "Was: no table") + "  ->  " + (newLabel ? "To: " + newLabel : "Takeaway"), "Deliver to the new table"] }); } catch {}
+        }
+        return json({ ok: true, table_label: newLabel });
+      }
       case "set_order_type": {
         const { order_id, order_type } = data || {};
         if (!order_id || !order_type) return json({ error: "order_id and order_type required" }, 400);

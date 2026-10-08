@@ -377,6 +377,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const ordRemoveItem = (o, iid) => ordAction("remove_order_item", { order_id: o.id, order_item_id: iid });
   const ordSetQty = (o, iid, qty) => ordAction("set_order_item_qty", { order_id: o.id, order_item_id: iid, qty });
   const ordSetType = (o, order_type) => ordAction("set_order_type", { order_id: o.id, order_type });
+  const ordSetTable = (o, table_id) => ordAction("set_order_table", { order_id: o.id, table_id });
   // Void a single already-fired item, with a reason (prints a VOID chit).
   const ordVoidFired = (o, iid, reason) => ordAction("void_fired_item", { order_id: o.id, order_item_id: iid, reason, location_id: loc || null });
   // A customer receipt belongs at the COUNTER, not on the kitchen printer.
@@ -1120,7 +1121,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         {/* 3 — ORDER PANEL */}
         <div style={{ minWidth: 0, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(34,39,31,.05)" }}>
           {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
-            <OrderDetailPanel onDiscount={applyDiscount} onRemoveDiscount={removeDiscount} onRefund={refundPayment} onPrintRefund={printRefundReceipt}
+            <OrderDetailPanel onDiscount={applyDiscount} onRemoveDiscount={removeDiscount} onRefund={refundPayment} onPrintRefund={printRefundReceipt} onSetTable={ordSetTable} tables={tablesList}
               printingId={printingId}
               order={(payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : (orders || []).find((o) => o.id === selOrderId)}
               now={now}

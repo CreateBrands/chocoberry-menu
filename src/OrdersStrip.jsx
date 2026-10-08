@@ -157,7 +157,7 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onRefund, onPrintRefund, printingId = null }) {
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onRefund, onPrintRefund, onSetTable, tables = [], printingId = null }) {
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
@@ -191,6 +191,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   const remaining = Math.round((total - paidSoFar) * 100) / 100;
   const isPaid = !!o.paid_method || remaining <= 0.001;
   // Discount / refund sheets
+  const [moveTable, setMoveTable] = useState(false);
   const [dsc, setDsc] = useState(null);   // { type: "percent"|"amount", value, reason, pin }
   const [rfd, setRfd] = useState(null);   // { amount, method, reason, pin }
   const [sheetErr, setSheetErr] = useState("");
@@ -246,6 +247,9 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
             </span>
           ) : (
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{isDineIn(o) ? Ico.utensils(13) : Ico.bag(13)} {isDineIn(o) ? "Dine-in" : "Takeaway"}</span>
+          )}
+          {onSetTable && tables.length > 0 && o.status !== "cancelled" && (
+            <span onClick={() => setMoveTable(true)} title="Move this order to another table" style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#eef1f4", padding: "4px 9px", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}>{Ico.utensils(12)} {o.menu_tables && o.menu_tables.label ? o.menu_tables.label : "No table"} · Move</span>
           )}
           {paidSoFar > 0 && !isPaid ? <span>· £{paidSoFar.toFixed(2)} paid</span> : null}
         </div>
@@ -470,6 +474,21 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     </>);
   }
 
+  // ── MOVE TABLE ──
+  if (moveTable) {
+    const curId = o.table_id;
+    return Wrap(<>
+      {HeaderBar("Move table")}
+      <div style={{ padding: 16, flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}><span onClick={() => setMoveTable(false)} style={{ cursor: "pointer" }}>{Ico.back()}</span><span style={{ fontWeight: 700, fontSize: 15 }}>Which table is order #{o.order_no} at now?</span></div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 9 }}>
+          {tables.map((t) => <span key={t.id} onClick={async () => { const r = await onSetTable(o, t.id); setMoveTable(false); setNote(r === false ? "Could not move the table" : "Moved to " + t.label + " · kitchen notified"); }} style={{ padding: "18px 0", textAlign: "center", borderRadius: 12, background: curId === t.id ? C.ink : "#f3f4f6", color: curId === t.id ? "#fff" : C.ink, fontWeight: 800, fontSize: 15, cursor: "pointer" }}>{t.label}</span>)}
+        </div>
+        <span onClick={async () => { const r = await onSetTable(o, null); setMoveTable(false); setNote(r === false ? "Could not change the order" : "Switched to takeaway · kitchen notified"); }} style={{ display: "inline-block", marginTop: 16, padding: "12px 16px", borderRadius: 10, border: "1.5px solid " + C.line, fontWeight: 700, cursor: "pointer" }}>No table — takeaway</span>
+        <div style={{ fontSize: 12, color: C.sub, marginTop: 14 }}>The kitchen gets a "TABLE CHANGE" slip so the plates go to the right place. Nothing is reprinted or re-cooked.</div>
+      </div>
+    </>);
+  }
   // ── DISCOUNT SHEET ──
   if (dsc) {
     const preview = Math.min(gross, dsc.type === "percent" ? gross * Number(dsc.value || 0) / 100 : Number(dsc.value || 0));
