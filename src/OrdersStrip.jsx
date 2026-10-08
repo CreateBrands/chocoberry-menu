@@ -181,6 +181,12 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     // reset transient inputs for the newly-shown order
     setCashGiven(null); setSplitAmt(""); setEvenGiven(null); setPickIds({}); setVoidItem(null); setNote("");
   }, [oid, initialMode]); // eslint-disable-line
+  // Sheets (declared before any early return so hook order is stable)
+  const [moveTable, setMoveTable] = useState(false);
+  const [dsc, setDsc] = useState(null);   // { type: "percent"|"amount", value, reason, pin }
+  const [rfd, setRfd] = useState(null);   // { amount, method, reason, pin }
+  const [sheetErr, setSheetErr] = useState("");
+  const [sheetBusy, setSheetBusy] = useState(false);
   if (!o) return null;
   const its = o.menu_order_items || [];
   const gross = Math.round(Number(o.total || 0) * 100) / 100;
@@ -190,12 +196,6 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   const refunded = Math.round(Number(o.refund_total || 0) * 100) / 100;
   const remaining = Math.round((total - paidSoFar) * 100) / 100;
   const isPaid = !!o.paid_method || remaining <= 0.001;
-  // Discount / refund sheets
-  const [moveTable, setMoveTable] = useState(false);
-  const [dsc, setDsc] = useState(null);   // { type: "percent"|"amount", value, reason, pin }
-  const [rfd, setRfd] = useState(null);   // { amount, method, reason, pin }
-  const [sheetErr, setSheetErr] = useState("");
-  const [sheetBusy, setSheetBusy] = useState(false);
   const PinPad = ({ value, onChange }) => (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8, maxWidth: 300, margin: "0 auto" }}>
       {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "C"].map((k) => (
@@ -249,7 +249,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
             <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>{isDineIn(o) ? Ico.utensils(13) : Ico.bag(13)} {isDineIn(o) ? "Dine-in" : "Takeaway"}</span>
           )}
           {onSetTable && tables.length > 0 && o.status !== "cancelled" && (
-            <span onClick={() => setMoveTable(true)} title="Move this order to another table" style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#eef1f4", padding: "4px 9px", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}>{Ico.utensils(12)} {o.menu_tables && o.menu_tables.label ? o.menu_tables.label : "No table"} · Move</span>
+            <span onClick={(e) => { e.stopPropagation(); setMoveTable(true); }} title="Move this order to another table" style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#eef1f4", padding: "4px 9px", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}>{Ico.utensils(12)} {o.menu_tables && o.menu_tables.label ? o.menu_tables.label : "No table"} · Move</span>
           )}
           {paidSoFar > 0 && !isPaid ? <span>· £{paidSoFar.toFixed(2)} paid</span> : null}
         </div>
@@ -261,8 +261,21 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     </div>
   );
 
+  // ── MOVE TABLE (overlay, independent of the panel mode) ──
+  const MoveSheet = () => !moveTable ? null : (
+    <div onClick={() => setMoveTable(false)} style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,.45)", zIndex: 40, display: "flex", alignItems: "flex-end" }}>
+      <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: "100%", borderRadius: "18px 18px 0 0", padding: 16, maxHeight: "85%", overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}><span style={{ fontWeight: 700, fontSize: 15 }}>Which table is order #{o.order_no} at now?</span><span onClick={() => setMoveTable(false)} style={{ marginLeft: "auto", cursor: "pointer", fontWeight: 800 }}>✕</span></div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 9 }}>
+          {tables.map((t) => <span key={t.id} onClick={async () => { const r = await onSetTable(o, t.id); setMoveTable(false); setNote(r === false ? "Could not move the table" : "Moved to " + t.label + " · kitchen notified"); }} style={{ padding: "18px 0", textAlign: "center", borderRadius: 12, background: o.table_id === t.id ? C.ink : "#f3f4f6", color: o.table_id === t.id ? "#fff" : C.ink, fontWeight: 800, fontSize: 15, cursor: "pointer" }}>{t.label}</span>)}
+        </div>
+        <span onClick={async () => { const r = await onSetTable(o, null); setMoveTable(false); setNote(r === false ? "Could not change the order" : "Switched to takeaway · kitchen notified"); }} style={{ display: "inline-block", marginTop: 16, padding: "12px 16px", borderRadius: 10, border: "1.5px solid " + C.line, fontWeight: 700, cursor: "pointer" }}>No table — takeaway</span>
+        <div style={{ fontSize: 12, color: C.sub, marginTop: 14 }}>The kitchen gets a "TABLE CHANGE" slip so the plates go to the right place. Nothing is reprinted or re-cooked.</div>
+      </div>
+    </div>
+  );
   const Wrap = (children) => (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", fontFamily: "'Hanken Grotesk',sans-serif", color: C.ink }}>{children}</div>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", fontFamily: "'Hanken Grotesk',sans-serif", color: C.ink, position: "relative" }}>{children}<MoveSheet /></div>
   );
 
   // ── METHOD PICKER ──
@@ -474,21 +487,6 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     </>);
   }
 
-  // ── MOVE TABLE ──
-  if (moveTable) {
-    const curId = o.table_id;
-    return Wrap(<>
-      {HeaderBar("Move table")}
-      <div style={{ padding: 16, flex: 1, overflowY: "auto" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}><span onClick={() => setMoveTable(false)} style={{ cursor: "pointer" }}>{Ico.back()}</span><span style={{ fontWeight: 700, fontSize: 15 }}>Which table is order #{o.order_no} at now?</span></div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 9 }}>
-          {tables.map((t) => <span key={t.id} onClick={async () => { const r = await onSetTable(o, t.id); setMoveTable(false); setNote(r === false ? "Could not move the table" : "Moved to " + t.label + " · kitchen notified"); }} style={{ padding: "18px 0", textAlign: "center", borderRadius: 12, background: curId === t.id ? C.ink : "#f3f4f6", color: curId === t.id ? "#fff" : C.ink, fontWeight: 800, fontSize: 15, cursor: "pointer" }}>{t.label}</span>)}
-        </div>
-        <span onClick={async () => { const r = await onSetTable(o, null); setMoveTable(false); setNote(r === false ? "Could not change the order" : "Switched to takeaway · kitchen notified"); }} style={{ display: "inline-block", marginTop: 16, padding: "12px 16px", borderRadius: 10, border: "1.5px solid " + C.line, fontWeight: 700, cursor: "pointer" }}>No table — takeaway</span>
-        <div style={{ fontSize: 12, color: C.sub, marginTop: 14 }}>The kitchen gets a "TABLE CHANGE" slip so the plates go to the right place. Nothing is reprinted or re-cooked.</div>
-      </div>
-    </>);
-  }
   // ── DISCOUNT SHEET ──
   if (dsc) {
     const preview = Math.min(gross, dsc.type === "percent" ? gross * Number(dsc.value || 0) / 100 : Number(dsc.value || 0));
