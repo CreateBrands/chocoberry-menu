@@ -502,6 +502,15 @@ async function printOrder(
     const sn = String((printer as any).sn);
     const station = String((printer as any).station ?? DEFAULT_STATION);
 
+    // SOURCE FILTER. A printer tied to a device (e.g. the handheld's own printer)
+    // only prints orders that were placed from that device; a targeted/forced
+    // print still works so reprints from anywhere reach it.
+    const src = (printer as any).source_screen_key ? String((printer as any).source_screen_key) : null;
+    if (src && !target && !force && String(rec.device_key ?? "") !== src) {
+      results.push({ printer: sn, station, slip: pass.mode, skipped: true, reason: "order not from this printer's device" });
+      continue;
+    }
+
     // PRINTERS ARE INDEPENDENT. Each one decides for itself what it prints;
     // two printers may both cover the same category, and one printer may print
     // BOTH an items ticket and a full receipt for the same order.

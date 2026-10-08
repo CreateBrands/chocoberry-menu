@@ -571,10 +571,12 @@ function PrintersModal({ pin, locations, onClose }) {
   const [scan, setScan] = useState(false);
   const [form, setForm] = useState({ sn: "", label: "", location_id: "", station: "kitchen" });
 
+  const [screens, setScreens] = useState([]);
   const load = async () => {
     setMsg("");
     try { const res = await callAdmin(pin, "printer_list", {}); setPrinters(res.printers || []); }
     catch (e) { setMsg(e.message); }
+    try { const r = await fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,label,location_id,kind", { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY } }); if (r.ok) setScreens(await r.json()); } catch {}
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
 
@@ -724,6 +726,14 @@ function PrintersModal({ pin, locations, onClose }) {
                     <option value="">— unassigned —</option>
                     {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
+                </div>
+                <div>
+                  <div style={fieldLab}>Prints orders from</div>
+                  <select value={p.source_screen_key || ""} onChange={(e) => updatePrinter(p, { source_screen_key: e.target.value || null })} disabled={busy} style={sel}>
+                    <option value="">Any source (tablets, tills, online)</option>
+                    {(screens || []).filter((k) => k.location_id === p.location_id).map((k) => <option key={k.screen_key} value={k.screen_key}>Only {k.label || ("Screen " + k.screen_key)} ({k.screen_key})</option>)}
+                  </select>
+                  <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>Tie a printer to one till or handheld and it prints only the orders placed there. Reprints still reach it.</div>
                 </div>
                 <div>
                   <div style={fieldLab}>Kitchen ticket</div>
