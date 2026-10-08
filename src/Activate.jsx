@@ -26,7 +26,7 @@ export default function Activate({ reason }) {
       setDevice(j.device);
       try { localStorage.setItem("kds_loc", j.device.location_id); localStorage.setItem("kds_screen", j.device.key); localStorage.removeItem("kds_station"); localStorage.removeItem("kds_printer"); localStorage.removeItem("kds_allday_cat"); if (j.device.label) localStorage.setItem("kds_name", j.device.label); else localStorage.removeItem("kds_name"); } catch {}
       setDone(j.device);
-      setTimeout(() => { window.location.href = j.device.kind === "pos" ? "/pos" : "/kds"; }, 1200);
+      setTimeout(() => { window.location.href = j.device.kind === "pos" ? "/pos" : j.device.kind === "kiosk" ? "/kiosk" : "/kds"; }, 1200);
     } catch (e) { setErr(e.message || "Activation failed"); } finally { setBusy(false); }
   }
   useEffect(() => { if (params.get("code") && !existing) activate(); }, []); // eslint-disable-line

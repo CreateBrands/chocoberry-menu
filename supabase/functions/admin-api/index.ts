@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag", "clear_print_queue",
-    "local_print_jobs", "local_print_done", "usb_printer_register", "usb_printer_test", "device_printer_register",
+    "local_print_jobs", "local_print_done", "usb_printer_register", "usb_printer_test", "device_printer_register", "kiosk_slip",
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
@@ -1622,6 +1622,35 @@ Deno.serve(async (req) => {
         const { error } = await admin.from("printers").upsert({ sn: String(sn), store_id: storeId, shop_id: "1", location_id, label: label ? String(label).slice(0, 40) : "Print agent", station: station ? String(station).toLowerCase() : "kitchen", active: true, online: true, last_online_at: new Date().toISOString(), bound_at: new Date().toISOString(), notes: "agent · " + String(model || ""), paper_mm: Number(paper_mm) || 80 }, { onConflict: "sn" });
         if (error) throw error;
         return json({ ok: true, sn, store: locRow?.name || "" });
+      }
+      // ---- KIOSK: numbered slip on the kiosk's own printer(s) ----
+      case "kiosk_slip": {
+        const { order_id, location_id, pay_mode, table_no, test } = data || {};
+        const key = deviceTok && deviceTok.key ? String(deviceTok.key) : null;
+        if (!location_id || !key) return json({ error: "kiosk device required" }, 400);
+        const { data: prs } = await admin.from("printers").select("sn").eq("location_id", location_id).eq("active", true).eq("source_screen_key", key);
+        if (!prs || !prs.length) return json({ ok: false, error: "no_printer", message: "No printer is tied to this kiosk (Admin → Printers → Prints orders from)" });
+        const { data: bn } = await admin.from("menu_app_settings").select("value").eq("key", "brand_name:" + location_id).maybeSingle();
+        let lines: string[] = [];
+        let title = "YOUR ORDER";
+        if (test) { lines = ["Kiosk printer test", new Date().toLocaleString("en-GB", { timeZone: "Europe/London" })]; title = "KIOSK TEST"; }
+        else {
+          const { data: o } = await admin.from("menu_orders").select("order_no, total, order_type").eq("id", order_id).maybeSingle();
+          const { data: its } = await admin.from("menu_order_items").select("name_snapshot, qty, modifiers_snapshot, note").eq("order_id", order_id);
+          if (!o) return json({ error: "order not found" }, 404);
+          title = "ORDER " + o.order_no;
+          lines = [
+            pay_mode === "counter" ? "PLEASE PAY AT THE COUNTER" : "PAID - THANK YOU",
+            "Total: £" + Number(o.total || 0).toFixed(2),
+            o.order_type === "dine_in" ? ("Eat in" + (table_no ? " - Table " + table_no : "")) : "Take away",
+            "",
+            ...(its || []).map((it: any) => `${it.qty} x ${it.name_snapshot}` + (Array.isArray(it.modifiers_snapshot) && it.modifiers_snapshot.length ? " (" + it.modifiers_snapshot.join(", ") + ")" : "") + (it.note ? " - " + it.note : "")),
+            "",
+            String(bn?.value || "Chocoberry") + " · " + new Date().toLocaleString("en-GB", { timeZone: "Europe/London" }),
+          ];
+        }
+        const r = await callSunmi({ action: "print-message", location_id, title, lines, sns: prs.map((p: any) => p.sn) });
+        return json({ ok: r.ok, printers: prs.length });
       }
       case "usb_printer_test": {
         const { sn, location_id } = data || {};

@@ -79,7 +79,18 @@ Deno.serve(async (req) => {
     // kitchen and were served with no payment taken. Until online ordering is
     // deliberately opened, refuse them.
     const hasTablet = tablet_no !== null && tablet_no !== undefined && String(tablet_no).trim() !== "";
-    if (!hasTablet && !qr_token && !isApp) {
+    // A licensed self-service kiosk orders with its device token (verified against kds_screens).
+    let kioskOk = false;
+    if (body.kiosk && device && device.key && device.secret && device.location_id) {
+      const { data: d } = await admin.from("kds_screens").select("screen_key, kind, status, device_secret_hash, location_id").eq("location_id", device.location_id).eq("screen_key", String(device.key)).maybeSingle();
+      if (d && d.status === "active" && d.kind === "kiosk" && d.device_secret_hash) {
+        const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(String(device.secret)));
+        const hex = Array.from(new Uint8Array(buf)).map((b) => b.toString(16).padStart(2, "0")).join("");
+        kioskOk = hex === d.device_secret_hash;
+      }
+      if (!kioskOk) return new Response(JSON.stringify({ error: "This kiosk isn't licensed. Ask staff to activate it." }), { status: 403, headers: { ...cors, "Content-Type": "application/json" } });
+    }
+    if (!hasTablet && !qr_token && !isApp && !kioskOk) {
       console.warn("place-order refused: no tablet_no, qr_token or customer", { order_type, pickup_name, items: items.length });
       return new Response(JSON.stringify({
         error: "Orders can only be placed on an in-store tablet or at the counter.",

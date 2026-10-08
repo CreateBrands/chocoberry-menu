@@ -1073,7 +1073,9 @@ Deno.serve(async (req) => {
         let q = supabase.from("printers").select("sn, station, location_id");
         const { data: printers } = await q;
         let targets = (printers || []).filter((p: any) => (p.station || "kitchen") === "kitchen");
-        if (body.location_id) {
+        // Explicit target list (e.g. a kiosk's own printer) wins over station/location scoping.
+        if (Array.isArray(body.sns) && body.sns.length) targets = (printers || []).filter((p: any) => body.sns.map(String).includes(String(p.sn)));
+        else if (body.location_id) {
           const scoped = targets.filter((p: any) => !p.location_id || p.location_id === body.location_id);
           if (scoped.length) targets = scoped;
         }

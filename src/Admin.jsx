@@ -2114,7 +2114,7 @@ export default function Admin() {
                         const devices = (state.kdsScreens || [])
                           .filter((k) => k.location_id === loc.id)
                           .sort((a, b) => String(a.screen_key).localeCompare(String(b.screen_key), undefined, { numeric: true }));
-                        const KIND = { kds: ["🍳", "Kitchen screen"], pos: ["🧾", "Till"], "kds+pos": ["🍳🧾", "Kitchen + till"] };
+                        const KIND = { kds: ["🍳", "Kitchen screen"], pos: ["🧾", "Till"], "kds+pos": ["🍳🧾", "Kitchen + till"], kiosk: ["🖥️", "Self-service kiosk"] };
                         const ago = (iso) => { if (!iso) return "never"; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 2 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
                         const online = (k) => k.last_seen_at && Date.now() - new Date(k.last_seen_at) < 3 * 60000;
                         return (
@@ -2138,7 +2138,7 @@ export default function Admin() {
                                       <span style={{ width: 9, height: 9, borderRadius: "50%", background: dot, flexShrink: 0 }} />
                                       <input defaultValue={k.label || ""} placeholder={"Screen " + k.screen_key} onBlur={(e) => { if ((e.target.value || "") !== (k.label || "")) act("device_set_kind", { location_id: loc.id, screen_key: k.screen_key, label: e.target.value }); }} style={{ fontSize: 13.5, fontWeight: 700, color: T.ink, border: "1px solid transparent", background: "transparent", borderRadius: 6, padding: "2px 6px", minWidth: 120 }} />
                                       <select value={k.kind || "kds"} onChange={(e) => act("device_set_kind", { location_id: loc.id, screen_key: k.screen_key, kind: e.target.value })} style={{ fontSize: 11.5, fontWeight: 600, border: "1px solid " + T.line, borderRadius: 8, padding: "4px 8px", background: T.bg, color: T.ink }}>
-                                        <option value="kds">Kitchen screen</option><option value="pos">Till</option><option value="kds+pos">Kitchen + till</option>
+                                        <option value="kds">Kitchen screen</option><option value="pos">Till</option><option value="kds+pos">Kitchen + till</option><option value="kiosk">Self-service kiosk</option>
                                       </select>
                                       <span style={{ fontSize: 11, color: T.faint }}>· id {k.screen_key}{k.station ? " · " + k.station : ""}{routing ? " · filtered" : ""}</span>
                                     </div>
@@ -2171,6 +2171,7 @@ export default function Admin() {
                               <button onClick={() => act("device_create", { location_id: loc.id, kind: "kds" })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kitchen screen</button>
                               <button onClick={() => act("device_create", { location_id: loc.id, kind: "pos" })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Till</button>
                               <button onClick={async () => { if (!window.confirm("Clear " + loc.name + "'s print queue? Pending jobs on its printers are dropped and open orders stop being re-pushed.")) return; const r = await callAdmin(pin, "clear_print_queue", { location_id: loc.id }); setMsg(r && r.ok ? "Print queue cleared · " + (r.orders_marked || 0) + " orders marked printed" : "Could not clear the queue"); }} style={{ fontSize: 12.5, color: T.danger, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px", marginLeft: "auto" }}>🧹 Clear print queue</button>
+                              <button onClick={() => act("device_create", { location_id: loc.id, kind: "kiosk" })} style={{ fontSize: 12.5, color: T.muted, background: T.card, border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kiosk</button>
                               <button onClick={() => act("device_create", { location_id: loc.id, kind: "kds+pos" })} style={{ fontSize: 12.5, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kitchen + till</button>
                             </div>
                           </div>

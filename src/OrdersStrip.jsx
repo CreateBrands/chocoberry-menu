@@ -56,6 +56,7 @@ function isDineIn(o) { return (o.order_type || "").toLowerCase().includes("dine"
 function orderSource(o) {
   const t = String(o.tablet_no || "").toLowerCase();
   const ch = String(o.channel || o.source || "").toLowerCase();
+  if (t.startsWith("kiosk")) return { kind: "kiosk", label: o.status === "hold" ? "Kiosk · pay" : "Kiosk" };
   if (t.includes("phone") || ch.includes("phone") || ch.includes("retell")) return { kind: "phone", label: "Phone" };
   if (t.includes("web") || ch.includes("web") || ch.includes("foodhub") || ch.includes("online")) return { kind: "web", label: "Web" };
   if (t === "pos" || ch.includes("pos") || ch.includes("counter")) return { kind: "counter", label: "Counter" };
@@ -63,6 +64,7 @@ function orderSource(o) {
 }
 // Clean inline SVG source icons (consistent set, no emoji).
 function srcIcon(kind, size = 15, color = "#5E7A4D") {
+  if (kind === "kiosk") kind = "counter";
   const p = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: color, strokeWidth: 1.9, strokeLinecap: "round", strokeLinejoin: "round", style: { flexShrink: 0 } };
   if (kind === "phone") return (<svg {...p}><path d="M6 3h3l2 5-2 1a12 12 0 0 0 5 5l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 4 5a2 2 0 0 1 2-2Z" /></svg>);
   if (kind === "web") return (<svg {...p}><circle cx="12" cy="12" r="9" /><line x1="3" y1="12" x2="21" y2="12" /><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18" /></svg>);

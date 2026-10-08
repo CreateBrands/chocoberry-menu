@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { ingredientsFromDescription } from "./ingredients.js";
 import { OrdersList, OrderDetailPanel } from "./OrdersStrip.jsx";
 import ServiceFeedback from "./ServiceFeedback.jsx";
 import { deviceToken } from "./device.js";
@@ -113,25 +114,6 @@ function tapFeedback() {
 // chips say "No mushrooms" rather than a generic "No onion".
 // "Two eggs any style, served with mushrooms, hash browns & baked beans" →
 // ["eggs", "mushrooms", "hash browns", "baked beans"]
-const STOP_WORDS = /^(a|an|the|of|with|and|or|our|your|served|topped|drizzled|finished|fresh|freshly|house|homemade|home-made|made|delicious|classic|signature|choice|side|style|any|two|three|one|in|on|to|for|from|&|plus|all|day|perfect|rich|creamy|crispy|warm|hot|cold|chilled|iced|sweet|light|large|small|regular|mini|big|new)$/i;
-function ingredientsFromDescription(desc, name) {
-  if (!desc) return [];
-  let d = String(desc).toLowerCase().replace(/\([^)]*\)/g, " ");
-  d = d.replace(/\b(served|topped|finished|drizzled|filled|stuffed|layered|garnished|paired|comes|accompanied)\s+(with|by)\b/g, ",").replace(/\bwith\b/g, ",").replace(/\s*&\s*/g, ",").replace(/\b(and|plus)\b/g, ",").replace(/[.;:!\/|•·\-–—]/g, ",").replace(/\n+/g, ",");
-  const parts = d.split(",").map((x) => x.trim()).filter(Boolean);
-  const out = [];
-  for (let part of parts) {
-    part = part.replace(/\b(a|an|the|of|our|your|choice of|side of|fresh|freshly|house|homemade|home-made|crispy|creamy|warm|hot|cold|rich|delicious|classic|signature|two|three|one|double|triple|large|small|mini|big|new|your choice|hearty|generous|tasty|yummy|famous|favourite|favorite|best|loaded|ultimate|special|premium|authentic|traditional)\b/g, " ").replace(/\s+/g, " ").trim();
-    if (/\b(breakfast|lunch|dinner|meal|dish|platter|plate|combo|feast|treat|dessert|experience|selection)\b/.test(part) && part.split(" ").length <= 2) continue; // "hearty breakfast" is not a component
-    const words = part.split(" ").filter((w) => w && !STOP_WORDS.test(w));
-    if (!words.length || words.length > 3) continue;
-    const phrase = words.join(" ");
-    if (phrase.length < 3 || phrase.length > 24) continue;
-    if (name && name.toLowerCase().includes(phrase)) continue; // the dish itself isn't a component
-    if (!out.includes(phrase)) out.push(phrase);
-  }
-  return out.slice(0, 8);
-}
 const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function POS({ loc, storeToken, tablesList = [] }) {
@@ -543,7 +525,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     // 'hold' is a half-started pay-now transaction, not a table owing money.
     // Counting them put 12 phantom entries and £111 of imaginary debt in this
     // list and made it disagree with the Orders screen, which excludes them.
-    .filter((o) => o.status !== "cancelled" && o.status !== "hold" && !o.paid_method)
+    .filter((o) => o.status !== "cancelled" && (o.status !== "hold" || /^KIOSK/i.test(String(o.tablet_no || ""))) && !o.paid_method)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   // Settled orders, newest first, shown under the unpaid ones so staff can
   // reopen or reprint a recent order without leaving the till screen.
