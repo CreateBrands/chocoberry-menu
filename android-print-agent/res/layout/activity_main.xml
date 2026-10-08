@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#FFFBF2">
+<LinearLayout android:orientation="vertical" android:padding="28dp" android:layout_width="match_parent" android:layout_height="wrap_content">
+    <TextView android:text="Print Agent" android:textSize="28sp" android:textStyle="bold" android:textColor="#1F2A24" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/sn" android:textColor="#5F6B63" android:textSize="14sp" android:layout_marginTop="4dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+    <TextView android:id="@+id/status" android:textSize="17sp" android:textStyle="bold" android:textColor="#344D42" android:layout_marginTop="18dp" android:padding="16dp" android:background="#DCEBD8" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+    <LinearLayout android:id="@+id/registeredBox" android:orientation="vertical" android:layout_marginTop="22dp" android:layout_width="match_parent" android:layout_height="wrap_content">
+        <TextView android:id="@+id/registeredText" android:textSize="16sp" android:textColor="#1F2A24" android:lineSpacingExtra="4dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <TextView android:id="@+id/usbInfo" android:textSize="14sp" android:textColor="#5F6B63" android:layout_marginTop="8dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/usbPerm" android:text="Allow access to the printer" android:layout_marginTop="12dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/test" android:text="Print a test slip" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/battery" android:text="Keep running in background" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/unregister" android:text="Set up again" style="?android:attr/borderlessButtonStyle" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+    </LinearLayout>
+
+    <LinearLayout android:id="@+id/setupBox" android:orientation="vertical" android:layout_marginTop="22dp" android:layout_width="match_parent" android:layout_height="wrap_content">
+        <TextView android:text="Store" android:textColor="#5F6B63" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <Spinner android:id="@+id/store" android:layout_width="match_parent" android:layout_height="52dp"/>
+        <TextView android:text="Printer name" android:textColor="#5F6B63" android:layout_marginTop="14dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <EditText android:id="@+id/label" android:hint="Till printer" android:inputType="text" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <TextView android:text="Station (kitchen, counter, pass…)" android:textColor="#5F6B63" android:layout_marginTop="14dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <EditText android:id="@+id/station" android:text="kitchen" android:inputType="text" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <TextView android:text="Store manager PIN" android:textColor="#5F6B63" android:layout_marginTop="14dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <EditText android:id="@+id/pin" android:inputType="numberPassword" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <Button android:id="@+id/register" android:text="Register this device as a printer" android:layout_marginTop="18dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <TextView android:text="Prints on the printer connected to this device (the Sunmi built-in printer or a USB printer). After registering, allow access to the printer when Android asks." android:textColor="#5F6B63" android:textSize="13sp" android:layout_marginTop="10dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+    </LinearLayout>
+</LinearLayout>
+</ScrollView>
