@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   // surface used by front-line staff, and gating every payment behind a PIN was
   // too much friction. Admin-panel actions still require the PIN below.
   const POS_ACTIONS = new Set([
-    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "refund_payment",
+    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "refund_payment", "print_refund_receipt",
     "remove_order_item", "set_order_item_qty", "void_fired_item",
     "set_order_type",
     "day_summary",
@@ -1203,9 +1203,18 @@ Deno.serve(async (req) => {
         const full = newRefunded + 0.001 >= paid;
         const { error } = await admin.from("menu_orders").update({ refund_total: newRefunded, refund_reason: reason ? String(reason).slice(0, 80) : null, refunded_at: new Date().toISOString(), refunded_by: mgr.name || "manager", ...(full ? { status: "refunded" } : {}) }).eq("id", order_id);
         if (error) throw error;
-        // Refund slip to the receipt printers (best effort).
-        try { await callSunmi({ action: "print-message", location_id: ord.location_id, title: "REFUND", lines: ["Order #" + ord.order_no, "Refunded: £" + amt.toFixed(2) + " (" + method + ")", reason ? "Reason: " + String(reason) : "", "By: " + (mgr.name || "manager"), new Date().toLocaleString("en-GB", { timeZone: "Europe/London" })].filter(Boolean) }); } catch {}
+        // Customer refund receipt (best effort), on the refunding till's printer.
+        try { await callSunmi({ action: "print-refund", order_id, amount: amt, method, reason: reason || null, by: mgr.name || "manager", location_id: ord.location_id, device_key: deviceTok && deviceTok.key ? String(deviceTok.key) : null }); } catch {}
         return json({ ok: true, refunded: amt, refund_total: newRefunded, full, by: mgr.name });
+      }
+      case "print_refund_receipt": {
+        const { order_id } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const { data: ord } = await admin.from("menu_orders").select("id, location_id, refund_total, refund_reason, refunded_by").eq("id", order_id).maybeSingle();
+        if (!ord || !(Number(ord.refund_total || 0) > 0)) return json({ ok: false, message: "No refund on this order" }, 404);
+        const { data: last } = await admin.from("order_payments").select("amount, method").eq("order_id", order_id).eq("kind", "refund").order("created_at", { ascending: false }).limit(1).maybeSingle();
+        const r = await callSunmi({ action: "print-refund", order_id, amount: last?.amount ?? ord.refund_total, method: last?.method || "cash", reason: ord.refund_reason || null, by: ord.refunded_by || "manager", location_id: ord.location_id, device_key: deviceTok && deviceTok.key ? String(deviceTok.key) : null });
+        return json(r.body || { ok: false });
       }
       case "order_payments_list": {
         const { order_id } = data || {};

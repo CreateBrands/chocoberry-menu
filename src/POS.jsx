@@ -363,6 +363,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const applyDiscount = (o, payload) => ordActionJson("apply_discount", { order_id: o.id, ...payload });
   const removeDiscount = (o, pin) => ordActionJson("remove_discount", { order_id: o.id, staff_pin: pin });
   const refundPayment = (o, payload) => ordActionJson("refund_payment", { order_id: o.id, ...payload });
+  const printRefundReceipt = (o) => ordActionJson("print_refund_receipt", { order_id: o.id });
   // Take a (possibly partial) payment. amount defaults to the full balance.
   const ordTakePayment = (o, method, amount, extra = {}) =>
     (method === "card" && teyaTerminal)
@@ -1119,7 +1120,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         {/* 3 — ORDER PANEL */}
         <div style={{ minWidth: 0, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(34,39,31,.05)" }}>
           {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
-            <OrderDetailPanel onDiscount={applyDiscount} onRemoveDiscount={removeDiscount} onRefund={refundPayment}
+            <OrderDetailPanel onDiscount={applyDiscount} onRemoveDiscount={removeDiscount} onRefund={refundPayment} onPrintRefund={printRefundReceipt}
               printingId={printingId}
               order={(payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : (orders || []).find((o) => o.id === selOrderId)}
               now={now}

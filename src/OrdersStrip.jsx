@@ -157,7 +157,7 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onRefund, printingId = null }) {
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onRefund, onPrintRefund, printingId = null }) {
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
@@ -574,7 +574,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5, color: "#2f6b4f", fontWeight: 700, marginBottom: 6 }}><span>Discount{o.discount_reason ? " · " + o.discount_reason : ""}{o.discount_type === "percent" ? " (" + Number(o.discount_value) + "%)" : ""}</span><span>−{money(discount)}{!isPaid && onRemoveDiscount && <span onClick={() => { const pin = window.prompt("Your PIN to remove the discount"); if (pin) onRemoveDiscount(o, pin); }} style={{ marginLeft: 10, color: C.sub, cursor: "pointer", fontWeight: 700 }}>✕</span>}</span></div>
       )}
       {refunded > 0 && (
-        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#b4462f", fontWeight: 700, marginBottom: 6 }}><span>Refunded{o.refund_reason ? " · " + o.refund_reason : ""}</span><span>−{money(refunded)}</span></div>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5, color: "#b4462f", fontWeight: 700, marginBottom: 6 }}><span>Refunded{o.refund_reason ? " · " + o.refund_reason : ""}</span><span>−{money(refunded)}{onPrintRefund && <span onClick={() => { onPrintRefund(o); setNote("Refund receipt sent to the printer"); }} style={{ marginLeft: 10, padding: "3px 8px", borderRadius: 7, border: "1px solid #e4b4ab", color: "#b4462f", cursor: "pointer", fontSize: 11.5 }}>Print receipt</span>}</span></div>
       )}
       {paidSoFar > 0 && !isPaid && (
         <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#C67A2C", fontWeight: 700, marginBottom: 6 }}><span>Part paid</span><span>{money(paidSoFar)} of {money(total)}</span></div>

@@ -1059,6 +1059,47 @@ Deno.serve(async (req) => {
         }
         return json({ ok: true });
       }
+      // ---- REFUND RECEIPT: customer copy, printed where the till prints receipts ----
+      case "print-refund": {
+        const { order_id, amount, method, reason, by, location_id, device_key } = body;
+        const { data: o } = await supabase.from("menu_orders").select("order_no, total, order_type, created_at, refund_total, pickup_name").eq("id", order_id).maybeSingle();
+        if (!o) return json({ error: "order not found" }, 404);
+        const { data: its } = await supabase.from("menu_order_items").select("name_snapshot, qty").eq("order_id", order_id);
+        const { data: bn } = await supabase.from("menu_app_settings").select("value").eq("key", "brand_name:" + String(location_id || "")).maybeSingle();
+        const { data: locRow } = await supabase.from("menu_locations").select("name").eq("id", String(location_id || "")).maybeSingle();
+        const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+        const r = new Receipt();
+        r.align(1).size(1, 1).bold(true).line(String(bn?.value || "Chocoberry")).bold(false).size(0, 0);
+        if (locRow?.name) r.line(String(locRow.name));
+        r.feed(1).size(0, 1).bold(true).line("REFUND RECEIPT").bold(false).size(0, 0).feed(1);
+        r.align(0).leftRight("Order", "#" + o.order_no).leftRight("Refunded on", when);
+        r.leftRight("Original order", new Date(o.created_at).toLocaleString("en-GB", { timeZone: "Europe/London" }));
+        r.divider();
+        for (const it of its || []) r.line(`${it.qty} x ${it.name_snapshot}`);
+        r.divider();
+        r.leftRight("Order total", "£" + Number(o.total || 0).toFixed(2));
+        r.size(0, 1).bold(true).leftRight("REFUNDED", "£" + Number(amount || 0).toFixed(2)).bold(false).size(0, 0);
+        r.leftRight("Refund to", method === "card" ? "Card (same card as paid)" : method === "cash" ? "Cash" : String(method || ""));
+        if (Number(o.refund_total || 0) > Number(amount || 0)) r.leftRight("Total refunded", "£" + Number(o.refund_total || 0).toFixed(2));
+        if (reason) r.line("Reason: " + String(reason));
+        r.line("Authorised by: " + String(by || "manager"));
+        r.feed(1).align(1).line("Please keep this as proof of refund.");
+        if (method === "card") r.line("Card refunds take 3-5 working days to appear.");
+        r.feed(2).cut();
+        const hex = r.toHex();
+        // Target: the printer tied to the device that did the refund, else receipt-role printers at the store, else the store's printers.
+        const { data: printers } = await supabase.from("printers").select("sn, print_role, print_receipt, source_screen_key, location_id, active").eq("active", true).eq("location_id", String(location_id || ""));
+        let targets = (printers || []).filter((p: any) => device_key && String(p.source_screen_key || "") === String(device_key));
+        if (!targets.length) targets = (printers || []).filter((p: any) => p.print_receipt === true || String(p.print_role || "").toLowerCase() === "receipt");
+        if (!targets.length) targets = printers || [];
+        const results: any[] = [];
+        for (const pr of targets) {
+          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), hex, { slip: "refund", max_batch: 0, order_id }); results.push({ sn: pr.sn, ok: q, local: true }); continue; }
+          const res = await sunmi.pushContent(String(pr.sn), "rfd" + Date.now() + String(pr.sn).slice(-4), hex);
+          results.push({ sn: pr.sn, ok: ok(res) });
+        }
+        return json({ ok: results.some((x) => x.ok), results });
+      }
       case "print-message": {
         const title = String(body.title || "NOTICE").slice(0, 40);
         const msgLines: string[] = Array.isArray(body.lines) ? body.lines.map((l: unknown) => String(l).slice(0, 46)) : [];
