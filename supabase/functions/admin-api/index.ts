@@ -254,7 +254,7 @@ Deno.serve(async (req) => {
       const { data: pays } = await admin.from("order_payments").select("order_id, method, amount, kind").in("order_id", ids.slice(i, i + 500));
       for (const p of pays || []) {
         const m = p.method === "cash" || p.method === "card" ? p.method : "other";
-        if ((p as any).kind === "refund") { refundTotal += Number(p.amount || 0); refundCount++; byMethod[m].amount -= Number(p.amount || 0); continue; }
+        if ((p as any).kind === "refund" || Number(p.amount || 0) < 0) { const a = Math.abs(Number(p.amount || 0)); refundTotal += a; refundCount++; byMethod[m].amount -= a; continue; }
         byMethod[m].amount += Number(p.amount || 0); byMethod[m].count++;
         paidByOrder[p.order_id] = (paidByOrder[p.order_id] || 0) + Number(p.amount || 0);
       }
@@ -1209,7 +1209,8 @@ Deno.serve(async (req) => {
         const refundedSoFar = Math.round(Number((ord as any).refund_total || 0) * 100) / 100;
         const refundable = Math.round((paid - refundedSoFar) * 100) / 100;
         if (amt > refundable + 0.001) return json({ ok: false, error: "too_much", message: "Only £" + refundable.toFixed(2) + " can be refunded on this order" }, 409);
-        const { error: pErr } = await admin.from("order_payments").insert({ order_id, method, amount: amt, kind: "refund", note: ("REFUND" + (reason ? ": " + String(reason).slice(0, 100) : "") + " · by " + (mgr.name || "manager")).slice(0, 120) });
+        // Refunds are negative ledger entries: the overpayment guard on order_payments lets them through and every sum stays honest.
+        const { error: pErr } = await admin.from("order_payments").insert({ order_id, method, amount: -amt, kind: "refund", note: ("REFUND" + (reason ? ": " + String(reason).slice(0, 100) : "") + " · by " + (mgr.name || "manager")).slice(0, 120) });
         if (pErr) throw pErr;
         const newRefunded = Math.round((refundedSoFar + amt) * 100) / 100;
         const full = newRefunded + 0.001 >= paid;
@@ -1225,7 +1226,7 @@ Deno.serve(async (req) => {
         const { data: ord } = await admin.from("menu_orders").select("id, location_id, refund_total, refund_reason, refunded_by").eq("id", order_id).maybeSingle();
         if (!ord || !(Number(ord.refund_total || 0) > 0)) return json({ ok: false, message: "No refund on this order" }, 404);
         const { data: last } = await admin.from("order_payments").select("amount, method").eq("order_id", order_id).eq("kind", "refund").order("created_at", { ascending: false }).limit(1).maybeSingle();
-        const r = await callSunmi({ action: "print-refund", order_id, amount: last?.amount ?? ord.refund_total, method: last?.method || "cash", reason: ord.refund_reason || null, by: ord.refunded_by || "manager", location_id: ord.location_id, device_key: deviceTok && deviceTok.key ? String(deviceTok.key) : null });
+        const r = await callSunmi({ action: "print-refund", order_id, amount: Math.abs(Number(last?.amount ?? ord.refund_total)), method: last?.method || "cash", reason: ord.refund_reason || null, by: ord.refunded_by || "manager", location_id: ord.location_id, device_key: deviceTok && deviceTok.key ? String(deviceTok.key) : null });
         return json(r.body || { ok: false });
       }
       case "order_payments_list": {
