@@ -18,7 +18,11 @@ const IDLE_GRACE_MS = 15000;  // then start over
 
 export default function Kiosk() {
   const dev = getDevice();
-  const loc = (dev && dev.location_id) || new URLSearchParams(window.location.search).get("loc") || null;
+  const urlLoc = new URLSearchParams(window.location.search).get("loc");
+  const saved = (() => { try { return localStorage.getItem("kiosk_loc"); } catch { return null; } })();
+  const loc = (dev && dev.location_id) || urlLoc || saved || null;
+  useEffect(() => { if (urlLoc) { try { localStorage.setItem("kiosk_loc", urlLoc); } catch {} } }, [urlLoc]);
+  const [pickStores, setPickStores] = useState(null);   // store list when nothing is set yet
   const [nonce, setNonce] = useState(0);        // bump = fresh App (clears the bag)
   const [idlePrompt, setIdlePrompt] = useState(false);
   const [taps, setTaps] = useState(0);
@@ -94,6 +98,34 @@ export default function Kiosk() {
   const card = { background: "#fff", color: "#111", borderRadius: 28, padding: "40px 44px", width: 560, maxWidth: "92vw", textAlign: "center", boxShadow: "0 30px 80px rgba(0,0,0,.4)" };
   const btn = (primary) => ({ padding: "16px 22px", borderRadius: 14, fontWeight: 800, fontSize: 18, cursor: "pointer", background: primary ? "#344D42" : "#f3f4f6", color: primary ? "#fff" : "#111", textAlign: "center" });
 
+  // No licence and no store yet: ask once, rather than showing every brand's menu.
+  useEffect(() => {
+    if (loc) return;
+    fetch(SUPABASE_URL + "/rest/v1/menu_locations?select=id,name&active=eq.true&order=name", { headers: H })
+      .then((r) => (r.ok ? r.json() : [])).then(setPickStores).catch(() => setPickStores([]));
+  }, [loc]);
+
+  if (!loc) {
+    return (
+      <div style={{ position: "fixed", inset: 0, background: "#FFFBF2", color: "#1F2A24", fontFamily: "'Hanken Grotesk',system-ui,sans-serif", display: "flex", alignItems: "center", justifyContent: "center", padding: 32 }}>
+        <div style={{ width: 620, maxWidth: "94vw", textAlign: "center" }}>
+          <div style={{ fontSize: 46 }}>🖥️</div>
+          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 900, fontSize: 32, marginTop: 8 }}>Which store is this kiosk in?</div>
+          <div style={{ fontSize: 17, color: "#5F6B63", marginTop: 8 }}>Pick the store to load its menu and branding. Activate the device in Admin → Devices to lock this in.</div>
+          <div style={{ display: "grid", gap: 10, marginTop: 26, maxHeight: "52vh", overflowY: "auto" }}>
+            {(pickStores || []).map((st) => (
+              <span key={st.id} onClick={() => { try { localStorage.setItem("kiosk_loc", st.id); } catch {} window.location.search = "?loc=" + st.id; }}
+                style={{ padding: "18px 16px", borderRadius: 14, background: "#fff", border: "1px solid rgba(52,77,66,.16)", fontWeight: 800, fontSize: 20, cursor: "pointer" }}>{st.name}</span>
+            ))}
+            {pickStores && pickStores.length === 0 && <div style={{ color: "#5F6B63" }}>Could not load the store list — check the connection.</div>}
+            {!pickStores && <div style={{ color: "#5F6B63" }}>Loading stores…</div>}
+          </div>
+          <a href="/activate" style={{ display: "inline-block", marginTop: 24, color: "#344D42", fontWeight: 700 }}>Activate this device instead ›</a>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ position: "fixed", inset: 0, overflow: "hidden" }}>
       <style>{"html,body{overscroll-behavior:none;touch-action:manipulation;-webkit-touch-callout:none}*{-webkit-tap-highlight-color:transparent}"}</style>
@@ -150,6 +182,7 @@ export default function Kiosk() {
             <div style={{ fontSize: 16, color: "#666", marginTop: 6 }}>{by} · {dev ? (dev.label || dev.key) : "unlicensed"}</div>
             <div style={{ display: "grid", gap: 10, marginTop: 24 }}>
               <span onClick={() => { setPanel(false); startOver(); }} style={btn(false)}>Clear the current order</span>
+              <span onClick={() => { try { localStorage.removeItem("kiosk_loc"); } catch {} exiting.current = true; window.location.search = ""; }} style={btn(false)}>Change store</span>
               <span onClick={() => { exiting.current = true; window.location.reload(); }} style={btn(false)}>Reload kiosk</span>
               <span onClick={async () => { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "kiosk_slip", data: { location_id: loc, test: true } }) }); setPanel(false); }} style={btn(false)}>Test slip on this kiosk's printer</span>
               <span onClick={() => { exiting.current = true; window.location.href = "/activate"; }} style={{ ...btn(false), color: "#b4462f" }}>Leave kiosk mode</span>
