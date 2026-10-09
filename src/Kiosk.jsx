@@ -38,10 +38,18 @@ export default function Kiosk() {
   useEffect(() => {
     const push = () => { try { history.pushState({ k: 1 }, "", window.location.href); } catch {} };
     push(); push();
-    const onPop = () => { push(); setTaps(0); };
+    // Android back (and the browser's) steps back inside the menu rather than
+    // leaving: the page re-pushes its history entry either way, so there is no
+    // way out, but navigating the menu still feels normal.
+    const onPop = () => {
+      push();
+      setTaps(0);
+      try { if (typeof window.__kioskBack === "function") window.__kioskBack(); } catch {}
+    };
     const onKey = (e) => {
       const k = (e.key || "").toLowerCase();
       if (k === "f5" || (e.ctrlKey && ["r", "w", "n", "t"].includes(k)) || (e.altKey && ["arrowleft", "arrowright"].includes(k))) { e.preventDefault(); e.stopPropagation(); }
+      if (k === "escape") { e.preventDefault(); try { if (typeof window.__kioskBack === "function") window.__kioskBack(); } catch {} }
     };
     const onCtx = (e) => e.preventDefault();
     // Only warn when there is something to lose: a half-built order. Setup

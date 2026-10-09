@@ -2062,6 +2062,21 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
 
   const openItem = (it) => { setSelItem(it); setScreen("item"); };
 
+  // The kiosk shell routes Android's back button here so it behaves like the
+  // on-screen back arrows: item → browse → welcome, and never leaves the app.
+  useEffect(() => {
+    if (!kiosk) return;
+    window.__kioskBack = () => {
+      const sc = screenRef.current;
+      if (sc === "item") { setScreen("browse"); return true; }
+      if (sc === "bag") { setScreen("browse"); return true; }
+      if (sc === "drawer") { setScreen("browse"); return true; }
+      if (sc === "browse") { setScreen("welcome"); return true; }
+      return false; // already at the welcome screen: nothing to go back to
+    };
+    return () => { try { delete window.__kioskBack; } catch {} };
+  }, [kiosk]);
+
   let heroSlides = [];
   try { heroSlides = settingsEff.hero_slides ? (typeof settingsEff.hero_slides === "string" ? JSON.parse(settingsEff.hero_slides) : settingsEff.hero_slides) : []; } catch { heroSlides = []; }
   const storeLocId = kioskStoreId || (store && (store.id || store.location_id));
