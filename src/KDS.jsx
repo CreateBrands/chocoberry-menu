@@ -368,7 +368,10 @@ export default function KDS({ surface = "kds" }) {
   const load = useCallback(async () => {
     try {
       let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,served_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
-        + "&status=in.(placed,preparing,ready,served)"
+        // 'hold' = placed on the kiosk, waiting for the customer to pay at the
+        // till. The kitchen sees it coming but must not start it; it becomes a
+        // normal ticket the moment payment flips it to 'placed'.
+        + "&status=in.(hold,placed,preparing,ready,served)"
         + "&closed_at=is.null&order=created_at.desc&limit=500";
       // Only today's trade: a busy day passed 200 open orders and the old
       // ascending limit silently dropped the NEWEST tickets. Fetch newest-first,
@@ -852,9 +855,15 @@ export default function KDS({ surface = "kds" }) {
           {active.map((o, i) => {
             const age = minsSince(clockStart(o), now);
             const round = roundOf(o);
-            const isRush = rushIds.has(o.id);
-            const isLate = age >= LATE_MIN;
-            const pal = isRush
+            // Waiting on payment: the clock has not started for the kitchen,
+            // so it is never rushed, never late, and never coloured by age —
+            // otherwise a customer dawdling at the till turns the board red.
+            const unpaidHold = o.status === "hold";
+            const isRush = !unpaidHold && rushIds.has(o.id);
+            const isLate = !unpaidHold && age >= LATE_MIN;
+            const pal = unpaidHold
+              ? { accent: "#64748b", tint: "#f8fafc", head: "#e2e8f0", headText: "#334155", body: "#475569", sub: "#64748b", rule: "#00000010" }
+              : isRush
               ? { accent: "#e11d48", tint: "#ffffff", head: "#ffe4e6", headText: "#881337", body: "#1f2937", sub: "#9f1239", rule: "#00000014" }
               : isLate
               ? { accent: "#dc2626", tint: "#ffffff", head: "#fee2e2", headText: "#7f1d1d", body: "#1f2937", sub: "#991b1b", rule: "#00000014" }
@@ -867,7 +876,13 @@ export default function KDS({ surface = "kds" }) {
             const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : o.order_type === "delivery" ? "Delivery" : "Takeaway");
             const note = (o.customer_note || "").trim();
             return (
-              <div key={o.id} className={"kcard" + (isRush ? " krush" : "") + (isLate ? " klate" : "")} style={{ background: pal.tint, color: pal.body, borderRadius: F(14), overflow: "hidden", border: "1px solid #d8dce2", borderLeft: "4px solid " + pal.accent, boxShadow: "0 1px 3px rgba(15,23,42,.08)", display: "flex", flexDirection: "column" }}>
+              <div key={o.id} className={"kcard" + (isRush ? " krush" : "") + (isLate ? " klate" : "")} style={{ background: pal.tint, color: pal.body, borderRadius: F(14), overflow: "hidden", border: "1px solid " + (unpaidHold ? "#cbd5e1" : "#d8dce2"), borderLeft: "4px solid " + pal.accent, boxShadow: "0 1px 3px rgba(15,23,42,.08)", display: "flex", flexDirection: "column", ...(unpaidHold ? { borderStyle: "dashed", borderLeftStyle: "solid", opacity: .92 } : null) }}>
+                {unpaidHold && (
+                  <div style={{ background: "#475569", color: "#f8fafc", fontWeight: 800, fontSize: F(12), letterSpacing: ".08em", textTransform: "uppercase", padding: F(6) + "px " + F(12) + "px", display: "flex", justifyContent: "space-between", gap: 8 }}>
+                    <span>Waiting for payment</span>
+                    <span style={{ fontWeight: 700, opacity: .85 }}>Do not start</span>
+                  </div>
+                )}
                 <div style={{ background: pal.head, color: pal.headText, padding: "0 " + F(12) + "px 0 0", display: "flex", justifyContent: "space-between", alignItems: "stretch", minHeight: F(64) }}>
                   {typeBlock(o, F)}
                   <div style={{ padding: F(8) + "px 0", flex: 1, minWidth: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
@@ -896,7 +911,9 @@ export default function KDS({ surface = "kds" }) {
                     {o.print_failed && <div style={{ marginTop: 4, display: "inline-flex", alignItems: "center", gap: 5, background: "#dc2626", color: "#fff", fontSize: F(11), fontWeight: 800, padding: "2px 8px", borderRadius: 6, letterSpacing: ".02em" }}>⚠ NOT PRINTED</div>}
                   </div>
                   <div style={{ textAlign: "right", flex: "none", marginLeft: 8, display: "flex", flexDirection: "column", justifyContent: "center" }}>
-                    <div className="ktime" style={{ fontWeight: 900, fontSize: F(19), fontVariantNumeric: "tabular-nums", color: "#fff", background: pal.accent, letterSpacing: "-.02em", padding: "2px " + F(9) + "px", borderRadius: 8, display: "inline-block", lineHeight: 1.3 }}>{fmtClock(clockStart(o), now)}</div>
+                    {/* A held ticket shows no clock: the kitchen's time starts
+                        when it is paid for, not when the customer tapped. */}
+                    <div className="ktime" style={{ fontWeight: 900, fontSize: F(19), fontVariantNumeric: "tabular-nums", color: "#fff", background: pal.accent, letterSpacing: "-.02em", padding: "2px " + F(9) + "px", borderRadius: 8, display: "inline-block", lineHeight: 1.3 }}>{unpaidHold ? "UNPAID" : fmtClock(clockStart(o), now)}</div>
                     <div style={{ fontSize: F(10), opacity: .9, fontWeight: 700, marginTop: 3 }}>{items.length ? doneCount + "/" + items.length + " done" : ""}{o.status === "preparing" ? " " + DOT + " prep" : ""}</div>
                   </div>
                 </div>

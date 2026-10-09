@@ -1678,8 +1678,18 @@ Deno.serve(async (req) => {
         const { order_id, location_id, pay_mode, table_no, test } = data || {};
         const key = deviceTok && deviceTok.key ? String(deviceTok.key) : null;
         if (!location_id || !key) return json({ error: "kiosk device required" }, 400);
-        const { data: prs } = await admin.from("printers").select("sn").eq("location_id", location_id).eq("active", true).eq("source_screen_key", key);
-        if (!prs || !prs.length) return json({ ok: false, error: "no_printer", message: "No printer is tied to this kiosk (Admin → Printers → Prints orders from)" });
+        // A printer tied to this kiosk wins. Without one the slip used to be
+        // dropped silently, so a store with a perfectly good counter printer
+        // sent customers to the till with nothing in their hand — fall back to
+        // the store's receipt printer, then to any printer it has.
+        const { data: all } = await admin.from("printers")
+          .select("sn, print_receipt, print_role, station, source_screen_key")
+          .eq("location_id", location_id).eq("active", true);
+        const mine = (all || []).filter((p: any) => String(p.source_screen_key || "") === key);
+        const receipts = (all || []).filter((p: any) => p.print_receipt === true || String(p.print_role || "").toLowerCase() === "receipt");
+        const counter = (all || []).filter((p: any) => String(p.station || "") === "counter");
+        const prs = mine.length ? mine : receipts.length ? receipts : counter.length ? counter : (all || []);
+        if (!prs.length) return json({ ok: false, error: "no_printer", message: "This store has no active printer, so the kiosk slip could not print." });
         const { data: bn } = await admin.from("menu_app_settings").select("value").eq("key", "brand_name:" + location_id).maybeSingle();
         let lines: string[] = [];
         let title = "YOUR ORDER";
