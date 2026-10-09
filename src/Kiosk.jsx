@@ -137,7 +137,7 @@ export default function Kiosk() {
       <style>{"html,body{overscroll-behavior:none;touch-action:manipulation;-webkit-touch-callout:none}*{-webkit-tap-highlight-color:transparent}"}</style>
 
       {/* the menu itself — identical to the tablet */}
-      <App key={nonce} kiosk kioskDevice={dev} />
+      <App key={nonce} kiosk kioskDevice={dev} kioskLoc={loc} />
 
       {/* hidden staff corners: 3 taps on ANY corner */}
       {[["top", "left"], ["top", "right"], ["bottom", "left"], ["bottom", "right"]].map(([v, h]) => (

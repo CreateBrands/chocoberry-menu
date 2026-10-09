@@ -1695,7 +1695,9 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
   );
 }
 
-export default function App({ kiosk = false, kioskDevice = null }) {
+export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null }) {
+  // The kiosk's store: its licence if it has one, otherwise the store staff picked.
+  const kioskStoreId = kiosk ? ((kioskDevice && kioskDevice.location_id) || kioskLoc || null) : null;
   const [screen, setScreen] = useState("welcome");
   const screenRef = useRef("welcome");
   useEffect(() => { screenRef.current = screen; }, [screen]);
@@ -1920,7 +1922,7 @@ export default function App({ kiosk = false, kioskDevice = null }) {
     const dineIn = kiosk ? !!kioskDine : ((tableMode === "pick" || tableMode === "fixed") && table);
     const payload = {
       qr_token: kiosk ? null : (getStoreToken() || null),
-      location_id: kiosk && kioskDevice ? kioskDevice.location_id : undefined,
+      location_id: kioskStoreId || undefined,
       table_id: !kiosk && dineIn ? table.id : null,
       order_type: dineIn ? "dine_in" : "takeaway",
       requires_table: !kiosk && tableMode === "pick",
@@ -2017,7 +2019,7 @@ export default function App({ kiosk = false, kioskDevice = null }) {
     // It only swaps in fresh menu DATA; it never disturbs the customer's bag or
     // which screen they're on.
     const refreshMenu = () => {
-      fetchLive(token, kiosk && kioskDevice ? kioskDevice.location_id : null).then((res) => {
+      fetchLive(token, kioskStoreId).then((res) => {
         if (!alive || !res || !res.menus || !res.menus.length) return;
         setMenus(res.menus);
         setStore(res.store || null);
@@ -2062,7 +2064,7 @@ export default function App({ kiosk = false, kioskDevice = null }) {
 
   let heroSlides = [];
   try { heroSlides = settingsEff.hero_slides ? (typeof settingsEff.hero_slides === "string" ? JSON.parse(settingsEff.hero_slides) : settingsEff.hero_slides) : []; } catch { heroSlides = []; }
-  const storeLocId = (kiosk && kioskDevice ? kioskDevice.location_id : null) || (store && (store.id || store.location_id));
+  const storeLocId = kioskStoreId || (store && (store.id || store.location_id));
   const settingsEff = applyStoreOverrides(settings, storeLocId);
   const themeVars = THEMES[settingsEff.theme] || THEMES.still;
   const themeBg = settings.theme === "chocoberry"
