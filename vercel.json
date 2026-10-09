@@ -17,11 +17,24 @@
           "value": "application/json"
         }
       ]
+    },
+    {
+      "source": "/apps/(.*).apk",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/vnd.android.package-archive"
+        },
+        {
+          "key": "Content-Disposition",
+          "value": "attachment"
+        }
+      ]
     }
   ],
   "rewrites": [
     {
-      "source": "/((?!manifest.*\\.webmanifest|icon-.*\\.png|sw\\.js|assets/|\\.well-known/).*)",
+      "source": "/((?!manifest.*\\.webmanifest|icon-.*\\.png|sw\\.js|apps/|assets/|\\.well-known/).*)",
       "destination": "/"
     }
   ]

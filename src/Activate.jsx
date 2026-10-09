@@ -57,6 +57,9 @@ export default function Activate({ reason }) {
         )}
         <div style={{ marginTop: 26, fontSize: 12, color: "#94a3b8", textAlign: "center" }}>v{APP_VERSION}</div>
       </div>
-    </div>
+      <div style={{ marginTop: 22, textAlign: "center", fontSize: 13 }}>
+        <a href="/apps/" style={{ color: C.muted, textDecoration: "none", fontWeight: 600 }}>Device apps — kiosk &amp; printing ›</a>
+      </div>
+</div>
   );
 }
