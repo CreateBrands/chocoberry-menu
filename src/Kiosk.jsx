@@ -68,7 +68,11 @@ export default function Kiosk() {
   const [done, setDone] = useState(null);          // { order_no, total }
   const [idlePrompt, setIdlePrompt] = useState(false);
   const [staffTaps, setStaffTaps] = useState(0);
-  const [staffPanel, setStaffPanel] = useState(false);
+  const [staffPanel, setStaffPanel] = useState(false);   // true once a PIN is accepted
+  const [staffGate, setStaffGate] = useState(false);     // PIN pad showing
+  const [staffPin, setStaffPin] = useState("");
+  const [staffErr, setStaffErr] = useState("");
+  const [staffBy, setStaffBy] = useState("");
   const lastActivity = useRef(Date.now());
 
   const theme = THEMES[settings.theme] || THEMES.chocoberry;
@@ -107,10 +111,45 @@ export default function Kiosk() {
     const mine = Array.from(document.querySelectorAll('script[type="module"]')).map((x) => x.getAttribute("src")).find((x) => x && x.includes("/assets/"));
     if (!mine) return;
     const id = setInterval(async () => {
-      try { const r = await fetch("/index.html?u=" + Date.now(), { cache: "no-store" }); const html = await r.text(); const m = html.match(/src="(\/assets\/index-[^"]+\.js)"/); if (m && !mine.endsWith(m[1]) && screen === "attract") window.location.reload(); } catch {}
+      try { const r = await fetch("/index.html?u=" + Date.now(), { cache: "no-store" }); const html = await r.text(); const m = html.match(/src="(\/assets\/index-[^"]+\.js)"/); if (m && !mine.endsWith(m[1]) && screen === "attract") { exitingRef.current = true; window.location.reload(); } } catch {}
     }, 120000);
     return () => clearInterval(id);
   }, [screen]);
+
+  // ---- Kiosk lock ----
+  // Nobody can leave the kiosk without a staff PIN: the back gesture is swallowed
+  // (a history entry is re-pushed each time), pull-to-refresh and the context menu
+  // are disabled, and F5/Ctrl+R/Alt+Left are ignored. Staff exit through the
+  // hidden corner → PIN → "Leave kiosk mode".
+  useEffect(() => {
+    const push = () => { try { history.pushState({ kiosk: true }, "", window.location.href); } catch {} };
+    push(); push();
+    const onPop = () => { push(); setStaffTaps(0); };
+    const onKey = (e) => {
+      const k = (e.key || "").toLowerCase();
+      if (k === "f5" || (e.ctrlKey && (k === "r" || k === "w" || k === "n" || k === "t")) || (e.altKey && (k === "arrowleft" || k === "arrowright")) || k === "browserback") { e.preventDefault(); e.stopPropagation(); }
+    };
+    const onCtx = (e) => e.preventDefault();
+    const onBeforeUnload = (e) => { if (!exitingRef.current) { e.preventDefault(); e.returnValue = ""; return ""; } };
+    window.addEventListener("popstate", onPop);
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("contextmenu", onCtx);
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => { window.removeEventListener("popstate", onPop); window.removeEventListener("keydown", onKey, true); window.removeEventListener("contextmenu", onCtx); window.removeEventListener("beforeunload", onBeforeUnload); };
+  }, []);
+  const exitingRef = useRef(false);
+
+  // Staff PIN check: any team member of this store, or a manager PIN.
+  async function checkStaffPin(pin) {
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "staff_lookup", data: { pin, location_id: loc } }) });
+      const j = await r.json().catch(() => ({}));
+      if (j && j.ok) return { ok: true, name: j.name };
+      const r2 = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "manager_pin_check", data: { location_id: loc, manager_pin: pin } }) });
+      const j2 = await r2.json().catch(() => ({}));
+      return j2 && j2.ok ? { ok: true, name: "Manager" } : { ok: false };
+    } catch { return { ok: false }; }
+  }
 
   function reset() { setBag([]); setSheet(null); setOrderType(null); setTableNo(""); setDone(null); setIdlePrompt(false); setAvoid([]); setScreen("attract"); setLowered(false); }
 
@@ -177,10 +216,10 @@ export default function Kiosk() {
 
   return (
     <div style={S.root}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;900&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap'); *{box-sizing:border-box} .ktile:active{transform:scale(.97)} .kbtn:active{transform:scale(.97)} ::-webkit-scrollbar{display:none} @keyframes kfade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;900&family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap'); html,body{overscroll-behavior:none;touch-action:manipulation;-webkit-touch-callout:none} *{box-sizing:border-box;-webkit-tap-highlight-color:transparent} .ktile:active{transform:scale(.97)} .kbtn:active{transform:scale(.97)} ::-webkit-scrollbar{display:none} @keyframes kfade{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}`}</style>
 
       {/* Hidden staff corner: 5 taps */}
-      <div onClick={() => { setStaffTaps((n) => { if (n + 1 >= 5) { setStaffPanel(true); return 0; } return n + 1; }); }} style={{ position: "absolute", top: 0, left: 0, width: 90, height: 90, zIndex: 50 }} />
+      <div onClick={() => { setStaffTaps((n) => { if (n + 1 >= 5) { setStaffGate(true); setStaffPin(""); setStaffErr(""); return 0; } return n + 1; }); }} style={{ position: "absolute", top: 0, left: 0, width: 90, height: 90, zIndex: 50 }} />
 
       <div style={lowerWrap}>
         {/* ---------- ATTRACT ---------- */}
@@ -410,16 +449,46 @@ export default function Kiosk() {
         </div>
       )}
 
+      {/* staff PIN gate */}
+      {staffGate && (
+        <div onClick={() => setStaffGate(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.72)", zIndex: 80, display: "flex", alignItems: "center", justifyContent: "center" }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", color: "#111", borderRadius: 32, padding: "44px 48px", width: 620, textAlign: "center" }}>
+            <div style={{ fontSize: 44 }}>🔒</div>
+            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 900, fontSize: 32, marginTop: 6 }}>Staff only</div>
+            <div style={{ fontSize: 20, color: "#666", marginTop: 8 }}>Enter your punch-in PIN to open kiosk settings.</div>
+            <div style={{ display: "flex", gap: 12, justifyContent: "center", margin: "26px 0 20px" }}>{[0, 1, 2, 3].map((i) => <span key={i} style={{ width: 18, height: 18, borderRadius: "50%", background: i < staffPin.length ? (staffErr ? "#b4462f" : "#111") : "#e5e7eb" }} />)}{staffPin.length > 4 && <span style={{ color: "#666", fontSize: 18 }}>+{staffPin.length - 4}</span>}</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
+              {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "✓"].map((k) => (
+                <span key={k} onClick={async () => {
+                  if (k === "⌫") { setStaffPin((p) => p.slice(0, -1)); setStaffErr(""); return; }
+                  if (k === "✓") {
+                    if (staffPin.length < 4) return;
+                    const r = await checkStaffPin(staffPin);
+                    if (r.ok) { setStaffBy(r.name || "Staff"); setStaffGate(false); setStaffPanel(true); setStaffPin(""); }
+                    else { setStaffErr("PIN not recognised"); setStaffPin(""); }
+                    return;
+                  }
+                  setStaffPin((p) => (p + k).slice(0, 8)); setStaffErr("");
+                }} style={{ padding: "22px 0", borderRadius: 16, background: k === "✓" ? (staffPin.length >= 4 ? "#16a34a" : "#e5e7eb") : "#f3f4f6", color: k === "✓" && staffPin.length >= 4 ? "#fff" : "#111", fontSize: 28, fontWeight: 900, cursor: "pointer", userSelect: "none" }}>{k}</span>
+              ))}
+            </div>
+            {staffErr && <div style={{ color: "#b4462f", fontWeight: 800, fontSize: 20, marginTop: 16 }}>{staffErr}</div>}
+            <div onClick={() => setStaffGate(false)} style={{ marginTop: 22, color: "#666", fontWeight: 700, fontSize: 20, cursor: "pointer" }}>Cancel</div>
+          </div>
+        </div>
+      )}
+
       {/* staff panel */}
       {staffPanel && (
         <div onClick={() => setStaffPanel(false)} style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,.6)", zIndex: 70, display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", color: "#111", borderRadius: 28, padding: 40, width: 640 }}>
             <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 900, fontSize: 30 }}>Kiosk · staff</div>
-            <div style={{ fontSize: 18, color: "#666", marginTop: 6 }}>{brand} · {dev ? dev.label || dev.key : "unlicensed"} · {menus.reduce((n, m) => n + m.cats.reduce((k, c) => k + c.items.length, 0), 0)} items</div>
+            <div style={{ fontSize: 18, color: "#666", marginTop: 6 }}>{staffBy} · {brand} · {dev ? dev.label || dev.key : "unlicensed"} · {menus.reduce((n, m) => n + m.cats.reduce((k, c) => k + c.items.length, 0), 0)} items</div>
             <div style={{ display: "grid", gap: 12, marginTop: 24 }}>
-              <span className="kbtn" onClick={() => window.location.reload()} style={{ ...S.btn(false), fontSize: 24, padding: 20 }}>Reload kiosk</span>
+              <span className="kbtn" onClick={() => { exitingRef.current = true; window.location.reload(); }} style={{ ...S.btn(false), fontSize: 24, padding: 20 }}>Reload kiosk</span>
               <span className="kbtn" onClick={() => { fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "kiosk_slip", data: { location_id: loc, test: true } }) }); setStaffPanel(false); }} style={{ ...S.btn(false), fontSize: 24, padding: 20 }}>Test slip on this kiosk's printer</span>
-              <span className="kbtn" onClick={() => setStaffPanel(false)} style={{ ...S.btn(true), fontSize: 24, padding: 20 }}>Close</span>
+              <span className="kbtn" onClick={() => { exitingRef.current = true; window.location.href = "/activate"; }} style={{ ...S.btn(false), fontSize: 24, padding: 20, color: "#b4462f", border: "2px solid #e4b4ab" }}>Leave kiosk mode</span>
+              <span className="kbtn" onClick={() => { setStaffPanel(false); setStaffBy(""); }} style={{ ...S.btn(true), fontSize: 24, padding: 20 }}>Back to ordering</span>
             </div>
           </div>
         </div>
