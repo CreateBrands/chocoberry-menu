@@ -1110,18 +1110,31 @@ Deno.serve(async (req) => {
         for (const l of msgLines) r.line(l);
         r.feed(1).align(1).line(when).feed(2).cut();
         const hex = r.toHex();
-        // Target kitchen printers (optionally scoped to a location's printers).
-        let q = supabase.from("printers").select("sn, station, location_id");
-        const { data: printers } = await q;
-        let targets = (printers || []).filter((p: any) => (p.station || "kitchen") === "kitchen");
-        // Explicit target list (e.g. a kiosk's own printer) wins over station/location scoping.
-        if (Array.isArray(body.sns) && body.sns.length) targets = (printers || []).filter((p: any) => body.sns.map(String).includes(String(p.sn)));
-        else if (body.location_id) {
-          const scoped = targets.filter((p: any) => !p.location_id || p.location_id === body.location_id);
-          if (scoped.length) targets = scoped;
+        // WHICH PRINTERS. The store comes first and is never widened: a VOID
+        // for one café must not reach another's kitchen. This used to filter by
+        // station first and fall back to every printer we own when nothing
+        // matched, so a store with no "kitchen" printer sent its voids to
+        // whichever other store had one.
+        const { data: printers } = await supabase
+          .from("printers").select("sn, station, location_id, active").eq("active", true);
+        const all = printers || [];
+        let targets: any[];
+        if (Array.isArray(body.sns) && body.sns.length) {
+          // Explicit target list (e.g. a kiosk's own printer) wins outright.
+          const want = body.sns.map(String);
+          targets = all.filter((p: any) => want.includes(String(p.sn)));
+        } else if (body.location_id) {
+          const mine = all.filter((p: any) => String(p.location_id || "") === String(body.location_id));
+          const kitchen = mine.filter((p: any) => (p.station || "kitchen") === "kitchen");
+          // No kitchen printer at this store: its other printers, never another store's.
+          targets = kitchen.length ? kitchen : mine;
+        } else {
+          // No store given: a kitchen-wide notice. Still only kitchen printers.
+          targets = all.filter((p: any) => (p.station || "kitchen") === "kitchen");
         }
+        if (!targets.length) return json({ ok: true, printed: [], note: "no printer matched" });
         const results = [];
-        for (const pr of (targets.length ? targets : (printers || []))) {
+        for (const pr of targets) {
           if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), hex, { slip: "message", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true }); continue; }
           const res = await sunmi.pushContent(String(pr.sn), "msg" + Date.now() + String(pr.sn).slice(-4), hex);
           results.push({ sn: pr.sn, ok: ok(res) });

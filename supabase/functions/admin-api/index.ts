@@ -1246,7 +1246,7 @@ Deno.serve(async (req) => {
         if (!order_id || !order_item_id) return json({ error: "order_id and order_item_id required" }, 400);
         if (!reason) return json({ error: "reason required" }, 400);
         const { data: ord, error: oErr } = await admin
-          .from("menu_orders").select("id, paid_method, order_no, table_id, tablet_no").eq("id", order_id).single();
+          .from("menu_orders").select("id, paid_method, order_no, table_id, tablet_no, location_id").eq("id", order_id).single();
         if (oErr || !ord) return json({ error: "order not found" }, 404);
         if (ord.paid_method) return json({ error: "already_paid", message: "Paid orders can't be edited. Mark unpaid first." }, 409);
         // Grab the line for the audit snapshot before deleting.
@@ -1267,7 +1267,9 @@ Deno.serve(async (req) => {
         try {
           const pr = await callSunmi({
             action: "print-message",
-            location_id: (data && data.location_id) || null,
+            // The order's own store, not just whatever the caller sent: a void
+            // with no location used to fan out to every kitchen printer we own.
+            location_id: (data && data.location_id) || ord.location_id || null,
             title: "*** VOID ***",
             lines: [
               "Order #" + (ord.order_no ?? ""),
