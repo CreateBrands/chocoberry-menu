@@ -184,6 +184,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   }, [oid, initialMode]); // eslint-disable-line
   // Sheets (declared before any early return so hook order is stable)
   const [moveTable, setMoveTable] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);   // the overflow sheet
   const [dsc, setDsc] = useState(null);   // { type: "percent"|"amount", value, reason, pin }
   const [rfd, setRfd] = useState(null);   // { amount, method, reason, pin }
   const [sheetErr, setSheetErr] = useState("");
@@ -263,6 +264,39 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   );
 
   // ── MOVE TABLE (overlay, independent of the panel mode) ──
+  // Everything that isn't the one action staff take a hundred times a day.
+  // Keeping it in a sheet means the bar is a fixed height however many
+  // actions exist — the old row shrank every button each time one was added
+  // until the last two spilled off the panel.
+  const MoreSheet = () => !moreOpen ? null : (() => {
+    const close = () => setMoreOpen(false);
+    const Item = ({ label, hint, danger, onPick }) => (
+      <span onClick={() => { close(); onPick(); }}
+        style={{ display: "flex", alignItems: "center", gap: 10, padding: "15px 14px", borderRadius: 12, background: "#fff", border: "1.5px solid " + (danger ? "#e4b4ab" : C.line), color: danger ? "#b4462f" : C.ink, fontWeight: 700, fontSize: 14.5, cursor: "pointer" }}>
+        {label}{hint && <em style={{ marginLeft: "auto", fontStyle: "normal", fontWeight: 600, fontSize: 12, color: C.sub }}>{hint}</em>}
+      </span>
+    );
+    return (
+      <div onClick={close} style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,.45)", zIndex: 40, display: "flex", alignItems: "flex-end" }}>
+        <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", background: "#fff", borderRadius: "18px 18px 0 0", padding: 16, maxHeight: "86%", overflowY: "auto" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <span style={{ fontWeight: 700, fontSize: 15 }}>Order #{o.order_no}</span>
+            <span onClick={close} style={{ marginLeft: "auto", cursor: "pointer", fontWeight: 800 }}>✕</span>
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {!isPaid && <Item label="Edit order" hint="adds to the kitchen" onPick={() => setMode("edit")} />}
+            {!isPaid && onDiscount && <Item label={discount > 0 ? "Change discount · −" + money(discount) : "Apply discount"} hint="PIN" onPick={() => { setDsc({ type: "percent", value: discount > 0 ? Number(o.discount_value) : 0, reason: o.discount_reason || "", pin: "" }); setSheetErr(""); }} />}
+            {isPaid && onRefund && paidSoFar - refunded > 0.001 && <Item label="Refund" hint={money(paidSoFar - refunded) + " taken"} danger onPick={() => { setRfd({ amount: "", method: o.paid_method === "card" ? "card" : "cash", reason: "", pin: "" }); setSheetErr(""); }} />}
+            {isPaid && <Item label="Mark unpaid" hint="undo the payment" onPick={() => onUnpaid(o)} />}
+            <Item label={o.menu_tables && o.menu_tables.label ? "Move from " + o.menu_tables.label : "Put on a table"} onPick={() => setMoveTable(true)} />
+            <Item label={isPaid ? "Print receipt" : "Print slip"} onPick={() => { if (printingId !== o.id) onReprint(o); }} />
+            {onFeedback && <Item label="Log feedback" hint="how it went" onPick={() => onFeedback(o)} />}
+          </div>
+        </div>
+      </div>
+    );
+  })();
+
   const MoveSheet = () => !moveTable ? null : (
     <div onClick={() => setMoveTable(false)} style={{ position: "absolute", inset: 0, background: "rgba(15,23,42,.45)", zIndex: 40, display: "flex", alignItems: "flex-end" }}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", width: "100%", borderRadius: "18px 18px 0 0", padding: 16, maxHeight: "85%", overflowY: "auto" }}>
@@ -276,7 +310,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     </div>
   );
   const Wrap = (children) => (
-    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", fontFamily: "'Hanken Grotesk',sans-serif", color: C.ink, position: "relative" }}>{children}<MoveSheet /></div>
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#fff", fontFamily: "'Hanken Grotesk',sans-serif", color: C.ink, position: "relative" }}>{children}<MoveSheet /><MoreSheet /></div>
   );
 
   // ── METHOD PICKER ──
@@ -640,32 +674,32 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22 }}>{money(isPaid ? total : remaining)}</span>
       </div>
       {isPaid ? (
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ flex: 1, padding: "12px 13px", borderRadius: 12, background: "#e6ecdd", color: C.paidText, fontWeight: 700, fontSize: 13.5, display: "flex", alignItems: "center", gap: 7 }}>{o.paid_method === "cash" ? Ico.cash(15) : Ico.card(15)} Paid{o.is_split ? " · Split" : o.paid_method === "cash" ? " · Cash" : " · Card"}</div>
-          {onFeedback && <span onClick={() => onFeedback(o)} title="Log how this table went" style={{ padding: "12px 13px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, color: C.ink, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>🙂 Feedback</span>}
-          {onRefund && paidSoFar - refunded > 0.001 && <span onClick={() => { setRfd({ amount: "", method: o.paid_method === "card" ? "card" : "cash", reason: "", pin: "" }); setSheetErr(""); }} style={{ padding: "12px 14px", borderRadius: 12, background: "#fff", border: "1.5px solid #e4b4ab", color: "#b4462f", fontWeight: 800, fontSize: 13, cursor: "pointer" }}>Refund</span>}
-          <span onClick={() => onUnpaid(o)} style={{ padding: "12px 15px", borderRadius: 12, background: "#fff", border: "1.5px solid " + C.line, color: C.ink, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Undo</span>
+        // Paid: the status is a label, not a button. Printing the receipt is
+        // what staff actually reach for next, so that is the primary; refund,
+        // undo and the rest sit in the sheet.
+        <div style={{ display: "flex", gap: 8, alignItems: "stretch" }}>
+          <div style={{ flex: "none", padding: "12px 13px", borderRadius: 12, background: "#e6ecdd", color: C.paidText, fontWeight: 700, fontSize: 13, display: "flex", alignItems: "center", gap: 7 }}>{o.paid_method === "cash" ? Ico.cash(15) : Ico.card(15)} Paid{o.is_split ? " · Split" : o.paid_method === "cash" ? " · Cash" : " · Card"}</div>
           {(() => {
             // A silent button is why staff pressed it repeatedly and got a
-            // stack of slips. It now says what it is doing and refuses a
-            // second press while the first is still going.
+            // stack of slips. It says what it is doing and refuses a second
+            // press while the first is still going.
             const p = printingId === o.id;
             return (
               <span onClick={() => { if (!p) onReprint(o); }}
-                style={{ padding: "11px 13px", borderRadius: 12, background: p ? "#e6ecdd" : "#fff", border: "1.5px solid " + C.line, cursor: p ? "default" : "pointer", display: "flex", alignItems: "center", gap: 6, fontWeight: 700, fontSize: 12.5, color: "#2f6b4f", opacity: p ? .7 : 1 }}>
-                {Ico.printer(16)} {p ? "Sending…" : "Print"}
+                style={{ flex: 1, padding: "12px 0", borderRadius: 12, background: p ? "#e6ecdd" : "#fff", border: "1.5px solid " + C.line, cursor: p ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, fontWeight: 700, fontSize: 13, color: "#2f6b4f", opacity: p ? .7 : 1 }}>
+                {Ico.printer(16)} {p ? "Sending…" : "Receipt"}
               </span>
             );
           })()}
+          <span onClick={() => setMoreOpen(true)} title="More actions" style={{ width: 54, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 12, fontWeight: 800, fontSize: 17, letterSpacing: ".06em", cursor: "pointer" }}>•••</span>
         </div>
       ) : (
+        // One primary action at full width; everything else lives in the
+        // sheet, so adding a ninth action changes a list, not this bar.
         <div style={{ display: "flex", gap: 8 }}>
           <span onClick={() => setMode("method")} style={{ flex: 1, textAlign: "center", background: "#5E7A4D", color: "#fff", padding: "14px 0", borderRadius: 13, fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Take payment</span>
-          <span onClick={() => setMode("edit")} style={{ padding: "14px 17px", background: "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>Edit</span>
-          {onDiscount && <span onClick={() => { setDsc({ type: "percent", value: discount > 0 ? Number(o.discount_value) : 0, reason: o.discount_reason || "", pin: "" }); setSheetErr(""); }} style={{ padding: "14px 14px", background: discount > 0 ? "#e6ecdd" : "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>{discount > 0 ? "−" + money(discount) : "Discount"}</span>}
-          {onFeedback && <span onClick={() => onFeedback(o)} title="Log how this table went" style={{ padding: "14px 13px", background: "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 700, fontSize: 13.5, cursor: "pointer" }}>🙂</span>}
-          <span onClick={() => { if (printingId !== o.id) onReprint(o); }}
-            style={{ padding: "12px 14px", background: printingId === o.id ? "#e6ecdd" : "#fff", border: "1.5px solid " + C.line, borderRadius: 13, cursor: printingId === o.id ? "default" : "pointer", display: "flex", alignItems: "center", opacity: printingId === o.id ? .7 : 1 }}>{Ico.printer(17)}</span>
+          {discount > 0 && <span style={{ padding: "14px 12px", background: "#e6ecdd", color: "#2f6b4f", borderRadius: 13, fontWeight: 800, fontSize: 13, display: "flex", alignItems: "center" }}>−{money(discount)}</span>}
+          <span onClick={() => setMoreOpen(true)} title="More actions" style={{ width: 54, flex: "none", display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "1.5px solid " + C.line, color: C.ink, borderRadius: 13, fontWeight: 800, fontSize: 17, letterSpacing: ".06em", cursor: "pointer" }}>•••</span>
         </div>
       )}
     </div>
