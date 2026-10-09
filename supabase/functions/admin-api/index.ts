@@ -1683,18 +1683,30 @@ Deno.serve(async (req) => {
         let title = "YOUR ORDER";
         if (test) { lines = ["Kiosk printer test", new Date().toLocaleString("en-GB", { timeZone: "Europe/London" })]; title = "KIOSK TEST"; }
         else {
-          const { data: o } = await admin.from("menu_orders").select("order_no, total, order_type").eq("id", order_id).maybeSingle();
+          const { data: o } = await admin.from("menu_orders").select("order_no, total, order_type, discount_amount").eq("id", order_id).maybeSingle();
+          const { data: lr } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle();
+          const locRowName = lr?.name || "";
           const { data: its } = await admin.from("menu_order_items").select("name_snapshot, qty, modifiers_snapshot, note").eq("order_id", order_id);
           if (!o) return json({ error: "order not found" }, 404);
           title = "ORDER " + o.order_no;
+          const due = Number(o.total || 0) - Number((o as any).discount_amount || 0);
           lines = [
-            pay_mode === "counter" ? "PLEASE PAY AT THE COUNTER" : "PAID - THANK YOU",
-            "Total: £" + Number(o.total || 0).toFixed(2),
-            o.order_type === "dine_in" ? ("Eat in" + (table_no ? " - Table " + table_no : "")) : "Take away",
+            ...(pay_mode === "counter" ? [
+              "********************************",
+              "*  NOT PAID YET  *",
+              "*  PAY AT THE COUNTER  *",
+              "********************************",
+              "",
+              "AMOUNT TO PAY:  £" + due.toFixed(2),
+              "Show this slip at the till.",
+              "We start making it once it's paid.",
+            ] : ["PAID - THANK YOU", "Total: £" + due.toFixed(2)]),
             "",
+            o.order_type === "dine_in" ? ("Eat in" + (table_no ? "  -  TABLE " + table_no : "")) : ("Take away" + (data?.name ? "  -  " + String(data.name).toUpperCase() : "")),
+            "--------------------------------",
             ...(its || []).map((it: any) => `${it.qty} x ${it.name_snapshot}` + (Array.isArray(it.modifiers_snapshot) && it.modifiers_snapshot.length ? " (" + it.modifiers_snapshot.join(", ") + ")" : "") + (it.note ? " - " + it.note : "")),
-            "",
-            String(bn?.value || "Chocoberry") + " · " + new Date().toLocaleString("en-GB", { timeZone: "Europe/London" }),
+            "--------------------------------",
+            String(bn?.value || "Chocoberry") + (locRowName ? " · " + locRowName : "") + " · " + new Date().toLocaleString("en-GB", { timeZone: "Europe/London" }),
           ];
         }
         const r = await callSunmi({ action: "print-message", location_id, title, lines, sns: prs.map((p: any) => p.sn) });

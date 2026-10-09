@@ -1590,14 +1590,17 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
 }
 
 
-function Confirm({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDine = null, kioskTable = "" }) {
+function Confirm({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDine = null, kioskTable = "", kioskTotal = 0 }) {
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '460px', left: '40px', top: '70px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.17),transparent 68%)', filter: 'blur(8px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
       <div style={{position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '90px 48px 0'}}>
         <div style={{width: '104px', height: '104px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F7F4EC', boxShadow: '0 18px 42px -10px rgba(94,122,77,.5)'}}><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7"></path></svg></div>
-        <div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '42px', lineHeight: '1.08', marginTop: '28px'}}>{kiosk ? "Please pay at the counter" : "We're on it" + (pickupName ? ', ' + pickupName : '') + "."}</div>
-        <div style={{fontSize: '16px', color: 'var(--muted)', marginTop: '14px', lineHeight: '1.6'}}>{kiosk ? <>Show your order number at the till.<br />We'll start making it as soon as it's paid.{kioskDine && kioskTable ? <><br />Table {kioskTable}.</> : null}</> : <>Your order has been sent to the kitchen.<br />Please pay at the counter.</>}</div>
+        <div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '42px', lineHeight: '1.08', marginTop: '28px'}}>{kiosk ? "Pay at the counter" : "We're on it" + (pickupName ? ', ' + pickupName : '') + "."}</div>
+        <div style={{fontSize: '16px', color: 'var(--muted)', marginTop: '14px', lineHeight: '1.6'}}>{kiosk ? <>Take your slip to the till and pay.<br /><b style={{ color: "var(--ink)" }}>We start making it once it's paid.</b>{kioskDine && kioskTable ? <><br />Table {kioskTable}.</> : null}{!kioskDine && pickupName ? <><br />We'll call "{pickupName}".</> : null}</> : <>Your order has been sent to the kitchen.<br />Please pay at the counter.</>}</div>
+        {kiosk && kioskTotal > 0 && (
+          <div style={{ marginTop: 28, padding: "18px 34px", borderRadius: 999, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 30 }}>To pay: {money(kioskTotal)}</div>
+        )}
         <div style={{display: 'flex', gap: '30px', marginTop: '40px', flexWrap: 'wrap', justifyContent: 'center'}}>
           {pickupName ? (<div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>NAME</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{pickupName}</div></div>) : null}
           {pickupName ? <div style={{width: '1px', background: 'var(--line)'}}></div> : null}
@@ -1774,6 +1777,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   useEffect(() => { linesRef.current = lines; }, [lines]);
   const [pickupName, setPickupName] = useState("");
   const [orderNo, setOrderNo] = useState(null);
+  const [lastTotal, setLastTotal] = useState(0);
   const [appendOrderId, setAppendOrderId] = useState(null); // set when adding to an existing order
   const appendOrderIdRef = useRef(null);
   useEffect(() => { appendOrderIdRef.current = appendOrderId; }, [appendOrderId]);
@@ -1998,6 +2002,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
       setLastOrderId(resp.order_id);
       setAppendOrderId(null); // adding (if any) is now done
       const placedLines = lines; // snapshot for the session-history entry below
+      setLastTotal(placedLines.reduce((s2, l) => s2 + (l.unit || l.item.price || 0) * l.qty, 0));
       setLines([]);              // empty the bag immediately so it can't be placed again
       setSessionOrders((prev) => [{
         no: formatOrderNo(resp.order_no),
@@ -2008,6 +2013,13 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         total: placedLines.reduce((s2, l) => s2 + (l.unit || l.item.price || 0) * l.qty, 0),
         items: placedLines.map((l) => ({ name: l.item.name, qty: l.qty, mods: (l.mods || []).map((m) => m.name) })),
       }, ...prev]);
+      // Kiosk: print the numbered "pay at the counter" slip on the kiosk's printer.
+      if (kiosk && kioskStoreId) {
+        fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+          method: "POST", headers: H,
+          body: JSON.stringify({ pos: true, device: deviceToken(), action: "kiosk_slip", data: { order_id: resp.order_id, location_id: kioskStoreId, pay_mode: "counter", table_no: kioskDine ? kioskTable : null, name: !kioskDine ? pickupName : null } }),
+        }).catch(() => {});
+      }
       setScreen("confirm");
     } catch (e) {
       // NEVER show a confirmation for an order the server did not accept.
@@ -2191,7 +2203,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     if (!kiosk && orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
             }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
             {orderingOn && tableMode === "pick" && screen === "welcome" && (
