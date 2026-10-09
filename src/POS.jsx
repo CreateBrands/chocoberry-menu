@@ -396,6 +396,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const ordSetQty = (o, iid, qty) => ordAction("set_order_item_qty", { order_id: o.id, order_item_id: iid, qty });
   const ordSetType = (o, order_type) => ordAction("set_order_type", { order_id: o.id, order_type });
   const ordSetTable = (o, table_id) => ordActionJson("set_order_table", { order_id: o.id, table_id });
+  // Void the whole order: manager PIN, a reason, and a VOID chit to the
+  // kitchen. Refuses once money has been taken — that is a refund.
+  const ordVoidOrder = (o, reason, manager_pin) => ordActionJson("void_order", { order_id: o.id, reason, manager_pin });
   // Void a single already-fired item, with a reason (prints a VOID chit).
   const ordVoidFired = (o, iid, reason) => ordAction("void_fired_item", { order_id: o.id, order_item_id: iid, reason, location_id: loc || null });
   // A customer receipt belongs at the COUNTER, not on the kitchen printer.
@@ -1156,7 +1159,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         {/* 3 — ORDER PANEL */}
         <div style={{ minWidth: 0, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(34,39,31,.05)" }}>
           {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
-            <OrderDetailPanel onDiscount={applyDiscount} onRemoveDiscount={removeDiscount} onRefund={refundPayment} onPrintRefund={printRefundReceipt} onSetTable={ordSetTable} tables={tablesList}
+            <OrderDetailPanel onDiscount={applyDiscount} onRemoveDiscount={removeDiscount} onRefund={refundPayment} onPrintRefund={printRefundReceipt} onSetTable={ordSetTable} onVoidOrder={ordVoidOrder} tables={tablesList}
               printingId={printingId}
               order={(payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : (orders || []).find((o) => o.id === selOrderId)}
               now={now}

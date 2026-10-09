@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
     "device_activate", "device_heartbeat", "device_claim_legacy", "manager_pin_check",
-    "open_drawer",
+    "open_drawer", "void_order",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   // Device enforcement: when the caller sends a device token it must be active,
@@ -1160,6 +1160,56 @@ Deno.serve(async (req) => {
           } catch (e) { console.error("drawer kick failed", e); }
         }
         return json({ ok: true, paid: paidNow, remaining: Math.max(0, remaining), fully_paid: fullyPaid, is_split: isSplit, methods: [...distinctMethods], drawer });
+      }
+
+      // ---- TILL: void a whole order ----
+      // Manager authority, not staff: voiding the lot is how a sale
+      // disappears. A paid order is refunded, never voided — otherwise the
+      // money taken and the sales figures stop agreeing.
+      case "void_order": {
+        const { order_id, reason, manager_pin } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        if (!reason || String(reason).trim().length < 2) return json({ error: "reason required", message: "Give a reason for the void." }, 400);
+        const { data: ord } = await admin.from("menu_orders")
+          .select("id, order_no, location_id, status, total, discount_amount, amount_paid, paid_method").eq("id", order_id).maybeSingle();
+        if (!ord) return json({ error: "order not found" }, 404);
+        if (ord.status === "cancelled") return json({ ok: true, already: true });
+        const paid = Math.round(Number(ord.amount_paid || 0) * 100) / 100;
+        if (paid > 0 || ord.paid_method) {
+          return json({ error: "already_paid", message: "Money has been taken on this order — refund it instead of voiding." }, 409);
+        }
+        const mgr = await managerForPin(manager_pin, ord.location_id);
+        if (!mgr.ok) return json({ error: "bad_pin", message: "A manager PIN is needed to void an order." }, 403);
+
+        const { data: its } = await admin.from("menu_order_items").select("id, name_snapshot, qty").eq("order_id", order_id);
+        const worth = Math.round((Number(ord.total || 0) - Number((ord as any).discount_amount || 0)) * 100) / 100;
+        await admin.from("order_voids").insert({
+          order_id, location_id: ord.location_id, order_no: ord.order_no,
+          items_total: worth, item_count: (its || []).length,
+          reason: String(reason).slice(0, 200), voided_by: mgr.name || null,
+          screen_key: deviceTok && deviceTok.key ? String(deviceTok.key) : null,
+        }).then(() => {}, () => {});
+        const { error } = await admin.from("menu_orders").update({
+          status: "cancelled", cancelled_at: new Date().toISOString(),
+          cancelled_by: mgr.name || null, cancel_reason: String(reason).slice(0, 200),
+        }).eq("id", order_id);
+        if (error) throw error;
+
+        // Tell the kitchen, in case any of it is already being made.
+        try {
+          await callSunmi({
+            action: "print-message", location_id: ord.location_id,
+            title: "*** ORDER VOID ***",
+            lines: [
+              "Order #" + (ord.order_no ?? ""),
+              (its || []).length + " item(s) · " + "GBP " + worth.toFixed(2),
+              "Reason: " + String(reason).slice(0, 60),
+              "DO NOT MAKE / STOP",
+              mgr.name ? "By: " + mgr.name : "",
+            ].filter(Boolean),
+          });
+        } catch (e) { console.error("void chit failed", e); }
+        return json({ ok: true, by: mgr.name || null, order_no: ord.order_no });
       }
 
       // ---- TILL: no sale — open the drawer for change or the float ----

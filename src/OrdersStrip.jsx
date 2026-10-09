@@ -157,8 +157,8 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onRefund, onPrintRefund, onSetTable, tables = [], printingId = null }) {
-  // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onRefund, onPrintRefund, onSetTable, onVoidOrder, tables = [], printingId = null }) {
+  // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason | voidOrder
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
   const [cashTyped, setCashTyped] = useState("");   // manually typed tender
@@ -185,6 +185,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   // Sheets (declared before any early return so hook order is stable)
   const [moveTable, setMoveTable] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);   // the overflow sheet
+  const [vo, setVo] = useState({ reason: "", pin: "", busy: false });  // void-order sheet
   const [dsc, setDsc] = useState(null);   // { type: "percent"|"amount", value, reason, pin }
   const [rfd, setRfd] = useState(null);   // { amount, method, reason, pin }
   const [sheetErr, setSheetErr] = useState("");
@@ -291,6 +292,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
             <Item label={o.menu_tables && o.menu_tables.label ? "Move from " + o.menu_tables.label : "Put on a table"} onPick={() => setMoveTable(true)} />
             <Item label={isPaid ? "Print receipt" : "Print slip"} onPick={() => { if (printingId !== o.id) onReprint(o); }} />
             {onFeedback && <Item label="Log feedback" hint="how it went" onPick={() => onFeedback(o)} />}
+            {!isPaid && onVoidOrder && <Item label="Void whole order" hint="manager PIN" danger onPick={() => { setVo({ reason: "", pin: "", busy: false }); setSheetErr(""); setMode("voidOrder"); }} />}
           </div>
         </div>
       </div>
@@ -511,6 +513,49 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   }
 
   // ── VOID REASON (item already fired) ──
+  // Void the whole order. Reason then manager PIN — a void is the one till
+  // action that makes a sale vanish, so it is never a single tap.
+  if (mode === "voidOrder") {
+    const reasons = ["Wrong order", "Customer left", "Duplicate order", "Kitchen can't make it", "Test order"];
+    const ready = vo.reason && vo.pin.length >= 4;
+    return Wrap(<>
+      {HeaderBar("Void order")}
+      <div style={{ padding: 16, flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+          <span onClick={() => { setMode("detail"); setVo({ reason: "", pin: "", busy: false }); setSheetErr(""); }} style={{ cursor: "pointer" }}>{Ico.back()}</span>
+          <span style={{ fontWeight: 700, fontSize: 15 }}>Void order #{o.order_no}?</span>
+        </div>
+        <div style={{ background: "#F7E8E8", borderRadius: 11, padding: "11px 13px", marginBottom: 14 }}>
+          <div style={{ fontWeight: 700, fontSize: 14, color: C.danger }}>{money(total)} · {(o.menu_order_items || o.items || []).length || "—"} item(s)</div>
+          <div style={{ fontSize: 11.5, color: "#8a5a5a", marginTop: 3 }}>The whole order is cancelled and a VOID chit prints so the kitchen stops. It stays on the Z-report as a void.</div>
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Reason</div>
+        <div style={{ display: "grid", gap: 8, marginBottom: 16 }}>
+          {reasons.map((r) => (
+            <div key={r} onClick={() => setVo({ ...vo, reason: r })}
+              style={{ padding: "14px 15px", borderRadius: 12, background: vo.reason === r ? "#F7E8E8" : "#fff", border: "1.5px solid " + (vo.reason === r ? "#e4b4ab" : C.line), fontWeight: 700, fontSize: 14, color: vo.reason === r ? C.danger : C.ink, cursor: "pointer" }}>{r}</div>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Manager PIN</div>
+        <input value={vo.pin} onChange={(e) => { setVo({ ...vo, pin: e.target.value.replace(/\D/g, "").slice(0, 8) }); setSheetErr(""); }}
+          inputMode="numeric" type="password" placeholder="••••"
+          style={{ width: "100%", boxSizing: "border-box", padding: "14px 16px", fontSize: 20, letterSpacing: ".3em", textAlign: "center", borderRadius: 12, border: "1.5px solid " + C.line, background: "#fafaf7", fontFamily: "'Poppins',sans-serif" }} />
+        {sheetErr && <div style={{ color: C.danger, fontSize: 13, marginTop: 10, fontWeight: 700 }}>{sheetErr}</div>}
+        <div
+          onClick={async () => {
+            if (!ready || vo.busy) return;
+            setVo({ ...vo, busy: true }); setSheetErr("");
+            const r = await onVoidOrder(o, vo.reason, vo.pin);
+            if (r && r.ok) { setVo({ reason: "", pin: "", busy: false }); setMode("detail"); setNote("Order voided · " + vo.reason); }
+            else { setVo({ ...vo, busy: false }); setSheetErr((r && (r.message || r.error)) || "Could not void the order."); }
+          }}
+          style={{ marginTop: 18, padding: "16px 0", textAlign: "center", borderRadius: 13, background: ready ? "#b4462f" : "#d8ccc8", color: "#fff", fontWeight: 800, fontSize: 15, cursor: ready ? "pointer" : "default", opacity: vo.busy ? .6 : 1 }}>
+          {vo.busy ? "Voiding…" : !vo.reason ? "Pick a reason" : vo.pin.length < 4 ? "Manager PIN" : "Void order " + money(total)}
+        </div>
+      </div>
+    </>);
+  }
+
   if (mode === "voidReason" && voidItem) {
     const reasons = ["Wrong order", "Customer changed mind", "86'd / out of stock", "Kitchen delay", "Duplicate"];
     return Wrap(<>
