@@ -161,6 +161,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
+  const [cashTyped, setCashTyped] = useState("");   // manually typed tender
   const payingRef = useRef(false);                     // in-flight payment latch
   const [paying, setPaying] = useState(false);         // local; `busy` is a prop
   const isBusy = busy || paying;
@@ -179,7 +180,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     if (initialMode === "method") setMode("method");
     else setMode("detail");
     // reset transient inputs for the newly-shown order
-    setCashGiven(null); setSplitAmt(""); setEvenGiven(null); setPickIds({}); setVoidItem(null); setNote("");
+    setCashGiven(null); setCashTyped(""); setSplitAmt(""); setEvenGiven(null); setPickIds({}); setVoidItem(null); setNote("");
   }, [oid, initialMode]); // eslint-disable-line
   // Sheets (declared before any early return so hook order is stable)
   const [moveTable, setMoveTable] = useState(false);
@@ -226,7 +227,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     if (res && res.ok === false) { setNote("Payment failed — try again."); return res; }
     if (res && res.fully_paid) { /* parent closes panel */ return res; }
     // partial: reset transient inputs, stay on detail with updated remaining
-    setCashGiven(null); setSplitAmt(""); setEvenGiven(null);
+    setCashGiven(null); setCashTyped(""); setSplitAmt(""); setEvenGiven(null);
     setNote(res && res.remaining != null ? ("£" + Number(res.remaining).toFixed(2) + " left to pay") : "");
     setMode("detail");
     return res;
@@ -289,7 +290,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
           <span style={{ marginLeft: "auto", textAlign: "right" }}><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>BALANCE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 20 }}>{money(remaining)}</div></span>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-          <div onClick={() => { setMode("cash"); setCashGiven(null); }} style={{ padding: "28px 0", borderRadius: 14, background: "#5E7A4D", color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.cash(22, "#fff")} Cash</div>
+          <div onClick={() => { setMode("cash"); setCashGiven(null); setCashTyped(""); }} style={{ padding: "28px 0", borderRadius: 14, background: "#5E7A4D", color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.cash(22, "#fff")} Cash</div>
           <div onClick={() => { if (!isBusy) pay("card", remaining); }} style={{ padding: "28px 0", borderRadius: 14, background: C.paidGreen, color: "#fff", textAlign: "center", cursor: "pointer", fontWeight: 700, fontSize: 17, opacity: isBusy ? .6 : 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 7 }}>{Ico.card(22, "#fff")} Card</div>
         </div>
         <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, margin: "18px 2px 9px" }}>Split the bill</div>
@@ -320,7 +321,13 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     const due = remaining;
     const given = cashGiven == null ? 0 : cashGiven;
     const change = Math.max(0, given - due);
-    const quick = [...new Set([Math.ceil(due), Math.ceil(due / 5) * 5, Math.ceil(due / 10) * 10, due])].filter((v) => v >= due).slice(0, 3);
+    // What a customer actually hands over. Top row adapts to the total:
+    // the exact money first, then the next pound, then the next five. The
+    // notes row is fixed so staff learn its positions, and anything odd
+    // (a handful of coins, a £100) gets typed in.
+    const r2 = (v) => Math.round(v * 100) / 100;
+    const smart = [...new Set([r2(due), Math.ceil(due), Math.ceil(due / 5) * 5])].filter((v) => v >= due - 0.001).slice(0, 3);
+    const notes = [5, 10, 20, 50].filter((v) => v >= due - 0.001 && !smart.includes(v));
     return Wrap(<>
       {HeaderBar("Cash")}
       <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto" }}>
@@ -330,10 +337,42 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
           <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: "#2f6b4f", fontWeight: 700 }}>CHANGE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, color: "#2f6b4f" }}>{money(change)}</div></div>
         </div>
         <div style={{ textAlign: "center", marginBottom: 12 }}><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>TENDERED</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 30 }}>{cashGiven == null ? "—" : money(given)}</div></div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 9, marginBottom: 10 }}>
-          {quick.map((v) => (<div key={v} onClick={() => setCashGiven(v)} style={{ padding: "13px 0", borderRadius: 11, background: given === v ? "#e6ecd9" : "#efeadf", border: given === v ? "1.5px solid #5E7A4D" : "1.5px solid transparent", textAlign: "center", fontWeight: 700, fontSize: 15, color: "#33402f", cursor: "pointer" }}>£{Number(v).toFixed(2).replace(/\.00$/, "")}</div>))}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(" + Math.max(1, smart.length) + ",1fr)", gap: 9, marginBottom: 9 }}>
+          {smart.map((v, i) => (
+            <div key={"s" + v} onClick={() => { setCashGiven(v); setCashTyped(""); }}
+              style={{ padding: "13px 0", borderRadius: 11, background: given === v ? "#e6ecd9" : "#efeadf", border: given === v ? "1.5px solid #5E7A4D" : "1.5px solid transparent", textAlign: "center", fontWeight: 700, fontSize: 15, color: "#33402f", cursor: "pointer" }}>
+              £{Number(v).toFixed(2).replace(/\.00$/, "")}
+              {i === 0 && <div style={{ fontSize: 9.5, fontWeight: 700, color: C.sub, letterSpacing: ".06em" }}>EXACT</div>}
+            </div>
+          ))}
         </div>
-        <div onClick={() => { if (cashGiven != null && !isBusy) pay("cash", due, { tendered: given }); }} style={{ padding: "15px 0", borderRadius: 13, background: cashGiven == null ? "#c9ccc0" : "#5E7A4D", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: cashGiven == null ? "default" : "pointer" }}>Confirm cash</div>
+        {notes.length > 0 && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(" + notes.length + ",1fr)", gap: 9, marginBottom: 9 }}>
+            {notes.map((v) => (
+              <div key={"n" + v} onClick={() => { setCashGiven(v); setCashTyped(""); }}
+                style={{ padding: "11px 0", borderRadius: 11, background: given === v ? "#e6ecd9" : "#f5f2ea", border: given === v ? "1.5px solid #5E7A4D" : "1.5px solid #e6e2d6", textAlign: "center", fontWeight: 700, fontSize: 14, color: "#5a6350", cursor: "pointer" }}>£{v}</div>
+            ))}
+          </div>
+        )}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <span style={{ fontSize: 11, fontWeight: 700, color: C.sub, letterSpacing: ".06em", flex: "none" }}>OR TYPE</span>
+          <input
+            value={cashTyped}
+            onChange={(e) => {
+              const t = e.target.value.replace(/[^0-9.]/g, "").replace(/(\..*)\./g, "$1");
+              setCashTyped(t);
+              const n = parseFloat(t);
+              setCashGiven(Number.isFinite(n) && n > 0 ? r2(n) : null);
+            }}
+            inputMode="decimal" placeholder="0.00"
+            style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "11px 12px", fontSize: 17, fontWeight: 700, textAlign: "right", borderRadius: 11, border: "1.5px solid #e6e2d6", background: "#fff", fontFamily: "'Poppins',sans-serif" }} />
+        </div>
+        {cashGiven != null && given < due - 0.001 && (
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: "#9a3412", marginBottom: 9 }}>
+            Short by {money(r2(due - given))} — this will be recorded as a part payment.
+          </div>
+        )}
+        <div onClick={() => { if (cashGiven != null && !isBusy) pay("cash", Math.min(due, given), { tendered: given }); }} style={{ padding: "15px 0", borderRadius: 13, background: cashGiven == null ? "#c9ccc0" : "#5E7A4D", color: "#fff", textAlign: "center", fontWeight: 700, fontSize: 15, cursor: cashGiven == null ? "default" : "pointer" }}>Confirm cash</div>
       </div>
     </>);
   }
