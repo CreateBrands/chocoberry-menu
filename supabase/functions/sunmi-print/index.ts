@@ -47,6 +47,10 @@ function asKitchenTicket(order: ReceiptOrder): ReceiptOrder {
   delete o.total;
   delete o.amount_paid;
   delete o.paid_method;
+  // The mapped receipt uses camelCase; the snake_case deletes above never
+  // matched anything. A kitchen ticket carries no money either way.
+  delete o.amountPaid;
+  delete o.paidMethod;
   delete o.discount_value;
   o.isKitchenTicket = true;
   return o as ReceiptOrder;
@@ -317,6 +321,8 @@ async function loadReceiptOrder(
     items,
     subtotal: num(rec.subtotal),
     total: num(rec.total),
+    amountPaid: num((rec as any).amount_paid) || undefined,
+    paidMethod: (rec as any).paid_method ? String((rec as any).paid_method) : undefined,
     discount: num((rec as any).discount_amount) || undefined,
     discountLabel: (rec as any).discount_reason ? String((rec as any).discount_reason) : ((rec as any).discount_type === "percent" ? Number((rec as any).discount_value) + "% off" : undefined),
     notes: rec.customer_note ? String(rec.customer_note) : undefined,

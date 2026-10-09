@@ -136,9 +136,31 @@ function receiptTree(o: ReceiptOrder): Node {
     ...(typeof o.discount === "number" && o.discount > 0
       ? [row("Discount" + (o.discountLabel ? " · " + o.discountLabel : ""), "-" + gbp(o.discount))]
       : []),
-    ...(typeof o.total === "number"
-      ? [row("Amount due", gbp(Math.max(0, o.total - (typeof o.discount === "number" ? o.discount : 0))), { fontWeight: 700, fontSize: 30 }, { fontWeight: 700, fontSize: 30 })]
-      : []),
+    // Money line. A receipt handed over after payment must not still say
+    // "Amount due" — show what was taken and how, and only ask for the
+    // balance that is genuinely outstanding.
+    ...(() => {
+      if (typeof o.total !== "number") return [];
+      const due = Math.max(0, o.total - (typeof o.discount === "number" ? o.discount : 0));
+      const paid = typeof o.amountPaid === "number" ? o.amountPaid : 0;
+      const left = Math.round((due - paid) * 100) / 100;
+      const big = { fontWeight: 700, fontSize: 30 };
+      const method = o.paidMethod ? o.paidMethod.replace(/_/g, " ").toUpperCase() : "";
+      if (paid > 0 && left <= 0.001) {
+        return [
+          row("Total", gbp(due), big, big),
+          row("PAID" + (method ? " · " + method : ""), gbp(paid), { fontWeight: 700 }, { fontWeight: 700 }),
+        ];
+      }
+      if (paid > 0) {
+        return [
+          row("Total", gbp(due)),
+          row("Paid" + (method ? " · " + method : ""), gbp(paid)),
+          row("Balance due", gbp(left), big, big),
+        ];
+      }
+      return [row("Amount due", gbp(due), big, big)];
+    })(),
     rule(),
     ...(o.hasAdditions
       ? [el("div", { justifyContent: "center", width: "100%", fontSize: 22, fontWeight: 700, marginBottom: 6 },

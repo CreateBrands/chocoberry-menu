@@ -151,6 +151,8 @@ export interface ReceiptOrder {
   paperMm?: number; // 80 (default) or 58
   discount?: number;
   discountLabel?: string;
+  amountPaid?: number;  // taken so far, from the order_payments ledger
+  paidMethod?: string;  // cash | card | split | ... once fully paid
   batchTimes?: string[]; // pre-formatted local time per round; batchTimes[0]=original, [1]=2nd round ...
 }
 
@@ -176,9 +178,20 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
   if (o.orderType) r.size(0, 1).line(o.orderType.toUpperCase()).size(0, 0);
   r.line(o.placedAt);
 
-  // Pay-at-counter banner — tells staff the order is UNPAID and how much to charge.
+  // Pay-at-counter banner — tells staff the order is UNPAID and how much to
+  // charge. Suppressed once the balance is settled, otherwise a receipt
+  // printed after payment still shouts PAY AT TILL.
   if (typeof o.total === "number") {
-    r.feed(1).divider("*").size(3, 3).bold(true).line("PAY AT TILL").size(2, 2).line(gbp(o.total)).bold(false).size(0, 0).divider("*");
+    const due = Math.max(0, o.total - (typeof o.discount === "number" ? o.discount : 0));
+    const paid = typeof o.amountPaid === "number" ? o.amountPaid : 0;
+    const left = Math.round((due - paid) * 100) / 100;
+    if (left > 0.001) {
+      r.feed(1).divider("*").size(3, 3).bold(true).line("PAY AT TILL").size(2, 2).line(gbp(left)).bold(false).size(0, 0).divider("*");
+    } else if (paid > 0) {
+      r.feed(1).divider("*").size(2, 2).bold(true).line("PAID").bold(false).size(0, 0);
+      if (o.paidMethod) r.line(o.paidMethod.replace(/_/g, " ").toUpperCase());
+      r.divider("*");
+    }
   }
   r.feed(1);
 
