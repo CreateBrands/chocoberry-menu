@@ -44,7 +44,13 @@ export default function Kiosk() {
       if (k === "f5" || (e.ctrlKey && ["r", "w", "n", "t"].includes(k)) || (e.altKey && ["arrowleft", "arrowright"].includes(k))) { e.preventDefault(); e.stopPropagation(); }
     };
     const onCtx = (e) => e.preventDefault();
-    const onUnload = (e) => { if (!exiting.current) { e.preventDefault(); e.returnValue = ""; return ""; } };
+    // Only warn when there is something to lose: a half-built order. Setup
+    // screens and staff actions navigate freely.
+    const onUnload = (e) => {
+      if (exiting.current) return;
+      if (!(window.__kioskBagCount > 0)) return;
+      e.preventDefault(); e.returnValue = ""; return "";
+    };
     window.addEventListener("popstate", onPop);
     window.addEventListener("keydown", onKey, true);
     window.addEventListener("contextmenu", onCtx);
@@ -114,7 +120,7 @@ export default function Kiosk() {
           <div style={{ fontSize: 17, color: "#5F6B63", marginTop: 8 }}>Pick the store to load its menu and branding. Activate the device in Admin → Devices to lock this in.</div>
           <div style={{ display: "grid", gap: 10, marginTop: 26, maxHeight: "52vh", overflowY: "auto" }}>
             {(pickStores || []).map((st) => (
-              <span key={st.id} onClick={() => { try { localStorage.setItem("kiosk_loc", st.id); } catch {} window.location.search = "?loc=" + st.id; }}
+              <span key={st.id} onClick={() => { try { localStorage.setItem("kiosk_loc", st.id); } catch {} exiting.current = true; window.location.search = "?loc=" + st.id; }}
                 style={{ padding: "18px 16px", borderRadius: 14, background: "#fff", border: "1px solid rgba(52,77,66,.16)", fontWeight: 800, fontSize: 20, cursor: "pointer" }}>{st.name}</span>
             ))}
             {pickStores && pickStores.length === 0 && <div style={{ color: "#5F6B63" }}>Could not load the store list — check the connection.</div>}
@@ -182,7 +188,7 @@ export default function Kiosk() {
             <div style={{ fontSize: 16, color: "#666", marginTop: 6 }}>{by} · {dev ? (dev.label || dev.key) : "unlicensed"}</div>
             <div style={{ display: "grid", gap: 10, marginTop: 24 }}>
               <span onClick={() => { setPanel(false); startOver(); }} style={btn(false)}>Clear the current order</span>
-              <span onClick={() => { try { localStorage.removeItem("kiosk_loc"); } catch {} exiting.current = true; window.location.search = ""; }} style={btn(false)}>Change store</span>
+              <span onClick={() => { try { localStorage.removeItem("kiosk_loc"); } catch {} exiting.current = true; window.location.href = "/kiosk"; }} style={btn(false)}>Change store</span>
               <span onClick={() => { exiting.current = true; window.location.reload(); }} style={btn(false)}>Reload kiosk</span>
               <span onClick={async () => { await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "kiosk_slip", data: { location_id: loc, test: true } }) }); setPanel(false); }} style={btn(false)}>Test slip on this kiosk's printer</span>
               <span onClick={() => { exiting.current = true; window.location.href = "/activate"; }} style={{ ...btn(false), color: "#b4462f" }}>Leave kiosk mode</span>

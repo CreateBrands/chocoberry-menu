@@ -1827,6 +1827,8 @@ export default function App({ kiosk = false, kioskDevice = null }) {
     } catch { setTablePinErr("Wrong PIN."); } finally { setTablePinChecking(false); }
   }
   const orderingOn = settings.ordering_enabled !== "off" && settings.ordering_enabled !== false;
+  // The kiosk shell reads this to decide whether leaving would lose an order.
+  useEffect(() => { try { window.__kioskBagCount = lines.reduce((n, l) => n + l.qty, 0); } catch {} });
   const [sessionOrders, setSessionOrders] = useState(() => {
     try { const raw = localStorage.getItem("still_order_history"); return raw ? JSON.parse(raw) : []; } catch { return []; }
   });   // this tablet's placed orders, persisted across refresh
