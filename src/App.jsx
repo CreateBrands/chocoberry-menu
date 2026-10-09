@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { getDevice, deviceToken } from "./device.js";
 import OrderManager from "./OrderManager.jsx";
 
 // ============================================================
@@ -141,9 +142,10 @@ async function resolveStore(token) {
 
 // Load a store's effective menu (per-store prices via store_menu), grouped by category.
 // Falls back to the global menu when there's no store token.
-async function fetchLive(token) {
-  const store = token ? await resolveStore(token) : null;
-  const loc = store && store.location_id ? store.location_id : null;
+async function fetchLive(token, forcedLoc = null) {
+  // Kiosks have no QR token: their store comes from the device licence.
+  const store = forcedLoc ? { location_id: forcedLoc, id: forcedLoc } : (token ? await resolveStore(token) : null);
+  const loc = forcedLoc || (store && store.location_id ? store.location_id : null);
 
   // store_menu_full returns menu -> category -> item with open/closed state.
   // Falls back to a location-less call (nulls resolve to master prices).
@@ -1426,7 +1428,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
 
 // ============ BAG (data-driven) ============
 
-function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable, appending = false, orderErr = null, onDismissErr }) {
+function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable, appending = false, orderErr = null, onDismissErr, kiosk = false, kioskDine = null, setKioskDine, kioskTable = "", setKioskTable }) {
   const subtotal = lines.reduce((s, l) => s + l.unit * l.qty, 0);
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const setQty = (i, d) => setLines((p) => p.map((l, x) => x === i ? { ...l, qty: Math.max(1, l.qty + d) } : l));
@@ -1457,7 +1459,32 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>These items will be added to the order you just placed — one bill.</div>
           </div>
         )}
-        {(tableMode === "pick" || tableMode === "fixed") && (
+        {kiosk && (
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 8 }}>WHERE WILL YOU BE?</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {[[true, "🍽", "Eat in"], [false, "🥡", "Take away"]].map(([v, ic, l]) => (
+                <div key={l} onClick={() => setKioskDine(v)} style={{ padding: "18px 10px", borderRadius: 16, textAlign: "center", cursor: "pointer", background: kioskDine === v ? "var(--accent)" : "var(--bg3)", color: kioskDine === v ? "#F7F4EC" : "var(--ink)", boxShadow: kioskDine === v ? "none" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19 }}>
+                  <div style={{ fontSize: 30, marginBottom: 4 }}>{ic}</div>{l}
+                </div>
+              ))}
+            </div>
+            {kioskDine === true && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 6 }}>TABLE NUMBER <span style={{ fontWeight: 600, letterSpacing: 0 }}>· optional</span></div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ flex: 1, padding: "14px 16px", borderRadius: 14, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, minHeight: 56 }}>{kioskTable || <span style={{ color: "var(--muted)", fontSize: 16, fontWeight: 500 }}>Tap the numbers</span>}</div>
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginTop: 10 }}>
+                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "⌫", "C"].map((k) => (
+                    <div key={k} onClick={() => setKioskTable(k === "⌫" ? kioskTable.slice(0, -1) : k === "C" ? "" : (kioskTable + k).slice(0, 3))} style={{ padding: "14px 0", textAlign: "center", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, cursor: "pointer" }}>{k}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+        {!kiosk && (tableMode === "pick" || tableMode === "fixed") && (
           <div onClick={() => { if (tableMode === "pick" && onPickTable) onPickTable(); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", background: table ? "var(--bg3)" : "rgba(180,70,47,.08)", borderRadius: 18, boxShadow: table ? "inset 0 0 0 1px var(--line)" : "inset 0 0 0 1px rgba(180,70,47,.35)", marginBottom: 14, cursor: tableMode === "pick" ? "pointer" : "default" }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: table ? "var(--muted)" : "rgba(180,70,47,.9)", marginBottom: 3 }}>YOUR TABLE</div>
@@ -1515,14 +1542,14 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
 }
 
 
-function Confirm({ orderNo, pickupName, table, onAddMore }) {
+function Confirm({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDine = null, kioskTable = "" }) {
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '460px', left: '40px', top: '70px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.17),transparent 68%)', filter: 'blur(8px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
       <div style={{position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '90px 48px 0'}}>
         <div style={{width: '104px', height: '104px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F7F4EC', boxShadow: '0 18px 42px -10px rgba(94,122,77,.5)'}}><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7"></path></svg></div>
-        <div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '42px', lineHeight: '1.08', marginTop: '28px'}}>We're on it{pickupName ? ', ' + pickupName : ''}.</div>
-        <div style={{fontSize: '16px', color: 'var(--muted)', marginTop: '14px', lineHeight: '1.6'}}>Your order has been sent to the kitchen.<br />Please pay at the counter.</div>
+        <div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '42px', lineHeight: '1.08', marginTop: '28px'}}>{kiosk ? "Please pay at the counter" : "We're on it" + (pickupName ? ', ' + pickupName : '') + "."}</div>
+        <div style={{fontSize: '16px', color: 'var(--muted)', marginTop: '14px', lineHeight: '1.6'}}>{kiosk ? <>Show your order number at the till.<br />We'll start making it as soon as it's paid.{kioskDine && kioskTable ? <><br />Table {kioskTable}.</> : null}</> : <>Your order has been sent to the kitchen.<br />Please pay at the counter.</>}</div>
         <div style={{display: 'flex', gap: '30px', marginTop: '40px', flexWrap: 'wrap', justifyContent: 'center'}}>
           {pickupName ? (<div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>NAME</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{pickupName}</div></div>) : null}
           {pickupName ? <div style={{width: '1px', background: 'var(--line)'}}></div> : null}
@@ -1668,7 +1695,7 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
   );
 }
 
-export default function App() {
+export default function App({ kiosk = false, kioskDevice = null }) {
   const [screen, setScreen] = useState("welcome");
   const screenRef = useRef("welcome");
   useEffect(() => { screenRef.current = screen; }, [screen]);
@@ -1754,7 +1781,10 @@ export default function App() {
     setScreen("browse");
   }
   // Dining-table state. tableMode: "none" (takeaway) | "pick" (tablet, must choose) | "fixed" (phone scanned a table QR)
+  //   kiosk: no table at all — the customer chooses eat in / take away in the bag.
   const [tableMode, setTableMode] = useState("none");
+  const [kioskDine, setKioskDine] = useState(null);     // kiosk: true = eat in, false = take away
+  const [kioskTable, setKioskTable] = useState("");     // kiosk: optional table number typed by the customer
   const [tables, setTables] = useState([]);
   const [table, setTable] = useState(null);          // chosen table row {id,label,...}
   const [showTablePicker, setShowTablePicker] = useState(false);
@@ -1878,20 +1908,26 @@ export default function App() {
     if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
     // On a tablet (pick mode), a table MUST be set before ordering. If it isn't,
     // tell the customer to ask staff (setting the table is PIN-gated).
-    if (orderingOn && tableMode === "pick" && !table) {
+    if (kiosk && kioskDine === null) { setOrderErr("Please choose eat in or take away."); return; }
+    if (!kiosk && orderingOn && tableMode === "pick" && !table) {
       setOrderErr("Please ask a staff member to set your table before ordering.");
       openTablePicker();
       return;
     }
     setPlacing(true); setOrderErr(null);
-    const dineIn = (tableMode === "pick" || tableMode === "fixed") && table;
+    const dineIn = kiosk ? !!kioskDine : ((tableMode === "pick" || tableMode === "fixed") && table);
     const payload = {
-      qr_token: getStoreToken() || null,
-      table_id: dineIn ? table.id : null,
+      qr_token: kiosk ? null : (getStoreToken() || null),
+      location_id: kiosk && kioskDevice ? kioskDevice.location_id : undefined,
+      table_id: !kiosk && dineIn ? table.id : null,
       order_type: dineIn ? "dine_in" : "takeaway",
-      requires_table: tableMode === "pick",
-      pickup_name: pickupName || null,
-      tablet_no: getTabletNumber() || null,
+      requires_table: !kiosk && tableMode === "pick",
+      pickup_name: kiosk ? (kioskDine && kioskTable ? "Table " + kioskTable : pickupName || null) : (pickupName || null),
+      customer_note: kiosk && kioskDine && kioskTable ? "Table " + kioskTable : undefined,
+      kiosk: kiosk || undefined,
+      device: kiosk ? deviceToken() : undefined,
+      hold: kiosk ? true : undefined,   // pay at the counter: the till releases it
+      tablet_no: kiosk ? ("KIOSK " + ((kioskDevice && kioskDevice.key) || "1")) : (getTabletNumber() || null),
       items: lines.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: (l.mods || []).map((m) => m.option_id) })),
       append_to_order_id: appendOrderId || null,
     };
@@ -1979,7 +2015,7 @@ export default function App() {
     // It only swaps in fresh menu DATA; it never disturbs the customer's bag or
     // which screen they're on.
     const refreshMenu = () => {
-      fetchLive(token).then((res) => {
+      fetchLive(token, kiosk && kioskDevice ? kioskDevice.location_id : null).then((res) => {
         if (!alive || !res || !res.menus || !res.menus.length) return;
         setMenus(res.menus);
         setStore(res.store || null);
@@ -2024,7 +2060,7 @@ export default function App() {
 
   let heroSlides = [];
   try { heroSlides = settingsEff.hero_slides ? (typeof settingsEff.hero_slides === "string" ? JSON.parse(settingsEff.hero_slides) : settingsEff.hero_slides) : []; } catch { heroSlides = []; }
-  const storeLocId = store && (store.id || store.location_id);
+  const storeLocId = (kiosk && kioskDevice ? kioskDevice.location_id : null) || (store && (store.id || store.location_id));
   const settingsEff = applyStoreOverrides(settings, storeLocId);
   const themeVars = THEMES[settingsEff.theme] || THEMES.still;
   const themeBg = settings.theme === "chocoberry"
@@ -2074,13 +2110,14 @@ export default function App() {
               // ask for it again at checkout.
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
-            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag orderErr={orderErr} onDismissErr={() => setOrderErr(null)} lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => { setOrderErr(null);
+            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag kiosk={kiosk} kioskDine={kioskDine} setKioskDine={setKioskDine} kioskTable={kioskTable} setKioskTable={setKioskTable} orderErr={orderErr} onDismissErr={() => setOrderErr(null)} lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => { setOrderErr(null);
               if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
-              if (orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
+              if (kiosk && kioskDine === null) { setOrderErr("Please choose eat in or take away."); return; }
+    if (!kiosk && orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
             }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
             {orderingOn && tableMode === "pick" && screen === "welcome" && (
