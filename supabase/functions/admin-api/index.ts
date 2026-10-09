@@ -249,6 +249,11 @@ Deno.serve(async (req) => {
     const ids = live.map((o: any) => o.id);
 
     // ---- tenders from order_payments ----
+    // refundTotal/refundCount are tallied in the loop below but used to be
+    // declared after it, so the first refund of the day threw "Cannot access
+    // 'refundTotal' before initialization" and the whole closing report
+    // failed — on exactly the days a manager most wants to see it.
+    let refundTotal = 0, refundCount = 0;
     const byMethod: Record<string, { amount: number; count: number }> = { cash: { amount: 0, count: 0 }, card: { amount: 0, count: 0 }, other: { amount: 0, count: 0 } };
     const paidByOrder: Record<string, number> = {};
     for (let i = 0; i < ids.length; i += 500) {
@@ -275,7 +280,7 @@ Deno.serve(async (req) => {
     const topItems = Object.values(itemAgg).sort((a, b) => b.qty - a.qty || b.sales - a.sales).slice(0, 8).map((x) => ({ ...x, sales: round2(x.sales) }));
 
     // ---- order-level rollups ----
-    let paidCount = 0, unpaidTotal = 0, unpaidCount = 0, gross = 0, discountTotal = 0, cancelledTotal = 0, refundTotal = 0, refundCount = 0;
+    let paidCount = 0, unpaidTotal = 0, unpaidCount = 0, gross = 0, discountTotal = 0, cancelledTotal = 0;
     const unpaid: any[] = [];
     const byType: Record<string, { count: number; amount: number }> = {};
     const bySource: Record<string, { count: number; amount: number }> = {};
