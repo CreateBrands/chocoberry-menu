@@ -273,9 +273,15 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [closeTill, setCloseTill] = useState(null); // null | { step: "summary"|"done", summary, counted, float, pin, by, note, busy, err, result }
   // Trading day ends 04:00: after 4am the default is to close up to 4am only,
   // so this morning's orders stay open; before 4am (end of night) close all.
+  // Keeps the server's reason. "Could not load today's totals" covers a
+  // refused licence, a kitchen-only screen attempting a till action and a
+  // genuine failure alike, which leaves staff with nothing to act on.
+  const closeTillErr = useRef("");
   async function loadCloseTillSummary(mode) {
     const r = await ordActionJson("day_summary", { location_id: loc, mode });
-    return r.summary || null;
+    if (!r || !r.summary) closeTillErr.current = (r && (r.message || r.error)) || "";
+    else closeTillErr.current = "";
+    return (r && r.summary) || null;
   }
   async function openCloseTill() {
     setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "" });
@@ -284,7 +290,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     // Nothing before the cutoff (or we're before 4am) → close everything up to now.
     if (!sm || !sm.before_cutoff_count) { mode = "all"; sm = await loadCloseTillSummary("all"); }
     const prevFloat = sm && sm.previous && sm.previous.float_amount != null ? String(Number(sm.previous.float_amount).toFixed(2)) : "";
-    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, float: c.float || prevFloat, err: sm ? "" : "Could not load today's totals" });
+    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, float: c.float || prevFloat, err: sm ? "" : (closeTillErr.current || "Could not load today's totals") });
   }
   // Look the PIN up as it's typed so the sheet can greet the closer by name.
   const staffLookupTimer = useRef(null);
