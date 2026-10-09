@@ -2225,7 +2225,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const safeBottom = kiosk ? `max(env(safe-area-inset-bottom, 0px), ${insetBottom}px)` : "0px";
 
   return (
-    <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: kiosk ? `calc(100dvh - ${safeTop} - ${safeBottom})` : "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: kiosk ? safeTop : 0, left: 0 }}>
+    <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0, boxSizing: "border-box", ...(kiosk ? { paddingTop: safeTop, paddingBottom: safeBottom } : null) }}>
       {!online && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#8a5a2c", color: "#fff", textAlign: "center", fontSize: 13, fontWeight: 600, padding: "6px 0", letterSpacing: ".02em", fontFamily: "'Poppins',sans-serif" }}>
           ● Offline — showing saved menu
