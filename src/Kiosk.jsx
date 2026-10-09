@@ -25,7 +25,6 @@ export default function Kiosk() {
   const [pickStores, setPickStores] = useState(null);   // store list when nothing is set yet
   const [nonce, setNonce] = useState(0);        // bump = fresh App (clears the bag)
   const [idlePrompt, setIdlePrompt] = useState(false);
-  const [taps, setTaps] = useState(0);
   const [gate, setGate] = useState(false);
   const [panel, setPanel] = useState(false);
   const [pin, setPin] = useState("");
@@ -43,7 +42,7 @@ export default function Kiosk() {
     // way out, but navigating the menu still feels normal.
     const onPop = () => {
       push();
-      setTaps(0);
+
       try { if (typeof window.__kioskBack === "function") window.__kioskBack(); } catch {}
     };
     const onKey = (e) => {
@@ -65,6 +64,35 @@ export default function Kiosk() {
     window.addEventListener("beforeunload", onUnload);
     return () => { window.removeEventListener("popstate", onPop); window.removeEventListener("keydown", onKey, true); window.removeEventListener("contextmenu", onCtx); window.removeEventListener("beforeunload", onUnload); };
   }, []);
+
+  // ---- hidden staff corners: 3 quick taps in the SAME corner ----
+  // These used to be four invisible 96px divs at z-index 8000, which sat on
+  // top of the app's own back arrow (top-left) and the item screen's close
+  // button (top-right) — so the two controls a customer needs most were
+  // unreachable, and every attempt to use them counted towards this gate.
+  // Listening on the document instead means the buttons under the corner
+  // still receive the tap; requiring the same corner three times inside
+  // 1.2s keeps ordinary use from opening the gate by accident.
+  useEffect(() => {
+    if (gate || panel) return;
+    const CORNER = 96, WINDOW_MS = 1200;
+    let seq = [];
+    const cornerAt = (x, y) => {
+      const v = y <= CORNER ? "t" : y >= window.innerHeight - CORNER ? "b" : null;
+      const h = x <= CORNER ? "l" : x >= window.innerWidth - CORNER ? "r" : null;
+      return v && h ? v + h : null;
+    };
+    const onDown = (e) => {
+      const c = cornerAt(e.clientX, e.clientY);
+      const now = Date.now();
+      if (!c) { seq = []; return; }
+      seq = seq.filter((s) => s.c === c && now - s.t < WINDOW_MS);
+      seq.push({ c, t: now });
+      if (seq.length >= 3) { seq = []; setGate(true); setPin(""); setErr(""); }
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    return () => document.removeEventListener("pointerdown", onDown, true);
+  }, [gate, panel]);
 
   // ---- idle reset ----
   useEffect(() => {
@@ -147,11 +175,6 @@ export default function Kiosk() {
       {/* the menu itself — identical to the tablet */}
       <App key={nonce} kiosk kioskDevice={dev} kioskLoc={loc} />
 
-      {/* hidden staff corners: 3 taps on ANY corner */}
-      {[["top", "left"], ["top", "right"], ["bottom", "left"], ["bottom", "right"]].map(([v, h]) => (
-        <div key={v + h} onClick={() => setTaps((n) => { if (n + 1 >= 3) { setGate(true); setPin(""); setErr(""); return 0; } return n + 1; })}
-          style={{ position: "fixed", [v]: 0, [h]: 0, width: 96, height: 96, zIndex: 8000 }} />
-      ))}
 
       {idlePrompt && (
         <div style={sheet}>
