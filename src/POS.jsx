@@ -248,6 +248,24 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       return { ok: r.ok, ...j };
     } catch { return { ok: false }; } finally { setOrdersBusy(false); }
   }
+  // ---- No sale: open the cash drawer for change or the float ----
+  // PIN-gated, and the server logs who opened it against the device. An
+  // unlogged drawer button is how cash leaves without a trace.
+  const [drawerAsk, setDrawerAsk] = useState(null); // null | { pin, busy, err }
+  async function doOpenDrawer() {
+    const a = drawerAsk; if (!a || a.busy || a.pin.length < 4) return;
+    setDrawerAsk({ ...a, busy: true, err: "" });
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pos: true, device: deviceToken(), action: "open_drawer", data: { location_id: loc, staff_pin: a.pin } }),
+      });
+      const j = await r.json().catch(() => ({}));
+      if (j && j.ok) { setDrawerAsk(null); setMsg("Drawer opened" + (j.by ? " by " + String(j.by).split(" ")[0] : "")); }
+      else setDrawerAsk({ ...a, busy: false, err: j && j.message ? j.message : "Could not open the drawer." });
+    } catch { setDrawerAsk({ ...a, busy: false, err: "Could not reach the till printer." }); }
+  }
+
   // ---- Close till (end of day) ----
   // Shows today's tenders from order_payments, takes a cash count + manager
   // PIN, then admin-api close_day archives the open orders, writes
@@ -968,6 +986,23 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         </div>
       )}
       {feedbackFor && <ServiceFeedback order={feedbackFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="pos" onClose={() => setFeedbackFor(null)} onSaved={(j) => setMsg("Feedback logged for #" + feedbackFor.order_no + (j && j.logged_by ? " as " + j.logged_by : ""))} />}
+
+      {drawerAsk && (
+        <div onClick={() => !drawerAsk.busy && setDrawerAsk(null)} style={{ position: "fixed", inset: 0, zIndex: 9000, background: "rgba(8,15,20,.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: "94vw", background: "#fff", borderRadius: 18, padding: 24, fontFamily: "'Poppins',sans-serif", boxShadow: "0 30px 60px -20px rgba(0,0,0,.5)" }}>
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.02em", color: "#22271f" }}>Open the drawer</div>
+            <div style={{ fontSize: 14, color: "#6b7a60", marginTop: 6, lineHeight: 1.5 }}>For change or the float. Your PIN is recorded against this.</div>
+            <input value={drawerAsk.pin} onChange={(e) => setDrawerAsk({ ...drawerAsk, pin: e.target.value.replace(/\D/g, "").slice(0, 8), err: "" })}
+              inputMode="numeric" type="password" autoFocus placeholder="PIN"
+              style={{ width: "100%", boxSizing: "border-box", marginTop: 16, padding: "14px 16px", fontSize: 22, letterSpacing: ".3em", textAlign: "center", borderRadius: 12, border: "1px solid #e2e8f0", background: "#f8fafc", fontFamily: "'Poppins',sans-serif" }} />
+            {drawerAsk.err && <div style={{ color: "#b4462f", fontSize: 13.5, marginTop: 10, fontWeight: 600 }}>{drawerAsk.err}</div>}
+            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+              <span onClick={() => !drawerAsk.busy && setDrawerAsk(null)} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#f1f5f9", color: "#22271f", fontWeight: 800, cursor: "pointer" }}>Cancel</span>
+              <span onClick={doOpenDrawer} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: drawerAsk.pin.length < 4 ? "#cbd5e1" : "#22271f", color: "#fff", fontWeight: 800, cursor: drawerAsk.pin.length < 4 ? "default" : "pointer" }}>{drawerAsk.busy ? "Opening…" : "Open"}</span>
+            </div>
+          </div>
+        </div>
+      )}
       {paidBanner && (
         <div onClick={() => setPaidBanner(null)}
           style={{ position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)", zIndex: 9999,
@@ -1336,7 +1371,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               );
             })}
           </div>
-          <div style={{ flexShrink: 0, padding: "clamp(8px,.65vw,12px)", borderTop: "1px solid rgba(94,234,212,.14)" }}>
+          <div style={{ flexShrink: 0, padding: "clamp(8px,.65vw,12px)", borderTop: "1px solid rgba(94,234,212,.14)", display: "grid", gap: "clamp(6px,.5vw,9px)" }}>
+            <div onClick={() => setDrawerAsk({ pin: "", busy: false, err: "" })} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(148,163,184,.12)", color: "#cbd5e1", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(148,163,184,.25)" }}>
+              Open drawer
+            </div>
             <div onClick={openCloseTill} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(94,234,212,.12)", color: "#5eead4", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(94,234,212,.25)" }}>
               Close till
             </div>

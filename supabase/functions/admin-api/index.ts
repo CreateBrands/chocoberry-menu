@@ -40,6 +40,7 @@ Deno.serve(async (req) => {
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
     "device_activate", "device_heartbeat", "device_claim_legacy", "manager_pin_check",
+    "open_drawer",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   // Device enforcement: when the caller sends a device token it must be active,
@@ -1148,7 +1149,41 @@ Deno.serve(async (req) => {
           const { data: full } = await admin.from("menu_orders").select("*").eq("id", order_id).single();
           if (full) { try { await callSunmi({ type: "INSERT", record: full }); } catch (e) { console.error("release print failed", e); } }
         }
-        return json({ ok: true, paid: paidNow, remaining: Math.max(0, remaining), fully_paid: fullyPaid, is_split: isSplit, methods: [...distinctMethods] });
+        // Cash means the drawer has to open. Best effort: a drawer that fails
+        // to kick must never fail the payment that was already recorded.
+        let drawer = false;
+        if (method === "cash") {
+          try {
+            const { data: locRow } = await admin.from("menu_orders").select("location_id").eq("id", order_id).maybeSingle();
+            const r = await callSunmi({ action: "open-drawer", location_id: locRow?.location_id ?? null, device_key: deviceTok && deviceTok.key ? String(deviceTok.key) : null });
+            drawer = !!(r.body as any)?.ok;
+          } catch (e) { console.error("drawer kick failed", e); }
+        }
+        return json({ ok: true, paid: paidNow, remaining: Math.max(0, remaining), fully_paid: fullyPaid, is_split: isSplit, methods: [...distinctMethods], drawer });
+      }
+
+      // ---- TILL: no sale — open the drawer for change or the float ----
+      // PIN-gated and logged, because an unlogged "open the drawer" button is
+      // how cash goes missing without a trace.
+      case "open_drawer": {
+        const { location_id, reason = null, staff_pin } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        // staffForPin/managerForPin return {ok:false,...} rather than null, so
+        // test .ok — an || chain would wave through any four digits.
+        const staff = await staffForPin(staff_pin, location_id);
+        const who = staff && staff.ok ? staff : await managerForPin(staff_pin, location_id);
+        if (!who || !who.ok) return json({ error: "bad_pin", message: "PIN not recognised for this store." }, 403);
+        const r = await callSunmi({
+          action: "open-drawer", location_id,
+          device_key: deviceTok && deviceTok.key ? String(deviceTok.key) : null,
+        });
+        await admin.from("device_events").insert({
+          location_id,
+          screen_key: deviceTok && deviceTok.key ? String(deviceTok.key) : "till",
+          event: "drawer_opened",
+          detail: { by: who.name || "staff", reason: reason ? String(reason).slice(0, 80) : "no sale" },
+        }).then(() => {}, () => {});
+        return json({ ok: !!(r.body as any)?.ok, by: who.name || null, ...(r.body as any || {}) });
       }
 
       // ---- TILL: list the tenders recorded against an order ----

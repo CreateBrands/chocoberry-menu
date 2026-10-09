@@ -1000,6 +1000,41 @@ Deno.serve(async (req) => {
         }
         return json({ ok: true, printed: results });
       }
+      // ---- CASH DRAWER: kick the till drawer open ----
+      // The drawer hangs off the receipt printer's RJ11 socket, so "opening"
+      // it is a tiny print job containing only the kick pulse:
+      //   ESC p m t1 t2  =  1B 70 00 19 FA   (pin 2, 25ms on, 250ms off)
+      // body: { location_id, sn?, device_key? }
+      case "open-drawer": {
+        const locationId = body.location_id ? String(body.location_id) : null;
+        if (!locationId && !body.sn) return json({ error: "location_id or sn required" }, 400);
+        // 1B 70 00 19 FA — five bytes, so ten hex characters.
+        const KICK = "1b700019fa";
+        const { data: printers } = await supabase
+          .from("printers").select("sn, label, station, print_receipt, print_role, source_screen_key, location_id")
+          .eq("active", true).eq("location_id", locationId ?? "");
+        const all = printers || [];
+        let targets: any[];
+        if (body.sn) targets = all.filter((p: any) => String(p.sn) === String(body.sn));
+        else {
+          // The drawer is at the till, so aim at the printer that prints
+          // receipts there — the one tied to this till first, then the
+          // store's receipt printer, then its counter printer.
+          const tied = body.device_key ? all.filter((p: any) => String(p.source_screen_key || "") === String(body.device_key)) : [];
+          const receipts = all.filter((p: any) => p.print_receipt === true || String(p.print_role || "").toLowerCase() === "receipt");
+          const counter = all.filter((p: any) => String(p.station || "") === "counter");
+          targets = tied.length ? tied : receipts.length ? receipts : counter;
+        }
+        if (!targets.length) return json({ ok: false, error: "no_printer", message: "No till printer at this store to open the drawer from." });
+        const results = [];
+        for (const pr of targets) {
+          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), KICK, { slip: "drawer", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true }); continue; }
+          const res = await sunmi.pushContent(String(pr.sn), "kick" + Date.now() + String(pr.sn).slice(-4), KICK);
+          results.push({ sn: pr.sn, ok: ok(res) });
+        }
+        return json({ ok: results.some((r) => r.ok), opened: results });
+      }
+
       // Generic message chit — used for VOID notices to the kitchen and any
       // short staff message. body: { title, lines[], location_id? }
       // ---- CLEAR QUEUE: drop pending jobs on the Sunmi cloud for this store's
