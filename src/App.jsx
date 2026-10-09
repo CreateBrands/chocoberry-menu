@@ -332,6 +332,12 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
         <div style={{width: '54px', height: '2px', background: 'var(--accent)', margin: '34px 0'}}></div>
         <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '24px', fontWeight: '400', color: 'var(--ink)', opacity: '.78', lineHeight: '1.5'}} dangerouslySetInnerHTML={{__html: w.welcome_subtitle || 'Your daily ritual, gently elevated.<br />Calm energy in a cup.'}} />
       </div>
+      {/* Tove and anyone else with a photo welcome: the footer line is theme
+          colour on a photograph, so lift it off the image without tinting the
+          picture itself. */}
+      {kiosk && bg && (
+        <div style={{position: 'absolute', left: 0, right: 0, bottom: 0, height: '42%', zIndex: 4, pointerEvents: 'none', background: 'linear-gradient(to top, var(--bg) 6%, rgba(0,0,0,0) 100%)', opacity: .9}} />
+      )}
       <div style={{position: 'absolute', left: '0', right: '0', bottom: '66px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px', zIndex: 5, padding: '0 40px'}}>
         {kiosk ? <KioskStartTiles onStart={startKiosk} w={w} /> : (
           <div onClick={() => setOpen(true)} style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '10px', background: 'var(--accent)', color: '#F7F4EC', padding: '15px 40px', borderRadius: '40px', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600', boxShadow: '0 14px 30px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>{w.welcome_button || 'Order Ahead'} <span style={{fontSize: '18px'}}>→</span></div>
