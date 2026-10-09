@@ -1428,7 +1428,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
 
 // ============ BAG (data-driven) ============
 
-function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable, appending = false, orderErr = null, onDismissErr, kiosk = false, kioskDine = null, setKioskDine, kioskTable = "", setKioskTable }) {
+function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable, appending = false, orderErr = null, onDismissErr, kiosk = false, kioskDine = null, setKioskDine, kioskTable = "", setKioskTable, kioskTables = [] }) {
   const subtotal = lines.reduce((s, l) => s + l.unit * l.qty, 0);
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const setQty = (i, d) => setLines((p) => p.map((l, x) => x === i ? { ...l, qty: Math.max(1, l.qty + d) } : l));
@@ -1469,17 +1469,53 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
                 </div>
               ))}
             </div>
-            {kioskDine === true && (
-              <div style={{ marginTop: 12 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 6 }}>TABLE NUMBER <span style={{ fontWeight: 600, letterSpacing: 0 }}>· optional</span></div>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ flex: 1, padding: "14px 16px", borderRadius: 14, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, minHeight: 56 }}>{kioskTable || <span style={{ color: "var(--muted)", fontSize: 16, fontWeight: 500 }}>Tap the numbers</span>}</div>
+            {kioskDine === false && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 8 }}>YOUR NAME <span style={{ fontWeight: 600, letterSpacing: 0 }}>· so we can call you</span></div>
+                <div style={{ padding: "16px 18px", borderRadius: 14, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, minHeight: 60, color: pickupName ? "var(--ink)" : "var(--muted)" }}>
+                  {pickupName || "Tap the letters"}
                 </div>
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginTop: 10 }}>
-                  {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "⌫", "C"].map((k) => (
-                    <div key={k} onClick={() => setKioskTable(k === "⌫" ? kioskTable.slice(0, -1) : k === "C" ? "" : (kioskTable + k).slice(0, 3))} style={{ padding: "14px 0", textAlign: "center", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, cursor: "pointer" }}>{k}</div>
+                {/* Big on-screen keyboard: Android's is small and sits low on a kiosk. */}
+                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 8 }}>
+                  {["QWERTYUIOP", "ASDFGHJKL", "ZXCVBNM"].map((row, ri) => (
+                    <div key={ri} style={{ display: "flex", gap: 8, justifyContent: "center", paddingLeft: ri === 1 ? 18 : ri === 2 ? 40 : 0, paddingRight: ri === 1 ? 18 : ri === 2 ? 40 : 0 }}>
+                      {row.split("").map((k) => (
+                        <div key={k} onClick={() => setPickupName(((pickupName || "") + k).slice(0, 18))}
+                          style={{ flex: 1, textAlign: "center", padding: "16px 0", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, cursor: "pointer", userSelect: "none" }}>{k}</div>
+                      ))}
+                    </div>
                   ))}
+                  <div style={{ display: "flex", gap: 8, justifyContent: "center" }}>
+                    <div onClick={() => setPickupName(((pickupName || "") + " ").slice(0, 18))} style={{ flex: 3, textAlign: "center", padding: "16px 0", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontWeight: 600, fontSize: 16, cursor: "pointer" }}>space</div>
+                    <div onClick={() => setPickupName((pickupName || "").slice(0, -1))} style={{ flex: 1, textAlign: "center", padding: "16px 0", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontWeight: 700, fontSize: 18, cursor: "pointer" }}>&#9003;</div>
+                    <div onClick={() => setPickupName("")} style={{ flex: 1, textAlign: "center", padding: "16px 0", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontWeight: 700, fontSize: 16, cursor: "pointer" }}>clear</div>
+                  </div>
                 </div>
+              </div>
+            )}
+            {kioskDine === true && (
+              <div style={{ marginTop: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 8 }}>YOUR TABLE <span style={{ fontWeight: 600, letterSpacing: 0 }}>· tap the number on your table</span></div>
+                {kioskTables.length > 0 ? (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 9 }}>
+                    {kioskTables.map((t) => {
+                      const on = String(kioskTable) === String(t.label);
+                      return (
+                        <div key={t.id} onClick={() => setKioskTable(String(t.label))}
+                          style={{ padding: "20px 6px", textAlign: "center", borderRadius: 14, cursor: "pointer", background: on ? "var(--accent)" : "var(--bg3)", color: on ? "#F7F4EC" : "var(--ink)", boxShadow: on ? "none" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19, lineHeight: 1.15 }}>{t.label}</div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ padding: "14px 16px", borderRadius: 14, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, minHeight: 56 }}>{kioskTable || <span style={{ color: "var(--muted)", fontSize: 16, fontWeight: 500 }}>Tap the numbers</span>}</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginTop: 10 }}>
+                      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "<", "C"].map((k) => (
+                        <div key={k} onClick={() => setKioskTable(k === "<" ? kioskTable.slice(0, -1) : k === "C" ? "" : (kioskTable + k).slice(0, 3))} style={{ padding: "14px 0", textAlign: "center", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, cursor: "pointer" }}>{k}</div>
+                      ))}
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -1527,9 +1563,21 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
         <div style={{ flex: "none", padding: "18px 28px 26px", background: "var(--bg3)", boxShadow: "0 -10px 30px -16px rgba(60,70,45,.3)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, color: "var(--muted)", marginBottom: 12 }}><span>Subtotal</span><span>{money(subtotal)}</span></div>
           <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24 }}>Total</span><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24 }}>{money(subtotal)}</span></div>
-          {orderingEnabled ? (
+          {orderingEnabled ? (() => {
+            // Kiosk: eat in needs a table number, take away needs a name. The
+            // button says what's missing rather than failing after the tap.
+            const need = !kiosk ? null
+              : kioskDine === null ? "Choose eat in or take away"
+              : kioskDine === true && !String(kioskTable || "").trim() ? "Enter your table number"
+              : kioskDine === false && String(pickupName || "").trim().length < 2 ? "Enter your name"
+              : null;
+            if (need) return (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--line)", color: "var(--muted)", padding: "20px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19 }}>{need}</div>
+            );
+            return (
             <div onClick={onPlace} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "20px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: "pointer" }}>Place Order <span style={{ fontSize: 20 }}>→</span></div>
-          ) : (
+            );
+          })() : (
             <div style={{ textAlign: "center", background: "var(--bg)", border: "1px solid var(--line)", padding: "18px 24px", borderRadius: 24, fontFamily: "'Poppins',sans-serif" }}>
               <div style={{ fontSize: 17, fontWeight: 700, color: "var(--ink)", marginBottom: 4 }}>Please order with a waiter or at the counter</div>
               <div style={{ fontSize: 13, color: "var(--muted)" }}>Show this order to a member of staff to place it.</div>
@@ -1913,6 +1961,8 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     // On a tablet (pick mode), a table MUST be set before ordering. If it isn't,
     // tell the customer to ask staff (setting the table is PIN-gated).
     if (kiosk && kioskDine === null) { setOrderErr("Please choose eat in or take away."); return; }
+    if (kiosk && kioskDine === true && !String(kioskTable || "").trim()) { setOrderErr("Please enter your table number."); return; }
+    if (kiosk && kioskDine === false && String(pickupName || "").trim().length < 2) { setOrderErr("Please enter your name so we can call you."); return; }
     if (!kiosk && orderingOn && tableMode === "pick" && !table) {
       setOrderErr("Please ask a staff member to set your table before ordering.");
       openTablePicker();
@@ -1920,10 +1970,11 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     }
     setPlacing(true); setOrderErr(null);
     const dineIn = kiosk ? !!kioskDine : ((tableMode === "pick" || tableMode === "fixed") && table);
+    const kioskTableRow = kiosk && kioskDine ? (tables || []).find((t) => String(t.label) === String(kioskTable)) : null;
     const payload = {
       qr_token: kiosk ? null : (getStoreToken() || null),
       location_id: kioskStoreId || undefined,
-      table_id: !kiosk && dineIn ? table.id : null,
+      table_id: kiosk ? (kioskTableRow ? kioskTableRow.id : null) : (dineIn ? table.id : null),
       order_type: dineIn ? "dine_in" : "takeaway",
       requires_table: !kiosk && tableMode === "pick",
       pickup_name: kiosk ? (kioskDine && kioskTable ? "Table " + kioskTable : pickupName || null) : (pickupName || null),
@@ -2000,14 +2051,16 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         setTables(await fetchTables(scanned.location_id));
       } else {
         // Token is a tablet link (or store token) -> customer must pick a table.
-        const st = await resolveStore(token);
-        const loc = st && st.location_id ? st.location_id : null;
+        const st = kioskStoreId ? { location_id: kioskStoreId } : await resolveStore(token);
+        const loc = kioskStoreId || (st && st.location_id ? st.location_id : null);
         if (!alive) return;
         if (loc) {
           const tbls = await fetchTables(loc);
           if (!alive) return;
           setTables(tbls);
-          setTableMode(tbls.length ? "pick" : "none");
+          // The kiosk offers the store's real tables in the bag; it never uses
+          // the staff-locked picker.
+          setTableMode(kiosk ? "none" : (tbls.length ? "pick" : "none"));
         } else {
           setTableMode("none");
         }
@@ -2129,10 +2182,12 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
               // ask for it again at checkout.
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
-            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag kiosk={kiosk} kioskDine={kioskDine} setKioskDine={setKioskDine} kioskTable={kioskTable} setKioskTable={setKioskTable} orderErr={orderErr} onDismissErr={() => setOrderErr(null)} lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => { setOrderErr(null);
+            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag kioskTables={tables} kiosk={kiosk} kioskDine={kioskDine} setKioskDine={setKioskDine} kioskTable={kioskTable} setKioskTable={setKioskTable} orderErr={orderErr} onDismissErr={() => setOrderErr(null)} lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => { setOrderErr(null);
               if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
               if (kiosk && kioskDine === null) { setOrderErr("Please choose eat in or take away."); return; }
+    if (kiosk && kioskDine === true && !String(kioskTable || "").trim()) { setOrderErr("Please enter your table number."); return; }
+    if (kiosk && kioskDine === false && String(pickupName || "").trim().length < 2) { setOrderErr("Please enter your name so we can call you."); return; }
     if (!kiosk && orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
             }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
