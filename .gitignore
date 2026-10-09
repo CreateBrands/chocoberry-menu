@@ -15,3 +15,4 @@ android-print-agent/obj/
 android-print-agent/classes.dex
 android-print-agent/unaligned.apk
 android-print-agent/aligned.apk
+teya-credentials.sql

@@ -33,9 +33,13 @@ const json = (body: unknown, status = 200) =>
 const ENV = (Deno.env.get("TEYA_ENV") || "production").toLowerCase();
 const API = ENV === "staging" ? "https://api.teya.xyz" : "https://api.teya.com";
 const TOKEN_URL = ENV === "staging" ? "https://id.teya.xyz/oauth/v2/oauth-token" : "https://id.teya.com/oauth/v2/oauth-token";
-// Scopes per the Online Payments spec. Override if Teya names them differently for our account.
+// Scopes as Teya actually issues them to a registered ePOS (hyphens, not
+// underscores — the spec's prose uses a different style to the token server).
+// Hosted Checkout (checkout/sessions/*) is NOT granted on our ePOS credentials,
+// so Pay by Link is the working card-not-present path; asking for a scope we
+// were not granted makes the whole token request fail, hence it is left out.
 const SCOPES = Deno.env.get("TEYA_CHECKOUT_SCOPES") ||
-  "checkout/sessions/create checkout/sessions/read payment_links/create payment_links/read refunds/create transactions/read";
+  "payment-links/create payment-links/id/get payment-links/id/update refunds";
 const UA = "Chocoberry-Menu/1.0";
 const PUBLIC_URL = (Deno.env.get("TEYA_PUBLIC_URL") || "https://chocoberry-menu.vercel.app").replace(/\/+$/, "");
 
@@ -123,13 +127,25 @@ Deno.serve(async (req) => {
     try {
       const type = String(body.type || body.event || "");
       const d = body.data || body.payload || body;
-      const ref = String(d.transaction_id || d.id || d.session_id || "");
-      const orderId = String(d.metadata?.order_id || d.merchant_reference || "");
+      const ref = String(d.transaction_id || d.id || d.session_id || d.payment_link_id || "");
       const minor = Number(d.amount?.value ?? d.amount ?? 0);
+      // metadata.order_id is our uuid; merchant_reference is the order NUMBER,
+      // so resolve that to an id rather than passing it straight to the insert.
+      const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+      let orderId = String(d.metadata?.order_id || "");
+      if (!isUuid(orderId)) {
+        const no = Number(d.merchant_reference ?? d.metadata?.order_no ?? NaN);
+        orderId = "";
+        if (Number.isFinite(no)) {
+          const { data: byNo } = await admin.from("menu_orders").select("id")
+            .eq("order_no", no).order("created_at", { ascending: false }).limit(1).maybeSingle();
+          if (byNo?.id) orderId = String(byNo.id);
+        }
+      }
       await admin.from("teya_checkout_events").insert({ event_type: type || "unknown", reference: ref || null, order_id: orderId || null, payload: body }).then(() => {}, () => {});
       if (/succeed|captur|paid/i.test(type) && orderId && minor > 0) {
         const r = await bookPayment(orderId, minor, ref || "webhook");
-        return json({ ok: true, ...r });
+        return json({ ...r, ok: true });
       }
       return json({ ok: true, ignored: type });
     } catch (e) { console.error("webhook", e); return json({ ok: false, error: String((e as Error).message || e) }, 200); }
@@ -182,28 +198,78 @@ Deno.serve(async (req) => {
         if (paid && orderId) {
           const minor = Number(res.amount?.value || 0);
           const booked = await bookPayment(orderId, minor, String(res.transaction_id || session_id));
-          return json({ ok: true, paid: true, ...booked });
+          return json({ ...booked, ok: true, paid: true });
         }
         return json({ ok: true, paid: false, payment_status: res.payment_status, session_status: res.session_status });
       }
 
-      // ---------- Pay by Link (phone orders) ----------
+      // ---------- Pay by Link — phone orders, and the QR the kiosk shows ----------
+      // The returned URL is what we render as a QR code: the customer scans it
+      // and pays on Teya's page by card or Apple Pay. No Hosted Checkout needed.
       case "link": {
-        const { order_id, location_id, expires_in_hours } = data || {};
+        const { order_id, location_id, expires_in_hours, customer } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
-        const { data: o } = await admin.from("menu_orders").select("id, order_no, total, discount_amount, location_id, paid_method").eq("id", order_id).maybeSingle();
+        const { data: o } = await admin.from("menu_orders").select("id, order_no, total, discount_amount, location_id, paid_method, table_id").eq("id", order_id).maybeSingle();
         if (!o) return json({ error: "order not found" }, 404);
         if (o.paid_method) return json({ error: "already_paid" }, 409);
         const due = Math.round(((Number(o.total || 0)) - Number((o as any).discount_amount || 0)) * 100);
+        if (due <= 0) return json({ error: "nothing_to_pay" }, 409);
+        const { data: items } = await admin.from("menu_order_items").select("name_snapshot, qty, price_snapshot").eq("order_id", order_id);
         const store_id = await storeIdFor(location_id || o.location_id);
+        const hours = Number(expires_in_hours) > 0 ? Number(expires_in_hours) : 6;
+        // Table label is on menu_tables, not the order — read it separately
+        // rather than through a PostgREST join.
+        let tableLabel: string | null = null;
+        if (o.table_id) {
+          const { data: t } = await admin.from("menu_tables").select("label").eq("id", o.table_id).maybeSingle();
+          tableLabel = t?.label ? String(t.label) : null;
+        }
         const res = await teya("POST", "/v2/payment-links", {
+          type: "SINGLE_USE",
+          transaction_type: "SALE",
           amount: { currency: "GBP", value: due },
-          merchant_reference: String(o.order_no),
-          metadata: { order_id: String(o.id) },
+          merchant_reference: String(o.order_no).slice(0, 60),
+          metadata: {
+            order_id: String(o.id),
+            order_no: String(o.order_no),
+            ...(tableLabel ? { table_number: tableLabel } : {}),
+          },
+          line_items: (items || []).slice(0, 50).map((it: any) => ({
+            description: String(it.name_snapshot || "Item").slice(0, 60),
+            quantity: Number(it.qty || 1),
+            unit_price: Math.round(Number(it.price_snapshot || 0) * 100),
+          })),
+          // The customer is on their own phone — keep them on Teya's success
+          // page rather than bouncing them into our menu app.
+          post_success_payment: "SHOW_SUCCESS_PAGE",
+          expires_at: new Date(Date.now() + hours * 3600_000).toISOString(),
+          language: "en-GB",
           ...(store_id ? { store_id } : {}),
-          ...(expires_in_hours ? { expires_in_hours } : {}),
+          ...(customer ? { customer } : {}),
         }, "link-" + o.id);
-        return json({ ok: true, payment_link_id: res.payment_link_id || res.id, url: res.url || res.payment_link_url, amount: due / 100 });
+        // Teya returns the URL as `payment_link`; keep the older names as a fallback.
+        const url = res.payment_link || res.url || res.payment_link_url || null;
+        const linkId = res.payment_link_id || res.id || null;
+        await admin.from("teya_checkout_sessions").insert({
+          order_id: o.id, session_id: linkId, amount_minor: due, status: "VALID", location_id: o.location_id,
+        }).then(() => {}, () => {});
+        return json({ ok: true, payment_link_id: linkId, url, amount: due / 100 });
+      }
+
+      // ---------- poll a payment link (the kiosk waits on this while the QR is up) ----------
+      case "link_status": {
+        const { payment_link_id } = data || {};
+        if (!payment_link_id) return json({ error: "payment_link_id required" }, 400);
+        const res = await teya("GET", "/v1/payment-links/" + encodeURIComponent(payment_link_id));
+        const status = String(res.status || "").toUpperCase();
+        await admin.from("teya_checkout_sessions").update({ status: status || null })
+          .eq("session_id", payment_link_id).then(() => {}, () => {});
+        if (status !== "COMPLETED") return json({ ok: true, paid: false, status });
+        const orderId = String(res.metadata?.order_id || "");
+        const minor = Number(res.amount?.value || 0);
+        if (!orderId || minor <= 0) return json({ ok: true, paid: true, status, booked: false });
+        const booked = await bookPayment(orderId, minor, String(payment_link_id));
+        return json({ ...booked, ok: true, paid: true, status });
       }
 
       // ---------- refund an online payment ----------
