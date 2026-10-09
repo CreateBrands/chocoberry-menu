@@ -101,9 +101,11 @@ export default function Kiosk() {
       {/* the menu itself — identical to the tablet */}
       <App key={nonce} kiosk kioskDevice={dev} />
 
-      {/* hidden staff corner */}
-      <div onClick={() => setTaps((n) => { if (n + 1 >= 5) { setGate(true); setPin(""); setErr(""); return 0; } return n + 1; })}
-        style={{ position: "fixed", top: 0, left: 0, width: 90, height: 90, zIndex: 8000 }} />
+      {/* hidden staff corners: 3 taps on ANY corner */}
+      {[["top", "left"], ["top", "right"], ["bottom", "left"], ["bottom", "right"]].map(([v, h]) => (
+        <div key={v + h} onClick={() => setTaps((n) => { if (n + 1 >= 3) { setGate(true); setPin(""); setErr(""); return 0; } return n + 1; })}
+          style={{ position: "fixed", [v]: 0, [h]: 0, width: 96, height: 96, zIndex: 8000 }} />
+      ))}
 
       {idlePrompt && (
         <div style={sheet}>
@@ -124,6 +126,7 @@ export default function Kiosk() {
             <div style={{ fontSize: 40 }}>🔒</div>
             <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 28, marginTop: 4 }}>Staff only</div>
             <div style={{ fontSize: 17, color: "#666", marginTop: 8 }}>Enter your punch-in PIN to open kiosk settings.</div>
+            <div style={{ fontSize: 14, color: "#999", marginTop: 4 }}>Tap any corner 3 times to get here.</div>
             <div style={{ display: "flex", gap: 10, justifyContent: "center", margin: "22px 0 18px" }}>{[0, 1, 2, 3].map((i) => <span key={i} style={{ width: 16, height: 16, borderRadius: "50%", background: i < pin.length ? (err ? "#b4462f" : "#111") : "#e5e7eb" }} />)}{pin.length > 4 && <span style={{ color: "#666" }}>+{pin.length - 4}</span>}</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10 }}>
               {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "✓"].map((k) => (
