@@ -46,5 +46,10 @@ public class SunmiPrinter {
         s.sendRAWData(bytes, cb);
         done.await(20, TimeUnit.SECONDS);
         if (err[0] != null) throw new Exception(err[0]);
+        // sendRAWData leaves the data in the printer's line buffer on several
+        // Sunmi models: the service reports success and nothing comes out
+        // until something forces a flush. Our ESC/POS already ends in a feed
+        // and a cut, so this is purely the flush.
+        try { s.lineWrap(1, null); } catch (Exception ignored) {}
     }
 }

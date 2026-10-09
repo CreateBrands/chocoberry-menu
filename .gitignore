@@ -8,3 +8,10 @@ dist
 
 .vercel
 supabase/.temp/
+android-print-agent/PrintAgent.apk
+android-print-agent/PrintAgent.apk.idsig
+android-print-agent/gen/
+android-print-agent/obj/
+android-print-agent/classes.dex
+android-print-agent/unaligned.apk
+android-print-agent/aligned.apk

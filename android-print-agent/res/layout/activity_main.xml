@@ -8,6 +8,8 @@
     <LinearLayout android:id="@+id/registeredBox" android:orientation="vertical" android:layout_marginTop="22dp" android:layout_width="match_parent" android:layout_height="wrap_content">
         <TextView android:id="@+id/registeredText" android:textSize="16sp" android:textColor="#1F2A24" android:lineSpacingExtra="4dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
         <TextView android:id="@+id/usbInfo" android:textSize="14sp" android:textColor="#5F6B63" android:layout_marginTop="8dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
+        <TextView android:text="Which printer" android:textSize="13sp" android:textColor="#5F6B63" android:layout_marginTop="14dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+        <Spinner android:id="@+id/backend" android:layout_width="match_parent" android:layout_height="52dp"/>
         <Button android:id="@+id/usbPerm" android:text="Allow access to the printer" android:layout_marginTop="12dp" android:layout_width="match_parent" android:layout_height="wrap_content"/>
         <Button android:id="@+id/test" android:text="Print a test slip" android:layout_width="match_parent" android:layout_height="wrap_content"/>
         <Button android:id="@+id/battery" android:text="Keep running in background" android:layout_width="match_parent" android:layout_height="wrap_content"/>

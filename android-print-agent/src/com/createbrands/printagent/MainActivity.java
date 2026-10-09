@@ -21,7 +21,10 @@ import java.util.List;
 public class MainActivity extends Activity {
     private Prefs prefs; private UsbPrinter printer; private List<String[]> stores = new ArrayList<>();
     private final Handler ui = new Handler(Looper.getMainLooper());
-    private TextView status, sn, registeredText, usbInfo; private Spinner store; private EditText label, station, pin;
+    private TextView status, sn, registeredText, usbInfo; private Spinner store, backend; private EditText label, station, pin;
+    // Index order must match BACKEND_VALUES.
+    private static final String[] BACKEND_LABELS = { "Automatic", "Sunmi built-in printer", "USB printer" };
+    private static final String[] BACKEND_VALUES = { "auto", "sunmi", "usb" };
     private View registeredBox, setupBox; private Button usbPerm;
     private final BroadcastReceiver statusRx = new BroadcastReceiver() { @Override public void onReceive(Context c, Intent i) { status.setText(i.getStringExtra("status")); } };
     private final BroadcastReceiver usbRx = new BroadcastReceiver() { @Override public void onReceive(Context c, Intent i) { render(); } };
@@ -31,7 +34,25 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         prefs = new Prefs(this); printer = new UsbPrinter(this); Api.init(this);
         status = (TextView) findViewById(R.id.status); sn = (TextView) findViewById(R.id.sn); registeredText = (TextView) findViewById(R.id.registeredText); usbInfo = (TextView) findViewById(R.id.usbInfo);
-        store = (Spinner) findViewById(R.id.store); label = (EditText) findViewById(R.id.label); station = (EditText) findViewById(R.id.station); pin = (EditText) findViewById(R.id.pin);
+        store = (Spinner) findViewById(R.id.store); backend = (Spinner) findViewById(R.id.backend);
+        label = (EditText) findViewById(R.id.label); station = (EditText) findViewById(R.id.station); pin = (EditText) findViewById(R.id.pin);
+        // Which printer to drive. "Automatic" uses the Sunmi service when the
+        // device has one — wrong on a Sunmi till with no built-in printer and
+        // a receipt printer on USB, where the service accepts the data and
+        // prints nothing, so the choice has to be overridable.
+        backend.setAdapter(new ArrayAdapter<>(this, android.R.layout.simple_spinner_dropdown_item, BACKEND_LABELS));
+        for (int i = 0; i < BACKEND_VALUES.length; i++) if (BACKEND_VALUES[i].equals(prefs.backend())) backend.setSelection(i);
+        backend.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (pos < 0 || pos >= BACKEND_VALUES.length) return;
+                if (BACKEND_VALUES[pos].equals(prefs.backend())) return;
+                prefs.backend(BACKEND_VALUES[pos]);
+                if ("usb".equals(BACKEND_VALUES[pos])) askUsbPermission();
+                PrintService.start(MainActivity.this);
+                render();
+            }
+            public void onNothingSelected(AdapterView<?> p) {}
+        });
         registeredBox = findViewById(R.id.registeredBox); setupBox = findViewById(R.id.setupBox); usbPerm = (Button) findViewById(R.id.usbPerm);
         sn.setText("This device prints as  " + prefs.sn());
         label.setText(prefs.label()); status.setText(prefs.lastStatus());
@@ -99,7 +120,8 @@ public class MainActivity extends Activity {
         if (reg) {
             registeredText.setText(prefs.label() + " · " + prefs.storeName() + "\nSerial " + prefs.sn());
             SunmiPrinter sp = new SunmiPrinter(this);
-            if (sp.available()) { usbInfo.setText("Printer: Sunmi built-in · " + prefs.paper() + " mm paper"); usbPerm.setVisibility(View.GONE); }
+            boolean useSunmi = !"usb".equals(prefs.backend()) && sp.available();
+            if (useSunmi) { usbInfo.setText("Printer: Sunmi built-in · " + prefs.paper() + " mm paper\nIf nothing prints, this till has no built-in printer — choose USB printer below."); usbPerm.setVisibility(View.GONE); }
             else {
                 UsbDevice d = printer.find();
                 usbInfo.setText(d == null ? "Printer: none found on USB" : "Printer: " + printer.describe(d) + (printer.hasPermission(d) ? " · allowed" : " · NOT allowed yet"));
