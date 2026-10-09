@@ -267,8 +267,41 @@ function WelcomeElements({ layout, w }) {
   );
 }
 
-function Welcome({ bg, menus, onPick, w = {} }) {
+// Two tiles on the kiosk welcome screen. Icons are Material Symbols, loaded
+// subsetted to just these two glyphs (see index.html).
+function KioskStartTiles({ onStart, w = {} }) {
+  const tile = (icon, title, sub, dine) => (
+    <div
+      onClick={() => onStart(dine)}
+      style={{
+        flex: 1, maxWidth: 340, padding: "36px 24px 30px", borderRadius: 28, cursor: "pointer",
+        background: "var(--bg2)", boxShadow: "inset 0 0 0 1px var(--line), 0 18px 40px -26px rgba(0,0,0,.45)",
+        display: "flex", flexDirection: "column", alignItems: "center", gap: 14, textAlign: "center",
+      }}
+    >
+      <span className="material-symbols-outlined" style={{ fontSize: 76, lineHeight: 1, color: "var(--accent)" }}>{icon}</span>
+      <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 27, lineHeight: 1.15 }}>{title}</div>
+      <div style={{ fontSize: 15, color: "var(--muted)", lineHeight: 1.4 }}>{sub}</div>
+    </div>
+  );
+  return (
+    <div style={{ display: "flex", gap: 22, alignItems: "stretch", justifyContent: "center", width: "100%", maxWidth: 740 }}>
+      {tile("brunch_dining", w.kiosk_eatin_label || "Eat in", w.kiosk_eatin_sub || "We'll bring it to your table", true)}
+      {tile("shopping_bag", w.kiosk_takeaway_label || "Take away", w.kiosk_takeaway_sub || "We'll call your name", false)}
+    </div>
+  );
+}
+
+function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null }) {
   const [open, setOpen] = useState(false);
+  // Kiosk: the customer says eat in / take away here rather than at the bag,
+  // then goes straight to the menu (or the picker when there is more than one).
+  const startKiosk = (dine) => {
+    if (onKioskStart) onKioskStart(dine);
+    const list = menus || [];
+    if (list.length > 1) setOpen(true);
+    else if (list[0]) onPick(list[0]);
+  };
   let layout = null;
   try { layout = w.welcome_layout ? (typeof w.welcome_layout === "string" ? JSON.parse(w.welcome_layout) : w.welcome_layout) : null; } catch { layout = null; }
   const hasLayout = Array.isArray(layout) && layout.length > 0;
@@ -278,7 +311,9 @@ function Welcome({ bg, menus, onPick, w = {} }) {
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '680px', left: '40px', top: '240px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.22),rgba(167,192,131,.1) 50%,transparent 72%)', filter: 'blur(6px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
       {hasLayout ? (
-        <div onClick={() => setOpen(true)} style={{ position: "absolute", inset: 0, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        // On a kiosk the tiles are the only way in, so the whole-screen tap is
+        // disabled — otherwise a stray touch would skip the eat-in question.
+        <div onClick={() => { if (!kiosk) setOpen(true); }} style={{ position: "absolute", inset: 0, cursor: kiosk ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
           <div style={{ position: "relative", width: 390, height: 844, flexShrink: 0, transform: "scale(var(--welcome-scale,1))", transformOrigin: "center center" }} ref={(node) => {
             if (node && node.parentElement) {
               const pw = node.parentElement.clientWidth, ph = node.parentElement.clientHeight;
@@ -297,12 +332,20 @@ function Welcome({ bg, menus, onPick, w = {} }) {
         <div style={{width: '54px', height: '2px', background: 'var(--accent)', margin: '34px 0'}}></div>
         <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '24px', fontWeight: '400', color: 'var(--ink)', opacity: '.78', lineHeight: '1.5'}} dangerouslySetInnerHTML={{__html: w.welcome_subtitle || 'Your daily ritual, gently elevated.<br />Calm energy in a cup.'}} />
       </div>
-      <div style={{position: 'absolute', left: '0', right: '0', bottom: '66px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px', zIndex: 5}}>
-        <div onClick={() => setOpen(true)} style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '10px', background: 'var(--accent)', color: '#F7F4EC', padding: '15px 40px', borderRadius: '40px', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600', boxShadow: '0 14px 30px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>{w.welcome_button || 'Order Ahead'} <span style={{fontSize: '18px'}}>→</span></div>
-        <div style={{fontSize: '14px', fontWeight: '600', letterSpacing: '.16em', color: 'var(--muted)', textTransform: 'uppercase'}}>{w.welcome_footer || 'Pickup at counter · Tap to begin'}</div>
+      <div style={{position: 'absolute', left: '0', right: '0', bottom: '66px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px', zIndex: 5, padding: '0 40px'}}>
+        {kiosk ? <KioskStartTiles onStart={startKiosk} w={w} /> : (
+          <div onClick={() => setOpen(true)} style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '10px', background: 'var(--accent)', color: '#F7F4EC', padding: '15px 40px', borderRadius: '40px', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600', boxShadow: '0 14px 30px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>{w.welcome_button || 'Order Ahead'} <span style={{fontSize: '18px'}}>→</span></div>
+        )}
+        <div style={{fontSize: '14px', fontWeight: '600', letterSpacing: '.16em', color: 'var(--muted)', textTransform: 'uppercase'}}>{kiosk ? (w.kiosk_footer || 'Tap to start your order') : (w.welcome_footer || 'Pickup at counter · Tap to begin')}</div>
       </div>
 
       </>)}
+      {/* Custom welcome layouts have no button of ours, so the tiles sit over the top. */}
+      {kiosk && hasLayout && (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 48, zIndex: 20, display: "flex", justifyContent: "center", padding: "0 40px" }}>
+          <KioskStartTiles onStart={startKiosk} w={w} />
+        </div>
+      )}
       {/* choose-menu popup: opens from the bottom, dismiss on outside tap */}
       <div onClick={() => setOpen(false)} style={{position: 'absolute', inset: 0, zIndex: 30, pointerEvents: open ? 'auto' : 'none', background: open ? 'rgba(30,36,20,.34)' : 'transparent', transition: 'background .3s ease', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}}>
         <div onClick={(e) => e.stopPropagation()} style={{width: 'min(400px, 72%)', marginBottom: 0, background: 'var(--bg)', borderRadius: '28px 28px 0 0', padding: '26px 18px 34px', boxShadow: '0 -20px 50px -18px rgba(0,0,0,.35)', transform: open ? 'translateY(0)' : 'translateY(100%)', opacity: 1, transition: 'transform .34s cubic-bezier(.2,.8,.2,1)'}}>
@@ -1950,7 +1993,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   useEffect(() => {
     if (!allergensUnlocked) return;
     let t;
-    const arm = () => { clearTimeout(t); t = setTimeout(() => { setAllergensUnlocked(false); setTableUnlocked(false); setScreen("welcome"); }, IDLE_RESET_MS); };
+    const arm = () => { clearTimeout(t); t = setTimeout(() => { setAllergensUnlocked(false); setTableUnlocked(false); setKioskDine(null); setKioskTable(""); setScreen("welcome"); }, IDLE_RESET_MS); };
     const events = ["pointerdown", "keydown", "touchstart", "scroll"];
     events.forEach((e) => window.addEventListener(e, arm, { passive: true }));
     arm();
@@ -2185,7 +2228,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
-            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} /></div>
+            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
@@ -2203,7 +2246,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     if (!kiosk && orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
             }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setScreen("welcome"); }}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setKioskDine(null); setKioskTable(""); setScreen("welcome"); }}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
             {orderingOn && tableMode === "pick" && screen === "welcome" && (
