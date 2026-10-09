@@ -2211,8 +2211,21 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     );
   }
 
+  // KIOSK SAFE AREA. index.html sets viewport-fit=cover, so the page is drawn
+  // UNDER the Android status and navigation bars. On a tablet that is fine —
+  // someone holds it and the system bars are where they expect. On a kiosk the
+  // top bar (back, bag, close, search cancel) ends up beneath the status bar,
+  // which takes the touches: the buttons are plainly visible and completely
+  // dead, and the bottom category rail falls off the screen. Inset the whole
+  // app instead. env() is 0 in many Android WebViews, so the numbers can be
+  // overridden per store with kiosk_inset_top / kiosk_inset_bottom.
+  const insetTop = kiosk ? Math.max(0, Number(settingsEff.kiosk_inset_top ?? 48) || 0) : 0;
+  const insetBottom = kiosk ? Math.max(0, Number(settingsEff.kiosk_inset_bottom ?? 0) || 0) : 0;
+  const safeTop = kiosk ? `max(env(safe-area-inset-top, 0px), ${insetTop}px)` : "0px";
+  const safeBottom = kiosk ? `max(env(safe-area-inset-bottom, 0px), ${insetBottom}px)` : "0px";
+
   return (
-    <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0 }}>
+    <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: kiosk ? `calc(100dvh - ${safeTop} - ${safeBottom})` : "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: kiosk ? safeTop : 0, left: 0 }}>
       {!online && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#8a5a2c", color: "#fff", textAlign: "center", fontSize: 13, fontWeight: 600, padding: "6px 0", letterSpacing: ".02em", fontFamily: "'Poppins',sans-serif" }}>
           ● Offline — showing saved menu
@@ -2230,7 +2243,9 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         *::-webkit-scrollbar{display:none;}
       `}</style>
 
-      <div style={{ width: "100vw", height: "100dvh", margin: 0 }}>
+      {/* 100% of the (possibly inset) root, not 100dvh — otherwise a kiosk's
+          safe-area inset just pushes the bottom of the app off the screen. */}
+      <div style={{ width: "100vw", height: "100%", margin: 0 }}>
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
