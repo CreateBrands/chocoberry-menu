@@ -2277,6 +2277,7 @@ export default function Admin() {
                                   <Field k="kiosk_takeaway_label" label="Take-away tile · title" placeholder="Take away" />
                                   <Field k="kiosk_takeaway_sub" label="Take-away tile · line below" placeholder="Freshly made, ready to go" />
                                   <Field k="kiosk_slide_seconds" label="Seconds per slide" placeholder="7" />
+                                  <Field k="kiosk_confirm_seconds" label="Thank-you screen · seconds before it resets" placeholder="20" hint="0 waits for a tap, as it used to." />
                                   <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>Rewards strip</div>
                                   <div style={{ display: "flex", gap: 6 }}>
                                     {[["", "Show"], ["off", "Hide"]].map(([v, l]) => <span key={v} onClick={() => setK("kiosk_rewards", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: (g("kiosk_rewards") || "") === v ? T.ink : T.bg, color: (g("kiosk_rewards") || "") === v ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>)}

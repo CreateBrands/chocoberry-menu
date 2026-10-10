@@ -1812,7 +1812,16 @@ export function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlac
 }
 
 
-function Confirm({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDine = null, kioskTable = "", kioskTotal = 0 }) {
+function Confirm({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDine = null, kioskTable = "", kioskTotal = 0, autoSeconds = 0 }) {
+  // Count the reset down out loud rather than having the screen vanish while
+  // someone is still reading their order number.
+  const [left, setLeft] = useState(autoSeconds);
+  useEffect(() => {
+    setLeft(autoSeconds);
+    if (!autoSeconds) return;
+    const t = setInterval(() => setLeft((n) => (n > 0 ? n - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [autoSeconds, orderNo]);
   return (
     <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: "var(--font-body)", color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '460px', left: '40px', top: '70px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.17),transparent 68%)', filter: 'blur(8px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
@@ -1831,7 +1840,9 @@ function Confirm({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDi
           <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>TABLE</div><div style={{fontFamily: "var(--font-head)", fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{table.label}</div></div></>) : null}
         </div>
         <div onClick={(e) => { e.stopPropagation(); if (onAddMore) onAddMore(); }} style={{marginTop: '40px', padding: '16px 36px', borderRadius: '30px', background: 'var(--accent)', color: '#F7F4EC', fontFamily: "var(--font-head)", fontWeight: '600', fontSize: '18px', cursor: 'pointer', boxShadow: '0 12px 30px -8px rgba(94,122,77,.5)'}}>+ Add more to this order</div>
-        <div style={{marginTop: '20px', fontSize: '15px', fontWeight: '600', letterSpacing: '.06em', color: 'var(--muted)'}}>Or tap anywhere to start a new order</div>
+        <div style={{marginTop: '20px', fontSize: '15px', fontWeight: '600', letterSpacing: '.06em', color: 'var(--muted)'}}>
+          {autoSeconds > 0 ? <>Starting a new order in {left}s · or tap anywhere now</> : <>Or tap anywhere to start a new order</>}
+        </div>
       </div>
     </div>
   );
@@ -2353,6 +2364,26 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
 
   const openItem = (it) => { setSelItem(it); setScreen("item"); };
 
+  // Clear the order and go back to the attract screen. Tapping the thank-you
+  // screen does this; on a kiosk it also happens on its own, because the next
+  // customer should not walk up to the last one's order number — and nobody
+  // thinks to dismiss a screen that has already thanked them.
+  const startOver = () => {
+    setLines([]);
+    setPickupName("");
+    setOrderNo(null);
+    setAllergensUnlocked(false);
+    setKioskDine(null);
+    setKioskTable("");
+    setScreen("welcome");
+  };
+  const confirmSeconds = Math.max(0, Number(settingsEff.kiosk_confirm_seconds ?? 20) || 0);
+  useEffect(() => {
+    if (!kiosk || screen !== "confirm" || confirmSeconds <= 0) return;
+    const t = setTimeout(startOver, confirmSeconds * 1000);
+    return () => clearTimeout(t);
+  }, [kiosk, screen, confirmSeconds]);
+
   // The kiosk shell routes Android's back button here so it behaves like the
   // on-screen back arrows: item → browse → welcome, and never leaves the app.
   useEffect(() => {
@@ -2449,7 +2480,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     if (!kiosk && orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
             }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={() => { setLines([]); setPickupName(""); setOrderNo(null); setAllergensUnlocked(false); setKioskDine(null); setKioskTable(""); setScreen("welcome"); }}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={startOver}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} autoSeconds={kiosk ? confirmSeconds : 0} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
             {orderingOn && tableMode === "pick" && screen === "welcome" && (
