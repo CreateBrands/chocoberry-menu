@@ -1348,6 +1348,9 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
   const isCookingGroup = (g) => /cooking level|doneness|how would you like/i.test(g.name || "");
   const cookingGroups = groups.filter(isCookingGroup);
   const addonGroups = groups.filter((g) => !isCookingGroup(g));
+  // sel and toggleOption are declared below; safe because renderGroup is only
+  // called from the JSX, long after both exist.
+  /* eslint-disable no-use-before-define */
   const renderGroup = (g) => {
     const chosen = sel[g.id] || [];
     return (
@@ -1374,6 +1377,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
       </div>
     );
   };
+  /* eslint-enable no-use-before-define */
   // selection state: { [groupId]: Set of optionIds }
   const [sel, setSel] = useState(() => {
     const init = {};
@@ -2377,12 +2381,6 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     setKioskTable("");
     setScreen("welcome");
   };
-  const confirmSeconds = Math.max(0, Number(settingsEff.kiosk_confirm_seconds ?? 20) || 0);
-  useEffect(() => {
-    if (!kiosk || screen !== "confirm" || confirmSeconds <= 0) return;
-    const t = setTimeout(startOver, confirmSeconds * 1000);
-    return () => clearTimeout(t);
-  }, [kiosk, screen, confirmSeconds]);
 
   // The kiosk shell routes Android's back button here so it behaves like the
   // on-screen back arrows: item → browse → welcome, and never leaves the app.
@@ -2399,13 +2397,21 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     return () => { try { delete window.__kioskBack; } catch {} };
   }, [kiosk]);
 
+  const storeLocId = kioskStoreId || (store && (store.id || store.location_id));
+  const settingsEff = applyStoreOverrides(settings, storeLocId);
+  // Both of these read settingsEff, so they have to come after it.
   let heroSlides = [];
   try { heroSlides = settingsEff.hero_slides ? (typeof settingsEff.hero_slides === "string" ? JSON.parse(settingsEff.hero_slides) : settingsEff.hero_slides) : []; } catch { heroSlides = []; }
   // Whether this store has actually made a choice about the banner, so "None"
   // can mean none rather than falling back to the seeded placeholder slides.
   const heroSet = settingsEff.hero_slides != null && settingsEff.hero_slides !== "";
-  const storeLocId = kioskStoreId || (store && (store.id || store.location_id));
-  const settingsEff = applyStoreOverrides(settings, storeLocId);
+
+  const confirmSeconds = Math.max(0, Number(settingsEff.kiosk_confirm_seconds ?? 20) || 0);
+  useEffect(() => {
+    if (!kiosk || screen !== "confirm" || confirmSeconds <= 0) return;
+    const t = setTimeout(startOver, confirmSeconds * 1000);
+    return () => clearTimeout(t);
+  }, [kiosk, screen, confirmSeconds]);
   const themeVars = THEMES[settingsEff.theme] || THEMES.still;
   const themeBg = settings.theme === "chocoberry"
     ? "linear-gradient(160deg,#F3EADA,#F4E9DD)"
