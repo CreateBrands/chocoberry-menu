@@ -278,6 +278,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // genuine failure alike, which leaves staff with nothing to act on.
   const closeTillErr = useRef("");
   const closeTillCache = useRef({});   // mode -> summary, so the toggle is instant
+  // The till has no keyboard — that is why the PIN step has its own pad.
+  // The cash-count and float fields relied on the system one, so on the
+  // actual hardware they could not be typed into at all.
+  const [padFor, setPadFor] = useState(null);  // null | {kind:"float"|"counted"} | {kind:"denom", d}
   async function loadCloseTillSummary(mode) {
     const r = await ordActionJson("day_summary", { location_id: loc, mode });
     if (!r || !r.summary) closeTillErr.current = (r && (r.message || r.error)) || "";
@@ -1451,7 +1455,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         );
         return (
           <div onClick={() => !closeTill.busy && setCloseTill(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.58)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, width: 760, maxWidth: "100%", height: "min(92vh, 820px)", display: "flex", flexDirection: "column", boxShadow: "0 30px 80px rgba(18,21,28,.35)", overflow: "hidden", fontFamily: "inherit" }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, width: 760, maxWidth: "100%", height: "min(92vh, 820px)", display: "flex", flexDirection: "column", boxShadow: "0 30px 80px rgba(18,21,28,.35)", overflow: "hidden", fontFamily: "inherit", position: "relative" }}>
               {/* header */}
               <div style={{ padding: "20px 26px 0" }}>
                 <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
@@ -1598,7 +1602,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     <div>
                       <Section title="DRAWER" style={{ marginTop: 4 }}>
                         <label style={{ fontSize: 12.5, color: C.muted }}>Float left in drawer for tomorrow
-                          <input inputMode="decimal" value={closeTill.float} onChange={(e) => setCloseTill((c) => ({ ...c, float: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="100.00" style={input({ marginTop: 5 })} />
+                          <input inputMode="decimal" readOnly onFocus={(e) => e.target.blur()} onClick={() => setPadFor({ kind: "float" })} value={closeTill.float} placeholder="100.00" style={input({ marginTop: 5, cursor: "pointer", borderColor: padFor && padFor.kind === "float" ? C.brand : C.line })} />
                         </label>
                         <div style={{ marginTop: 14, background: C.soft, borderRadius: 14, padding: "10px 14px" }}>
                           <Line l="Cash taken today" v={gbp(sm.cash)} />
@@ -1625,7 +1629,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                               return (
                                 <div key={d} style={{ display: "grid", gridTemplateColumns: "40px 1fr auto", alignItems: "center", gap: 8, background: n ? "#fff" : C.soft, border: "1.5px solid " + (n ? C.brand : "transparent"), borderRadius: 12, padding: "6px 10px", transition: "border-color .15s" }}>
                                   <span style={{ fontSize: 13, fontWeight: 800, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: F }}>{dLabel(d)}</span>
-                                  <input inputMode="numeric" value={closeTill.denoms?.[d] ?? ""} onChange={(e) => setCloseTill((c) => ({ ...c, denoms: { ...(c.denoms || {}), [d]: e.target.value.replace(/[^0-9]/g, "") } }))} placeholder="0" style={{ width: "100%", minWidth: 0, padding: "8px 8px", fontSize: 17, fontWeight: 700, border: "none", borderBottom: "1.5px solid " + C.line, outline: "none", background: "transparent", fontVariantNumeric: "tabular-nums", fontFamily: F, textAlign: "center" }} />
+                                  <input inputMode="numeric" readOnly onFocus={(e) => e.target.blur()} onClick={() => setPadFor({ kind: "denom", d })} value={closeTill.denoms?.[d] ?? ""} placeholder="0" style={{ width: "100%", minWidth: 0, padding: "8px 8px", fontSize: 17, fontWeight: 700, border: "none", borderBottom: "1.5px solid " + C.line, outline: "none", background: "transparent", fontVariantNumeric: "tabular-nums", fontFamily: F, textAlign: "center" }} />
                                   <span style={{ fontSize: 12.5, color: n ? C.ink : "#b5bbb0", fontVariantNumeric: "tabular-nums", fontFamily: F, minWidth: 54, textAlign: "right" }}>{gbp(n * d)}</span>
                                 </div>
                               );
@@ -1636,7 +1640,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                           </div>
                         ) : (
                           <label style={{ fontSize: 12.5, color: C.muted }}>Cash counted (everything in the drawer)
-                            <input inputMode="decimal" autoFocus value={closeTill.counted} onChange={(e) => setCloseTill((c) => ({ ...c, counted: e.target.value.replace(/[^0-9.]/g, "") }))} placeholder="0.00" style={input({ marginTop: 5, fontSize: 28, padding: "16px 16px" })} />
+                            <input inputMode="decimal" readOnly onFocus={(e) => e.target.blur()} onClick={() => setPadFor({ kind: "counted" })} value={closeTill.counted} placeholder="0.00" style={input({ marginTop: 5, fontSize: 28, padding: "16px 16px", cursor: "pointer", borderColor: padFor && padFor.kind === "counted" ? C.brand : C.line })} />
                           </label>
                         )}
                       </Section>
@@ -1722,9 +1726,38 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   <Btn onClick={() => !closeTill.busy && setCloseTill(null)}>Cancel</Btn>
                   <Btn primary grow={2} disabled={closeTill.busy || !sm} onClick={() => setCloseTill((c) => ({ ...c, stage: 1 }))}>Next: count cash →</Btn>
                 </>)}
+                {/* On-screen number pad. The till has no keyboard, so every
+                    field in this step is driven from here. */}
+                {closeTill.step === "summary" && stage === 1 && padFor && (
+                  <div style={{ position: "absolute", left: 0, right: 0, bottom: 72, background: "#fff", borderTop: "1px solid " + C.line, padding: "12px 14px 14px", boxShadow: "0 -14px 30px -18px rgba(0,0,0,.35)", zIndex: 30 }}>
+                    <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+                      <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".06em", color: C.muted, textTransform: "uppercase" }}>
+                        {padFor.kind === "float" ? "Float for tomorrow" : padFor.kind === "counted" ? "Counted total" : "How many £" + (padFor.d >= 1 ? padFor.d : "") + (padFor.d < 1 ? Math.round(padFor.d * 100) + "p" : "") + " ?"}
+                      </span>
+                      <span onClick={() => setPadFor(null)} style={{ marginLeft: "auto", fontWeight: 800, fontSize: 15, cursor: "pointer", padding: "2px 8px" }}>Done</span>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
+                      {["1","2","3","4","5","6","7","8","9", padFor.kind === "denom" ? "" : ".", "0", "⌫"].map((k, i) => (
+                        <div key={i} onClick={() => {
+                          if (!k) return;
+                          const isDenom = padFor.kind === "denom";
+                          const cur = isDenom ? String(closeTill.denoms?.[padFor.d] ?? "")
+                            : padFor.kind === "float" ? String(closeTill.float || "") : String(closeTill.counted || "");
+                          let next;
+                          if (k === "⌫") next = cur.slice(0, -1);
+                          else if (k === "." && cur.includes(".")) next = cur;
+                          else next = (cur + k).slice(0, 10);
+                          setCloseTill((c) => isDenom
+                            ? { ...c, denoms: { ...(c.denoms || {}), [padFor.d]: next } }
+                            : padFor.kind === "float" ? { ...c, float: next } : { ...c, counted: next });
+                        }} style={{ padding: "16px 0", textAlign: "center", borderRadius: 12, background: k ? C.soft : "transparent", fontWeight: 800, fontSize: 21, fontFamily: F, cursor: k ? "pointer" : "default", userSelect: "none" }}>{k}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {closeTill.step === "summary" && stage === 1 && (<>
-                  <Btn onClick={() => setCloseTill((c) => ({ ...c, stage: 0 }))}>← Back</Btn>
-                  <Btn primary grow={2} onClick={() => setCloseTill((c) => ({ ...c, stage: 2, err: "" }))}>{countedVal == null ? "Skip count →" : "Next: sign off →"}</Btn>
+                  <Btn onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 0 })); }}>← Back</Btn>
+                  <Btn primary grow={2} onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 2, err: "" })); }}>{countedVal == null ? "Skip count →" : "Next: sign off →"}</Btn>
                 </>)}
                 {closeTill.step === "summary" && stage === 2 && (<>
                   <Btn onClick={() => !closeTill.busy && setCloseTill((c) => ({ ...c, stage: 1, err: "" }))}>← Back</Btn>
