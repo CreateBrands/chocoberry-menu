@@ -1877,13 +1877,29 @@ export default function Admin() {
                   <span onClick={() => setHeroDraft(heroDraft.filter((_, i) => i !== idx))} style={{ fontSize: 13, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Delete</span>
                 </div>
                 <ImageUpload value={sl.image_url || ""} prefix="hero" height={120} onChange={(url) => setHeroDraft(heroDraft.map((x, i) => i === idx ? { ...x, image_url: url } : x))} />
-                {[["tag", "Tag (small pill)", "NEW THIS WEEK"], ["title", "Title", "Blueberry Marble Matcha"], ["sub", "Subtitle", "Fresh. Layered. Unexpected."]].map(([k, label, ph]) => (
+                {[["tag", "Tag (small pill)", "NEW THIS WEEK"], ["title", "Title", "Blueberry Marble Matcha"], ["sub", "Subtitle", "Fresh. Layered. Unexpected."], ["parts", "Kiosk chips (comma separated)", "Blueberry cold foam, Ceremonial matcha, Over ice"]].map(([k, label, ph]) => (
                   <div key={k} style={{ marginTop: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: T.muted, marginBottom: 4 }}>{label.toUpperCase()}</div>
-                    <input value={sl[k] || ""} placeholder={ph} onChange={(e) => setHeroDraft(heroDraft.map((x, i) => i === idx ? { ...x, [k]: e.target.value } : x))}
+                    <input value={typeof sl[k] === "string" ? sl[k] : Array.isArray(sl[k]) ? sl[k].join(", ") : ""} placeholder={ph} onChange={(e) => setHeroDraft(heroDraft.map((x, i) => i === idx ? { ...x, [k]: e.target.value } : x))}
                       style={{ width: "100%", boxSizing: "border-box", border: "1px solid " + T.line, borderRadius: 8, padding: "9px 11px", fontSize: 14, color: T.ink, background: T.card }} />
                   </div>
                 ))}
+                {/* The kiosk takes the whole screen's colour from the slide, so each
+                    photo can sit on cream, deep green or tan. */}
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: T.muted, marginBottom: 4 }}>KIOSK BACKDROP</div>
+                  <div style={{ display: "flex", gap: 6 }}>
+                    {[["cream", "Cream", "#F2E4D7"], ["green", "Deep green", "#3E6F47"], ["tan", "Tan", "#D5B582"]].map(([v, l, sw]) => {
+                      const on = (sl.tone || "cream") === v;
+                      return (
+                        <span key={v} onClick={() => setHeroDraft(heroDraft.map((x, i) => i === idx ? { ...x, tone: v } : x))}
+                          style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: on ? T.ink : T.bg, color: on ? T.card : T.ink, border: "1px solid " + T.line }}>
+                          <span style={{ width: 13, height: 13, borderRadius: 7, background: sw, border: "1px solid rgba(0,0,0,.15)" }} />{l}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
             ))}
 
@@ -2225,6 +2241,37 @@ export default function Admin() {
                                 <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>"Get the app" strip</div>
                                 <div style={{ display: "flex", gap: 6 }}>
                                   {[["", "Show (Chocoberry app)"], ["off", "Hide — no app for this brand"]].map(([v, l]) => <span key={v} onClick={() => setK("app_banner", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: (g("app_banner") || "") === v ? T.ink : T.bg, color: (g("app_banner") || "") === v ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>)}
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* The designed kiosk welcome: photo carousel over the
+                                eat-in / take-away tiles. Slides come from the hero
+                                slides above. */}
+                            <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid " + T.line }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Kiosk welcome · this store only</div>
+                              <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 12 }}>The kiosk shows the hero slides above as a full-height carousel. Portrait screens only — a landscape kiosk falls back to the plain welcome.</div>
+                              <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
+                                {[["", "Designed welcome"], ["off", "Plain welcome"]].map(([v, l]) => <span key={v} onClick={() => setK("kiosk_design", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: (g("kiosk_design") || "") === v ? T.ink : T.bg, color: (g("kiosk_design") || "") === v ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>)}
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
+                                <div>
+                                  <Field k="kiosk_headline" label="Headline" placeholder="Hej! What can we<br>make you today?" hint="Simple HTML allowed, e.g. <br> for a line break." />
+                                  <Field k="kiosk_footer" label="Prompt beside the pulsing dot" placeholder="TAP TO START" />
+                                  <Field k="kiosk_marquee" label="Ticker across the panel" placeholder="MATCHA ✦ COFFEE ✦ CALM ENERGY ✦" />
+                                  <Field k="kiosk_address" label="Footer line" placeholder="183 Evington Road, Leicester · Open daily 8am–11pm" hint="Hidden when empty." />
+                                  <Field k="kiosk_greetings" label="Greetings · morning | afternoon | evening" placeholder="God morgon|Good afternoon|God kväll" />
+                                </div>
+                                <div>
+                                  <Field k="kiosk_eatin_label" label="Eat-in tile · title" placeholder="Eat in" />
+                                  <Field k="kiosk_eatin_sub" label="Eat-in tile · line below" placeholder="Stay a while, slow down" />
+                                  <Field k="kiosk_takeaway_label" label="Take-away tile · title" placeholder="Take away" />
+                                  <Field k="kiosk_takeaway_sub" label="Take-away tile · line below" placeholder="Freshly made, ready to go" />
+                                  <Field k="kiosk_slide_seconds" label="Seconds per slide" placeholder="7" />
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>Rewards strip</div>
+                                  <div style={{ display: "flex", gap: 6 }}>
+                                    {[["", "Show"], ["off", "Hide"]].map(([v, l]) => <span key={v} onClick={() => setK("kiosk_rewards", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: (g("kiosk_rewards") || "") === v ? T.ink : T.bg, color: (g("kiosk_rewards") || "") === v ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>)}
+                                  </div>
                                 </div>
                               </div>
                             </div>

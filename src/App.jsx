@@ -1,28 +1,35 @@
 import { useState, useEffect, useRef } from "react";
 import { getDevice, deviceToken } from "./device.js";
 import OrderManager from "./OrderManager.jsx";
+import KioskWelcome, { CupIcon, BagIcon } from "./KioskWelcome.jsx";
 
 // ============================================================
 // still. / Chocoberry — Digital Menu (React port of approved design)
 // Faithful 6-screen flow. Sample content seeded; live data comes next.
 // ============================================================
 
+// --font-head is the display face (headings, prices, numbers), --font-body
+// everything else. Tove's brand pair is Sora over Jost; the others keep the
+// original Poppins over Hanken Grotesk.
 const THEMES = {
   still: {
     "--bg": "#E1E8D2", "--bg2": "#EEF2E4", "--bg3": "#FFFFFF",
     "--ink": "#2F3326", "--muted": "#7E8470", "--accent": "#5E7A4D",
     "--chip": "#A7C196", "--accent-soft": "#D2DEBC", "--line": "rgba(60,70,45,.12)",
+    "--font-head": "var(--font-head)", "--font-body": "var(--font-body)",
   },
   chocoberry: {
     "--bg": "#F4E9DD", "--bg2": "#F3EADA", "--bg3": "#FBF6EC",
     "--ink": "#3A2E26", "--muted": "#6B5D4F", "--accent": "#844429",
     "--chip": "#E8DCC6", "--accent-soft": "#EADFCB", "--line": "#E8DCC6",
+    "--font-head": "var(--font-head)", "--font-body": "var(--font-body)",
   },
   // Tove — celadon on warm cream (from the brand's Apetito palette).
   tove: {
     "--bg": "#FFFBF2", "--bg2": "#F6F1E4", "--bg3": "#FFFFFF",
     "--ink": "#1F2A24", "--muted": "#5F6B63", "--accent": "#344D42",
     "--chip": "#B3D2AE", "--accent-soft": "#DCEBD8", "--line": "rgba(52,77,66,.14)",
+    "--font-head": "'Sora',sans-serif", "--font-body": "'Jost',sans-serif",
   },
 };
 // Per-store settings: a key saved as "<key>:<location_id>" overrides the global
@@ -48,7 +55,9 @@ const HERO = [
   { tag: "SIGNATURE", dot: "#E7C2C8", title: "Pistachio Latte", sub: "Roasted. Smooth. Ours.", bg: "linear-gradient(120deg,#7a6a44,#a99366 50%,#cdb98a)", cup: "linear-gradient(160deg,#c4cf8c,#8a9a55)", blob: "radial-gradient(circle,#bfa05a,#7a6233)" },
 ];
 
-const money = (n) => "GBP " + Number(n).toFixed(2);
+// Item cards and modifier prices have always used "£"; the bag said "GBP 5.75"
+// against "£5.75" on the card it came from.
+const money = (n) => "£" + Number(n).toFixed(2);
 
 const H = { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json" };
 
@@ -231,7 +240,7 @@ function GetAppBanner({ settings, table }) {
   // after install (Android App Links / iOS Universal Links read it back).
   const target = url + (ios ? "" : (url.includes("?") ? "&" : "?") + "referrer=" + encodeURIComponent("store=" + (getStoreToken() || "")));
   return (
-    <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 9998, padding: "10px 12px calc(10px + env(safe-area-inset-bottom))", background: "#8F4123", color: "#F9EDDC", fontFamily: "'Poppins',sans-serif", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -6px 20px rgba(0,0,0,.18)" }}>
+    <div style={{ position: "fixed", left: 0, right: 0, bottom: 0, zIndex: 9998, padding: "10px 12px calc(10px + env(safe-area-inset-bottom))", background: "#8F4123", color: "#F9EDDC", fontFamily: "var(--font-head)", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 -6px 20px rgba(0,0,0,.18)" }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 14 }}>Order in the {settings.brand_name || "Chocoberry"} app</div>
         <div style={{ fontSize: 12, opacity: .85, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{table ? `Earn Berries on every order at ${table.label}` : "Earn Berries on every order"}</div>
@@ -253,12 +262,12 @@ function WelcomeElements({ layout, w }) {
         if (e.type === "logo") {
           return e.url
             ? <img key={e.id} src={e.url} alt="" style={{ ...base, width: e.w || 200, height: "auto" }} />
-            : <div key={e.id} style={{ ...base, fontFamily: "'Poppins',sans-serif", fontSize: e.size || 120, fontWeight: 600, color: e.color || "var(--ink)", textAlign: align, lineHeight: .9 }} dangerouslySetInnerHTML={{ __html: e.text || "still<span style='color:var(--accent)'>.</span>" }} />;
+            : <div key={e.id} style={{ ...base, fontFamily: "var(--font-head)", fontSize: e.size || 120, fontWeight: 600, color: e.color || "var(--ink)", textAlign: align, lineHeight: .9 }} dangerouslySetInnerHTML={{ __html: e.text || "still<span style='color:var(--accent)'>.</span>" }} />;
         }
         if (e.type === "image") return <img key={e.id} src={e.url} alt="" style={{ ...base, width: e.w || 200, height: e.h || "auto", objectFit: "cover", borderRadius: e.radius || 0 }} />;
-        if (e.type === "heading") return <div key={e.id} style={{ ...base, fontFamily: "'Poppins',sans-serif", fontSize: e.size || 40, fontWeight: 600, color: e.color || "var(--ink)", textAlign: align }} dangerouslySetInnerHTML={{ __html: e.text || "Heading" }} />;
-        if (e.type === "subtitle") return <div key={e.id} style={{ ...base, fontFamily: "'Poppins',sans-serif", fontSize: e.size || 22, fontWeight: 400, color: e.color || "var(--muted)", textAlign: align, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: e.text || "Subtitle" }} />;
-        if (e.type === "button") return <div key={e.id} style={{ ...base, background: e.color || "var(--accent)", color: e.textColor || "#F7F4EC", padding: "18px 40px", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontSize: e.size || 18, fontWeight: 600, textAlign: "center" }}>{e.text || "Order Ahead"}</div>;
+        if (e.type === "heading") return <div key={e.id} style={{ ...base, fontFamily: "var(--font-head)", fontSize: e.size || 40, fontWeight: 600, color: e.color || "var(--ink)", textAlign: align }} dangerouslySetInnerHTML={{ __html: e.text || "Heading" }} />;
+        if (e.type === "subtitle") return <div key={e.id} style={{ ...base, fontFamily: "var(--font-head)", fontSize: e.size || 22, fontWeight: 400, color: e.color || "var(--muted)", textAlign: align, lineHeight: 1.5 }} dangerouslySetInnerHTML={{ __html: e.text || "Subtitle" }} />;
+        if (e.type === "button") return <div key={e.id} style={{ ...base, background: e.color || "var(--accent)", color: e.textColor || "#F7F4EC", padding: "18px 40px", borderRadius: 40, fontFamily: "var(--font-head)", fontSize: e.size || 18, fontWeight: 600, textAlign: "center" }}>{e.text || "Order Ahead"}</div>;
         if (e.type === "divider") return <div key={e.id} style={{ ...base, width: e.w || 60, height: e.size || 2, background: e.color || "var(--accent)" }} />;
         if (e.type === "spacer") return null;
         return null;
@@ -280,7 +289,7 @@ function KioskStartTiles({ onStart, w = {} }) {
       }}
     >
       <span className="material-symbols-outlined" style={{ fontSize: 76, lineHeight: 1, color: "var(--accent)" }}>{icon}</span>
-      <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 27, lineHeight: 1.15 }}>{title}</div>
+      <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 27, lineHeight: 1.15 }}>{title}</div>
       <div style={{ fontSize: 15, color: "var(--muted)", lineHeight: 1.4 }}>{sub}</div>
     </div>
   );
@@ -292,8 +301,17 @@ function KioskStartTiles({ onStart, w = {} }) {
   );
 }
 
-function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null }) {
+function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null, theme = null }) {
   const [open, setOpen] = useState(false);
+  // The designed kiosk welcome is a portrait layout (1080x1920). On a landscape
+  // screen it would letterbox badly, so that falls back to the plain welcome.
+  const [portrait, setPortrait] = useState(() => { try { return window.innerHeight >= window.innerWidth * 1.2; } catch { return true; } });
+  useEffect(() => {
+    const f = () => { try { setPortrait(window.innerHeight >= window.innerWidth * 1.2); } catch {} };
+    window.addEventListener("resize", f);
+    window.addEventListener("orientationchange", f);
+    return () => { window.removeEventListener("resize", f); window.removeEventListener("orientationchange", f); };
+  }, []);
   // Kiosk: the customer says eat in / take away here rather than at the bag,
   // then goes straight to the menu (or the picker when there is more than one).
   const startKiosk = (dine) => {
@@ -307,8 +325,50 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   const hasLayout = Array.isArray(layout) && layout.length > 0;
   // find a button element to trigger the picker when using a custom layout
   const layoutBtn = hasLayout ? layout.find((e) => e.type === "button" && e.visible !== false) : null;
+
+  // choose-menu popup: opens from the bottom, dismiss on outside tap. Shared by
+  // both welcome layouts.
+  const picker = (
+    <div onClick={() => setOpen(false)} style={{position: 'absolute', inset: 0, zIndex: 30, pointerEvents: open ? 'auto' : 'none', background: open ? 'rgba(30,36,20,.34)' : 'transparent', transition: 'background .3s ease', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}}>
+      <div onClick={(e) => e.stopPropagation()} style={{width: 'min(400px, 72%)', marginBottom: 0, background: 'var(--bg)', borderRadius: '28px 28px 0 0', padding: '26px 18px 34px', boxShadow: '0 -20px 50px -18px rgba(0,0,0,.35)', transform: open ? 'translateY(0)' : 'translateY(100%)', opacity: 1, transition: 'transform .34s cubic-bezier(.2,.8,.2,1)'}}>
+        <div style={{textAlign: 'center', fontFamily: 'var(--font-head)', fontSize: '17px', fontWeight: '600', color: 'var(--accent)', marginBottom: '14px'}}>Choose Menu</div>
+        <div style={{display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden'}}>
+          {(menus || []).map((m, i) => {
+            const on = m.open !== false;
+            return (
+              <div key={m.id} onClick={() => { if (on) { onPick(m); setOpen(false); } }} style={{padding: '18px 0', textAlign: 'center', cursor: on ? 'pointer' : 'default', background: i === 0 ? 'var(--accent)' : 'var(--bg2)', color: i === 0 ? '#F5F1E6' : (on ? 'var(--ink)' : 'var(--muted)'), fontFamily: 'var(--font-head)', fontSize: '15px', fontWeight: '600', letterSpacing: '.04em', textTransform: 'uppercase', borderTop: i === 0 ? 'none' : '1px solid rgba(60,70,45,.08)', opacity: on ? 1 : .55}}>{m.name}</div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+
+  // The designed kiosk welcome: a rotating photo carousel over the eat-in /
+  // take-away tiles. Needs at least one slide; hero_slides feeds it, and the
+  // welcome background stands in as a single slide if none are set.
+  // `kiosk_design = off` falls back to the plain welcome without a redeploy.
+  if (kiosk && portrait && String(w.kiosk_design || "") !== "off") {
+    let slides = [];
+    try {
+      const raw = w.hero_slides ? (typeof w.hero_slides === "string" ? JSON.parse(w.hero_slides) : w.hero_slides) : [];
+      slides = (Array.isArray(raw) ? raw : []).filter((x) => x && (x.image_url || x.title));
+    } catch { slides = []; }
+    if (!slides.length && bg) slides = [{ image_url: bg, tag: w.welcome_eyebrow || "", title: "", sub: "" }];
+    if (slides.length) {
+      const tv = theme || THEMES.still;
+      return (
+        <>
+          <KioskWelcome slides={slides} w={w} onStart={startKiosk}
+            accent={tv["--accent"]} chip={tv["--chip"]} panelBg={tv["--bg"]} />
+          {picker}
+        </>
+      );
+    }
+  }
+
   return (
-    <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
+    <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', ...(bg ? {backgroundImage: `url(${bg})`, backgroundSize: 'cover', backgroundPosition: 'center'} : {background: 'var(--bg)'}), fontFamily: "var(--font-body)", color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '680px', left: '40px', top: '240px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.22),rgba(167,192,131,.1) 50%,transparent 72%)', filter: 'blur(6px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
       {hasLayout ? (
         // On a kiosk the tiles are the only way in, so the whole-screen tap is
@@ -327,10 +387,10 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
       ) : (<>
       
       <div style={{position: 'relative', height: '100%', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '0 60px', marginTop: '-50px'}}>
-        <div style={{fontFamily: '\'Hanken Grotesk\',sans-serif', fontSize: '15px', fontWeight: '700', letterSpacing: '.42em', color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '32px'}}>{w.welcome_eyebrow || 'Matcha · Coffee'}</div>
-        {w.welcome_logo_url ? <img src={w.welcome_logo_url} alt="" style={{maxWidth: '70%', maxHeight: '220px', objectFit: 'contain'}} /> : <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '140px', fontWeight: '600', lineHeight: '.86', letterSpacing: '-.04em'}} dangerouslySetInnerHTML={{__html: w.welcome_logo_text || 'still<span style=\'color:var(--accent)\'>.</span>'}} />}
+        <div style={{fontFamily: "var(--font-body)", fontSize: '15px', fontWeight: '700', letterSpacing: '.42em', color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '32px'}}>{w.welcome_eyebrow || 'Matcha · Coffee'}</div>
+        {w.welcome_logo_url ? <img src={w.welcome_logo_url} alt="" style={{maxWidth: '70%', maxHeight: '220px', objectFit: 'contain'}} /> : <div style={{fontFamily: "var(--font-head)", fontSize: '140px', fontWeight: '600', lineHeight: '.86', letterSpacing: '-.04em'}} dangerouslySetInnerHTML={{__html: w.welcome_logo_text || 'still<span style=\'color:var(--accent)\'>.</span>'}} />}
         <div style={{width: '54px', height: '2px', background: 'var(--accent)', margin: '34px 0'}}></div>
-        <div style={{fontFamily: '\'Poppins\',sans-serif', fontSize: '24px', fontWeight: '400', color: 'var(--ink)', opacity: '.78', lineHeight: '1.5'}} dangerouslySetInnerHTML={{__html: w.welcome_subtitle || 'Your daily ritual, gently elevated.<br />Calm energy in a cup.'}} />
+        <div style={{fontFamily: "var(--font-head)", fontSize: '24px', fontWeight: '400', color: 'var(--ink)', opacity: '.78', lineHeight: '1.5'}} dangerouslySetInnerHTML={{__html: w.welcome_subtitle || 'Your daily ritual, gently elevated.<br />Calm energy in a cup.'}} />
       </div>
       {/* Tove and anyone else with a photo welcome: the footer line is theme
           colour on a photograph, so lift it off the image without tinting the
@@ -340,7 +400,7 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
       )}
       <div style={{position: 'absolute', left: '0', right: '0', bottom: '66px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '22px', zIndex: 5, padding: '0 40px'}}>
         {kiosk ? <KioskStartTiles onStart={startKiosk} w={w} /> : (
-          <div onClick={() => setOpen(true)} style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '10px', background: 'var(--accent)', color: '#F7F4EC', padding: '15px 40px', borderRadius: '40px', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600', boxShadow: '0 14px 30px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>{w.welcome_button || 'Order Ahead'} <span style={{fontSize: '18px'}}>→</span></div>
+          <div onClick={() => setOpen(true)} style={{display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: '10px', background: 'var(--accent)', color: '#F7F4EC', padding: '15px 40px', borderRadius: '40px', fontFamily: "var(--font-head)", fontSize: '17px', fontWeight: '600', boxShadow: '0 14px 30px -14px rgba(94,122,77,.55)', cursor: 'pointer'}}>{w.welcome_button || 'Order Ahead'} <span style={{fontSize: '18px'}}>→</span></div>
         )}
         <div style={{fontSize: '14px', fontWeight: '600', letterSpacing: '.16em', color: 'var(--muted)', textTransform: 'uppercase'}}>{kiosk ? (w.kiosk_footer || 'Tap to start your order') : (w.welcome_footer || 'Pickup at counter · Tap to begin')}</div>
       </div>
@@ -352,20 +412,7 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
           <KioskStartTiles onStart={startKiosk} w={w} />
         </div>
       )}
-      {/* choose-menu popup: opens from the bottom, dismiss on outside tap */}
-      <div onClick={() => setOpen(false)} style={{position: 'absolute', inset: 0, zIndex: 30, pointerEvents: open ? 'auto' : 'none', background: open ? 'rgba(30,36,20,.34)' : 'transparent', transition: 'background .3s ease', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}}>
-        <div onClick={(e) => e.stopPropagation()} style={{width: 'min(400px, 72%)', marginBottom: 0, background: 'var(--bg)', borderRadius: '28px 28px 0 0', padding: '26px 18px 34px', boxShadow: '0 -20px 50px -18px rgba(0,0,0,.35)', transform: open ? 'translateY(0)' : 'translateY(100%)', opacity: 1, transition: 'transform .34s cubic-bezier(.2,.8,.2,1)'}}>
-          <div style={{textAlign: 'center', fontFamily: '\'Poppins\',sans-serif', fontSize: '17px', fontWeight: '600', color: 'var(--accent)', marginBottom: '14px'}}>Choose Menu</div>
-          <div style={{display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden'}}>
-            {(menus || []).map((m, i) => {
-              const on = m.open !== false;
-              return (
-                <div key={m.id} onClick={() => { if (on) { onPick(m); setOpen(false); } }} style={{padding: '18px 0', textAlign: 'center', cursor: on ? 'pointer' : 'default', background: i === 0 ? 'var(--accent)' : 'var(--bg2)', color: i === 0 ? '#F5F1E6' : (on ? 'var(--ink)' : 'var(--muted)'), fontFamily: '\'Poppins\',sans-serif', fontSize: '15px', fontWeight: '600', letterSpacing: '.04em', textTransform: 'uppercase', borderTop: i === 0 ? 'none' : '1px solid rgba(60,70,45,.08)', opacity: on ? 1 : .55}}>{m.name}</div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
+      {picker}
     </div>
   );
 }
@@ -419,7 +466,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
   const cat = data[activeCat] || data[0] || { name: "", items: [] };
 
   return (
-    <div ref={rootRef} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)" }}>
+    <div ref={rootRef} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)" }}>
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: .045, mixBlendMode: "multiply", backgroundImage: "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22140%22 height=%22140%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%222%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E')" }} />
       {/* top bar */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "22px 28px 14px", position: "relative", zIndex: 5 }}>
@@ -439,8 +486,8 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
               <div key={i} style={{ flex: "none", width: "100%", height: "100%", position: "relative", ...(s.image_url ? { backgroundImage: `url(${s.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: s.bg }) }}>
                 <div style={{ position: "absolute", inset: 0, background: s.image_url ? "linear-gradient(90deg,rgba(20,26,14,.62),rgba(20,26,14,.15) 60%,transparent)" : "radial-gradient(120% 80% at 12% 22%,rgba(255,255,255,.22),transparent 52%),radial-gradient(90% 90% at 88% 84%,rgba(33,48,22,.4),transparent 60%)" }} />
                 <div style={{ position: "absolute", left: 34, top: 48, maxWidth: 300 }}>
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,.18)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.32)", color: "#FBFAF2", fontFamily: "'Poppins',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: ".12em", padding: "6px 13px", borderRadius: 20, marginBottom: 14 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot }} />{s.tag}</div>
-                  <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: 38, fontWeight: 600, lineHeight: 1.04, color: "#FBFAF2", textShadow: "0 2px 18px rgba(30,40,20,.32)" }}>{s.title}</div>
+                  <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,.18)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.32)", color: "#FBFAF2", fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 600, letterSpacing: ".12em", padding: "6px 13px", borderRadius: 20, marginBottom: 14 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot }} />{s.tag}</div>
+                  <div style={{ fontFamily: "var(--font-head)", fontSize: 38, fontWeight: 600, lineHeight: 1.04, color: "#FBFAF2", textShadow: "0 2px 18px rgba(30,40,20,.32)" }}>{s.title}</div>
                   <div style={{ width: 120, height: 1.5, background: "rgba(255,255,255,.7)", margin: "14px 0 12px" }} />
                   <div style={{ fontSize: 15, color: "rgba(255,255,255,.92)", fontWeight: 500 }}>{s.sub}</div>
                 </div>
@@ -449,7 +496,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
                   <div style={{ position: "absolute", bottom: 0, width: 150, height: 184, borderRadius: "14px 14px 50px 50px", overflow: "hidden", background: s.cup, boxShadow: "inset 0 0 34px rgba(40,50,25,.4)" }}>
                     <div style={{ position: "absolute", left: -12, top: 36, width: 92, height: 92, borderRadius: "50%", background: s.blob, filter: "blur(7px)", opacity: .9 }} />
                     <div style={{ position: "absolute", left: 12, top: 0, bottom: 0, width: 24, background: "linear-gradient(90deg,rgba(255,255,255,.32),transparent)" }} />
-                    <div style={{ position: "absolute", left: 0, right: 0, bottom: 42, textAlign: "center", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, color: "rgba(255,255,255,.92)" }}>still</div>
+                    <div style={{ position: "absolute", left: 0, right: 0, bottom: 42, textAlign: "center", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 24, color: "rgba(255,255,255,.92)" }}>still</div>
                   </div>
                   <div style={{ position: "absolute", top: 0, width: 150, height: 24, borderRadius: "50%", background: "rgba(255,255,255,.38)" }} />
                 </div>}
@@ -472,7 +519,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
                   <div style={{ position: "absolute", inset: 0, background: "radial-gradient(60% 60% at 50% 34%,rgba(255,255,255,.3),transparent 70%)" }} />
                   {i === activeCat && <div style={{ position: "absolute", inset: 0, borderRadius: 16, boxShadow: "inset 0 0 0 3px var(--accent)" }} />}
                 </div>
-                <div style={{ textAlign: "center", marginTop: 9, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 13, lineHeight: 1.2, color: i === activeCat ? "var(--accent)" : "var(--ink)" }}>{c.name}</div>
+                <div style={{ textAlign: "center", marginTop: 9, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 13, lineHeight: 1.2, color: i === activeCat ? "var(--accent)" : "var(--ink)" }}>{c.name}</div>
               </div>
             );})}
           </div>
@@ -482,7 +529,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
         {data.map((section, si) => (
           <div key={section.name} ref={(el) => (catRefs.current[si] = el)} data-catsection={si} style={{ padding: "6px 28px 0", scrollMarginTop: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18, marginTop: si === 0 ? 0 : 22 }}>
-              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 26, color: "var(--ink)" }}>{section.name}</div>
+              <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 26, color: "var(--ink)" }}>{section.name}</div>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               {(section.items || []).map((it, i) => (
@@ -492,16 +539,16 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
                       <div style={{ position: "absolute", left: "50%", bottom: 30, transform: "translateX(-50%)", width: 150, height: 22, borderRadius: "50%", background: "rgba(80,65,40,.22)", filter: "blur(9px)" }} />
                       <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 188, height: 188, borderRadius: "50%", background: it.prod || "radial-gradient(60% 70% at 50% 36%,#FFFFFF,#EAE3D4 72%)", boxShadow: "0 16px 28px -12px rgba(90,70,40,.45)" }} />
                     </>}
-                    {it.tags && it.tags.length > 0 && <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(94,122,77,.94)", color: "#F4F6EC", fontFamily: "'Poppins',sans-serif", fontSize: 10, fontWeight: 600, letterSpacing: ".1em", padding: "6px 11px", borderRadius: 16 }}>{it.tags[0]}</div>}
+                    {it.tags && it.tags.length > 0 && <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(94,122,77,.94)", color: "#F4F6EC", fontFamily: "var(--font-head)", fontSize: 10, fontWeight: 600, letterSpacing: ".1em", padding: "6px 11px", borderRadius: 16 }}>{it.tags[0]}</div>}
                   </div>
                   <div style={{ padding: "11px 14px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
-                    <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, color: "var(--ink)", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{it.name}</div>
+                    <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 17, color: "var(--ink)", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{it.name}</div>
                     <div style={{ fontSize: 12.5, color: "var(--muted)", marginTop: 3, lineHeight: 1.35, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{it.desc}</div>
                     <div style={{ flex: 1, minHeight: 8 }} />
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                      <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
+                      <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
                       {(it.modifiers && it.modifiers.length > 0) ? (
-                        <div onClick={(e) => { e.stopPropagation(); onItem(it); }} style={{ height: 40, padding: "0 16px", borderRadius: 20, background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'Poppins',sans-serif" }}>Customise</div>
+                        <div onClick={(e) => { e.stopPropagation(); onItem(it); }} style={{ height: 40, padding: "0 16px", borderRadius: 20, background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "var(--font-head)" }}>Customise</div>
                       ) : (
                         <div onClick={(e) => { e.stopPropagation(); onAdd({ item: it, qty: 1, unit: it.price, mods: [] }); flashAdded(); }} style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 500, lineHeight: 0, paddingBottom: 2, cursor: "pointer" }}>+</div>
                       )}
@@ -516,7 +563,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
       </div>
 
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
-      {added && <div style={{ position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)", background: "var(--accent)", color: "#fff", padding: "10px 22px", borderRadius: 30, fontSize: 14, fontWeight: 600, fontFamily: "'Poppins',sans-serif", zIndex: 40, boxShadow: "0 10px 24px -8px rgba(0,0,0,.3)" }}>Added to bag ✓</div>}
+      {added && <div style={{ position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)", background: "var(--accent)", color: "#fff", padding: "10px 22px", borderRadius: 30, fontSize: 14, fontWeight: 600, fontFamily: "var(--font-head)", zIndex: 40, boxShadow: "0 10px 24px -8px rgba(0,0,0,.3)" }}>Added to bag ✓</div>}
       {/* horizontal bottom strip; active expands inline, others shuffle aside */}
       {menus && menus.length > 1 && (
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 14, maxWidth: "calc(100% - 24px)", background: "rgba(255,255,255,.55)", backdropFilter: "blur(14px)", borderRadius: 30, boxShadow: "0 8px 24px -10px rgba(56,53,43,.2)", padding: "5px 8px", display: "flex", alignItems: "center", gap: 3, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
@@ -525,7 +572,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
           return (
             <div key={m.id} onClick={() => setActiveMenu(i)} title={m.name} style={{ display: "flex", alignItems: "center", gap: on ? 8 : 0, background: on ? "var(--accent)" : "transparent", borderRadius: 24, padding: on ? "8px 16px 8px 11px" : 0, height: 44, width: on ? "auto" : 44, justifyContent: "center", cursor: "pointer", flex: "none", transition: "all .28s cubic-bezier(.4,0,.2,1)" }}>
               <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: on ? "#F5F1E6" : "var(--accent)", flex: "none" }}>{menuIcon(m.name, on)}</span>
-              {on && <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 14, fontWeight: 500, color: "#F5F1E6", whiteSpace: "nowrap" }}>{m.name}</span>}
+              {on && <span style={{ fontFamily: "var(--font-head)", fontSize: 14, fontWeight: 500, color: "#F5F1E6", whiteSpace: "nowrap" }}>{m.name}</span>}
             </div>
           );
         })}
@@ -845,10 +892,10 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
   });
 
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)" }}>
+    <div style={{ width: "100%", height: "100%", position: "relative", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)" }}>
       <div style={{ position: "fixed", left: 0, top: 0, bottom: 0, width: "100%", maxWidth: 560, boxSizing: "border-box", background: "var(--bg2)", boxShadow: "18px 0 50px rgba(50,60,40,.16)", padding: "22px 22px 0", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 18 }}>
-          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, color: "var(--ink)" }}>Staff panel</div>
+          <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 24, color: "var(--ink)" }}>Staff panel</div>
           <div onClick={onClose} style={{ width: 48, height: 48, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }}><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></div>
         </div>
 
@@ -860,7 +907,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
               name="staff-code-nosave" data-1p-ignore data-lpignore="true" data-form-type="other" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
               style={{ width: 200, textAlign: "center", padding: "14px 0", fontSize: 22, letterSpacing: 6, borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", WebkitTextSecurity: "disc", textSecurity: "disc" }} />
             {pinErr && <div style={{ color: "#b4462f", fontSize: 14, marginTop: 10 }}>{pinErr}</div>}
-            <div onClick={submitPin} style={{ marginTop: 18, display: "inline-block", padding: "12px 34px", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: checking ? .6 : 1 }}>{checking ? "Checking…" : "Unlock"}</div>
+            <div onClick={submitPin} style={{ marginTop: 18, display: "inline-block", padding: "12px 34px", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: checking ? .6 : 1 }}>{checking ? "Checking…" : "Unlock"}</div>
           </div>
         ) : (
           <div>
@@ -869,7 +916,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
             {accepting !== null && !staffName && (
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 14px", borderRadius: 12, background: accepting ? "#eaf1e4" : "#f6e4e0", marginBottom: 14, flexShrink: 0 }}>
                 <div>
-                  <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15, color: "var(--ink)" }}>Accept customer orders</div>
+                  <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 15, color: "var(--ink)" }}>Accept customer orders</div>
                   <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>{accepting ? "On — customers can place orders" : "Off — ordering paused"}</div>
                 </div>
                 <div onClick={toggleAccepting} style={{ width: 58, height: 30, borderRadius: 16, background: accepting ? "#3c5a2e" : "var(--line)", position: "relative", cursor: "pointer", opacity: savingAccepting ? .5 : 1, transition: "background .15s", flexShrink: 0 }}>
@@ -922,7 +969,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
               <div style={{ overflowY: "auto", paddingBottom: 24, height: scrollH, WebkitOverflowScrolling: "touch" }}>
                 {summary && !staffName && (
                   <div style={{ borderRadius: 14, background: "var(--bg3)", padding: "14px 16px", marginBottom: 4 }}>
-                    <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, color: "var(--ink)", marginBottom: 8 }}>Today's sales</div>
+                    <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 14, color: "var(--ink)", marginBottom: 8 }}>Today's sales</div>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, marginBottom: 3 }}><span style={{ color: "var(--muted)" }}>Total taken</span><span style={{ fontWeight: 700 }}>{money(summary.total)}</span></div>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}><span style={{ color: "var(--muted)" }}>Cash</span><span>{money(summary.cash)}</span></div>
                     <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 3 }}><span style={{ color: "var(--muted)" }}>Card</span><span>{money(summary.card)}</span></div>
@@ -930,13 +977,13 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                     {summary.unpaid_count > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, color: "#b4462f" }}><span>Unpaid ({summary.unpaid_count})</span><span>{money(summary.unpaid_total)}</span></div>}
                     {summary.discount_total > 0 && <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--faint)", marginTop: 2 }}><span>Discounts given</span><span>{money(summary.discount_total)}</span></div>}
                     {!confirmClose ? (
-                      <div onClick={() => setConfirmClose(true)} style={{ marginTop: 12, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--ink)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Close day</div>
+                      <div onClick={() => setConfirmClose(true)} style={{ marginTop: 12, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--ink)", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Close day</div>
                     ) : (
                       <div style={{ marginTop: 12 }}>
                         <div style={{ fontSize: 13, color: "var(--muted)", textAlign: "center", marginBottom: 8 }}>Close the day? This archives all current orders and resets the list. Data is kept for reporting.</div>
                         <div style={{ display: "flex", gap: 8 }}>
                           <div onClick={() => setConfirmClose(false)} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--bg2)", boxShadow: "inset 0 0 0 1px var(--line)", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>Cancel</div>
-                          <div onClick={closeDay} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--ink)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: closingDay ? .6 : 1 }}>{closingDay ? "Closing…" : "Yes, close day"}</div>
+                          <div onClick={closeDay} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--ink)", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: closingDay ? .6 : 1 }}>{closingDay ? "Closing…" : "Yes, close day"}</div>
                         </div>
                       </div>
                     )}
@@ -945,7 +992,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                 {closeMsg && <div style={{ fontSize: 13, color: "var(--accent)", textAlign: "center", padding: "4px 0 8px" }}>{closeMsg}</div>}
                 {allOrders && allOrders.some((o) => o.print_failed) && (
                   <div style={{ borderRadius: 14, background: "#f6e4e0", padding: "12px 14px", marginBottom: 6, boxShadow: "inset 0 0 0 1px #e0b4a8" }}>
-                    <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14, color: "#b4462f", marginBottom: 8 }}>⚠ Print problems ({allOrders.filter((o) => o.print_failed).length})</div>
+                    <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 14, color: "#b4462f", marginBottom: 8 }}>⚠ Print problems ({allOrders.filter((o) => o.print_failed).length})</div>
                     {allOrders.filter((o) => o.print_failed).map((o) => {
                       const okey = "pf:" + o.id;
                       return (
@@ -968,7 +1015,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                 {groupKeys.map((gk) => (
                   <div key={gk} style={{ borderRadius: 14, background: "var(--bg)", boxShadow: "inset 0 0 0 1px var(--line)", overflow: "hidden", marginBottom: 10 }}>
                     <div onClick={() => setCollapsed((c) => ({ ...c, [gk]: !c[gk] }))} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "13px 16px", cursor: "pointer", background: "var(--bg3)" }}>
-                      <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16 }}>{gk}</span>
+                      <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 16 }}>{gk}</span>
                       <span style={{ fontSize: 13, color: "var(--muted)" }}>{groups[gk].length} order{groups[gk].length === 1 ? "" : "s"} {collapsed[gk] ? "▸" : "▾"}</span>
                     </div>
                     {!collapsed[gk] && (
@@ -979,7 +1026,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                           return (
                             <div key={o.id} onClick={() => setOpenOrder(openOrder === okey ? null : okey)} style={{ borderRadius: 12, background: "var(--bg2)", boxShadow: "inset 0 0 0 1px var(--line)", padding: "11px 13px", marginTop: 8, cursor: "pointer" }}>
                               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
-                                <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}{o.paid_method ? <span style={{ fontSize: 11, fontWeight: 600, color: "#3c5a2e", marginLeft: 8 }}>● paid</span> : <span style={{ fontSize: 11, fontWeight: 600, color: "#b4462f", marginLeft: 8 }}>● unpaid</span>}{o.print_failed && <span style={{ fontSize: 10, fontWeight: 700, color: "#F7F4EC", background: "#b4462f", padding: "2px 6px", borderRadius: 4, marginLeft: 8 }}>PRINT FAILED</span>}</span>
+                                <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 15 }}>{(o.tablet_no ? "T" + o.tablet_no + "-" : "#") + (o.order_no ?? "")}{o.paid_method ? <span style={{ fontSize: 11, fontWeight: 600, color: "#3c5a2e", marginLeft: 8 }}>● paid</span> : <span style={{ fontSize: 11, fontWeight: 600, color: "#b4462f", marginLeft: 8 }}>● unpaid</span>}{o.print_failed && <span style={{ fontSize: 10, fontWeight: 700, color: "#F7F4EC", background: "#b4462f", padding: "2px 6px", borderRadius: 4, marginLeft: 8 }}>PRINT FAILED</span>}</span>
                                 <span style={{ fontSize: 12, color: "var(--muted)" }}>{o.menu_tables && o.menu_tables.label ? o.menu_tables.label + " · " : ""}{timeAgo(new Date(o.created_at).getTime(), now)}</span>
                               </div>
                               <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{its.map((it) => (it.qty > 1 ? it.qty + "× " : "") + it.name_snapshot).join(", ")}</div>
@@ -999,13 +1046,13 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                                   <div style={{ borderTop: "1px solid var(--line)", marginTop: 6, paddingTop: 6, display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 600 }}>
                                     <span>Total</span><span>{money(o.total)}</span>
                                   </div>
-                                  <div onClick={(e) => reprint(o, okey, e)} style={{ marginTop: 10, textAlign: "center", padding: "10px 0", borderRadius: 10, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: reprinting === okey ? .6 : 1 }}>
+                                  <div onClick={(e) => reprint(o, okey, e)} style={{ marginTop: 10, textAlign: "center", padding: "10px 0", borderRadius: 10, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 13, cursor: "pointer", opacity: reprinting === okey ? .6 : 1 }}>
                                     {reprinting === okey ? "Reprinting…" : "↻ Reprint slip"}
                                   </div>
                                   {reprintMsg && reprintMsg.key === okey && <div style={{ fontSize: 12, color: "var(--accent)", marginTop: 6, textAlign: "center" }}>{reprintMsg.text}</div>}
                                   {/* Add items to this order (staff) */}
                                   {!o.paid_method && onAddItems && (o.id || o.orderId) && (
-                                    <div onClick={(e) => { e.stopPropagation(); onAddItems(o.id || o.orderId); }} style={{ marginTop: 10, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--accent)", color: "var(--accent)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                                    <div onClick={(e) => { e.stopPropagation(); onAddItems(o.id || o.orderId); }} style={{ marginTop: 10, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--accent)", color: "var(--accent)", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
                                       + Add items to this order
                                     </div>
                                   )}
@@ -1023,12 +1070,12 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                                         {discType && <input type="number" value={discVal} onChange={(e) => setDiscVal(e.target.value)} placeholder={discType === "percent" ? "%" : "£"} style={{ width: 60, padding: "7px 8px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 13 }} />}
                                       </div>
                                       <div style={{ display: "flex", gap: 8 }}>
-                                        <span onClick={() => markPaid(o, "cash")} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "#3c5a2e", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: savingPaid ? .6 : 1 }}>Cash</span>
-                                        <span onClick={() => markPaid(o, "card")} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "#2e4a5a", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: savingPaid ? .6 : 1 }}>Card</span>
+                                        <span onClick={() => markPaid(o, "cash")} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "#3c5a2e", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: savingPaid ? .6 : 1 }}>Cash</span>
+                                        <span onClick={() => markPaid(o, "card")} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "#2e4a5a", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: savingPaid ? .6 : 1 }}>Card</span>
                                       </div>
                                     </div>
                                   ) : (
-                                    <div onClick={(e) => { e.stopPropagation(); setPayingOrder(okey); setDiscType(""); setDiscVal(""); }} style={{ marginTop: 10, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                                    <div onClick={(e) => { e.stopPropagation(); setPayingOrder(okey); setDiscType(""); setDiscVal(""); }} style={{ marginTop: 10, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "var(--accent)", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
                                       Mark paid
                                     </div>
                                   )}
@@ -1268,7 +1315,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
     return (
       <div key={g.id} style={{ marginTop: 20, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 18, padding: "18px 20px 20px" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>{g.name || ""}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "var(--font-head)" }}>{g.name || ""}</div>
           {g.required
             ? <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", background: "var(--accentSoft, #EFEAD9)", padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
             : <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>{g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional"}</span>}
@@ -1367,7 +1414,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
   ])].filter((a) => !liveContains.includes(a)).sort();
 
   return (
-    <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
+    <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg3)", fontFamily: "var(--font-body)", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
       {/* hero */}
       <div style={{ position: "relative", height: it.image_url ? 600 : 520, backgroundImage: it.image_url ? `url(${it.image_url})` : "linear-gradient(165deg,#EFE6DE,#E7DAD2)", backgroundSize: "cover", backgroundPosition: "center", overflow: "hidden", flex: "none" }}>
         <div onClick={onClose} style={{ position: "absolute", top: 24, right: 28, width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", zIndex: 3, cursor: "pointer" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></div>
@@ -1386,9 +1433,9 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
       {/* body */}
       <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none", padding: "26px 32px 0" }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
-          {(it.tags || []).map((t) => <span key={t} style={{ fontFamily: "'Poppins',sans-serif", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", color: "#fff", background: "var(--accent)", padding: "5px 12px", borderRadius: 16 }}>{t}</span>)}
+          {(it.tags || []).map((t) => <span key={t} style={{ fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 600, letterSpacing: ".08em", color: "#fff", background: "var(--accent)", padding: "5px 12px", borderRadius: 16 }}>{t}</span>)}
         </div>
-        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 34, lineHeight: 1.05, color: "var(--ink)" }}>{it.name}</div>
+        <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 34, lineHeight: 1.05, color: "var(--ink)" }}>{it.name}</div>
         <div style={{ fontSize: 16, color: "var(--muted)", marginTop: 8 }}>{it.desc}</div>
 
         {/* ALLERGENS — two separate statements, because "contains milk" and
@@ -1438,7 +1485,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
         {removableItems.length > 0 && (
           <div style={{ marginTop: 20, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 18, padding: "18px 20px 20px" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "'Poppins',sans-serif" }}>Not a fan of something?</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "var(--font-head)" }}>Not a fan of something?</div>
               <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>Optional</span>
             </div>
             <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 15 }}>Tap to leave it off your plate</div>
@@ -1466,10 +1513,10 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 32px 28px", background: "linear-gradient(to top,var(--bg3) 72%,transparent)", display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18, background: "var(--bg)", borderRadius: 40, padding: "12px 20px" }}>
           <span onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ fontSize: 24, color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
-          <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, minWidth: 16, textAlign: "center" }}>{qty}</span>
+          <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 20, minWidth: 16, textAlign: "center" }}>{qty}</span>
           <span onClick={() => setQty((q) => q + 1)} style={{ fontSize: 22, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
         </div>
-        <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: allMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: missingRequired ? "not-allowed" : "pointer", opacity: missingRequired ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
+        <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: allMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: missingRequired ? "not-allowed" : "pointer", opacity: missingRequired ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
       </div>
     </div>
   );
@@ -1477,51 +1524,77 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
 
 // ============ BAG (data-driven) ============
 
-function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable, appending = false, orderErr = null, onDismissErr, kiosk = false, kioskDine = null, setKioskDine, kioskTable = "", setKioskTable, kioskTables = [] }) {
+// Exported so design previews can render the real thing.
+export function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orderingEnabled = true, tableMode, table, onPickTable, appending = false, orderErr = null, onDismissErr, kiosk = false, kioskDine = null, setKioskDine, kioskTable = "", setKioskTable, kioskTables = [], bagLogo = "" }) {
   const subtotal = lines.reduce((s, l) => s + l.unit * l.qty, 0);
   const count = lines.reduce((s, l) => s + l.qty, 0);
   const setQty = (i, d) => setLines((p) => p.map((l, x) => x === i ? { ...l, qty: Math.max(1, l.qty + d) } : l));
   const remove = (i) => setLines((p) => p.filter((_, x) => x !== i));
 
   return (
-    <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
+    <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)", display: "flex", flexDirection: "column" }}>
       {orderErr && (
         <div onClick={onDismissErr}
           style={{ flex: "none", margin: "16px 24px 0", background: "#FDECEC", border: "2px solid #D64545", borderRadius: 16, padding: "18px 20px", cursor: "pointer" }}>
-          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 19, color: "#8C2E2E", marginBottom: 6 }}>Order not sent</div>
+          <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 19, color: "#8C2E2E", marginBottom: 6 }}>Order not sent</div>
           <div style={{ fontSize: 16, lineHeight: 1.45, color: "#7A3232" }}>{orderErr}</div>
           <div style={{ fontSize: 13, color: "#A55C5C", marginTop: 8 }}>Tap to dismiss</div>
         </div>
       )}
-      <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "24px 28px 18px", flex: "none" }}>
-        <div onClick={onBack} style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg></div>
-        <div>
-          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 28, lineHeight: 1 }}>Your Bag</div>
-          <div style={{ fontSize: 14, fontWeight: 600, letterSpacing: ".06em", color: "var(--muted)", marginTop: 4 }}>{count} ITEM{count === 1 ? "" : "S"} · PICKUP</div>
+      {/* Kiosk: the designed header — bigger back button, the brand badge on the
+          right, and a summary line that already tells them eat in / table. */}
+      <div style={{ display: "flex", alignItems: "center", gap: kiosk ? 22 : 16, padding: kiosk ? "30px 34px 20px" : "24px 28px 18px", flex: "none" }}>
+        <div onClick={onBack} style={{ width: kiosk ? 76 : 54, height: kiosk ? 76 : 54, flex: "none", borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)", cursor: "pointer" }}><svg width={kiosk ? 32 : 24} height={kiosk ? 32 : 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg></div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontFamily: "var(--font-head)", fontWeight: kiosk ? 500 : 600, fontSize: kiosk ? 44 : 28, lineHeight: 1, letterSpacing: kiosk ? "-.03em" : 0 }}>Your bag</div>
+          <div style={{ fontSize: kiosk ? 16 : 14, fontWeight: 600, letterSpacing: kiosk ? ".2em" : ".06em", color: "var(--muted)", marginTop: kiosk ? 7 : 4 }}>
+            {count} ITEM{count === 1 ? "" : "S"}
+            {kiosk ? (kioskDine === null ? "" : kioskDine ? (kioskTable ? " · EAT IN · TABLE " + kioskTable : " · EAT IN") : " · TAKE AWAY") : " · PICKUP"}
+          </div>
         </div>
+        {kiosk && bagLogo && (
+          <div style={{ flex: "none", height: 72, boxSizing: "border-box", padding: "14px 22px", borderRadius: 22, background: "var(--accent)", display: "flex", alignItems: "center" }}>
+            <img src={bagLogo} alt="" style={{ height: 40, width: "auto", display: "block" }} />
+          </div>
+        )}
       </div>
 
       <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none", padding: "0 28px" }}>
         {appending && (
           <div style={{ padding: "12px 16px", background: "rgba(94,122,77,.1)", borderRadius: 14, marginBottom: 14, boxShadow: "inset 0 0 0 1px rgba(94,122,77,.3)", textAlign: "center" }}>
-            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 15, color: "var(--accent)" }}>Adding to your existing order</div>
+            <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 15, color: "var(--accent)" }}>Adding to your existing order</div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>These items will be added to the order you just placed — one bill.</div>
           </div>
         )}
         {kiosk && (
           <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 8 }}>WHERE WILL YOU BE?</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {[[true, "🍽", "Eat in"], [false, "🥡", "Take away"]].map(([v, ic, l]) => (
-                <div key={l} onClick={() => setKioskDine(v)} style={{ padding: "18px 10px", borderRadius: 16, textAlign: "center", cursor: "pointer", background: kioskDine === v ? "var(--accent)" : "var(--bg3)", color: kioskDine === v ? "#F7F4EC" : "var(--ink)", boxShadow: kioskDine === v ? "none" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19 }}>
-                  <div style={{ fontSize: 30, marginBottom: 4 }}>{ic}</div>{l}
-                </div>
-              ))}
+            <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: ".26em", color: "var(--accent)", marginBottom: 14 }}>HOW ARE YOU JOINING US?</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+              {[[true, CupIcon, "Eat in", "We'll bring it to your table"], [false, BagIcon, "Take away", "We'll call you when it's ready"]].map(([v, Icon, l, sub]) => {
+                const on = kioskDine === v;
+                return (
+                  <div key={l} onClick={() => setKioskDine(v)}
+                    style={{ position: "relative", boxSizing: "border-box", padding: "22px 24px", borderRadius: 28, cursor: "pointer", display: "flex", alignItems: "center", gap: 18, transition: "background .3s ease, color .3s ease, box-shadow .3s ease", background: on ? "var(--accent)" : "var(--bg3)", color: on ? "var(--bg)" : "var(--ink)", boxShadow: on ? "none" : "inset 0 0 0 2px var(--line)" }}>
+                    <div style={{ flex: "none", width: 68, height: 68, borderRadius: 34, background: on ? "rgba(255,255,255,.16)" : "var(--bg2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      <Icon size={36} stroke={on ? "var(--chip)" : "var(--accent)"} />
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontFamily: "var(--font-head)", fontWeight: 500, fontSize: 30, lineHeight: 1, letterSpacing: "-.02em" }}>{l}</div>
+                      <div style={{ fontSize: 15, marginTop: 7, opacity: .8, lineHeight: 1.3 }}>{sub}</div>
+                    </div>
+                    {on && (
+                      <div style={{ position: "absolute", top: 14, right: 14, width: 32, height: 32, borderRadius: 16, background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-10" /></svg>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
             {kioskDine === false && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 8 }}>YOUR NAME <span style={{ fontWeight: 600, letterSpacing: 0 }}>· so we can call you</span></div>
-                <div style={{ padding: "16px 18px", borderRadius: 14, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, minHeight: 60, color: pickupName ? "var(--ink)" : "var(--muted)" }}>
+              <div style={{ marginTop: 22 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: ".26em", color: "var(--accent)", marginBottom: 14 }}>YOUR NAME <span style={{ fontWeight: 500, letterSpacing: 0, color: "var(--muted)" }}>· so we can call you</span></div>
+                <div style={{ padding: "18px 22px", borderRadius: 22, background: "var(--bg3)", border: "2px solid " + (pickupName ? "var(--accent)" : "var(--line)"), fontFamily: "var(--font-head)", fontWeight: 500, fontSize: 28, minHeight: 64, boxSizing: "border-box", color: pickupName ? "var(--ink)" : "var(--muted)" }}>
                   {pickupName || "Tap the letters"}
                 </div>
                 {/* Big on-screen keyboard: Android's is small and sits low on a kiosk. */}
@@ -1530,7 +1603,7 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
                     <div key={ri} style={{ display: "flex", gap: 8, justifyContent: "center", paddingLeft: ri === 1 ? 18 : ri === 2 ? 40 : 0, paddingRight: ri === 1 ? 18 : ri === 2 ? 40 : 0 }}>
                       {row.split("").map((k) => (
                         <div key={k} onClick={() => setPickupName(((pickupName || "") + k).slice(0, 18))}
-                          style={{ flex: 1, textAlign: "center", padding: "16px 0", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, cursor: "pointer", userSelect: "none" }}>{k}</div>
+                          style={{ flex: 1, textAlign: "center", padding: "16px 0", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 20, cursor: "pointer", userSelect: "none" }}>{k}</div>
                       ))}
                     </div>
                   ))}
@@ -1543,27 +1616,50 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
               </div>
             )}
             {kioskDine === true && (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: "var(--muted)", marginBottom: 8 }}>YOUR TABLE <span style={{ fontWeight: 600, letterSpacing: 0 }}>· tap the number on your table</span></div>
+              <div style={{ marginTop: 22 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: ".26em", color: "var(--accent)", marginBottom: 14 }}>YOUR TABLE</div>
                 {kioskTables.length > 0 ? (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 9 }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12 }}>
                     {kioskTables.map((t) => {
                       const on = String(kioskTable) === String(t.label);
                       return (
                         <div key={t.id} onClick={() => setKioskTable(String(t.label))}
-                          style={{ padding: "20px 6px", textAlign: "center", borderRadius: 14, cursor: "pointer", background: on ? "var(--accent)" : "var(--bg3)", color: on ? "#F7F4EC" : "var(--ink)", boxShadow: on ? "none" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19, lineHeight: 1.15 }}>{t.label}</div>
+                          style={{ padding: "24px 6px", textAlign: "center", borderRadius: 20, cursor: "pointer", background: on ? "var(--accent)" : "var(--bg2)", color: on ? "var(--bg)" : "var(--ink)", boxShadow: on ? "none" : "inset 0 0 0 1px var(--line)", fontFamily: "var(--font-head)", fontWeight: 500, fontSize: 24, lineHeight: 1.15 }}>{t.label}</div>
                       );
                     })}
                   </div>
                 ) : (
-                  <>
-                    <div style={{ padding: "14px 16px", borderRadius: 14, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24, minHeight: 56 }}>{kioskTable || <span style={{ color: "var(--muted)", fontSize: 16, fontWeight: 500 }}>Tap the numbers</span>}</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 8, marginTop: 10 }}>
-                      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "<", "C"].map((k) => (
-                        <div key={k} onClick={() => setKioskTable(k === "<" ? kioskTable.slice(0, -1) : k === "C" ? "" : (kioskTable + k).slice(0, 3))} style={{ padding: "14px 0", textAlign: "center", borderRadius: 12, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, cursor: "pointer" }}>{k}</div>
-                      ))}
+                  // The designed pad: the number they typed on the left, keys on
+                  // the right, both big enough to hit without looking.
+                  <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 300px", gap: 20, alignItems: "stretch" }}>
+                    <div style={{ boxSizing: "border-box", padding: "24px 26px", borderRadius: 28, background: "var(--bg2)", display: "flex", flexDirection: "column", gap: 16 }}>
+                      <div style={{ fontSize: 17, color: "var(--muted)", lineHeight: 1.35 }}>Tap the number on the stand at your table</div>
+                      <div style={{ flex: 1, minHeight: 150, borderRadius: 22, background: "var(--bg3)", border: "2px solid " + (kioskTable ? "var(--accent)" : "var(--line)"), transition: "border-color .3s ease", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        {kioskTable ? (
+                          <div style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
+                            <span style={{ fontFamily: "var(--font-head)", fontSize: 26, fontWeight: 400, color: "var(--muted)" }}>No.</span>
+                            <span style={{ fontFamily: "var(--font-head)", fontSize: 104, fontWeight: 500, letterSpacing: "-.04em", lineHeight: 1, color: "var(--accent)" }}>{kioskTable}</span>
+                          </div>
+                        ) : (
+                          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+                            <svg width="52" height="52" viewBox="0 0 48 48" fill="none" stroke="var(--chip)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M6 18h36" /><path d="M10 18v22" /><path d="M38 18v22" /><path d="M18 18v-6h12v6" /><path d="M21 12V8h6v4" /></svg>
+                            <span style={{ fontFamily: "var(--font-head)", fontSize: 26, fontWeight: 400, color: "var(--muted)" }}>Table no.</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </>
+                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, alignContent: "start" }}>
+                      {["1", "2", "3", "4", "5", "6", "7", "8", "9", "C", "0", "<"].map((k) => {
+                        const soft = k === "C", del = k === "<";
+                        return (
+                          <div key={k} onClick={() => setKioskTable(del ? kioskTable.slice(0, -1) : soft ? "" : (kioskTable + k).slice(0, 3))}
+                            style={{ height: 72, borderRadius: 20, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", userSelect: "none", background: del ? "var(--chip)" : soft ? "var(--bg3)" : "var(--bg2)", color: del ? "var(--accent)" : soft ? "var(--muted)" : "var(--ink)", boxShadow: soft ? "inset 0 0 0 1px var(--line)" : "none", fontFamily: "var(--font-head)", fontWeight: 500, fontSize: soft ? 17 : 28 }}>
+                            {soft ? "Clear" : del ? "⌫" : k}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 )}
               </div>
             )}
@@ -1573,61 +1669,100 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
           <div onClick={() => { if (tableMode === "pick" && onPickTable) onPickTable(); }} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 18px", background: table ? "var(--bg3)" : "rgba(180,70,47,.08)", borderRadius: 18, boxShadow: table ? "inset 0 0 0 1px var(--line)" : "inset 0 0 0 1px rgba(180,70,47,.35)", marginBottom: 14, cursor: tableMode === "pick" ? "pointer" : "default" }}>
             <div>
               <div style={{ fontSize: 12, fontWeight: 700, letterSpacing: ".06em", color: table ? "var(--muted)" : "rgba(180,70,47,.9)", marginBottom: 3 }}>YOUR TABLE</div>
-              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 20, color: "var(--ink)" }}>{table ? table.label : "Tap to choose your table"}</div>
+              <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 20, color: "var(--ink)" }}>{table ? table.label : "Tap to choose your table"}</div>
             </div>
             {tableMode === "pick" && <div style={{ fontSize: 13, fontWeight: 600, color: "var(--accent)", display: "flex", alignItems: "center", gap: 4 }}>🔒 {table ? "Change" : "Set"}</div>}
           </div>
         )}
-        {lines.length === 0 && <div style={{ textAlign: "center", color: "var(--muted)", marginTop: 80, fontSize: 17 }}>Your bag is empty.<br />Add something from the menu.</div>}
-        {lines.map((l, i) => (
-          <div key={i} style={{ display: "flex", gap: 16, padding: 18, background: "var(--bg3)", borderRadius: 18, boxShadow: "inset 0 0 0 1px var(--line)", marginBottom: 14 }}>
-            <div style={{ width: 80, height: 80, borderRadius: 14, flex: "none", background: l.item.image_url ? `center/cover url(${l.item.image_url})` : (l.item.bg || "linear-gradient(160deg,#8fa86d,#7d985f)"), position: "relative", overflow: "hidden" }}>
-              {!l.item.image_url && l.item.prod && <div style={{ position: "absolute", left: -6, top: 24, width: 50, height: 50, borderRadius: "50%", background: l.item.prod, filter: "blur(4px)", opacity: .8 }} />}
+        {kiosk && <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: ".26em", color: "var(--accent)", margin: "26px 0 14px" }}>IN YOUR BAG</div>}
+        {lines.length === 0 && (kiosk ? (
+          // The designed empty state: a dashed card that points back at the menu.
+          <div onClick={onBack} style={{ boxSizing: "border-box", padding: "22px 26px", borderRadius: 28, border: "2px dashed var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, cursor: "pointer" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 18, minWidth: 0 }}>
+              <div style={{ flex: "none", width: 64, height: 64, borderRadius: 32, background: "var(--bg2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <BagIcon size={32} stroke="var(--accent)" />
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontFamily: "var(--font-head)", fontWeight: 500, fontSize: 26, letterSpacing: "-.02em" }}>Your bag is empty</div>
+                <div style={{ fontSize: 16, color: "var(--muted)", marginTop: 5 }}>Add something from the menu to get started</div>
+              </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19 }}>{l.item.name}</span><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 18 }}>{(l.unit * l.qty).toFixed(2)}</span></div>
-              {l.mods && l.mods.length > 0 && <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 3 }}>{l.mods.map((m) => m.name).join(" · ")}</div>}
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 14, background: "var(--bg)", borderRadius: 30, padding: "6px 14px" }}>
-                  <span onClick={() => setQty(i, -1)} style={{ fontSize: 20, color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
-                  <span style={{ fontSize: 16, minWidth: 14, textAlign: "center" }}>{l.qty}</span>
-                  <span onClick={() => setQty(i, 1)} style={{ fontSize: 18, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
+            <div style={{ flex: "none", height: 60, padding: "0 26px", borderRadius: 30, background: "var(--accent)", color: "var(--bg)", display: "flex", alignItems: "center", gap: 10, fontSize: 19, fontWeight: 500 }}>
+              Browse menu
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
+            </div>
+          </div>
+        ) : (
+          <div style={{ textAlign: "center", color: "var(--muted)", marginTop: 80, fontSize: 17 }}>Your bag is empty.<br />Add something from the menu.</div>
+        ))}
+        {/* A kiosk is read standing up at arm's length, so the same row is drawn
+            half again as large there. Same markup, bigger numbers. */}
+        {lines.map((l, i) => {
+          const z = kiosk ? 1.5 : 1;
+          const r = (v) => Math.round(v * z);
+          return (
+          <div key={i} style={{ display: "flex", gap: r(16), padding: r(18), background: "var(--bg3)", borderRadius: r(18), boxShadow: "inset 0 0 0 1px var(--line)", marginBottom: r(14) }}>
+            <div style={{ width: r(80), height: r(80), borderRadius: r(14), flex: "none", background: l.item.image_url ? `center/cover url(${l.item.image_url})` : (l.item.bg || "linear-gradient(160deg,#8fa86d,#7d985f)"), position: "relative", overflow: "hidden" }}>
+              {!l.item.image_url && l.item.prod && <div style={{ position: "absolute", left: -6, top: r(24), width: r(50), height: r(50), borderRadius: "50%", background: l.item.prod, filter: "blur(4px)", opacity: .8 }} />}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: r(12) }}><span style={{ fontFamily: "var(--font-head)", fontWeight: kiosk ? 500 : 600, fontSize: r(19) }}>{l.item.name}</span><span style={{ fontFamily: "var(--font-head)", fontWeight: kiosk ? 500 : 600, fontSize: r(18), whiteSpace: "nowrap" }}>{money(l.unit * l.qty)}</span></div>
+              {l.mods && l.mods.length > 0 && <div style={{ fontSize: r(13), color: "var(--muted)", marginTop: r(3) }}>{l.mods.map((m) => m.name).join(" · ")}</div>}
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: r(10) }}>
+                <div style={{ display: "flex", alignItems: "center", gap: r(14), background: "var(--bg)", borderRadius: r(30), padding: `${r(6)}px ${r(14)}px` }}>
+                  <span onClick={() => setQty(i, -1)} style={{ fontSize: r(20), color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
+                  <span style={{ fontSize: r(16), minWidth: r(14), textAlign: "center" }}>{l.qty}</span>
+                  <span onClick={() => setQty(i, 1)} style={{ fontSize: r(18), color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
                 </div>
-                <span onClick={() => remove(i)} style={{ fontSize: 14, color: "var(--accent)", fontWeight: 600, cursor: "pointer" }}>Remove</span>
+                <span onClick={() => remove(i)} style={{ fontSize: r(14), color: "var(--accent)", fontWeight: 600, cursor: "pointer" }}>Remove</span>
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
 
-        {lines.length > 0 && (
+        {/* Kiosk already asked for the name under "Take away" — don't ask twice. */}
+        {lines.length > 0 && !kiosk && (
           <div style={{ marginTop: 6 }}>
             <div style={{ fontSize: 13, fontWeight: 700, letterSpacing: ".1em", color: "var(--muted)", marginBottom: 10 }}>PICKUP NAME</div>
-            <input value={pickupName} onChange={(e) => setPickupName(e.target.value)} placeholder="Name for the order" style={{ width: "100%", boxSizing: "border-box", border: "none", borderRadius: 16, padding: "16px 18px", background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Hanken Grotesk',sans-serif", fontSize: 16, color: "var(--ink)" }} />
+            <input value={pickupName} onChange={(e) => setPickupName(e.target.value)} placeholder="Name for the order" style={{ width: "100%", boxSizing: "border-box", border: "none", borderRadius: 16, padding: "16px 18px", background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "var(--font-body)", fontSize: 16, color: "var(--ink)" }} />
           </div>
         )}
         <div style={{ height: 30 }} />
       </div>
 
-      {lines.length > 0 && (
+      {/* Kiosk: the designed footer bar — total on the left, one big action on
+          the right that says what's still missing rather than failing on tap.
+          It stays on screen with an empty bag so the layout never jumps. */}
+      {kiosk && (() => {
+        const need = !orderingEnabled ? "Order at the counter"
+          : lines.length === 0 ? "Add items to continue"
+          : kioskDine === null ? "Choose eat in or take away"
+          : kioskDine === true && !String(kioskTable || "").trim() ? "Enter your table number"
+          : kioskDine === false && String(pickupName || "").trim().length < 2 ? "Enter your name"
+          : null;
+        return (
+          <div style={{ flex: "none", boxSizing: "border-box", padding: "20px 34px 26px", background: "var(--bg)", borderTop: "1.5px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: ".26em", color: "var(--muted)" }}>TOTAL</div>
+              <div style={{ fontFamily: "var(--font-head)", fontSize: 40, fontWeight: 500, letterSpacing: "-.03em", marginTop: 4 }}>{money(subtotal)}</div>
+            </div>
+            <div onClick={need ? undefined : onPlace}
+              style={{ flex: 1, maxWidth: 520, minHeight: 86, padding: "0 32px", borderRadius: 43, display: "flex", alignItems: "center", justifyContent: "center", gap: 14, textAlign: "center", fontFamily: "var(--font-head)", fontSize: 24, fontWeight: 500, lineHeight: 1.2, cursor: need ? "default" : "pointer", background: need ? "var(--bg2)" : "var(--accent)", color: need ? "var(--muted)" : "var(--bg)", boxShadow: need ? "inset 0 0 0 1px var(--line)" : "0 18px 36px -16px rgba(0,0,0,.4)" }}>
+              {need || <>Place order <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg></>}
+            </div>
+          </div>
+        );
+      })()}
+
+      {!kiosk && lines.length > 0 && (
         <div style={{ flex: "none", padding: "18px 28px 26px", background: "var(--bg3)", boxShadow: "0 -10px 30px -16px rgba(60,70,45,.3)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 16, color: "var(--muted)", marginBottom: 12 }}><span>Subtotal</span><span>{money(subtotal)}</span></div>
-          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24 }}>Total</span><span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 24 }}>{money(subtotal)}</span></div>
-          {orderingEnabled ? (() => {
-            // Kiosk: eat in needs a table number, take away needs a name. The
-            // button says what's missing rather than failing after the tap.
-            const need = !kiosk ? null
-              : kioskDine === null ? "Choose eat in or take away"
-              : kioskDine === true && !String(kioskTable || "").trim() ? "Enter your table number"
-              : kioskDine === false && String(pickupName || "").trim().length < 2 ? "Enter your name"
-              : null;
-            if (need) return (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--line)", color: "var(--muted)", padding: "20px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19 }}>{need}</div>
-            );
-            return (
-            <div onClick={onPlace} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "20px 0", borderRadius: 40, fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 19, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: "pointer" }}>Place Order <span style={{ fontSize: 20 }}>→</span></div>
-            );
-          })() : (
-            <div style={{ textAlign: "center", background: "var(--bg)", border: "1px solid var(--line)", padding: "18px 24px", borderRadius: 24, fontFamily: "'Poppins',sans-serif" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 16 }}><span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 24 }}>Total</span><span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 24 }}>{money(subtotal)}</span></div>
+          {orderingEnabled ? (
+            <div onClick={onPlace} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "20px 0", borderRadius: 40, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 19, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: "pointer" }}>Place Order <span style={{ fontSize: 20 }}>→</span></div>
+          ) : (
+            <div style={{ textAlign: "center", background: "var(--bg)", border: "1px solid var(--line)", padding: "18px 24px", borderRadius: 24, fontFamily: "var(--font-head)" }}>
               <div style={{ fontSize: 17, fontWeight: 700, color: "var(--ink)", marginBottom: 4 }}>Please order with a waiter or at the counter</div>
               <div style={{ fontSize: 13, color: "var(--muted)" }}>Show this order to a member of staff to place it.</div>
             </div>
@@ -1641,23 +1776,23 @@ function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlace, orde
 
 function Confirm({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDine = null, kioskTable = "", kioskTotal = 0 }) {
   return (
-    <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: '\'Hanken Grotesk\',sans-serif', color: 'var(--ink)'}}>
+    <div style={{width: '100%', height: '100%', overflow: 'hidden', position: 'relative', background: 'var(--bg)', fontFamily: "var(--font-body)", color: 'var(--ink)'}}>
       <div style={{position: 'absolute', width: '680px', height: '460px', left: '40px', top: '70px', borderRadius: '50%', background: 'radial-gradient(50% 50% at 50% 50%,rgba(94,122,77,.17),transparent 68%)', filter: 'blur(8px)', animation: 'calmGlow 7s ease-in-out infinite'}}></div>
       <div style={{position: 'relative', display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', padding: '90px 48px 0'}}>
         <div style={{width: '104px', height: '104px', borderRadius: '50%', background: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#F7F4EC', boxShadow: '0 18px 42px -10px rgba(94,122,77,.5)'}}><svg width="50" height="50" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7"></path></svg></div>
-        <div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '42px', lineHeight: '1.08', marginTop: '28px'}}>{kiosk ? "Pay at the counter" : "We're on it" + (pickupName ? ', ' + pickupName : '') + "."}</div>
+        <div style={{fontFamily: "var(--font-head)", fontWeight: '600', fontSize: '42px', lineHeight: '1.08', marginTop: '28px'}}>{kiosk ? "Pay at the counter" : "We're on it" + (pickupName ? ', ' + pickupName : '') + "."}</div>
         <div style={{fontSize: '16px', color: 'var(--muted)', marginTop: '14px', lineHeight: '1.6'}}>{kiosk ? <>Take your slip to the till and pay.<br /><b style={{ color: "var(--ink)" }}>We start making it once it's paid.</b>{kioskDine && kioskTable ? <><br />Table {kioskTable}.</> : null}{!kioskDine && pickupName ? <><br />We'll call "{pickupName}".</> : null}</> : <>Your order has been sent to the kitchen.<br />Please pay at the counter.</>}</div>
         {kiosk && kioskTotal > 0 && (
-          <div style={{ marginTop: 28, padding: "18px 34px", borderRadius: 999, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 30 }}>To pay: {money(kioskTotal)}</div>
+          <div style={{ marginTop: 28, padding: "18px 34px", borderRadius: 999, background: "var(--accent)", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 30 }}>To pay: {money(kioskTotal)}</div>
         )}
         <div style={{display: 'flex', gap: '30px', marginTop: '40px', flexWrap: 'wrap', justifyContent: 'center'}}>
-          {pickupName ? (<div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>NAME</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{pickupName}</div></div>) : null}
+          {pickupName ? (<div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>NAME</div><div style={{fontFamily: "var(--font-head)", fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{pickupName}</div></div>) : null}
           {pickupName ? <div style={{width: '1px', background: 'var(--line)'}}></div> : null}
-          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>ORDER</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{orderNo || '—'}</div></div>
+          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>ORDER</div><div style={{fontFamily: "var(--font-head)", fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{orderNo || '—'}</div></div>
           {table ? (<><div style={{width: '1px', background: 'var(--line)'}}></div>
-          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>TABLE</div><div style={{fontFamily: '\'Poppins\',sans-serif', fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{table.label}</div></div></>) : null}
+          <div><div style={{fontSize: '13px', fontWeight: '700', letterSpacing: '.1em', color: 'var(--muted)'}}>TABLE</div><div style={{fontFamily: "var(--font-head)", fontWeight: '600', fontSize: '28px', color: 'var(--accent)', marginTop: '2px'}}>{table.label}</div></div></>) : null}
         </div>
-        <div onClick={(e) => { e.stopPropagation(); if (onAddMore) onAddMore(); }} style={{marginTop: '40px', padding: '16px 36px', borderRadius: '30px', background: 'var(--accent)', color: '#F7F4EC', fontFamily: "'Poppins',sans-serif", fontWeight: '600', fontSize: '18px', cursor: 'pointer', boxShadow: '0 12px 30px -8px rgba(94,122,77,.5)'}}>+ Add more to this order</div>
+        <div onClick={(e) => { e.stopPropagation(); if (onAddMore) onAddMore(); }} style={{marginTop: '40px', padding: '16px 36px', borderRadius: '30px', background: 'var(--accent)', color: '#F7F4EC', fontFamily: "var(--font-head)", fontWeight: '600', fontSize: '18px', cursor: 'pointer', boxShadow: '0 12px 30px -8px rgba(94,122,77,.5)'}}>+ Add more to this order</div>
         <div style={{marginTop: '20px', fontSize: '15px', fontWeight: '600', letterSpacing: '.06em', color: 'var(--muted)'}}>Or tap anywhere to start a new order</div>
       </div>
     </div>
@@ -1696,7 +1831,7 @@ function SearchOverlay({ menus, onItem, onClose }) {
     <div style={{ position: "absolute", inset: 0, background: "var(--bg)", zIndex: 40, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "22px 24px 14px" }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the menu…"
-          style={{ flex: 1, fontSize: 20, padding: "14px 18px", borderRadius: 16, border: "none", background: "#fff", outline: "none", fontFamily: "'Hanken Grotesk',sans-serif", color: "var(--ink)" }} />
+          style={{ flex: 1, fontSize: 20, padding: "14px 18px", borderRadius: 16, border: "none", background: "#fff", outline: "none", fontFamily: "var(--font-body)", color: "var(--ink)" }} />
         <div onClick={onClose} style={{ fontSize: 17, fontWeight: 600, color: "var(--muted)", cursor: "pointer", padding: "0 6px" }}>Cancel</div>
       </div>
       <div style={{ flex: 1, overflowY: "auto", padding: "6px 24px 24px" }}>
@@ -1705,10 +1840,10 @@ function SearchOverlay({ menus, onItem, onClose }) {
           <div key={it.id} onClick={() => { onItem(it); onClose(); }} style={{ display: "flex", alignItems: "center", gap: 14, padding: "12px 0", borderBottom: "1px solid rgba(60,70,45,.1)", cursor: "pointer" }}>
             <div style={{ width: 54, height: 54, borderRadius: 12, flex: "none", background: it.image_url ? `center/cover url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#EAD9C4,#C99E74)") }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, color: "var(--ink)" }}>{it.name}</div>
+              <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 17, color: "var(--ink)" }}>{it.name}</div>
               <div style={{ fontSize: 13, color: "var(--muted)" }}>{it.menu} · {it.cat}</div>
             </div>
-            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>£{Number(it.price).toFixed(2)}</div>
+            <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>£{Number(it.price).toFixed(2)}</div>
           </div>
         ))}
       </div>
@@ -1721,11 +1856,11 @@ function MenuPicker({ menus, bg, onPick, onClose }) {
     ? { backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center" }
     : { background: "linear-gradient(150deg,#3d5233,#5a7346 55%,#7b9560)" };
   return (
-    <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", fontFamily: "'Hanken Grotesk',sans-serif", ...bgStyle }}>
+    <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", fontFamily: "var(--font-body)", ...bgStyle }}>
       <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 80% at 50% 10%, rgba(20,28,14,0.12), rgba(18,24,12,0.62) 78%)" }} />
       <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 80px" }}>
         <div style={{ textAlign: "center", marginBottom: 64 }}>
-          <div style={{ fontFamily: "'Poppins',sans-serif", fontSize: 92, fontWeight: 600, letterSpacing: "-.03em", color: "#F5F1E6", lineHeight: 1 }}>still<span style={{ color: "#C6D9A0" }}>.</span></div>
+          <div style={{ fontFamily: "var(--font-head)", fontSize: 92, fontWeight: 600, letterSpacing: "-.03em", color: "#F5F1E6", lineHeight: 1 }}>still<span style={{ color: "#C6D9A0" }}>.</span></div>
           <div style={{ width: 60, height: 3, background: "rgba(245,241,230,0.5)", margin: "30px auto" }} />
           <div style={{ fontSize: 22, letterSpacing: ".34em", color: "rgba(245,241,230,0.72)", fontWeight: 600 }}>CHOOSE YOUR MENU</div>
         </div>
@@ -1738,7 +1873,7 @@ function MenuPicker({ menus, bg, onPick, onClose }) {
                 background: open ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.34)",
                 boxShadow: open ? "0 6px 18px -12px rgba(0,0,0,0.45)" : "none",
               }}>
-                <span style={{ fontFamily: "'Poppins',sans-serif", fontSize: 19, fontWeight: 400, letterSpacing: ".01em", color: open ? "#2F3326" : "#e2ded2" }}>{m.name}</span>
+                <span style={{ fontFamily: "var(--font-head)", fontSize: 19, fontWeight: 400, letterSpacing: ".01em", color: open ? "#2F3326" : "#e2ded2" }}>{m.name}</span>
               </div>
             );
           })}
@@ -1767,7 +1902,7 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
   return (
     <div style={{ position: "absolute", inset: 0, background: "var(--bg)", zIndex: 50, display: "flex", flexDirection: "column", padding: "28px 22px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 28, color: "var(--ink)" }}>Select your table</div>
+        <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 28, color: "var(--ink)" }}>Select your table</div>
         {!required && <div onClick={onClose} style={{ fontSize: 15, color: "var(--muted)", cursor: "pointer", padding: 8 }}>Close</div>}
       </div>
       <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 22 }}>Tap your table number so we bring your order to you.</div>
@@ -1781,7 +1916,7 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
               {groups[zone].map((t) => {
                 const active = current && current.id === t.id;
                 return (
-                  <div key={t.id} onClick={() => onPick(t)} style={{ aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRadius: 20, cursor: "pointer", background: active ? "var(--accent)" : "var(--bg3)", color: active ? "#F7F4EC" : "var(--ink)", boxShadow: active ? "0 12px 28px -10px rgba(94,122,77,.6)" : "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 28, textAlign: "center", padding: 6, wordBreak: "break-word", lineHeight: 1.1 }}>
+                  <div key={t.id} onClick={() => onPick(t)} style={{ aspectRatio: "1", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", borderRadius: 20, cursor: "pointer", background: active ? "var(--accent)" : "var(--bg3)", color: active ? "#F7F4EC" : "var(--ink)", boxShadow: active ? "0 12px 28px -10px rgba(94,122,77,.6)" : "inset 0 0 0 1px var(--line)", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 28, textAlign: "center", padding: 6, wordBreak: "break-word", lineHeight: 1.1 }}>
                     {t.label}
                   </div>
                 );
@@ -2201,10 +2336,10 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     : "linear-gradient(160deg,#EEF2E4,#E1E8D2)";
   if (locked) {
     return (
-      <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", position: "fixed", top: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
+      <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", position: "fixed", top: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
         <div style={{ maxWidth: 420, textAlign: "center" }}>
           <div style={{ fontSize: 52, marginBottom: 12 }}>🔒</div>
-          <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22, color: "var(--ink)", marginBottom: 10 }}>This QR is already linked</div>
+          <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 22, color: "var(--ink)", marginBottom: 10 }}>This QR is already linked</div>
           <div style={{ fontSize: 15, color: "var(--muted)", lineHeight: 1.5 }}>This tablet link is in use on another device. To use it here, ask a manager to release it from the admin, then reload this page.</div>
         </div>
       </div>
@@ -2225,14 +2360,14 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const safeBottom = kiosk ? `max(env(safe-area-inset-bottom, 0px), ${insetBottom}px)` : "0px";
 
   return (
-    <div style={{ ...themeVars, background: themeBg, fontFamily: "'Hanken Grotesk',sans-serif", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0, boxSizing: "border-box", ...(kiosk ? { paddingTop: safeTop, paddingBottom: safeBottom } : null) }}>
+    <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0, boxSizing: "border-box", ...(kiosk ? { paddingTop: safeTop, paddingBottom: safeBottom } : null) }}>
       {!online && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#8a5a2c", color: "#fff", textAlign: "center", fontSize: 13, fontWeight: 600, padding: "6px 0", letterSpacing: ".02em", fontFamily: "'Poppins',sans-serif" }}>
+        <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#8a5a2c", color: "#fff", textAlign: "center", fontSize: 13, fontWeight: 600, padding: "6px 0", letterSpacing: ".02em", fontFamily: "var(--font-head)" }}>
           ● Offline — showing saved menu
         </div>
       )}
       <GetAppBanner settings={settingsEff} table={table} />
-      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet" />
+      <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=Sora:wght@400;500;600&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}
         [data-catstrip]{max-height:0;opacity:0;overflow:hidden;padding-top:0 !important;padding-bottom:0 !important;transition:max-height .35s ease,opacity .3s ease,padding .35s ease;}
@@ -2249,7 +2384,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
-            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
+            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
@@ -2258,7 +2393,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
               // ask for it again at checkout.
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
-            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag kioskTables={tables} kiosk={kiosk} kioskDine={kioskDine} setKioskDine={setKioskDine} kioskTable={kioskTable} setKioskTable={setKioskTable} orderErr={orderErr} onDismissErr={() => setOrderErr(null)} lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => { setOrderErr(null);
+            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag kioskTables={tables} kiosk={kiosk} bagLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} kioskDine={kioskDine} setKioskDine={setKioskDine} kioskTable={kioskTable} setKioskTable={setKioskTable} orderErr={orderErr} onDismissErr={() => setOrderErr(null)} lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => { setOrderErr(null);
               if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
               if (kiosk && kioskDine === null) { setOrderErr("Please choose eat in or take away."); return; }
@@ -2285,14 +2420,14 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
               <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setTablePinPrompt(false)}>
                 <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg2)", borderRadius: 20, padding: 28, maxWidth: 360, width: "100%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
                   <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
-                  <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 19, color: "var(--ink)", marginBottom: 6 }}>Staff only</div>
+                  <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 19, color: "var(--ink)", marginBottom: 6 }}>Staff only</div>
                   <div style={{ fontSize: 14, color: "var(--muted)", marginBottom: 18 }}>Enter your punch-in PIN (or the manager PIN) to set or change the table number.</div>
                   <input type="text" inputMode="numeric" value={tablePinValue} onChange={(e) => setTablePinValue(e.target.value.replace(/\D/g, ""))} onKeyDown={(e) => e.key === "Enter" && verifyTablePin()} placeholder="PIN" autoFocus
                     autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false}
                     name="table-code-nosave" data-1p-ignore data-lpignore="true" data-form-type="other" readOnly onFocus={(e) => e.target.removeAttribute("readonly")}
                     style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 22, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid var(--line)", background: "var(--bg3)", color: "var(--ink)", marginBottom: 6, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
                   {tablePinErr && <div style={{ color: "#b4462f", fontSize: 13, marginBottom: 6 }}>{tablePinErr}</div>}
-                  <div onClick={verifyTablePin} style={{ marginTop: 12, padding: "12px 0", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: tablePinChecking ? .6 : 1 }}>{tablePinChecking ? "Checking…" : "Unlock"}</div>
+                  <div onClick={verifyTablePin} style={{ marginTop: 12, padding: "12px 0", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 16, cursor: "pointer", opacity: tablePinChecking ? .6 : 1 }}>{tablePinChecking ? "Checking…" : "Unlock"}</div>
                   <div onClick={() => setTablePinPrompt(false)} style={{ marginTop: 10, fontSize: 13, color: "var(--muted)", cursor: "pointer" }}>Cancel</div>
                 </div>
               </div>
@@ -2301,7 +2436,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
               <div style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(30,35,25,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
                 onClick={() => { if (!placing) setConfirmingOrder(false); }}>
                 <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 440, background: "var(--bg)", borderRadius: 26, padding: "34px 28px", textAlign: "center", boxShadow: "0 30px 80px -20px rgba(0,0,0,.4)" }}>
-                  <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 26, color: "var(--ink)", marginBottom: 8 }}>Place this order?</div>
+                  <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 26, color: "var(--ink)", marginBottom: 8 }}>Place this order?</div>
                   <div style={{ fontSize: 15, color: "var(--muted)", marginBottom: 8 }}>
                     {lines.reduce((s, l) => s + l.qty, 0)} item{lines.reduce((s, l) => s + l.qty, 0) === 1 ? "" : "s"}
                     {table ? ` · Table ${table.label}` : ""}
@@ -2309,9 +2444,9 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
                   <div style={{ fontSize: 13, color: "var(--faint)", marginBottom: 26 }}>You’ll pay at the counter.</div>
                   <div style={{ display: "flex", gap: 12 }}>
                     <div onClick={() => { if (!placing) setConfirmingOrder(false); }}
-                      style={{ flex: 1, padding: "16px 0", borderRadius: 30, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, color: "var(--ink)", cursor: "pointer" }}>Not yet</div>
+                      style={{ flex: 1, padding: "16px 0", borderRadius: 30, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 17, color: "var(--ink)", cursor: "pointer" }}>Not yet</div>
                     <div onClick={() => { if (placing) return; setConfirmingOrder(false); placeOrder(); }}
-                      style={{ flex: 1, padding: "16px 0", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "'Poppins',sans-serif", fontWeight: 600, fontSize: 17, boxShadow: "0 14px 30px -14px rgba(94,122,77,.55)", cursor: "pointer", opacity: placing ? 0.6 : 1 }}>{placing ? "Placing…" : "Yes, place order"}</div>
+                      style={{ flex: 1, padding: "16px 0", borderRadius: 30, background: "var(--accent)", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 17, boxShadow: "0 14px 30px -14px rgba(94,122,77,.55)", cursor: "pointer", opacity: placing ? 0.6 : 1 }}>{placing ? "Placing…" : "Yes, place order"}</div>
                   </div>
                 </div>
               </div>
