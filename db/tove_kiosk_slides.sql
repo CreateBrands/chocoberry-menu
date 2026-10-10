@@ -100,7 +100,9 @@ begin
   -- of the tablet menu are different surfaces and shouldn't move together.
   insert into menu_app_settings (key, value) values
     ('kiosk_slides:' || v_loc, v_json::text),
-    ('kiosk_address:' || v_loc, '183 Evington Road, Leicester · Open daily 8am–11pm')
+    -- Footer line off: the kiosk stands in the shop, so nobody there needs the
+    -- address. Put one back in Admin and the line reappears.
+    ('kiosk_address:' || v_loc, '')
   on conflict (key) do update set value = excluded.value;
 end $$;
 

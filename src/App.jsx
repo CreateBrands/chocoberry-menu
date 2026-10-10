@@ -2352,17 +2352,19 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   }
 
   // KIOSK SAFE AREA. index.html sets viewport-fit=cover, so the page is drawn
-  // UNDER the Android status and navigation bars. On a tablet that is fine —
-  // someone holds it and the system bars are where they expect. On a kiosk the
-  // top bar (back, bag, close, search cancel) ends up beneath the status bar,
-  // which takes the touches: the buttons are plainly visible and completely
-  // dead, and the bottom category rail falls off the screen. Inset the whole
-  // app instead. env() is 0 in many Android WebViews, so the numbers can be
-  // overridden per store with kiosk_inset_top / kiosk_inset_bottom.
-  const insetTop = kiosk ? Math.max(0, Number(settingsEff.kiosk_inset_top ?? 48) || 0) : 0;
+  // UNDER the Android status and navigation bars. Where those bars are visible
+  // the top row of buttons ends up beneath the status bar, which takes the
+  // touches: plainly visible, completely dead. Inset the whole app in that
+  // case.
+  //
+  // A kiosk in lock-task mode has no bars at all, and env() reads 0 in most
+  // Android WebViews — so a standing inset just prints an empty band across the
+  // top of a full-bleed screen. Nothing is inset unless a store asks for it
+  // with kiosk_inset_top / kiosk_inset_bottom, and then env() is the floor.
+  const insetTop = kiosk ? Math.max(0, Number(settingsEff.kiosk_inset_top ?? 0) || 0) : 0;
   const insetBottom = kiosk ? Math.max(0, Number(settingsEff.kiosk_inset_bottom ?? 0) || 0) : 0;
-  const safeTop = kiosk ? `max(env(safe-area-inset-top, 0px), ${insetTop}px)` : "0px";
-  const safeBottom = kiosk ? `max(env(safe-area-inset-bottom, 0px), ${insetBottom}px)` : "0px";
+  const safeTop = insetTop > 0 ? `max(env(safe-area-inset-top, 0px), ${insetTop}px)` : "0px";
+  const safeBottom = insetBottom > 0 ? `max(env(safe-area-inset-bottom, 0px), ${insetBottom}px)` : "0px";
 
   return (
     <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0, boxSizing: "border-box", ...(kiosk ? { paddingTop: safeTop, paddingBottom: safeBottom } : null) }}>

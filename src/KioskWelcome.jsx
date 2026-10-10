@@ -91,7 +91,6 @@ export default function KioskWelcome({ slides, w = {}, onStart, accent = "#344D4
   const tone = TONES[cur.tone] || TONES.cream;
 
   const s = (v) => Math.round(v * k);
-  const panelH = s(708);
   const band = s(202);          // palette showing between photo and panel
   const px = (v) => s(v) + "px";
 
@@ -152,9 +151,14 @@ export default function KioskWelcome({ slides, w = {}, onStart, accent = "#344D4
         @media (prefers-reduced-motion: reduce){.kw *{animation:none !important;transition:none !important}}
       `}</style>
 
-      <div className="kw" style={{ position: "absolute", inset: 0 }}>
+      {/* Two rows: the photo takes whatever height is left, the panel is as tall
+          as its own content. Nothing is a fixed fraction of the screen, so
+          turning off the rewards strip or the address line closes the gap
+          instead of leaving a band of empty cream at the bottom. */}
+      <div className="kw" style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column" }}>
+        <div style={{ position: "relative", flex: 1, minHeight: 0 }}>
         {/* ---- the photographs ---- */}
-        <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: `calc(100% - ${panelH + band}px)`, overflow: "hidden" }}>
+        <div style={{ position: "absolute", left: 0, right: 0, top: 0, bottom: band, overflow: "hidden" }}>
           {slides.map((d, i) => {
             const on = i === slide;
             const t = TONES[d.tone] || TONES.cream;
@@ -210,7 +214,7 @@ export default function KioskWelcome({ slides, w = {}, onStart, accent = "#344D4
         )}
 
         {/* ---- the caption for the slide on screen ---- */}
-        <div style={{ position: "absolute", left: px(60), right: px(60), bottom: panelH + s(144), display: "flex", flexDirection: "column", gap: px(18), color: tone.ink, pointerEvents: "none" }}>
+        <div style={{ position: "absolute", left: px(60), right: px(60), bottom: s(144), display: "flex", flexDirection: "column", gap: px(18), color: tone.ink, pointerEvents: "none" }}>
           {(cur.tag || slides.length > 1) && (
             <div style={{ display: "flex", alignItems: "center", gap: px(16) }}>
               {cur.tag && <div style={{ height: px(42), padding: `0 ${px(20)}`, borderRadius: px(21), background: tone.tagBg, color: tone.tagInk, display: "flex", alignItems: "center", fontSize: px(18), fontWeight: 600, letterSpacing: ".24em" }}>{cur.tag}</div>}
@@ -235,8 +239,10 @@ export default function KioskWelcome({ slides, w = {}, onStart, accent = "#344D4
           })()}
         </div>
 
+        </div>
+
         {/* ---- the cream panel: where the customer actually taps ---- */}
-        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: panelH, background: panelBg, borderRadius: `${px(60)} ${px(60)} 0 0`, boxShadow: `0 -${px(24)} ${px(60)} -${px(20)} rgba(27,36,31,.28)` }}>
+        <div style={{ position: "relative", flex: "none", background: panelBg, borderRadius: `${px(60)} ${px(60)} 0 0`, boxShadow: `0 -${px(24)} ${px(60)} -${px(20)} rgba(27,36,31,.28)` }}>
           <div style={{ position: "absolute", left: "-" + px(60), right: "-" + px(60), top: "-" + px(40), height: px(76), background: chip, transform: "rotate(-2deg)", overflow: "hidden", display: "flex", alignItems: "center", boxShadow: `0 ${px(10)} ${px(30)} rgba(27,36,31,.14)` }}>
             <div style={{ flex: "none", display: "flex", whiteSpace: "nowrap", animation: "kwMarq 36s linear infinite", fontFamily: head, fontSize: px(25), fontWeight: 500, letterSpacing: ".14em", color: accent }}>
               <span style={{ paddingRight: px(48) }}>{marquee}</span>
@@ -244,7 +250,7 @@ export default function KioskWelcome({ slides, w = {}, onStart, accent = "#344D4
             </div>
           </div>
 
-          <div style={{ position: "absolute", left: px(56), right: px(56), top: px(74), bottom: px(30), display: "flex", flexDirection: "column", gap: px(20) }}>
+          <div style={{ padding: `${px(74)} ${px(56)} ${px(48)}`, display: "flex", flexDirection: "column", gap: px(20) }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: px(24) }}>
               <h1 style={{ margin: 0, fontFamily: head, fontSize: px(58), fontWeight: 400, lineHeight: 1.06, letterSpacing: "-.03em", color: "#1B241F" }} dangerouslySetInnerHTML={{ __html: headline }} />
               <div style={{ display: "flex", alignItems: "center", gap: px(14), paddingBottom: px(10), flex: "none" }}>
@@ -278,7 +284,7 @@ export default function KioskWelcome({ slides, w = {}, onStart, accent = "#344D4
             )}
 
             {address && (
-              <div style={{ marginTop: "auto", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
+              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
                 <div style={{ fontSize: px(21), fontWeight: 400, letterSpacing: ".04em", color: "#5E6B63" }}>{address}</div>
               </div>
             )}
