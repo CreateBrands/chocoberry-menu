@@ -256,8 +256,14 @@ Deno.serve(async (req) => {
     let refundTotal = 0, refundCount = 0;
     const byMethod: Record<string, { amount: number; count: number }> = { cash: { amount: 0, count: 0 }, card: { amount: 0, count: 0 }, other: { amount: 0, count: 0 } };
     const paidByOrder: Record<string, number> = {};
-    for (let i = 0; i < ids.length; i += 500) {
-      const { data: pays } = await admin.from("order_payments").select("order_id, method, amount, kind").in("order_id", ids.slice(i, i + 500));
+    // 500 ids at ~37 chars each is an 18KB `in` list in a GET URL, which the
+    // server rejects — and only `data` was destructured, so the error was
+    // dropped and the report simply said £0.00 taken. It worked on a 174-order
+    // trading day and failed on a 388-order one, which is the worst possible
+    // way for a closing report to be wrong. Chunk small, and never swallow it.
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data: pays, error: payErr } = await admin.from("order_payments").select("order_id, method, amount, kind").in("order_id", ids.slice(i, i + 100));
+      if (payErr) throw payErr;
       for (const p of pays || []) {
         const m = p.method === "cash" || p.method === "card" ? p.method : "other";
         if ((p as any).kind === "refund" || Number(p.amount || 0) < 0) { const a = Math.abs(Number(p.amount || 0)); refundTotal += a; refundCount++; byMethod[m].amount -= a; continue; }
@@ -268,8 +274,9 @@ Deno.serve(async (req) => {
     // ---- items: top sellers + category mix ----
     const itemAgg: Record<string, { name: string; qty: number; sales: number }> = {};
     let itemsSold = 0;
-    for (let i = 0; i < ids.length; i += 500) {
-      const { data: lines } = await admin.from("menu_order_items").select("order_id, name_snapshot, qty, line_total, item_status").in("order_id", ids.slice(i, i + 500));
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data: lines, error: lineErr } = await admin.from("menu_order_items").select("order_id, name_snapshot, qty, line_total, item_status").in("order_id", ids.slice(i, i + 100));
+      if (lineErr) throw lineErr;
       for (const l of lines || []) {
         if (l.item_status === "voided") continue;
         const k = String(l.name_snapshot || "").trim(); if (!k) continue;
@@ -1869,8 +1876,8 @@ Deno.serve(async (req) => {
         }).select("id").single();
         if (cErr) throw cErr;
         if (ids.length) {
-          for (let i = 0; i < ids.length; i += 500) {
-            const { error: uErr } = await admin.from("menu_orders").update({ closed_at: now }).in("id", ids.slice(i, i + 500));
+          for (let i = 0; i < ids.length; i += 100) {
+            const { error: uErr } = await admin.from("menu_orders").update({ closed_at: now }).in("id", ids.slice(i, i + 100));
             if (uErr) throw uErr;
           }
         }

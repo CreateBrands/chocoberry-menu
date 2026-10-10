@@ -277,6 +277,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // refused licence, a kitchen-only screen attempting a till action and a
   // genuine failure alike, which leaves staff with nothing to act on.
   const closeTillErr = useRef("");
+  const closeTillCache = useRef({});   // mode -> summary, so the toggle is instant
   async function loadCloseTillSummary(mode) {
     const r = await ordActionJson("day_summary", { location_id: loc, mode });
     if (!r || !r.summary) closeTillErr.current = (r && (r.message || r.error)) || "";
@@ -284,11 +285,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     return (r && r.summary) || null;
   }
   async function openCloseTill() {
+    closeTillCache.current = {};   // fresh figures each time the sheet opens
     setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "" });
     let sm = await loadCloseTillSummary("trading_day");
     let mode = "trading_day";
     // Nothing before the cutoff (or we're before 4am) → close everything up to now.
     if (!sm || !sm.before_cutoff_count) { mode = "all"; sm = await loadCloseTillSummary("all"); }
+    if (sm) closeTillCache.current[mode] = sm;
     const prevFloat = sm && sm.previous && sm.previous.float_amount != null ? String(Number(sm.previous.float_amount).toFixed(2)) : "";
     setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, float: c.float || prevFloat, err: sm ? "" : (closeTillErr.current || "Could not load today's totals") });
   }
@@ -311,10 +314,16 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       setCloseTill((x) => x && { ...x, reprinting: false, reprinted: !!j.ok });
     } catch { setCloseTill((x) => x && { ...x, reprinting: false, reprinted: false }); }
   }
+  // Each switch re-queried the server — several seconds of staring at a
+  // spinner to compare two numbers. The two summaries are a snapshot of the
+  // same moment, so keep both once fetched and flip instantly.
   async function switchCloseTillMode(mode) {
+    const hit = closeTillCache.current[mode];
+    if (hit) { setCloseTill((c) => c && { ...c, busy: false, mode, summary: hit, err: "" }); return; }
     setCloseTill((c) => c && { ...c, busy: true, err: "" });
     const sm = await loadCloseTillSummary(mode);
-    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, err: sm ? "" : "Could not load totals" });
+    if (sm) closeTillCache.current[mode] = sm;
+    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, err: sm ? "" : (closeTillErr.current || "Could not load totals") });
   }
   async function confirmCloseTill(overrides = {}) {
     setCloseTill((c) => c && { ...c, ...overrides, busy: true, err: "" });
