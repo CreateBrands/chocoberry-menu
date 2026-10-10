@@ -82,7 +82,20 @@ insert into menu_app_settings (key, value) values
   ('kiosk_address:be8de364-ff8f-5ce5-9d6f-fadbb5676e5d', '')
 on conflict (key) do update set value = excluded.value;
 
--- ---------- 3. Check ----------
+-- ---------- 3. Edge to edge ----------
+-- kiosk_inset_top was set while the Android status bar was swallowing taps on
+-- the top row of buttons. The kiosk runs in lock-task mode now, with no bars
+-- to avoid, so a stored inset is just an empty band across a full-bleed
+-- screen. The app no longer insets anything unless a value says to, and this
+-- removes the values. (If a status bar ever reappears and eats the buttons,
+-- put a number back in Admin under the store's kiosk settings.)
+select key, value as was_set_to
+from menu_app_settings
+where key like 'kiosk_inset_%';
+
+delete from menu_app_settings where key like 'kiosk_inset_%';
+
+-- ---------- 4. Check ----------
 select jsonb_array_length(value::jsonb) as slides,
        (select string_agg(s->>'title', ' · ') from jsonb_array_elements(value::jsonb) s) as titles
 from menu_app_settings
