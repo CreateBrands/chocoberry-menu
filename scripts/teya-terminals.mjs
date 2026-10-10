@@ -26,13 +26,17 @@ if (bad(id) || bad(secret) || bad(store)) {
 
 console.log("env:", ENV, "\nstore:", store, "\n");
 
+// Ask for the scopes we need. Without a scope parameter Teya issues
+// `default_access`, which is deprecated and answers 401/403 on every POSLink
+// call — which looked exactly like "no terminal attached".
+const SCOPES = process.env.TEYA_SCOPES || "payment_requests payment_requests/id stores/id/terminals refunds";
 const t = await fetch(ID + "/oauth/v2/oauth-token", {
   method: "POST",
   headers: {
     "Content-Type": "application/x-www-form-urlencoded",
     Authorization: "Basic " + Buffer.from(id + ":" + secret).toString("base64"),
   },
-  body: "grant_type=client_credentials",
+  body: new URLSearchParams({ grant_type: "client_credentials", scope: SCOPES }).toString(),
 });
 const tj = await t.json().catch(() => ({}));
 if (!tj.access_token) {
