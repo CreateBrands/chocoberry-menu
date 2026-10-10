@@ -366,9 +366,13 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
         <>
           <KioskWelcome slides={slides} w={w} onStart={startKiosk}
             accent={tv["--accent"]} chip={tv["--chip"]} panelBg={tv["--bg"]} />
-          {/* fixed as well, so the menu chooser's scrim covers the same screen
-              the photograph does rather than stopping at the inset. */}
-          <div style={{ position: "fixed", left: 0, top: 0, zIndex: 30 }}>{picker}</div>
+          {/* Fixed as well, so the menu chooser's scrim covers the same screen
+              the photograph does rather than stopping at the inset.
+              pointerEvents none is load-bearing: this is a full-screen layer
+              above the welcome, and without it it eats every touch on the
+              screen, tiles included. The picker inside turns pointer events
+              back on for itself when it opens. */}
+          <div style={{ position: "fixed", left: 0, top: 0, zIndex: 30, pointerEvents: "none" }}>{picker}</div>
         </>
       );
     }
