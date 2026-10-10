@@ -1535,6 +1535,9 @@ export default function Admin() {
   const [builderInit, setBuilderInit] = useState([]);
   const [showHero, setShowHero] = useState(false);
   const [heroDraft, setHeroDraft] = useState([]);
+  // Which slide list the dialog is editing: the global menu banner, or one
+  // store's kiosk carousel ("kiosk_slides:<location id>").
+  const [heroKey, setHeroKey] = useState("hero_slides");
   const [showMods, setShowMods] = useState(false);
   const [nav, setNav] = useState("menus");
   const [showStores, setShowStores] = useState(false);
@@ -1657,7 +1660,7 @@ export default function Admin() {
                 setBuilderInit(init);
                 setShowBuilder(true);
               }
-              if (key === "hero") { try { const v = getSetting("hero_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); } setShowHero(true); }
+              if (key === "hero") { setHeroKey("hero_slides"); try { const v = getSetting("hero_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); } setShowHero(true); }
               if (key === "stores") setShowStores(true);
               if (key === "printers") setShowPrinters(true);
               if (key === "overview") setShowOverview(true);
@@ -1865,10 +1868,10 @@ export default function Admin() {
         <div onClick={() => setShowHero(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 520, maxWidth: "94vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>Hero Slides</div>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{heroKey.startsWith("kiosk_slides") ? "Kiosk Slides" : "Hero Slides"}</div>
               <span onClick={() => setShowHero(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
             </div>
-            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>The rotating banner at the top of the menu. Upload a photo for each slide; add or remove slides as needed.</div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>{heroKey.startsWith("kiosk_slides") ? "The full-height carousel on the kiosk welcome screen, for this store only. Portrait photos work best. The backdrop colour tints the whole screen behind the photo." : "The rotating banner at the top of the menu. Upload a photo for each slide; add or remove slides as needed."}</div>
 
             {heroDraft.map((sl, idx) => (
               <div key={idx} style={{ border: "1px solid " + T.line, borderRadius: 12, padding: 14, marginBottom: 14 }}>
@@ -1905,7 +1908,7 @@ export default function Admin() {
 
             <button onClick={() => setHeroDraft([...heroDraft, { image_url: "", tag: "", title: "", sub: "" }])} style={{ width: "100%", border: "1px dashed " + T.line, background: "transparent", color: T.muted, borderRadius: 10, padding: "12px 0", fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 14 }}>+ Add slide</button>
 
-            <button onClick={async () => { await act("set_setting", { key: "hero_slides", value: JSON.stringify(heroDraft) }); setShowHero(false); }} style={{ width: "100%", border: "none", background: T.accent || "#5E7A4D", color: "#fff", borderRadius: 10, padding: "13px 0", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Save slides</button>
+            <button onClick={async () => { await act("set_setting", { key: heroKey, value: JSON.stringify(heroDraft) }); setShowHero(false); }} style={{ width: "100%", border: "none", background: T.accent || "#5E7A4D", color: "#fff", borderRadius: 10, padding: "13px 0", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Save slides</button>
           </div>
         </div>
       )}
@@ -2250,7 +2253,13 @@ export default function Admin() {
                                 slides above. */}
                             <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid " + T.line }}>
                               <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Kiosk welcome · this store only</div>
-                              <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 12 }}>The kiosk shows the hero slides above as a full-height carousel. Portrait screens only — a landscape kiosk falls back to the plain welcome.</div>
+                              <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 12 }}>A full-height photo carousel over the eat-in / take-away tiles. Portrait screens only — a landscape kiosk falls back to the plain welcome. With no kiosk slides set it borrows the menu's hero slides.</div>
+                              <button onClick={() => {
+                                const k = "kiosk_slides:" + loc.id;
+                                setHeroKey(k);
+                                try { const v = g("kiosk_slides"); setHeroDraft(v ? (typeof v === "string" ? JSON.parse(v) : v) : []); } catch { setHeroDraft([]); }
+                                setShowHero(true);
+                              }} style={{ border: "1px solid " + T.line, background: T.card, color: T.ink, borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", marginBottom: 14 }}>Edit kiosk slides…</button>
                               <div style={{ display: "flex", gap: 6, marginBottom: 14 }}>
                                 {[["", "Designed welcome"], ["off", "Plain welcome"]].map(([v, l]) => <span key={v} onClick={() => setK("kiosk_design", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: (g("kiosk_design") || "") === v ? T.ink : T.bg, color: (g("kiosk_design") || "") === v ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>)}
                               </div>

@@ -11,7 +11,8 @@ import React, { useEffect, useRef, useState } from "react";
 // plain welcome screen there.
 //
 // Content comes from settings, so Tove and Chocoberry can differ per store:
-//   hero_slides          the carousel: image_url, tag, title, sub, parts, tone
+//   kiosk_slides         the carousel: image_url, tag, title, sub, parts, tone
+//                        (falls back to hero_slides, the menu's banner)
 //   welcome_logo_url     wordmark inside the dark badge (text logo if unset)
 //   kiosk_headline       "Hej! What can we<br>make you today?"
 //   kiosk_marquee        the tilted ticker across the top of the panel

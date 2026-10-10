@@ -349,11 +349,16 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   // welcome background stands in as a single slide if none are set.
   // `kiosk_design = off` falls back to the plain welcome without a redeploy.
   if (kiosk && portrait && String(w.kiosk_design || "") !== "off") {
+    // kiosk_slides is the carousel's own list. It falls back to the menu's hero
+    // slides, so a store that only has those still gets a carousel.
     let slides = [];
-    try {
-      const raw = w.hero_slides ? (typeof w.hero_slides === "string" ? JSON.parse(w.hero_slides) : w.hero_slides) : [];
-      slides = (Array.isArray(raw) ? raw : []).filter((x) => x && (x.image_url || x.title));
-    } catch { slides = []; }
+    for (const src of [w.kiosk_slides, w.hero_slides]) {
+      if (slides.length || !src) continue;
+      try {
+        const raw = typeof src === "string" ? JSON.parse(src) : src;
+        slides = (Array.isArray(raw) ? raw : []).filter((x) => x && (x.image_url || x.title));
+      } catch { slides = []; }
+    }
     if (!slides.length && bg) slides = [{ image_url: bg, tag: w.welcome_eyebrow || "", title: "", sub: "" }];
     if (slides.length) {
       const tv = theme || THEMES.still;
