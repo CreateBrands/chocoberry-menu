@@ -1,119 +1,91 @@
--- Tove kiosk welcome: the carousel slides and the footer line.
+-- Tove kiosk welcome: the carousel slides.
 --
--- The photos come from the Tove menu items themselves, so the kiosk shows the
--- same pictures the menu does and nothing has to be uploaded twice. Any slide
--- whose item has no photo still works — it falls back to its backdrop colour.
+-- Each slide is a real menu item, matched on its exact name, using that item's
+-- own photo and its own description. An item that isn't found, or has no
+-- photo, drops out of the list rather than leaving a blank slide — so this is
+-- safe to re-run after the menu changes.
 --
--- Section 1 reports what it will find. Run it on its own first if you want to
--- see which items have a photo before changing anything.
+-- Descriptions come from the menu rather than being written here: a kiosk
+-- listing ingredients that don't match the item is an allergen problem. The
+-- two "parts" chip rows below are the ones the design specified; the rest show
+-- the item's own description instead.
+--
+-- Run section 1 first if you want to see what it will build.
 
--- ---------- 1. What photo does each slide's item have? ----------
+-- ---------- 1. What will each slide show? ----------
 with tove as (select id from menu_brands where name ilike '%tove%' limit 1),
 items as (
-  select i.name, i.image_url
+  select i.name, i.image_url, i.description
   from menu_items i
   join menu_categories c on c.id = i.category_id
   join menu_menus m on m.id = c.menu_id
   where m.brand_id = (select id from tove)
+),
+want (ord, item_name, tone, tag, parts, pos) as (values
+  (1, 'Iced Blueberry Marble Matcha', 'green', 'SIGNATURE MATCHA', 'Blueberry cold foam, Kyoto Uji ceremonial matcha, Choice of milk, Over ice', '50% 45%'),
+  (2, 'Iced Cinnamon Roll Matcha',    'cream', 'SEASONAL DROP',    '',                                                                          '50% 40%'),
+  (3, 'Flat White',                   'cream', 'COFFEE',           '',                                                                          '50% 40%'),
+  (4, 'Cheese & Hot Honey Focaccia',  'tan',   'BAKED DAILY',      'Homemade red pesto, Creamy burrata, Sun-dried tomatoes, Hot honey',         '50% 40%'),
+  (5, 'Classic Basque Cheesecake',    'cream', 'BASQUE CHEESECAKE','',                                                                          '50% 40%')
 )
-select want.slide, want.match as item_pattern,
-       coalesce((select i.name from items i where i.name ilike want.match and i.image_url is not null and i.image_url <> '' limit 1), '— no item with a photo —') as found,
-       coalesce((select i.image_url from items i where i.name ilike want.match and i.image_url is not null and i.image_url <> '' limit 1), '') as photo
-from (values
-  (1, '%blueberry%matcha%'),
-  (2, '%signature blend%'),
-  (3, '%vanilla oat matcha%'),
-  (4, '%focaccia%')
-) as want(slide, match)
-order by want.slide;
+select w.ord, w.item_name, w.tag, w.tone,
+       case when i.image_url is null then '— dropped: no item of that name with a photo —' else 'ok' end as status,
+       coalesce(left(i.description, 80), '') as shows_as_subtitle
+from want w
+left join lateral (
+  select im.image_url, im.description from items im
+  where im.name = w.item_name and coalesce(im.image_url, '') <> '' limit 1
+) i on true
+order by w.ord;
 
--- ---------- 2. Build the slides ----------
-do $$
-declare
-  v_loc  text := 'be8de364-ff8f-5ce5-9d6f-fadbb5676e5d';   -- Tove, 183 Evington Rd
-  v_tove uuid;
-  v_json jsonb;
+-- ---------- 2. Build them ----------
+with tove as (select id from menu_brands where name ilike '%tove%' limit 1),
+items as (
+  select i.name, i.image_url, i.description
+  from menu_items i
+  join menu_categories c on c.id = i.category_id
+  join menu_menus m on m.id = c.menu_id
+  where m.brand_id = (select id from tove)
+),
+want (ord, item_name, tone, tag, parts, pos) as (values
+  (1, 'Iced Blueberry Marble Matcha', 'green', 'SIGNATURE MATCHA', 'Blueberry cold foam, Kyoto Uji ceremonial matcha, Choice of milk, Over ice', '50% 45%'),
+  (2, 'Iced Cinnamon Roll Matcha',    'cream', 'SEASONAL DROP',    '',                                                                          '50% 40%'),
+  (3, 'Flat White',                   'cream', 'COFFEE',           '',                                                                          '50% 40%'),
+  (4, 'Cheese & Hot Honey Focaccia',  'tan',   'BAKED DAILY',      'Homemade red pesto, Creamy burrata, Sun-dried tomatoes, Hot honey',         '50% 40%'),
+  (5, 'Classic Basque Cheesecake',    'cream', 'BASQUE CHEESECAKE','',                                                                          '50% 40%')
+),
+slide_rows as (
+  select w.ord, jsonb_build_object(
+    'image_url', i.image_url,
+    'pos',       w.pos,
+    'tone',      w.tone,
+    'tag',       w.tag,
+    'title',     w.item_name,
+    'sub',       coalesce(left(i.description, 110), ''),
+    'parts',     w.parts
+  ) as slide
+  from want w
+  join lateral (
+    select im.image_url, im.description from items im
+    where im.name = w.item_name and coalesce(im.image_url, '') <> '' limit 1
+  ) i on true
+),
+built as (select jsonb_agg(slide order by ord) as j from slide_rows)
+insert into menu_app_settings (key, value)
+select 'kiosk_slides:be8de364-ff8f-5ce5-9d6f-fadbb5676e5d', j::text
+from built where j is not null
+on conflict (key) do update set value = excluded.value;
 
-  -- The one photo recovered from the design, shipped with the app. Used only
-  -- where the menu item has no picture of its own.
-  c_fallback text := '/tove/blueberry-marble-matcha.jpg';
-
-  -- Each slide's photo, looked up from the menu item by name.
-  v_matcha   text;
-  v_coffee   text;
-  v_hotlatte text;
-  v_focaccia text;
-begin
-  select id into v_tove from menu_brands where name ilike '%tove%' limit 1;
-  if v_tove is null then raise exception 'No Tove brand found'; end if;
-
-  select i.image_url into v_matcha from menu_items i
-    join menu_categories c on c.id = i.category_id join menu_menus m on m.id = c.menu_id
-    where m.brand_id = v_tove and i.name ilike '%blueberry%matcha%' and coalesce(i.image_url,'') <> '' limit 1;
-  select i.image_url into v_coffee from menu_items i
-    join menu_categories c on c.id = i.category_id join menu_menus m on m.id = c.menu_id
-    where m.brand_id = v_tove and i.name ilike '%signature blend%' and coalesce(i.image_url,'') <> '' limit 1;
-  select i.image_url into v_hotlatte from menu_items i
-    join menu_categories c on c.id = i.category_id join menu_menus m on m.id = c.menu_id
-    where m.brand_id = v_tove and i.name ilike '%vanilla oat matcha%' and coalesce(i.image_url,'') <> '' limit 1;
-  select i.image_url into v_focaccia from menu_items i
-    join menu_categories c on c.id = i.category_id join menu_menus m on m.id = c.menu_id
-    where m.brand_id = v_tove and i.name ilike '%focaccia%' and coalesce(i.image_url,'') <> '' limit 1;
-
-  v_json := jsonb_build_array(
-    jsonb_build_object(
-      'image_url', coalesce(v_matcha, c_fallback),
-      'pos', '50% 45%',        -- crop: keep the cup centred, hand at the top
-      'tone', 'green',
-      'tag', 'SIGNATURE MATCHA',
-      'title', 'Iced Blueberry Marble Matcha',
-      'sub', 'Fresh. Layered. Unexpected.',
-      'parts', 'Blueberry cold foam, Kyoto Uji ceremonial matcha, Choice of milk, Over ice'
-    ),
-    jsonb_build_object(
-      'image_url', coalesce(v_coffee, ''),
-      'tone', 'cream',
-      'tag', 'COFFEE',
-      'title', 'Signature Blend',
-      'sub', 'Roasted for milk, good black.',
-      'parts', 'South America & Asia, Medium roast, 100% Arabica, Caramel & milk chocolate'
-    ),
-    jsonb_build_object(
-      'image_url', coalesce(v_hotlatte, ''),
-      'tone', 'cream',
-      'tag', 'HOT MATCHA',
-      'title', 'Vanilla Oat Matcha Latte',
-      'sub', 'Warm, grassy, gently sweet.',
-      'parts', 'Kyoto Uji ceremonial grade, Steamed oat milk, Sweet vanilla'
-    ),
-    jsonb_build_object(
-      'image_url', coalesce(v_focaccia, ''),
-      'tone', 'tan',
-      'tag', 'BAKED DAILY',
-      'title', 'Cheese & Hot Honey Focaccia',
-      'sub', 'Out of the oven every morning.',
-      'parts', 'Homemade red pesto, Creamy burrata, Sun-dried tomatoes, Hot honey'
-    )
-  );
-
-  -- kiosk_slides, not hero_slides: the kiosk carousel and the banner at the top
-  -- of the tablet menu are different surfaces and shouldn't move together.
-  insert into menu_app_settings (key, value) values
-    ('kiosk_slides:' || v_loc, v_json::text),
-    -- Footer line off: the kiosk stands in the shop, so nobody there needs the
-    -- address. Put one back in Admin and the line reappears.
-    ('kiosk_address:' || v_loc, '')
-  on conflict (key) do update set value = excluded.value;
-end $$;
+-- Footer line off: the kiosk stands in the shop, so nobody there needs the
+-- address. Put one back in Admin and the line reappears.
+insert into menu_app_settings (key, value) values
+  ('kiosk_address:be8de364-ff8f-5ce5-9d6f-fadbb5676e5d', '')
+on conflict (key) do update set value = excluded.value;
 
 -- ---------- 3. Check ----------
-select key, left(value, 240) as value
+select jsonb_array_length(value::jsonb) as slides,
+       (select string_agg(s->>'title', ' · ') from jsonb_array_elements(value::jsonb) s) as titles
 from menu_app_settings
-where key in (
-  'kiosk_slides:be8de364-ff8f-5ce5-9d6f-fadbb5676e5d',
-  'kiosk_address:be8de364-ff8f-5ce5-9d6f-fadbb5676e5d',
-  'welcome_logo_url:be8de364-ff8f-5ce5-9d6f-fadbb5676e5d'
-)
-order by key;
+where key = 'kiosk_slides:be8de364-ff8f-5ce5-9d6f-fadbb5676e5d';
 
 notify pgrst, 'reload schema';
