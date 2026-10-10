@@ -366,7 +366,9 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
         <>
           <KioskWelcome slides={slides} w={w} onStart={startKiosk}
             accent={tv["--accent"]} chip={tv["--chip"]} panelBg={tv["--bg"]} />
-          {picker}
+          {/* fixed as well, so the menu chooser's scrim covers the same screen
+              the photograph does rather than stopping at the inset. */}
+          <div style={{ position: "fixed", left: 0, top: 0, zIndex: 30 }}>{picker}</div>
         </>
       );
     }
@@ -2438,7 +2440,18 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   // Android WebViews — so a standing inset just prints an empty band across the
   // top of a full-bleed screen. Nothing is inset unless a store asks for it
   // with kiosk_inset_top / kiosk_inset_bottom, and then env() is the floor.
-  const insetTop = kiosk ? Math.max(0, Number(settingsEff.kiosk_inset_top ?? 0) || 0) : 0;
+  // The inset is back, and it has to be: without it the Android status bar
+  // sits over the top row of buttons and takes the touches, so back, search,
+  // the bag and cancel-out-of-search are visible and dead. That is what
+  // "navigation is blocked" was, both times.
+  //
+  // It costs a band of background across the top, which is fine on the menu
+  // (the buttons need to be under it anyway) and wrong on the welcome screen,
+  // which is a full-bleed photograph. So the welcome breaks out of it instead
+  // — see KioskWelcome's position: fixed. Nothing it puts near the top is
+  // tappable: the logo and clock are decoration and the slide rail starts
+  // well below the bar.
+  const insetTop = kiosk ? Math.max(0, Number(settingsEff.kiosk_inset_top ?? 48) || 0) : 0;
   const insetBottom = kiosk ? Math.max(0, Number(settingsEff.kiosk_inset_bottom ?? 0) || 0) : 0;
   const safeTop = insetTop > 0 ? `max(env(safe-area-inset-top, 0px), ${insetTop}px)` : "0px";
   const safeBottom = insetBottom > 0 ? `max(env(safe-area-inset-bottom, 0px), ${insetBottom}px)` : "0px";

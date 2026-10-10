@@ -141,7 +141,12 @@ export default function KioskWelcome({ slides, w = {}, onStart, accent = "#344D4
   const ringLen = 276.5;
 
   return (
-    <div ref={wrapRef} style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", background: tone.bg, transition: "background 1100ms ease", fontFamily: body, color: tone.ink }}>
+    // position: fixed, so the photograph fills the screen edge to edge even
+    // though the app around it is inset to keep its buttons clear of the
+    // Android status bar. Safe here because nothing this screen puts near the
+    // top is tappable — the logo and clock are decoration, and the slide rail
+    // starts a long way down.
+    <div ref={wrapRef} style={{ width: "100%", height: "100%", position: "fixed", left: 0, top: 0, overflow: "hidden", background: tone.bg, transition: "background 1100ms ease", fontFamily: body, color: tone.ink }}>
       <style>{`
         @keyframes kwMarq{from{transform:translateX(0)}to{transform:translateX(-50%)}}
         @keyframes kwRing{from{stroke-dashoffset:${ringLen}}to{stroke-dashoffset:0}}
