@@ -422,8 +422,11 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   );
 }
 // ============ DATA-DRIVEN BROWSE ============
-function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, bagCount, heroSlides }) {
-  const HEROX = (heroSlides && heroSlides.length) ? heroSlides : HERO;
+export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, bagCount, heroSlides, heroSet = false, kiosk = false }) {
+  // HERO is seeded still. artwork, fine as a placeholder on a store that has
+  // never been set up. A store that HAS been set up and chose "None" gets no
+  // banner — otherwise Tove's kiosk shows another brand's cups.
+  const HEROX = (heroSlides && heroSlides.length) ? heroSlides : (heroSet ? [] : HERO);
   const [added, setAdded] = useState(false);
   const flashAdded = () => { setAdded(true); setTimeout(() => setAdded(false), 1100); };
   const rootRef = useRef(null);
@@ -473,28 +476,54 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
   return (
     <div ref={rootRef} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)" }}>
       <div style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: .045, mixBlendMode: "multiply", backgroundImage: "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22140%22 height=%22140%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%222%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E')" }} />
-      {/* top bar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "22px 28px 14px", position: "relative", zIndex: 5 }}>
-        <div style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }} onClick={onBack}><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg></div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <div onClick={onOpenDrawer} title="Your orders & menus" style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg></div>
-          <div onClick={onSearch} style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg></div>
-          <div onClick={onBag} style={{ width: 54, height: 54, borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "#36492C", cursor: "pointer", position: "relative" }}><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 4H4v12h5l3 3 3-3h2z" /></svg>{bagCount > 0 && <span style={{ position: "absolute", top: -2, right: -2, minWidth: 22, height: 22, padding: "0 5px", borderRadius: 11, background: "var(--accent)", color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{bagCount}</span>}</div>
-        </div>
-      </div>
+      {/* top bar. On a kiosk the menu switcher lives up here, in the space
+          between the back button and the search/bag buttons — reaching the
+          bottom of a standing screen means stooping. */}
+      {(() => {
+        const btn = kiosk ? 72 : 54;
+        const topTabs = kiosk && menus && menus.length > 1;
+        const circle = (onClick, title, child, extra) => (
+          <div onClick={onClick} title={title} style={{ width: btn, height: btn, flex: "none", borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)", cursor: "pointer", position: "relative" }}>{child}{extra}</div>
+        );
+        return (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: kiosk ? 14 : 0, padding: kiosk ? "26px 30px 16px" : "22px 28px 14px", position: "relative", zIndex: 5 }}>
+            {circle(onBack, "Back", <svg width={kiosk ? 28 : 24} height={kiosk ? 28 : 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg>)}
+            {topTabs && (
+              <div role="tablist" style={{ flex: 1, minWidth: 0, height: btn, boxSizing: "border-box", padding: 6, borderRadius: btn / 2, background: "var(--bg2)", display: "flex", alignItems: "center", gap: 4, overflowX: "auto", scrollbarWidth: "none" }}>
+                {menus.map((m, i) => {
+                  const on = i === activeMenu;
+                  return (
+                    <div key={m.id} role="tab" aria-selected={on} onClick={() => setActiveMenu(i)}
+                      style={{ flex: "1 1 0", minWidth: 0, height: btn - 12, padding: "0 12px", borderRadius: (btn - 12) / 2, background: on ? "var(--accent)" : "transparent", color: on ? "var(--bg)" : "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontFamily: "var(--font-body)", fontSize: 17, fontWeight: on ? 600 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", boxShadow: on ? "0 8px 18px -10px rgba(0,0,0,.6)" : "none", transition: "background .25s ease, color .25s ease" }}>
+                      {m.name}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: kiosk ? 14 : 12, alignItems: "center", flex: "none" }}>
+              {circle(onOpenDrawer, "Your orders & menus", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>)}
+              {circle(onSearch, "Search", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>)}
+              {circle(onBag, "Your bag", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 4H4v12h5l3 3 3-3h2z" /></svg>,
+                bagCount > 0 ? <span style={{ position: "absolute", top: -2, right: -2, minWidth: 22, height: 22, padding: "0 5px", borderRadius: 11, background: "var(--accent)", color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{bagCount}</span> : null)}
+            </div>
+          </div>
+        );
+      })()}
 
-      <div data-menuscroll="1" style={{ position: "absolute", top: 90, left: 0, right: 0, bottom: 0, overflowY: "auto", scrollbarWidth: "none" }}>
+      <div data-menuscroll="1" style={{ position: "absolute", top: kiosk ? 114 : 90, left: 0, right: 0, bottom: 0, overflowY: "auto", scrollbarWidth: "none" }}>
 {/* hero carousel */}
-        <div style={{ margin: "0 16px", borderRadius: 22, overflow: "hidden", position: "relative", height: 200 }}>
+        {HEROX.length > 0 && (
+        <div style={{ margin: kiosk ? "0 30px" : "0 16px", borderRadius: kiosk ? 32 : 22, overflow: "hidden", position: "relative", height: kiosk ? 300 : 200 }}>
           <div style={{ display: "flex", height: "100%", transition: "transform .6s cubic-bezier(.4,0,.2,1)", transform: `translateX(-${hero * 100}%)` }}>
             {HEROX.map((s, i) => (
               <div key={i} style={{ flex: "none", width: "100%", height: "100%", position: "relative", ...(s.image_url ? { backgroundImage: `url(${s.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: s.bg }) }}>
                 <div style={{ position: "absolute", inset: 0, background: s.image_url ? "linear-gradient(90deg,rgba(20,26,14,.62),rgba(20,26,14,.15) 60%,transparent)" : "radial-gradient(120% 80% at 12% 22%,rgba(255,255,255,.22),transparent 52%),radial-gradient(90% 90% at 88% 84%,rgba(33,48,22,.4),transparent 60%)" }} />
-                <div style={{ position: "absolute", left: 34, top: 48, maxWidth: 300 }}>
+                <div style={{ position: "absolute", left: kiosk ? 46 : 34, top: kiosk ? 62 : 48, maxWidth: kiosk ? 640 : 300 }}>
                   <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,.18)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.32)", color: "#FBFAF2", fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 600, letterSpacing: ".12em", padding: "6px 13px", borderRadius: 20, marginBottom: 14 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot }} />{s.tag}</div>
-                  <div style={{ fontFamily: "var(--font-head)", fontSize: 38, fontWeight: 600, lineHeight: 1.04, color: "#FBFAF2", textShadow: "0 2px 18px rgba(30,40,20,.32)" }}>{s.title}</div>
+                  <div style={{ fontFamily: "var(--font-head)", fontSize: kiosk ? 52 : 38, fontWeight: 600, lineHeight: 1.04, color: "#FBFAF2", textShadow: "0 2px 18px rgba(30,40,20,.32)" }}>{s.title}</div>
                   <div style={{ width: 120, height: 1.5, background: "rgba(255,255,255,.7)", margin: "14px 0 12px" }} />
-                  <div style={{ fontSize: 15, color: "rgba(255,255,255,.92)", fontWeight: 500 }}>{s.sub}</div>
+                  <div style={{ fontSize: kiosk ? 21 : 15, color: "rgba(255,255,255,.92)", fontWeight: 500 }}>{s.sub}</div>
                 </div>
                 {!s.image_url && <div style={{ position: "absolute", right: 46, bottom: -8, width: 150, height: 200 }}>
                   <div style={{ position: "absolute", left: 6, bottom: 6, width: 138, height: 32, borderRadius: "50%", background: "rgba(25,35,15,.3)", filter: "blur(10px)" }} />
@@ -512,6 +541,7 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
             {HEROX.map((_, i) => <div key={i} style={{ width: i === hero ? 22 : 8, height: 8, borderRadius: "50%", background: i === hero ? "#FFFFFF" : "rgba(255,255,255,.45)", transition: "width .3s" }} />)}
           </div>
         </div>
+        )}
 
         {/* category strip — reveals on scroll */}
         <div style={{ position: "sticky", top: 0, zIndex: 6, background: "var(--bg)", boxShadow: scrolled ? "0 12px 16px -14px rgba(56,53,43,.5)" : "none", overflow: "hidden", maxHeight: scrolled ? 160 : 0, opacity: scrolled ? 1 : 0, paddingTop: scrolled ? 14 : 0, paddingBottom: scrolled ? 14 : 0, transition: "max-height .35s ease, opacity .3s ease, padding .35s ease" }}>
@@ -569,8 +599,9 @@ function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCa
 
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
       {added && <div style={{ position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)", background: "var(--accent)", color: "#fff", padding: "10px 22px", borderRadius: 30, fontSize: 14, fontWeight: 600, fontFamily: "var(--font-head)", zIndex: 40, boxShadow: "0 10px 24px -8px rgba(0,0,0,.3)" }}>Added to bag ✓</div>}
-      {/* horizontal bottom strip; active expands inline, others shuffle aside */}
-      {menus && menus.length > 1 && (
+      {/* horizontal bottom strip; active expands inline, others shuffle aside.
+          Not on a kiosk — the switcher is in the top bar there. */}
+      {!kiosk && menus && menus.length > 1 && (
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 14, maxWidth: "calc(100% - 24px)", background: "rgba(255,255,255,.55)", backdropFilter: "blur(14px)", borderRadius: 30, boxShadow: "0 8px 24px -10px rgba(56,53,43,.2)", padding: "5px 8px", display: "flex", alignItems: "center", gap: 3, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
         {menus.map((m, i) => {
           const on = i === activeMenu;
@@ -2333,6 +2364,9 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
 
   let heroSlides = [];
   try { heroSlides = settingsEff.hero_slides ? (typeof settingsEff.hero_slides === "string" ? JSON.parse(settingsEff.hero_slides) : settingsEff.hero_slides) : []; } catch { heroSlides = []; }
+  // Whether this store has actually made a choice about the banner, so "None"
+  // can mean none rather than falling back to the seeded placeholder slides.
+  const heroSet = settingsEff.hero_slides != null && settingsEff.hero_slides !== "";
   const storeLocId = kioskStoreId || (store && (store.id || store.location_id));
   const settingsEff = applyStoreOverrides(settings, storeLocId);
   const themeVars = THEMES[settingsEff.theme] || THEMES.still;
@@ -2392,7 +2426,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
               setAllergensUnlocked(true);
