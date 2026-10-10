@@ -489,13 +489,15 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: kiosk ? 14 : 0, padding: kiosk ? "26px 30px 16px" : "22px 28px 14px", position: "relative", zIndex: 5 }}>
             {circle(onBack, "Back", <svg width={kiosk ? 28 : 24} height={kiosk ? 28 : 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg>)}
             {topTabs && (
-              <div role="tablist" style={{ flex: 1, minWidth: 0, height: btn, boxSizing: "border-box", padding: 6, borderRadius: btn / 2, background: "var(--bg2)", display: "flex", alignItems: "center", gap: 4, overflowX: "auto", scrollbarWidth: "none" }}>
+              <div role="tablist" style={{ flex: 1, minWidth: 0, height: btn, boxSizing: "border-box", padding: 6, borderRadius: btn / 2, background: "var(--bg2)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, overflowX: "auto", scrollbarWidth: "none" }}>
                 {menus.map((m, i) => {
                   const on = i === activeMenu;
+                  const h = btn - 12;
                   return (
-                    <div key={m.id} role="tab" aria-selected={on} onClick={() => setActiveMenu(i)}
-                      style={{ flex: "1 1 0", minWidth: 0, height: btn - 12, padding: "0 12px", borderRadius: (btn - 12) / 2, background: on ? "var(--accent)" : "transparent", color: on ? "var(--bg)" : "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontFamily: "var(--font-body)", fontSize: 17, fontWeight: on ? 600 : 500, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", boxShadow: on ? "0 8px 18px -10px rgba(0,0,0,.6)" : "none", transition: "background .25s ease, color .25s ease" }}>
-                      {m.name}
+                    <div key={m.id} role="tab" aria-selected={on} title={m.name} onClick={() => setActiveMenu(i)}
+                      style={{ display: "flex", alignItems: "center", gap: on ? 11 : 0, background: on ? "var(--accent)" : "transparent", borderRadius: h / 2, padding: on ? "0 24px 0 18px" : 0, height: h, width: on ? "auto" : h, justifyContent: "center", cursor: "pointer", flex: "none", transition: "all .28s cubic-bezier(.4,0,.2,1)" }}>
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)", flex: "none" }}>{menuIcon(m.name, on, 30)}</span>
+                      {on && <span style={{ fontFamily: "var(--font-head)", fontSize: 19, fontWeight: 600, color: "#F5F1E6", whiteSpace: "nowrap" }}>{m.name}</span>}
                     </div>
                   );
                 })}
@@ -504,7 +506,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
             <div style={{ display: "flex", gap: kiosk ? 14 : 12, alignItems: "center", flex: "none" }}>
               {circle(onOpenDrawer, "Your orders & menus", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>)}
               {circle(onSearch, "Search", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>)}
-              {circle(onBag, "Your bag", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 4H4v12h5l3 3 3-3h2z" /></svg>,
+              {circle(onBag, "Your bag", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8h14l-1.2 12H6.2z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg>,
                 bagCount > 0 ? <span style={{ position: "absolute", top: -2, right: -2, minWidth: 22, height: 22, padding: "0 5px", borderRadius: 11, background: "var(--accent)", color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{bagCount}</span> : null)}
             </div>
           </div>
@@ -1837,9 +1839,9 @@ function Confirm({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDi
 
 
 // Relatable inline SVG icon per menu, matched by name keywords.
-function menuIcon(name, active) {
+function menuIcon(name, active, size = 24) {
   const c = active ? "#F5F1E6" : "currentColor";
-  const p = { width: 24, height: 24, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
+  const p = { width: size, height: size, viewBox: "0 0 24 24", fill: "none", stroke: c, strokeWidth: 1.7, strokeLinecap: "round", strokeLinejoin: "round" };
   const n = (name || "").toLowerCase();
   if (n.includes("dessert") || n.includes("cake") || n.includes("sweet"))
     return <svg {...p}><path d="M4 16h16M6 16c0-3 2-5 6-5s6 2 6 5M9 8c0-1 .5-2 3-2s3 1 3 2M12 3v1" /></svg>;
@@ -1853,6 +1855,10 @@ function menuIcon(name, active) {
     return <svg {...p}><path d="M5 9h11v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4zM16 10h2a2 2 0 0 1 0 4h-2M8 3c-.4 1 .4 2 0 3M12 3c-.4 1 .4 2 0 3" /></svg>;
   if (n.includes("kid") || n.includes("child"))
     return <svg {...p}><path d="M8 21h8M12 21v-6M8 10a4 4 0 0 1 8 0zM7.5 10h9l-1.2 5H8.7z" /></svg>;
+  // Merch is tote bags and tumblers, not a plate of food — a price tag reads
+  // as "things to buy" without looking like the bag button beside it.
+  if (n.includes("merch") || n.includes("retail") || n.includes("gift"))
+    return <svg {...p}><path d="M20.4 13.4 13.4 20.4a2 2 0 0 1-2.8 0l-7-7V4.6h8.8l8 8a2 2 0 0 1 0 2z" /><circle cx="7.8" cy="8.2" r="1.3" /></svg>;
   // default: fork & knife
   return <svg {...p}><path d="M7 3v8M5 3v4a2 2 0 0 0 4 0V3M7 11v10M17 3c-2 0-3 2-3 5s1 4 3 4M17 3v18" /></svg>;
 }
