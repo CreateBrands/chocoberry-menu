@@ -1364,7 +1364,7 @@ function addonArt(name = "") {
   return <svg {...p}><circle cx="24" cy="24" r="13" /><path d="M24 11v26M11 24h26" /></svg>;
 }
 
-function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergensAccepted }) {
+export function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergensAccepted, kiosk = false }) {
   const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: [], allergensContains: ["MILK"], allergensMay: [], modifiers: [] };
   const [qty, setQty] = useState(1);
   const groups = it.modifiers || [];
@@ -1378,22 +1378,36 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
   const renderGroup = (g) => {
     const chosen = sel[g.id] || [];
     return (
-      <div key={g.id} style={{ marginTop: 20, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: 18, padding: "18px 20px 20px" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--ink)", fontFamily: "var(--font-head)" }}>{g.name || ""}</div>
+      <div key={g.id} style={{ marginTop: kiosk ? 26 : 20, background: "var(--bg)", border: "1px solid var(--line)", borderRadius: kiosk ? 26 : 18, padding: kiosk ? "26px 28px 28px" : "18px 20px 20px" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: kiosk ? 14 : 8, marginBottom: kiosk ? 18 : 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: kiosk ? 14 : 0, minWidth: 0 }}>
+            {kiosk && g.required && (
+              // A number while it is outstanding, a tick once it is answered:
+              // the customer can see at a glance what is left to do.
+              <span style={{ flex: "none", width: 38, height: 38, borderRadius: 19, display: "flex", alignItems: "center", justifyContent: "center", background: groupDone(g) ? "var(--accent)" : "var(--bg3)", color: groupDone(g) ? "var(--bg)" : "var(--ink)", boxShadow: groupDone(g) ? "none" : "inset 0 0 0 1px var(--line)", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 17 }}>
+                {groupDone(g)
+                  ? <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-10" /></svg>
+                  : reqGroups.indexOf(g) + 1}
+              </span>
+            )}
+            <div style={{ fontSize: kiosk ? 26 : 16, fontWeight: kiosk ? 500 : 700, color: "var(--ink)", fontFamily: "var(--font-head)", letterSpacing: kiosk ? "-.02em" : 0 }}>{g.name || ""}</div>
+            {kiosk && <span style={{ fontSize: 17, color: "var(--muted)" }}>{(g.max_select || 1) === 1 ? "Choose one" : "Pick up to " + g.max_select}</span>}
+          </div>
           {g.required
-            ? <span style={{ fontSize: 11, fontWeight: 700, color: "var(--accent)", background: "var(--accentSoft, #EFEAD9)", padding: "3px 10px", borderRadius: 12, letterSpacing: ".04em" }}>REQUIRED</span>
-            : <span style={{ fontSize: 11, fontWeight: 600, color: "var(--muted)" }}>{g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional"}</span>}
+            ? <span style={{ flex: "none", fontSize: kiosk ? 13 : 11, fontWeight: 700, color: kiosk ? "var(--bg)" : "var(--accent)", background: kiosk ? "var(--accent)" : "var(--accentSoft, #EFEAD9)", padding: kiosk ? "7px 16px" : "3px 10px", borderRadius: 999, letterSpacing: ".12em" }}>REQUIRED</span>
+            : <span style={{ flex: "none", fontSize: kiosk ? 15 : 11, fontWeight: 600, color: "var(--muted)" }}>{kiosk ? "Optional" : (g.max_select > 1 ? `Pick up to ${g.max_select}` : "Optional")}</span>}
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(96px, 1fr))", gap: 16, marginTop: 4 }}>
+        <div style={{ display: "grid", gridTemplateColumns: kiosk ? "repeat(auto-fill, minmax(210px, 1fr))" : "repeat(auto-fill, minmax(96px, 1fr))", gap: kiosk ? 14 : 16, marginTop: 4 }}>
           {(g.options || []).map((o) => {
             const on = chosen.includes(o.id);
             return (
-              <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ position: "relative", borderRadius: 14, border: on ? "2px solid var(--accent)" : "1px solid var(--line)", background: on ? "var(--accentSoft, #FFFDF9)" : "var(--card, #fff)", padding: on ? "17px 6px 14px" : "18px 6px 15px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", cursor: "pointer", boxShadow: on ? "0 5px 14px rgba(180,120,50,.15)" : "none" }}>
+              <div key={o.id} onClick={() => toggleOption(g, o.id)} style={{ position: "relative", borderRadius: 14, border: on ? "2px solid var(--accent)" : "1px solid var(--line)", background: on ? "var(--accentSoft, #FFFDF9)" : "var(--card, #fff)", padding: kiosk ? (on ? "23px 12px 21px" : "24px 12px 22px") : (on ? "17px 6px 14px" : "18px 6px 15px"), display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", cursor: "pointer", boxShadow: on ? "0 5px 14px rgba(180,120,50,.15)" : "none" }}>
                 {on && <div style={{ position: "absolute", top: 8, right: 8, width: 18, height: 18, borderRadius: "50%", background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg></div>}
                 <div style={{ marginBottom: 14, opacity: .92 }}>{o.image_url ? <img src={o.image_url} alt="" style={{ width: 38, height: 38, borderRadius: 8, objectFit: "cover" }} /> : addonArt(o.name)}</div>
-                <div style={{ fontSize: 12, fontWeight: 600, lineHeight: 1.3, color: "var(--ink)", marginBottom: 6 }}>{o.name.trim()}</div>
-                {Number(o.price_delta) ? <div style={{ fontSize: 12, color: "var(--accent)", fontWeight: 700 }}>+£{Number(o.price_delta).toFixed(2)}</div> : null}
+                <div style={{ fontSize: kiosk ? 19 : 12, fontWeight: 600, lineHeight: 1.3, color: "var(--ink)", marginBottom: kiosk ? 8 : 6 }}>{o.name.trim()}</div>
+                {Number(o.price_delta)
+                  ? <div style={{ fontSize: kiosk ? 15 : 12, color: "var(--accent)", fontWeight: 700, ...(kiosk ? { background: "var(--bg2)", padding: "5px 12px", borderRadius: 999 } : null) }}>+£{Number(o.price_delta).toFixed(2)}</div>
+                  : (kiosk ? <div style={{ fontSize: 15, color: "var(--muted)", fontWeight: 600, background: "var(--bg2)", padding: "5px 12px", borderRadius: 999 }}>Included</div> : null)}
               </div>
             );
           })}
@@ -1412,7 +1426,21 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
   // Reset selections whenever the item changes (guards against shared modifier state bleeding across items)
   useEffect(() => {
     const init = {};
-    (it.modifiers || []).forEach((g) => { init[g.id] = []; }); // nothing pre-selected
+    (it.modifiers || []).forEach((g) => {
+      // On a kiosk a required single choice can start answered — but only
+      // where there is an obvious default: exactly one option that adds
+      // nothing, and at least one that costs more. Size works that way
+      // (Regular included, Large +£1.30), so it starts on Regular.
+      //
+      // Milk does not: every option is free, so there is no basis for
+      // picking one for them, and a pre-chosen Coconut would go to the
+      // kitchen as a real choice nobody made. Those stay unanswered.
+      const opts = g.options || [];
+      const free = opts.filter((o) => !Number(o.price_delta));
+      const canDefault = kiosk && g.required && (g.max_select || 1) === 1
+        && free.length === 1 && opts.length > free.length;
+      init[g.id] = canDefault ? [free[0].id] : [];
+    });
     setSel(init);
     setQty(1);
   }, [it.id]);
@@ -1464,7 +1492,14 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
   const allMods = [...chosenMods, ...removalMods];
 
   // required groups must have a selection to enable Add
-  const missingRequired = groups.some((g) => g.required && (sel[g.id] || []).length < (g.min_select || 1));
+  const groupDone = (g) => (sel[g.id] || []).length >= (g.min_select || 1);
+  const missingRequired = groups.some((g) => g.required && !groupDone(g));
+  // The kiosk names what is still missing instead of showing a dead button,
+  // and counts the required choices off as they are made.
+  const reqGroups = groups.filter((g) => g.required);
+  const nextMissing = reqGroups.find((g) => !groupDone(g)) || null;
+  const reqDone = reqGroups.filter(groupDone).length;
+  const askFor = (g) => /^choose/i.test(g.name || "") ? g.name : "Choose " + String(g.name || "an option").toLowerCase();
 
   // Item's own allergens plus those of every option currently selected.
   // "contains" wins over "may contain" if an allergen appears in both.
@@ -1575,7 +1610,35 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
         <div style={{ height: 120 }} />
       </div>
 
-      {/* sticky add */}
+      {/* sticky add. On a kiosk it says what is still needed rather than
+          sitting there greyed out — a disabled button tells someone nothing
+          about why, and they just tap it harder. */}
+      {kiosk ? (
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "var(--bg3)", borderTop: "1px solid var(--line)", padding: "18px 34px 26px", boxShadow: "0 -18px 40px -24px rgba(0,0,0,.35)" }}>
+          {reqGroups.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+              <div style={{ flex: 1, height: 8, borderRadius: 4, background: "var(--bg2)", overflow: "hidden" }}>
+                <div style={{ width: `${Math.round(reqDone / reqGroups.length * 100)}%`, height: "100%", borderRadius: 4, background: "var(--accent)", transition: "width .3s ease" }} />
+              </div>
+              <div style={{ fontSize: 16, color: "var(--muted)", whiteSpace: "nowrap" }}>
+                {nextMissing ? askFor(nextMissing) : "Ready to add"}
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+            <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 20, background: "var(--bg)", borderRadius: 999, padding: "10px 22px" }}>
+              <span onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ fontSize: 30, color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
+              <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 26, minWidth: 24, textAlign: "center" }}>{qty}</span>
+              <span onClick={() => setQty((q) => q + 1)} style={{ fontSize: 28, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
+            </div>
+            <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: allMods }); }}
+              style={{ flex: 1, minHeight: 84, padding: "0 30px", borderRadius: 42, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, cursor: missingRequired ? "default" : "pointer", background: missingRequired ? "var(--bg2)" : "var(--accent)", color: missingRequired ? "var(--muted)" : "var(--bg)", boxShadow: missingRequired ? "inset 0 0 0 1px var(--line)" : "0 18px 36px -16px rgba(0,0,0,.45)", fontFamily: "var(--font-head)", fontWeight: 500, fontSize: 24 }}>
+              <span id="kioskcta">{missingRequired ? askFor(nextMissing) : "Add to bag"}</span>
+              <span style={{ fontWeight: 600 }}>{money(unit * qty)}</span>
+            </div>
+          </div>
+        </div>
+      ) : (
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 32px 28px", background: "linear-gradient(to top,var(--bg3) 72%,transparent)", display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18, background: "var(--bg)", borderRadius: 40, padding: "12px 20px" }}>
           <span onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ fontSize: 24, color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
@@ -1584,6 +1647,7 @@ function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergen
         </div>
         <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: allMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: missingRequired ? "not-allowed" : "pointer", opacity: missingRequired ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
       </div>
+      )}
     </div>
   );
 }
@@ -2527,7 +2591,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
-            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
+            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail kiosk={kiosk} key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
               setAllergensUnlocked(true);
               // They've just typed their name for the allergen record; don't
               // ask for it again at checkout.
