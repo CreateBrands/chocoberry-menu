@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 
 // ============================================================
 // KIOSK MENU
@@ -37,27 +37,55 @@ export default function KioskMenu({
   accent = "#344D42", chip = "#B3D2AE", bg = "#FFFBF2",
 }) {
   const [toast, setToast] = useState("");
-  const [slide, setSlide] = useState(0);
   const section = data[activeCat] || data[0] || { name: "", items: [] };
-  const items = section.items || [];
 
-  // The banner rotates, but only ever borrows items the grid can spare: a
-  // category with four drinks would otherwise end up with an empty grid.
-  const nFeat = items.length >= 6 ? 3 : items.length >= 4 ? 2 : items.length >= 1 ? 1 : 0;
-  const featured = items.slice(0, nFeat);
-  const rest = items.slice(nFeat);
+  // Every category is in the one scroller, so reaching the foot of one runs
+  // straight into the next. The rail and the title follow the scroll rather
+  // than deciding what gets rendered.
+  const scrollRef = useRef(null);
+  const secRefs = useRef([]);
+  // A tap on the rail animates the scroll, which would otherwise drag the
+  // highlight through every category it passes. Ignore the spy until it lands.
+  const lockUntil = useRef(0);
 
-  // Back to the first slide whenever the category changes, or the banner
-  // would open on a slide that no longer exists.
-  useEffect(() => { setSlide(0); }, [activeCat, activeMenu]);
+  const goTo = (i) => {
+    setActiveCat(i);
+    const sc = scrollRef.current;
+    const el = secRefs.current[i];
+    if (!sc || !el) return;
+    lockUntil.current = Date.now() + 900;
+    sc.scrollTo({ top: Math.max(0, el.offsetTop - 8), behavior: "smooth" });
+  };
 
+  const onScroll = () => {
+    if (Date.now() < lockUntil.current) return;
+    const sc = scrollRef.current;
+    if (!sc) return;
+    // A short last category never gets its top past the threshold — there is
+    // not enough scroll left — so at the foot of the list it wins outright.
+    if (sc.scrollTop + sc.clientHeight >= sc.scrollHeight - 4) {
+      const last = data.length - 1;
+      if (last >= 0 && last !== activeCat) setActiveCat(last);
+      return;
+    }
+    const y = sc.scrollTop + 110;
+    let idx = 0;
+    // Only up to data.length: a menu with fewer categories than the last one
+    // leaves stale entries further up the array.
+    for (let i = 0; i < data.length; i++) {
+      const el = secRefs.current[i];
+      if (el && el.offsetTop <= y) idx = i;
+    }
+    if (idx !== activeCat) setActiveCat(idx);
+  };
+
+  // A different menu is a different list of categories: start it at the top.
+  // The refs are left alone — they are assigned during commit, so clearing
+  // them here would empty the array React had just filled.
   useEffect(() => {
-    if (featured.length < 2) return undefined;
-    const t = setInterval(() => setSlide((s) => (s + 1) % featured.length), 5500);
-    return () => clearInterval(t);
-  }, [featured.length]);
-
-  const at = Math.min(slide, Math.max(0, featured.length - 1));
+    lockUntil.current = 0;
+    if (scrollRef.current) scrollRef.current.scrollTop = 0;
+  }, [activeMenu]);
 
   const head = "var(--font-head)";
   // A category's "img" is sometimes a CSS gradient rather than a picture, so
@@ -75,12 +103,12 @@ export default function KioskMenu({
   };
 
   // "Add" with the pill-and-disc shape the reference uses throughout.
-  const addBtn = (it, onDark) => (
+  const addBtn = (it) => (
     <button type="button" onClick={(e) => { e.stopPropagation(); add(it); }} aria-label={"Add " + it.name}
-      style={{ height: 76, padding: "0 12px 0 30px", borderRadius: 38, border: "none", cursor: it.soldOut ? "default" : "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: head, fontSize: onDark ? 24 : 22, fontWeight: onDark ? 600 : 500, background: onDark ? chip : accent, color: onDark ? accent : bg, boxShadow: onDark ? "none" : "0 14px 24px -14px rgba(52,77,66,.8)" }}>
+      style={{ height: 76, padding: "0 12px 0 30px", borderRadius: 38, border: "none", cursor: it.soldOut ? "default" : "pointer", display: "flex", alignItems: "center", gap: 14, fontFamily: head, fontSize: 22, fontWeight: 500, background: accent, color: bg, boxShadow: "0 14px 24px -14px rgba(52,77,66,.8)" }}>
       Add
-      <span style={{ width: onDark ? 52 : 56, height: onDark ? 52 : 56, borderRadius: 28, background: onDark ? accent : chip, display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={onDark ? bg : accent} strokeWidth="2.8" strokeLinecap="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+      <span style={{ width: 56, height: 56, borderRadius: 28, background: chip, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2.8" strokeLinecap="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
       </span>
     </button>
   );
@@ -137,7 +165,7 @@ export default function KioskMenu({
           const on = i === activeCat;
           const img = imgOf(c);
           return (
-            <button key={c.name} type="button" role="tab" aria-selected={on} onClick={() => setActiveCat(i)}
+            <button key={c.name} type="button" role="tab" aria-selected={on} onClick={() => goTo(i)}
               style={{ position: "relative", width: 188, height: 204, flex: "none", padding: 0, border: "none", borderRadius: 28, overflow: "hidden", background: on ? chip : "#E8E0CE", boxShadow: on ? `0 0 0 3px ${accent}` : "none", fontFamily: "inherit", cursor: "pointer", transition: "box-shadow 250ms ease" }}>
               {img
                 ? <img src={img} alt="" style={{ position: "absolute", left: 0, right: 0, top: 0, width: "100%", height: 158, borderRadius: "0 0 22px 22px", objectFit: "cover", objectPosition: "50% 50%" }} />
@@ -163,71 +191,41 @@ export default function KioskMenu({
         </div>
       </div>
 
-      {/* the one that leads — a slow carousel when the category can spare more than one */}
-      {featured.length > 0 && (
-        <div style={{ position: "absolute", left: 260, right: 36, top: 336, height: 350, borderRadius: 40, overflow: "hidden", background: accent, boxShadow: "0 30px 50px -30px rgba(52,77,66,.75)", zIndex: 2 }}>
-          <div style={{ display: "flex", width: `${featured.length * 100}%`, height: "100%", transform: `translateX(-${at * (100 / featured.length)}%)`, transition: "transform 760ms cubic-bezier(.22,.61,.36,1)" }}>
-            {featured.map((f, i) => (
-              <div key={i} onClick={() => { if (!f.soldOut) onItem(f); }}
-                style={{ width: `${100 / featured.length}%`, flex: "none", height: "100%", display: "flex", cursor: f.soldOut ? "default" : "pointer" }}>
-                <div style={{ position: "relative", width: 270, flex: "none", overflow: "hidden", background: "#3E6F47" }}>
-                  {f.image_url && <img src={f.image_url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 60%" }} />}
-                  {f.soldOut && soldOutVeil}
-                  <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 120, background: `linear-gradient(90deg, rgba(52,77,66,0) 0%, ${accent} 100%)` }} />
-                </div>
-                <div style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "40px 40px 36px 24px", display: "flex", flexDirection: "column", justifyContent: "space-between", color: bg }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                    {f.tags && f.tags.length > 0 && (
-                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                        <div style={{ flex: "none", whiteSpace: "nowrap", height: 36, padding: "0 14px", borderRadius: 18, background: chip, color: accent, display: "flex", alignItems: "center", fontSize: 14, fontWeight: 700, letterSpacing: ".16em" }}>{f.tags[0]}</div>
-                      </div>
-                    )}
-                    <div style={{ fontFamily: head, fontSize: 42, fontWeight: 500, lineHeight: 1.04, letterSpacing: "-.035em" }}>{f.name}</div>
-                    {f.desc && <div style={{ fontSize: 23, fontWeight: 300, color: "#DCE8D9", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{f.desc}</div>}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-                    <span style={{ fontFamily: head, fontSize: 40, fontWeight: 500, letterSpacing: "-.02em" }}>£{Number(f.price).toFixed(2)}</span>
-                    {f.soldOut
-                      ? <span style={{ fontSize: 20, fontWeight: 600, color: "#DCE8D9" }}>Unavailable</span>
-                      : addBtn(f, true)}
-                  </div>
-                </div>
+      {/* every category, one after the other */}
+      <div ref={scrollRef} onScroll={onScroll} data-kiosk-scroller="1"
+        style={{ position: "absolute", left: 260, right: 36, top: 336, bottom: 196, overflowY: "auto", scrollbarWidth: "none", zIndex: 2 }}>
+        {data.map((cat, ci) => (
+          <div key={cat.name} ref={(n) => { secRefs.current[ci] = n; }} data-cat={ci}>
+            {ci > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 20, margin: "44px 0 26px" }}>
+                <span style={{ flex: "none", fontSize: 17, fontWeight: 700, letterSpacing: ".18em", textTransform: "uppercase", color: "#5E6B63" }}>{cat.name}</span>
+                <span aria-hidden="true" style={{ flex: 1, height: 1.5, background: RULE }} />
               </div>
-            ))}
-          </div>
-
-          {featured.length > 1 && (
-            <div aria-hidden="true" style={{ position: "absolute", top: 24, right: 32, display: "flex", alignItems: "center", gap: 10 }}>
-              {featured.map((_, i) => (
-                <span key={i} style={{ width: i === at ? 30 : 12, height: 12, borderRadius: 6, background: i === at ? chip : "rgba(220,232,217,.42)", transition: "width 400ms ease, background 400ms ease" }} />
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 20 }}>
+              {(cat.items || []).map((it, i) => (
+                <div key={i} onClick={() => { if (!it.soldOut) onItem(it); }}
+                  style={{ position: "relative", height: 510, borderRadius: 36, overflow: "hidden", background: CARD, display: "flex", flexDirection: "column", cursor: it.soldOut ? "default" : "pointer", opacity: it.soldOut ? .72 : 1, boxShadow: "0 22px 44px -30px rgba(27,36,31,.4)" }}>
+                  <div style={{ position: "relative", height: 320, flex: "none", overflow: "hidden", background: PHOTO_BG, borderRadius: "0 0 26px 26px" }}>
+                    {it.image_url && <img src={it.image_url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 50%", transform: "scale(1.08)", transformOrigin: "50% 45%" }} />}
+                    {it.soldOut && soldOutVeil}
+                  </div>
+                  <div style={{ flex: 1, boxSizing: "border-box", padding: "24px 26px 26px", display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 14 }}>
+                    <span style={{ fontFamily: head, fontSize: 29, fontWeight: 600, letterSpacing: "-.025em", lineHeight: 1.12, minHeight: 66, color: NAME_INK }}>{it.name}</span>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                      <span style={{ fontFamily: head, fontSize: 27, fontWeight: 600, letterSpacing: "-.01em", color: accent }}>£{Number(it.price).toFixed(2)}</span>
+                      {it.soldOut
+                        ? <span style={{ fontSize: 18, fontWeight: 600, color: "#5E6B63" }}>Unavailable</span>
+                        : addBtn(it)}
+                    </div>
+                  </div>
+                </div>
               ))}
             </div>
-          )}
-        </div>
-      )}
-
-      {/* the rest of the category */}
-      <div style={{ position: "absolute", left: 260, right: 36, top: featured.length > 0 ? 712 : 336, bottom: 196, overflowY: "auto", scrollbarWidth: "none", zIndex: 2 }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 20, paddingBottom: 24 }}>
-          {rest.map((it, i) => (
-            <div key={i} onClick={() => { if (!it.soldOut) onItem(it); }}
-              style={{ position: "relative", height: 510, borderRadius: 36, overflow: "hidden", background: CARD, display: "flex", flexDirection: "column", cursor: it.soldOut ? "default" : "pointer", opacity: it.soldOut ? .72 : 1, boxShadow: "0 22px 44px -30px rgba(27,36,31,.4)" }}>
-              <div style={{ position: "relative", height: 320, flex: "none", overflow: "hidden", background: PHOTO_BG, borderRadius: "0 0 26px 26px" }}>
-                {it.image_url && <img src={it.image_url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 50%", transform: "scale(1.08)", transformOrigin: "50% 45%" }} />}
-                {it.soldOut && soldOutVeil}
-              </div>
-              <div style={{ flex: 1, boxSizing: "border-box", padding: "24px 26px 26px", display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 14 }}>
-                <span style={{ fontFamily: head, fontSize: 29, fontWeight: 600, letterSpacing: "-.025em", lineHeight: 1.12, minHeight: 66, color: NAME_INK }}>{it.name}</span>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                  <span style={{ fontFamily: head, fontSize: 27, fontWeight: 600, letterSpacing: "-.01em", color: accent }}>£{Number(it.price).toFixed(2)}</span>
-                  {it.soldOut
-                    ? <span style={{ fontSize: 18, fontWeight: 600, color: "#5E6B63" }}>Unavailable</span>
-                    : addBtn(it, false)}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+          </div>
+        ))}
+        {/* so the last row clears the bag bar */}
+        <div aria-hidden="true" style={{ height: 60 }} />
       </div>
 
       {/* the grid runs under this, so the bag bar always has something behind it */}
