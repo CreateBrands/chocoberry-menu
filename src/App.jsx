@@ -48,6 +48,8 @@ const VARS = THEMES.still; // default; overridden at runtime by theme setting
 // puts the top of the app around 1.2m from the floor — reachable from a chair
 // — while keeping everything legible.
 const REACH_SCALE = 0.62;
+// Width of the kiosk's subcategory rail.
+const RAIL_W = 268;
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -459,6 +461,9 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
     if (!sc) return;
     const onScroll = () => {
       setScrolled(sc.scrollTop > 60);
+      // The kiosk shows one category at a time, chosen from the rail. Letting
+      // the spy run would reset activeCat to 0 on every scroll.
+      if (kiosk) return;
       // scroll-spy: find the section nearest the top
       const scRect = sc.getBoundingClientRect();
       let current = 0;
@@ -471,11 +476,12 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
     };
     sc.addEventListener("scroll", onScroll);
     return () => sc.removeEventListener("scroll", onScroll);
-  }, [data]);
+  }, [data, kiosk]);
 
   // scroll a category into view when its strip pill is tapped
   const scrollToCat = (i) => {
     setActiveCat(i);
+    if (kiosk) { const sc = rootRef.current && rootRef.current.querySelector("[data-menuscroll]"); if (sc) sc.scrollTo({ top: 0, behavior: "smooth" }); return; }
     const sc = rootRef.current && rootRef.current.querySelector("[data-menuscroll]");
     const el = catRefs.current[i];
     if (el && sc) {
@@ -530,7 +536,65 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
         );
       })()}
 
-      <div data-menuscroll="1" style={{ position: "absolute", top: kiosk ? 114 : 90, left: 0, right: 0, bottom: 0, overflowY: "auto", scrollbarWidth: "none" }}>
+      {/* Subcategory rail. On a kiosk the categories are a column you read
+          down rather than a strip you scroll sideways — a standing customer
+          can see the whole range at once, and Back and Search sit at the
+          bottom where the hand already is. */}
+      {kiosk && (
+        <div style={{ position: "absolute", left: 0, top: 114, bottom: 0, width: RAIL_W, background: "var(--bg2)", borderRight: "1px solid var(--line)", display: "flex", flexDirection: "column", zIndex: 4 }}>
+          <div style={{ padding: "18px 20px 8px", fontSize: 14, fontWeight: 700, letterSpacing: ".18em", color: "var(--muted)" }}>
+            {(menus && menus[activeMenu] && menus[activeMenu].name) || ""}
+          </div>
+          <div style={{ flex: 1, overflowY: "auto", scrollbarWidth: "none", padding: "0 20px 10px", display: "flex", flexDirection: "column", gap: 14 }}>
+            {data.map((c, i) => {
+              const on = i === activeCat;
+              const img = (c.img && /^https?:/.test(c.img) ? c.img : null) || (c.items || []).map((x) => x.image_url).find((u) => u && /^https?:/.test(u)) || null;
+              return (
+                <div key={c.name} onClick={() => scrollToCat(i)} style={{ flex: "none", cursor: "pointer" }}>
+                  <div style={{ height: 112, borderRadius: 20, position: "relative", overflow: "hidden", backgroundImage: img ? `url(${img})` : "linear-gradient(160deg,#dfe7d6,#bccbb0)", backgroundSize: "cover", backgroundPosition: "center", boxShadow: on ? "0 0 0 3px var(--accent)" : "inset 0 0 0 1px var(--line)" }}>
+                    {on && (
+                      <div style={{ position: "absolute", top: 8, right: 8, width: 30, height: 30, borderRadius: 15, background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--bg)" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12l5 5 9-10" /></svg>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 8, padding: "9px 10px", borderRadius: 12, textAlign: "center", background: on ? "var(--chip)" : "transparent", fontFamily: "var(--font-head)", fontWeight: on ? 600 : 500, fontSize: 16, lineHeight: 1.2, color: "var(--ink)" }}>{c.name}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={{ flex: "none", padding: "12px 20px 22px", display: "flex", flexDirection: "column", gap: 12 }}>
+            <div onClick={onBack} style={{ height: 66, borderRadius: 33, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, cursor: "pointer", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 19, color: "var(--ink)" }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg>Back
+            </div>
+            <div onClick={onSearch} style={{ height: 66, borderRadius: 33, background: "var(--accent)", color: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, cursor: "pointer", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 19 }}>
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>Search
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* A bag that is always visible, so nobody wonders where their order went. */}
+      {kiosk && (
+        <div onClick={bagCount > 0 ? onBag : undefined}
+          style={{ position: "absolute", left: RAIL_W + 20, right: 20, bottom: 18, height: 96, borderRadius: 48, background: "var(--accent)", color: "var(--bg)", display: "flex", alignItems: "center", gap: 20, padding: "0 20px 0 28px", zIndex: 8, boxShadow: "0 20px 40px -18px rgba(0,0,0,.5)", cursor: bagCount > 0 ? "pointer" : "default" }}>
+          <div style={{ flex: "none", width: 56, height: 56, borderRadius: 28, background: "rgba(255,255,255,.14)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8h14l-1.2 12H6.2z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg>
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: "var(--font-head)", fontSize: 24, fontWeight: 500 }}>Your bag</div>
+            <div style={{ fontSize: 16, opacity: .75, marginTop: 2 }}>{bagCount > 0 ? bagCount + (bagCount === 1 ? " item" : " items") : "Pick a drink to get started"}</div>
+          </div>
+          {bagCount > 0 && (
+            <div style={{ flex: "none", height: 64, padding: "0 26px", borderRadius: 32, background: "var(--chip)", color: "var(--accent)", display: "flex", alignItems: "center", gap: 12, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 21 }}>
+              View bag
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div data-menuscroll="1" style={{ position: "absolute", top: kiosk ? 114 : 90, left: kiosk ? RAIL_W : 0, right: 0, bottom: kiosk ? 124 : 0, overflowY: "auto", scrollbarWidth: "none" }}>
 {/* hero carousel */}
         {HEROX.length > 0 && (
         <div style={{ margin: kiosk ? "0 30px" : "0 16px", borderRadius: kiosk ? 32 : 22, overflow: "hidden", position: "relative", height: kiosk ? 300 : 200 }}>
@@ -562,8 +626,8 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
         </div>
         )}
 
-        {/* category strip — reveals on scroll */}
-        <div style={{ position: "sticky", top: 0, zIndex: 6, background: "var(--bg)", boxShadow: scrolled ? "0 12px 16px -14px rgba(56,53,43,.5)" : "none", overflow: "hidden", maxHeight: scrolled ? 160 : 0, opacity: scrolled ? 1 : 0, paddingTop: scrolled ? 14 : 0, paddingBottom: scrolled ? 14 : 0, transition: "max-height .35s ease, opacity .3s ease, padding .35s ease" }}>
+        {/* category strip — reveals on scroll. The kiosk uses the left rail. */}
+        {!kiosk && <div style={{ position: "sticky", top: 0, zIndex: 6, background: "var(--bg)", boxShadow: scrolled ? "0 12px 16px -14px rgba(56,53,43,.5)" : "none", overflow: "hidden", maxHeight: scrolled ? 160 : 0, opacity: scrolled ? 1 : 0, paddingTop: scrolled ? 14 : 0, paddingBottom: scrolled ? 14 : 0, transition: "max-height .35s ease, opacity .3s ease, padding .35s ease" }}>
           <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 20px", scrollbarWidth: "none" }}>
             {data.map((c, i) => {
               const catImg = (c.img && /^https?:/.test(c.img) ? c.img : null) || (c.items || []).map(x => x.image_url).find(u => u && /^https?:/.test(u)) || null;
@@ -577,10 +641,10 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
               </div>
             );})}
           </div>
-        </div>
+        </div>}
 
         {/* section */}
-        {data.map((section, si) => (
+        {(kiosk ? [data[activeCat] || data[0]].filter(Boolean) : data).map((section, si) => (
           <div key={section.name} ref={(el) => (catRefs.current[si] = el)} data-catsection={si} style={{ padding: "6px 28px 0", scrollMarginTop: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18, marginTop: si === 0 ? 0 : 22 }}>
               <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 26, color: "var(--ink)" }}>{section.name}</div>
@@ -1676,7 +1740,7 @@ export function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlac
       <div style={{ display: "flex", alignItems: "center", gap: kiosk ? 22 : 16, padding: kiosk ? "30px 34px 20px" : "24px 28px 18px", flex: "none" }}>
         <div onClick={onBack} style={{ width: kiosk ? 76 : 54, height: kiosk ? 76 : 54, flex: "none", borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)", cursor: "pointer" }}><svg width={kiosk ? 32 : 24} height={kiosk ? 32 : 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg></div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: "var(--font-head)", fontWeight: kiosk ? 500 : 600, fontSize: kiosk ? 44 : 28, lineHeight: 1, letterSpacing: kiosk ? "-.03em" : 0 }}>Your bag</div>
+          <div style={{ fontFamily: "var(--font-head)", fontWeight: kiosk ? 500 : 600, fontSize: kiosk ? 44 : 28, lineHeight: 1, letterSpacing: kiosk ? "-.03em" : 0 }}>{kiosk ? "Your order" : "Your bag"}</div>
           <div style={{ fontSize: kiosk ? 16 : 14, fontWeight: 600, letterSpacing: kiosk ? ".2em" : ".06em", color: "var(--muted)", marginTop: kiosk ? 7 : 4 }}>
             {count} ITEM{count === 1 ? "" : "S"}
             {kiosk ? (kioskDine === null ? "" : kioskDine ? (kioskTable ? " · EAT IN · TABLE " + kioskTable : " · EAT IN") : " · TAKE AWAY") : " · PICKUP"}
@@ -1837,7 +1901,11 @@ export function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlac
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ display: "flex", justifyContent: "space-between", gap: r(12) }}><span style={{ fontFamily: "var(--font-head)", fontWeight: kiosk ? 500 : 600, fontSize: r(19) }}>{l.item.name}</span><span style={{ fontFamily: "var(--font-head)", fontWeight: kiosk ? 500 : 600, fontSize: r(18), whiteSpace: "nowrap" }}>{money(l.unit * l.qty)}</span></div>
-              {l.mods && l.mods.length > 0 && <div style={{ fontSize: r(13), color: "var(--muted)", marginTop: r(3) }}>{l.mods.map((m) => m.name).join(" · ")}</div>}
+              {(l.mods && l.mods.length > 0) || kiosk ? (
+                <div style={{ fontSize: r(13), color: "var(--muted)", marginTop: r(3) }}>
+                  {[...(l.mods || []).map((m) => m.name), ...(kiosk && l.qty > 1 ? [money(l.unit) + " each"] : [])].join(" · ")}
+                </div>
+              ) : null}
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: r(10) }}>
                 <div style={{ display: "flex", alignItems: "center", gap: r(14), background: "var(--bg)", borderRadius: r(30), padding: `${r(6)}px ${r(14)}px` }}>
                   <span onClick={() => setQty(i, -1)} style={{ fontSize: r(20), color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
@@ -1872,14 +1940,26 @@ export function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlac
           : kioskDine === false && String(pickupName || "").trim().length < 2 ? "Enter your name"
           : null;
         return (
-          <div style={{ flex: "none", boxSizing: "border-box", padding: "20px 34px 26px", background: "var(--bg)", borderTop: "1.5px solid var(--line)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}>
-            <div>
-              <div style={{ fontSize: 15, fontWeight: 600, letterSpacing: ".26em", color: "var(--muted)" }}>TOTAL</div>
-              <div style={{ fontFamily: "var(--font-head)", fontSize: 40, fontWeight: 500, letterSpacing: "-.03em", marginTop: 4 }}>{money(subtotal)}</div>
+          <div style={{ flex: "none", boxSizing: "border-box", padding: "18px 34px 26px", background: "var(--bg)", borderTop: "1.5px solid var(--line)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", fontSize: 19, color: "var(--muted)" }}>
+              <span>Subtotal</span><span>{money(subtotal)}</span>
             </div>
-            <div onClick={need ? undefined : onPlace}
-              style={{ flex: 1, maxWidth: 520, minHeight: 86, padding: "0 32px", borderRadius: 43, display: "flex", alignItems: "center", justifyContent: "center", gap: 14, textAlign: "center", fontFamily: "var(--font-head)", fontSize: 24, fontWeight: 500, lineHeight: 1.2, cursor: need ? "default" : "pointer", background: need ? "var(--bg2)" : "var(--accent)", color: need ? "var(--muted)" : "var(--bg)", boxShadow: need ? "inset 0 0 0 1px var(--line)" : "0 18px 36px -16px rgba(0,0,0,.4)" }}>
-              {need || <>Place order <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg></>}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 6, marginBottom: 16 }}>
+              <span style={{ fontFamily: "var(--font-head)", fontSize: 30, fontWeight: 500 }}>Total</span>
+              <span style={{ fontFamily: "var(--font-head)", fontSize: 40, fontWeight: 500, letterSpacing: "-.03em" }}>{money(subtotal)}</span>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+              <div onClick={onBack} style={{ flex: "none", minWidth: 250, minHeight: 86, padding: "0 32px", borderRadius: 43, display: "flex", alignItems: "center", justifyContent: "center", background: "transparent", boxShadow: "inset 0 0 0 1.5px var(--line)", color: "var(--ink)", fontFamily: "var(--font-head)", fontSize: 22, fontWeight: 500, cursor: "pointer" }}>Keep browsing</div>
+              <div onClick={need ? undefined : onPlace}
+                style={{ flex: 1, minHeight: 86, padding: "0 20px 0 32px", borderRadius: 43, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, fontFamily: "var(--font-head)", fontSize: 24, fontWeight: 500, lineHeight: 1.2, cursor: need ? "default" : "pointer", background: need ? "var(--bg2)" : "var(--accent)", color: need ? "var(--muted)" : "var(--bg)", boxShadow: need ? "inset 0 0 0 1px var(--line)" : "0 18px 36px -16px rgba(0,0,0,.4)" }}>
+                <span>{need || "Checkout"}</span>
+                {!need && (
+                  <span style={{ height: 64, padding: "0 24px", borderRadius: 32, background: "var(--chip)", color: "var(--accent)", display: "flex", alignItems: "center", gap: 10, fontWeight: 600 }}>
+                    {money(subtotal)}
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14" /><path d="M13 6l6 6-6 6" /></svg>
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -1904,7 +1984,58 @@ export function Bag({ lines, setLines, pickupName, setPickupName, onBack, onPlac
 }
 
 
-function Confirm({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDine = null, kioskTable = "", kioskTotal = 0, autoSeconds = 0 }) {
+export function Confirm(props) {
+  const { orderNo, pickupName, kiosk = false, kioskDine = null, kioskTable = "", kioskTotal = 0, kioskItems = 0, autoSeconds = 0 } = props;
+  // Count the reset down out loud rather than having the screen vanish while
+  // someone is still reading their order number.
+  const [left, setLeft] = useState(autoSeconds);
+  useEffect(() => {
+    setLeft(autoSeconds);
+    if (!autoSeconds) return;
+    const t = setInterval(() => setLeft((n) => (n > 0 ? n - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [autoSeconds, orderNo]);
+  if (!kiosk) return <ConfirmTablet {...props} />;
+
+  // The kiosk's thank-you. The order number is the only thing that matters
+  // here — it is what they listen for and what is on the slip in their hand —
+  // so it gets the whole card and nothing competes with it.
+  const where = kioskDine
+    ? (kioskTable ? "Table " + kioskTable : "Eat in")
+    : (pickupName ? "Take away · " + pickupName : "Take away");
+  return (
+    <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)", display: "flex", flexDirection: "column", alignItems: "center", padding: "120px 56px 0", boxSizing: "border-box", textAlign: "center" }}>
+      <div style={{ width: 170, height: 170, borderRadius: 85, background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <svg width="84" height="84" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+      </div>
+      <div style={{ fontFamily: "var(--font-head)", fontSize: 62, fontWeight: 500, letterSpacing: "-.03em", marginTop: 40, lineHeight: 1.05 }}>Tack! Thank you</div>
+      <div style={{ fontSize: 24, color: "var(--muted)", marginTop: 16, lineHeight: 1.5 }}>
+        Take your slip to the till to pay.<br />We start making it once it's paid.
+      </div>
+
+      <div style={{ marginTop: 48, width: "100%", maxWidth: 640, borderRadius: 36, background: "var(--accent)", color: "var(--bg)", padding: "34px 30px 30px" }}>
+        <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: ".24em", opacity: .75 }}>YOUR ORDER NUMBER</div>
+        <div style={{ fontFamily: "var(--font-head)", fontSize: 128, fontWeight: 500, lineHeight: 1, letterSpacing: "-.04em", marginTop: 10 }}>{orderNo || "—"}</div>
+        <div style={{ fontSize: 21, opacity: .85, marginTop: 14 }}>
+          {kioskItems > 0 ? kioskItems + (kioskItems === 1 ? " item · " : " items · ") : ""}{kioskTotal > 0 ? money(kioskTotal) + " to pay · " : ""}{where}
+        </div>
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 22, fontSize: 19, color: "var(--muted)" }}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 0 1-2-2v-5h20v5a2 2 0 0 1-2 2h-2" /><path d="M6 14h12v7H6z" /></svg>
+        Your slip is printing below
+      </div>
+
+      <div style={{ position: "absolute", left: 56, right: 56, bottom: 48, height: 104, borderRadius: 52, background: "var(--accent)", color: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px 0 36px", fontFamily: "var(--font-head)", fontSize: 26, fontWeight: 500 }}>
+        <span>Start a new order</span>
+        {autoSeconds > 0 && (
+          <span style={{ height: 72, padding: "0 28px", borderRadius: 36, background: "var(--chip)", color: "var(--accent)", display: "flex", alignItems: "center", fontSize: 20, fontWeight: 600 }}>Resets in {left}s</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ConfirmTablet({ orderNo, pickupName, table, onAddMore, kiosk = false, kioskDine = null, kioskTable = "", kioskTotal = 0, autoSeconds = 0 }) {
   // Count the reset down out loud rather than having the screen vanish while
   // someone is still reading their order number.
   const [left, setLeft] = useState(autoSeconds);
@@ -2107,6 +2238,9 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const [pickupName, setPickupName] = useState("");
   const [orderNo, setOrderNo] = useState(null);
   const [lastTotal, setLastTotal] = useState(0);
+  // Captured with the total: the bag is emptied the moment the order is sent,
+  // so the thank-you screen cannot count it afterwards.
+  const [lastCount, setLastCount] = useState(0);
   const [appendOrderId, setAppendOrderId] = useState(null); // set when adding to an existing order
   const appendOrderIdRef = useRef(null);
   useEffect(() => { appendOrderIdRef.current = appendOrderId; }, [appendOrderId]);
@@ -2337,6 +2471,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
       setAppendOrderId(null); // adding (if any) is now done
       const placedLines = lines; // snapshot for the session-history entry below
       setLastTotal(placedLines.reduce((s2, l) => s2 + (l.unit || l.item.price || 0) * l.qty, 0));
+      setLastCount(placedLines.reduce((n, l) => n + l.qty, 0));
       setLines([]);              // empty the bag immediately so it can't be placed again
       setSessionOrders((prev) => [{
         no: formatOrderNo(resp.order_no),
@@ -2606,7 +2741,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     if (!kiosk && orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
             }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={startOver}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} autoSeconds={kiosk ? confirmSeconds : 0} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={startOver}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} kioskItems={lastCount} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} autoSeconds={kiosk ? confirmSeconds : 0} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
             {orderingOn && tableMode === "pick" && screen === "welcome" && (
