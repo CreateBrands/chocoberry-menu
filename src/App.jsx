@@ -440,7 +440,7 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   );
 }
 // ============ DATA-DRIVEN BROWSE ============
-export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, onReach = null, bagCount, heroSlides, heroSet = false, kiosk = false }) {
+export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, onReach = null, bagCount, heroSlides, heroSet = false, kiosk = false, brandLogo = "" }) {
   // HERO is seeded still. artwork, fine as a placeholder on a store that has
   // never been set up. A store that HAS been set up and chose "None" gets no
   // banner — otherwise Tove's kiosk shows another brand's cups.
@@ -502,24 +502,32 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
           between the back button and the search/bag buttons — reaching the
           bottom of a standing screen means stooping. */}
       {(() => {
-        const btn = kiosk ? 72 : 54;
+        const btn = kiosk ? 80 : 54;
         const topTabs = kiosk && menus && menus.length > 1;
         const circle = (onClick, title, child, extra) => (
           <div onClick={onClick} title={title} style={{ width: btn, height: btn, flex: "none", borderRadius: "50%", background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)", cursor: "pointer", position: "relative" }}>{child}{extra}</div>
         );
         return (
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: kiosk ? 14 : 0, padding: kiosk ? "26px 30px 16px" : "22px 28px 14px", position: "relative", zIndex: 5 }}>
-            {circle(onBack, "Back", <svg width={kiosk ? 28 : 24} height={kiosk ? 28 : 24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg>)}
+            {kiosk ? (
+              // The brand sits where the back button was: Back moved to the
+              // foot of the rail, which is where a standing hand rests.
+              <div onClick={onBack} style={{ flex: "none", width: 96, height: 96, borderRadius: 26, background: "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", overflow: "hidden" }}>
+                {brandLogo
+                  ? <img src={brandLogo} alt="" style={{ maxWidth: 70, maxHeight: 46, objectFit: "contain", display: "block" }} />
+                  : <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="var(--chip)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg>}
+              </div>
+            ) : circle(onBack, "Back", <svg width={24} height={24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 12H5M11 18l-6-6 6-6" /></svg>)}
             {topTabs && (
-              <div role="tablist" style={{ flex: 1, minWidth: 0, height: btn, boxSizing: "border-box", padding: 6, borderRadius: btn / 2, background: "var(--bg2)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, overflowX: "auto", scrollbarWidth: "none" }}>
+              <div role="tablist" style={{ flex: 1, minWidth: 0, height: kiosk ? 96 : btn, boxSizing: "border-box", padding: 8, borderRadius: 28, background: "var(--bg2)", display: "flex", alignItems: "center", justifyContent: "center", gap: 6, overflowX: "auto", scrollbarWidth: "none" }}>
                 {menus.map((m, i) => {
                   const on = i === activeMenu;
-                  const h = btn - 12;
+                  const h = kiosk ? 80 : btn - 12;
                   return (
                     <div key={m.id} role="tab" aria-selected={on} title={m.name} onClick={() => setActiveMenu(i)}
-                      style={{ display: "flex", alignItems: "center", gap: on ? 11 : 0, background: on ? "var(--accent)" : "transparent", borderRadius: h / 2, padding: on ? "0 24px 0 18px" : 0, height: h, width: on ? "auto" : h, justifyContent: "center", cursor: "pointer", flex: "none", transition: "all .28s cubic-bezier(.4,0,.2,1)" }}>
-                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: "var(--accent)", flex: "none" }}>{menuIcon(m.name, on, 30)}</span>
-                      {on && <span style={{ fontFamily: "var(--font-head)", fontSize: 19, fontWeight: 600, color: "#F5F1E6", whiteSpace: "nowrap" }}>{m.name}</span>}
+                      style={{ flex: "1 1 auto", minWidth: 0, height: h, borderRadius: 22, background: on ? "var(--accent)" : "transparent", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 4, cursor: "pointer", transition: "background .28s ease", padding: "0 14px" }}>
+                      <span style={{ display: "flex", alignItems: "center", justifyContent: "center", color: on ? "#F5F1E6" : "var(--accent)" }}>{menuIcon(m.name, on, 30)}</span>
+                      <span style={{ fontFamily: "var(--font-head)", fontSize: 16, fontWeight: on ? 600 : 500, color: on ? "#F5F1E6" : "var(--ink)", whiteSpace: "nowrap" }}>{m.name}</span>
                     </div>
                   );
                 })}
@@ -541,7 +549,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
           can see the whole range at once, and Back and Search sit at the
           bottom where the hand already is. */}
       {kiosk && (
-        <div style={{ position: "absolute", left: 0, top: 114, bottom: 0, width: RAIL_W, background: "var(--bg2)", borderRight: "1px solid var(--line)", display: "flex", flexDirection: "column", zIndex: 4 }}>
+        <div style={{ position: "absolute", left: 0, top: 128, bottom: 0, width: RAIL_W, background: "var(--bg2)", borderRight: "1px solid var(--line)", display: "flex", flexDirection: "column", zIndex: 4 }}>
           <div style={{ padding: "18px 20px 8px", fontSize: 14, fontWeight: 700, letterSpacing: ".18em", color: "var(--muted)" }}>
             {(menus && menus[activeMenu] && menus[activeMenu].name) || ""}
           </div>
@@ -594,7 +602,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
         </div>
       )}
 
-      <div data-menuscroll="1" style={{ position: "absolute", top: kiosk ? 114 : 90, left: kiosk ? RAIL_W : 0, right: 0, bottom: kiosk ? 124 : 0, overflowY: "auto", scrollbarWidth: "none" }}>
+      <div data-menuscroll="1" style={{ position: "absolute", top: kiosk ? 128 : 90, left: kiosk ? RAIL_W : 0, right: 0, bottom: kiosk ? 124 : 0, overflowY: "auto", scrollbarWidth: "none" }}>
 {/* hero carousel */}
         {HEROX.length > 0 && (
         <div style={{ margin: kiosk ? "0 30px" : "0 16px", borderRadius: kiosk ? 32 : 22, overflow: "hidden", position: "relative", height: kiosk ? 300 : 200 }}>
@@ -644,7 +652,77 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
         </div>}
 
         {/* section */}
-        {(kiosk ? [data[activeCat] || data[0]].filter(Boolean) : data).map((section, si) => (
+        {kiosk ? (() => {
+          // The kiosk's own cards. Cream photo over a celadon foot with the
+          // name, price and a real Add button — a 40px "+" is a tablet
+          // control, lost on a screen you stand in front of. The first item
+          // of the category leads as a wide hero, the way the menu reads on
+          // a board behind the counter.
+          const section = data[activeCat] || data[0];
+          if (!section) return null;
+          const items = section.items || [];
+          const hero = items[0] || null;
+          const rest = items.slice(1);
+          const addBtn = (it, dark) => (
+            <div onClick={(e) => { e.stopPropagation(); if (it.soldOut) return; if (it.modifiers && it.modifiers.length) onItem(it); else { onAdd({ item: it, qty: 1, unit: it.price, mods: [] }); flashAdded(); } }}
+              style={{ flex: "none", height: 66, padding: "0 10px 0 26px", borderRadius: 33, display: "flex", alignItems: "center", gap: 14, cursor: it.soldOut ? "default" : "pointer", background: it.soldOut ? "rgba(120,126,118,.25)" : (dark ? "var(--chip)" : "var(--accent)"), color: it.soldOut ? "var(--muted)" : (dark ? "var(--accent)" : "var(--bg)"), fontFamily: "var(--font-head)", fontSize: 21, fontWeight: 600 }}>
+              Add
+              <span style={{ width: 46, height: 46, borderRadius: 23, background: it.soldOut ? "transparent" : (dark ? "var(--accent)" : "var(--chip)"), color: dark ? "var(--chip)" : "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round"><path d="M12 5v14" /><path d="M5 12h14" /></svg>
+              </span>
+            </div>
+          );
+          const photo = (it, h) => (
+            <div style={{ height: h, position: "relative", overflow: "hidden", backgroundImage: it.image_url ? `url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#F1E9D8,#E4D7BC)"), backgroundSize: "cover", backgroundPosition: "center" }}>
+              {it.soldOut && (
+                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(250,249,245,.55)" }}>
+                  <span style={{ padding: "9px 20px", borderRadius: 999, background: "rgba(90,96,88,.88)", color: "#fff", fontFamily: "var(--font-head)", fontSize: 14, fontWeight: 700, letterSpacing: ".14em" }}>SOLD OUT TODAY</span>
+                </div>
+              )}
+              {!it.soldOut && it.tags && it.tags.length > 0 && (
+                <div style={{ position: "absolute", top: 18, left: 18, padding: "7px 16px", borderRadius: 999, background: "var(--accent)", color: "var(--bg)", fontFamily: "var(--font-head)", fontSize: 13, fontWeight: 700, letterSpacing: ".16em" }}>{it.tags[0]}</div>
+              )}
+            </div>
+          );
+          return (
+            <div style={{ padding: "4px 30px 0" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20, marginBottom: 22 }}>
+                <div style={{ fontFamily: "var(--font-head)", fontWeight: 500, fontSize: 44, letterSpacing: "-.03em", color: "var(--ink)" }}>{section.name}</div>
+              </div>
+
+              {hero && (
+                <div onClick={() => { if (!hero.soldOut) onItem(hero); }} style={{ display: "flex", borderRadius: 34, overflow: "hidden", background: "var(--accent)", color: "var(--bg)", marginBottom: 24, cursor: hero.soldOut ? "default" : "pointer", opacity: hero.soldOut ? .6 : 1, minHeight: 300 }}>
+                  <div style={{ flex: "none", width: 300 }}>{photo(hero, "100%")}</div>
+                  <div style={{ flex: 1, minWidth: 0, padding: "34px 34px 30px", display: "flex", flexDirection: "column", justifyContent: "center", gap: 14 }}>
+                    <div style={{ fontFamily: "var(--font-head)", fontSize: 40, fontWeight: 500, lineHeight: 1.08, letterSpacing: "-.02em" }}>{hero.name}</div>
+                    {hero.desc && <div style={{ fontSize: 20, opacity: .78, lineHeight: 1.4, overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{hero.desc}</div>}
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, marginTop: 6 }}>
+                      <span style={{ fontFamily: "var(--font-head)", fontSize: 34, fontWeight: 500 }}>{money(hero.price)}</span>
+                      {addBtn(hero, true)}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 22 }}>
+                {rest.map((it, i) => (
+                  <div key={i} onClick={() => { if (!it.soldOut) onItem(it); }} style={{ borderRadius: 30, overflow: "hidden", background: "var(--chip)", display: "flex", flexDirection: "column", cursor: it.soldOut ? "default" : "pointer", opacity: it.soldOut ? .55 : 1, boxShadow: "0 14px 30px -20px rgba(27,36,31,.5)" }}>
+                    {photo(it, 300)}
+                    <div style={{ padding: "22px 24px 24px", display: "flex", flexDirection: "column", gap: 16, flex: 1 }}>
+                      <div style={{ fontFamily: "var(--font-head)", fontSize: 26, fontWeight: 600, lineHeight: 1.2, color: "var(--ink)" }}>{it.name}</div>
+                      <div style={{ marginTop: "auto", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14 }}>
+                        <span style={{ fontFamily: "var(--font-head)", fontSize: 26, fontWeight: 600, color: "var(--ink)" }}>{money(it.price)}</span>
+                        {it.soldOut ? <span style={{ fontSize: 16, fontWeight: 700, color: "var(--muted)" }}>Unavailable</span> : addBtn(it, false)}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ height: 40 }} />
+            </div>
+          );
+        })() : (
+        <>{data.map((section, si) => (
           <div key={section.name} ref={(el) => (catRefs.current[si] = el)} data-catsection={si} style={{ padding: "6px 28px 0", scrollMarginTop: 20 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 18, marginTop: si === 0 ? 0 : 22 }}>
               <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 26, color: "var(--ink)" }}>{section.name}</div>
@@ -683,7 +761,8 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
               ))}
             </div>
           </div>
-        ))}
+        ))}</>
+        )}
         <div style={{ height: 100 }} />
       </div>
 
@@ -2724,7 +2803,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail kiosk={kiosk} key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
               setAllergensUnlocked(true);
