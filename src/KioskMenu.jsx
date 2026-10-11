@@ -113,10 +113,10 @@ export default function KioskMenu({
     </button>
   );
 
-  const soldOutVeil = (
-    <div style={{ position: "absolute", inset: 0, background: "rgba(255,251,242,.72)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-      <span style={{ height: 52, padding: "0 22px", borderRadius: 26, background: INK, color: bg, display: "flex", alignItems: "center", fontSize: 19, fontWeight: 600, letterSpacing: ".12em" }}>SOLD OUT TODAY</span>
-    </div>
+  // A badge rather than a wash: the photo stays at full strength and the
+  // label does the telling.
+  const soldOutBadge = (
+    <span style={{ position: "absolute", left: 18, top: 18, height: 52, padding: "0 22px", borderRadius: 26, background: INK, color: bg, display: "flex", alignItems: "center", fontSize: 18, fontWeight: 600, letterSpacing: ".12em", boxShadow: "0 10px 22px -12px rgba(27,36,31,.8)" }}>SOLD OUT</span>
   );
 
   const roundBtn = (label, onClick, icon) => (
@@ -205,17 +205,17 @@ export default function KioskMenu({
             <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 20 }}>
               {(cat.items || []).map((it, i) => (
                 <div key={i} onClick={() => { if (!it.soldOut) onItem(it); }}
-                  style={{ position: "relative", height: 510, borderRadius: 36, overflow: "hidden", background: CARD, display: "flex", flexDirection: "column", cursor: it.soldOut ? "default" : "pointer", opacity: it.soldOut ? .72 : 1, boxShadow: "0 22px 44px -30px rgba(27,36,31,.4)" }}>
+                  style={{ position: "relative", height: 510, borderRadius: 36, overflow: "hidden", background: CARD, display: "flex", flexDirection: "column", cursor: it.soldOut ? "default" : "pointer", boxShadow: "0 22px 44px -30px rgba(27,36,31,.4)" }}>
                   <div style={{ position: "relative", height: 320, flex: "none", overflow: "hidden", background: PHOTO_BG, borderRadius: "0 0 26px 26px" }}>
                     {it.image_url && <img src={it.image_url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 50%", transform: "scale(1.08)", transformOrigin: "50% 45%" }} />}
-                    {it.soldOut && soldOutVeil}
+                    {it.soldOut && soldOutBadge}
                   </div>
                   <div style={{ flex: 1, boxSizing: "border-box", padding: "24px 26px 26px", display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 14 }}>
                     <span style={{ fontFamily: head, fontSize: 29, fontWeight: 600, letterSpacing: "-.025em", lineHeight: 1.12, minHeight: 66, color: NAME_INK }}>{it.name}</span>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
                       <span style={{ fontFamily: head, fontSize: 27, fontWeight: 600, letterSpacing: "-.01em", color: accent }}>£{Number(it.price).toFixed(2)}</span>
                       {it.soldOut
-                        ? <span style={{ fontSize: 18, fontWeight: 600, color: "#5E6B63" }}>Unavailable</span>
+                        ? <span style={{ fontSize: 19, fontWeight: 600, color: INK }}>Unavailable</span>
                         : addBtn(it)}
                     </div>
                   </div>
