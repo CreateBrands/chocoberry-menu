@@ -252,6 +252,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // PIN-gated, and the server logs who opened it against the device. An
   // unlogged drawer button is how cash leaves without a trace.
   const [drawerAsk, setDrawerAsk] = useState(null); // null | { pin, busy, err }
+  // ---- Open item: something not on the menu, priced by hand ----
+  // The only line whose price the till decides rather than the menu, so it
+  // takes a staff PIN. The PIN travels with the order and the server records
+  // who keyed it on the line itself.
+  const [openAsk, setOpenAsk] = useState(null); // null | { name, price, qty, pin, err }
+  const [openPin, setOpenPin] = useState("");   // last PIN that authorised an open line
   async function doOpenDrawer() {
     const a = drawerAsk; if (!a || a.busy || a.pin.length < 4) return;
     setDrawerAsk({ ...a, busy: true, err: "" });
@@ -789,9 +795,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         // (admin-api) releases it to the kitchen on success. "Send to kitchen"
         // (thenPay=false) fires immediately as before.
         hold: thenPay ? true : false,
-        items: ticket.map((l) => ({ item_id: l.item.id, qty: l.qty, modifiers: l.mods.map((m) => m.option_id), note: l.note || null })),
+        items: ticket.map((l) => l.open
+          ? ({ open: true, name: l.item.name, price: l.unit, qty: l.qty, note: l.note || null })
+          : ({ item_id: l.item.id, qty: l.qty, modifiers: l.mods.map((m) => m.option_id), note: l.note || null })),
       };
       if (appendTo) payload.append_to_order_id = appendTo;
+      if (ticket.some((l) => l.open)) payload.staff_pin = openPin;
       const r = await fetch(SUPABASE_URL + "/functions/v1/place-order", { method: "POST", headers: H, body: JSON.stringify(payload) });
       const resp = await r.json();
       if (!r.ok) throw new Error(resp.message || resp.error || "Send failed");
@@ -1025,6 +1034,49 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
         </div>
       )}
+      {openAsk && (() => {
+        const px = Math.round(Number(openAsk.price) * 100) / 100;
+        const priceOk = openAsk.price !== "" && isFinite(px) && px >= 0 && px <= 500;
+        const ready = openAsk.name.trim().length > 0 && priceOk && openAsk.pin.length >= 4;
+        const add = () => {
+          if (!ready) return;
+          const key = Math.random().toString(36).slice(2);
+          setTicket((prev) => [...prev, {
+            key, sig: "open:" + key, open: true, qty: Math.max(1, parseInt(openAsk.qty) || 1),
+            unit: px, mods: [], note: "",
+            item: { id: null, name: openAsk.name.trim().slice(0, 60), price: px, modifiers: [], image_url: null, category: "Open item" },
+          }]);
+          setOpenPin(openAsk.pin);
+          setOpenAsk(null);
+        };
+        return (
+          <div onClick={() => setOpenAsk(null)} style={{ position: "fixed", inset: 0, zIndex: 9000, background: "rgba(8,15,20,.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+            <div onClick={(e) => e.stopPropagation()} style={{ width: 400, maxWidth: "94vw", background: "#fff", borderRadius: 18, padding: 24, fontFamily: "'Poppins',sans-serif", boxShadow: "0 30px 60px -20px rgba(0,0,0,.5)" }}>
+              <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.02em", color: "#22271f" }}>Open item</div>
+              <div style={{ fontSize: 14, color: "#6b7a60", marginTop: 6, lineHeight: 1.5 }}>Something not on the menu. Your PIN is recorded against the price you key.</div>
+              <input value={openAsk.name} onChange={(e) => setOpenAsk({ ...openAsk, name: e.target.value.slice(0, 60), err: "" })}
+                autoFocus placeholder="What is it?"
+                style={{ width: "100%", boxSizing: "border-box", marginTop: 16, padding: "13px 15px", fontSize: 17, borderRadius: 12, border: "1px solid #e2e8f0", background: "#f8fafc", fontFamily: "'Poppins',sans-serif" }} />
+              <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
+                <input value={openAsk.price} onChange={(e) => setOpenAsk({ ...openAsk, price: e.target.value.replace(/[^0-9.]/g, "").slice(0, 7), err: "" })}
+                  inputMode="decimal" placeholder="Price £"
+                  style={{ flex: 2, minWidth: 0, boxSizing: "border-box", padding: "13px 15px", fontSize: 19, fontWeight: 700, textAlign: "center", borderRadius: 12, border: "1px solid " + (openAsk.price !== "" && !priceOk ? "#c94a4a" : "#e2e8f0"), background: "#f8fafc", fontFamily: "'Poppins',sans-serif" }} />
+                <input value={openAsk.qty} onChange={(e) => setOpenAsk({ ...openAsk, qty: e.target.value.replace(/\D/g, "").slice(0, 2) })}
+                  inputMode="numeric" placeholder="Qty"
+                  style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "13px 15px", fontSize: 19, fontWeight: 700, textAlign: "center", borderRadius: 12, border: "1px solid #e2e8f0", background: "#f8fafc", fontFamily: "'Poppins',sans-serif" }} />
+              </div>
+              <input value={openAsk.pin} onChange={(e) => setOpenAsk({ ...openAsk, pin: e.target.value.replace(/\D/g, "").slice(0, 8), err: "" })}
+                inputMode="numeric" type="password" placeholder="Your PIN"
+                style={{ width: "100%", boxSizing: "border-box", marginTop: 10, padding: "13px 15px", fontSize: 20, letterSpacing: ".3em", textAlign: "center", borderRadius: 12, border: "1px solid #e2e8f0", background: "#f8fafc", fontFamily: "'Poppins',sans-serif" }} />
+              {openAsk.price !== "" && !priceOk && <div style={{ color: "#b4462f", fontSize: 13.5, marginTop: 10, fontWeight: 600 }}>Price must be between £0 and £500.</div>}
+              <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                <span onClick={() => setOpenAsk(null)} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#f1f5f9", color: "#22271f", fontWeight: 800, cursor: "pointer" }}>Cancel</span>
+                <span onClick={add} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: ready ? "#22271f" : "#cbd5e1", color: "#fff", fontWeight: 800, cursor: ready ? "pointer" : "default" }}>Add{priceOk && openAsk.price !== "" ? " " + gbp(px * Math.max(1, parseInt(openAsk.qty) || 1)) : ""}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
       {paidBanner && (
         <div onClick={() => setPaidBanner(null)}
           style={{ position: "fixed", top: 18, left: "50%", transform: "translateX(-50%)", zIndex: 9999,
@@ -1279,7 +1331,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   line={{ name: l.item.name, qty: l.qty, unitPrice: l.unit, image_url: l.item.image_url, category: l.item.category, mods: l.mods.map((m) => m.name), note: l.note }}
                   onDec={() => setQty(l.key, -1)}
                   onInc={() => setQty(l.key, 1)}
-                  onEdit={() => editLine(l)}
+                  onEdit={l.open ? undefined : () => editLine(l)}
                   editLabel={hasMods ? (l.note ? "✎ Edit · note" : "✎ Edit") : (l.note ? "✎ Note" : "+ Note")}
                   onRemove={() => removeLine(l.key)}
                 />
@@ -1289,6 +1341,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
           <div style={{ borderTop: "1px solid " + P.line, padding: "15px 18px", background: "#faf9f5" }}>
             {msg && <div style={{ fontSize: 15, textAlign: "center", marginBottom: 10, color: (msg.includes("fail") || msg.includes("Wrong")) ? "#c94a4a" : "#16a34a" }}>{msg}</div>}
+            <div onClick={() => setOpenAsk({ name: "", price: "", qty: 1, pin: openPin, err: "" })}
+              style={{ marginBottom: 12, textAlign: "center", padding: "11px 0", borderRadius: 11, border: "1.5px dashed #cfd4cb", color: "#5b6b4e", fontSize: 14.5, fontWeight: 700, cursor: "pointer", background: "#fff" }}>
+              + Open item
+            </div>
             {ticket.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <input type="text" value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder="📝 Order note (e.g. allergy, ring on arrival)…"

@@ -8,6 +8,7 @@
 // strings), and inserts the order. Supports append_to_order_id.
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { staffForPin } from "../_shared/staffPin.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -39,6 +40,7 @@ Deno.serve(async (req) => {
       append_to_order_id = null,
       hold = false, // pay-first flow: create on hold (no print/KDS) until paid
       discount: discount_in = 0, // app only: membership/reward discount already charged for (server-verified upstream)
+      staff_pin = null, // till only: authorises open items (free-text name + price)
     } = body;
 
     // The app says "collection"; the kitchen knows "takeaway". Table orders are dine_in.
@@ -144,11 +146,15 @@ Deno.serve(async (req) => {
     }
 
     // Look up REAL prices for every item id.
-    const ids = [...new Set(items.map((l) => l.item_id))];
+    // Open items carry no item_id — they are priced by the staff member, not
+    // by the menu, so they are kept out of the lookup and handled separately.
+    // deno-lint-ignore no-explicit-any
+    const isOpen = (l: any) => l && l.open === true;
+    const ids = [...new Set(items.filter((l) => !isOpen(l)).map((l) => l.item_id))];
     // ── Resolve the price TIER for this location + all item/modifier data.
     // These lookups are independent of each other, so run them in PARALLEL
     // instead of sequentially — cuts the order-send latency noticeably. ──
-    const allOptIds = [...new Set(items.flatMap((l) => Array.isArray(l.modifiers) ? l.modifiers : []))]
+    const allOptIds = [...new Set(items.filter((l) => !isOpen(l)).flatMap((l) => Array.isArray(l.modifiers) ? l.modifiers : []))]
       .filter((x) => typeof x === "string" && !x.startsWith("remove:"));
 
     const [itemsRes, locRes, ovsRes, optsRes] = await Promise.all([
@@ -198,9 +204,57 @@ Deno.serve(async (req) => {
       }]));
     }
 
+    // ---- OPEN ITEMS (till only) ----
+    // Everything else on an order is priced from the menu, so the client can
+    // never set a price. An open item is the deliberate exception: a staff
+    // member types a name and an amount. That is a cash risk, so it is gated
+    // on a PIN for THIS store and the person is recorded on the line.
+    const openLines = items.filter(isOpen);
+    let openBy = null;
+    if (openLines.length) {
+      const who = await staffForPin(admin, staff_pin, location_id);
+      if (!who.ok) {
+        return new Response(JSON.stringify({
+          error: "bad_pin",
+          message: who.reason === "not_this_store"
+            ? "That PIN is for another store."
+            : "An open item needs a staff PIN.",
+        }), { status: 403, headers: { ...cors, "Content-Type": "application/json" } });
+      }
+      openBy = who.name;
+      for (const l of openLines) {
+        const nm = String(l.name || "").trim();
+        const px = Math.round(Number(l.price) * 100) / 100;
+        if (!nm) {
+          return new Response(JSON.stringify({ error: "open_name", message: "An open item needs a name." }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
+        }
+        if (!isFinite(px) || px < 0 || px > 500) {
+          return new Response(JSON.stringify({ error: "open_price", message: "An open item must be between £0 and £500." }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
+        }
+      }
+    }
+
     let subtotal = 0;
     const orderItems = [];
     for (const l of items) {
+      if (isOpen(l)) {
+        const qty = Math.max(1, Math.min(99, parseInt(l.qty) || 1));
+        const unit = Math.round(Number(l.price) * 100) / 100;
+        const line_total = Math.round(unit * qty * 100) / 100;
+        subtotal += line_total;
+        orderItems.push({
+          item_id: null,
+          name_snapshot: String(l.name).trim().slice(0, 60),
+          price_snapshot: unit,
+          qty,
+          // Who keyed the price, on the line itself, so it survives on the
+          // receipt and in the day's report without a separate lookup.
+          modifiers_snapshot: ["Open item" + (openBy ? " · " + openBy : "")],
+          line_total,
+          note: (l.note && String(l.note).trim()) ? String(l.note).trim().slice(0, 200) : null,
+        });
+        continue;
+      }
       const dbi = byId.get(l.item_id);
       if (!dbi || dbi.available === false) {
         return new Response(JSON.stringify({ error: `item unavailable: ${l.item_id}` }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
