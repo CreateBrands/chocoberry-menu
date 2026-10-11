@@ -44,6 +44,10 @@ function applyStoreOverrides(settings, locationId) {
   return out;
 }
 const VARS = THEMES.still; // default; overridden at runtime by theme setting
+// How much of the screen reach mode folds the interface into. 0.62 of 1920px
+// puts the top of the app around 1.2m from the floor — reachable from a chair
+// — while keeping everything legible.
+const REACH_SCALE = 0.62;
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -181,7 +185,11 @@ async function fetchLive(token, forcedLoc = null) {
   // group rows into menus -> categories -> items
   const menuMap = new Map();
   for (const row of rows) {
-    if (row.available === false) continue;
+    // 86'd items stay on the menu, greyed and unorderable, rather than
+    // vanishing. A regular who cannot find their usual assumes it is gone for
+    // good; "sold out today" tells them to come back tomorrow, and saves the
+    // counter being asked for it.
+    const soldOut = row.available === false;
     let m = menuMap.get(row.menu_id);
     if (!m) {
       m = { id: row.menu_id, name: row.menu_name, sort: row.menu_sort, open: row.menu_open !== false, cats: new Map() };
@@ -196,6 +204,7 @@ async function fetchLive(token, forcedLoc = null) {
       allergensContains: row.allergens_contains || [], allergensMay: row.allergens_may || [],
       bg: row.gradient_bg, prod: row.gradient_prod, image_url: row.image_url,
       modifiers: row.modifiers || [],
+      soldOut,
     });
   }
   const menus = [...menuMap.values()]
@@ -302,7 +311,7 @@ function KioskStartTiles({ onStart, w = {} }) {
   );
 }
 
-function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null, theme = null }) {
+function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null, theme = null, onReach = null }) {
   const [open, setOpen] = useState(false);
   // The designed kiosk welcome is a portrait layout (1080x1920). On a landscape
   // screen it would letterbox badly, so that falls back to the plain welcome.
@@ -365,7 +374,7 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
       const tv = theme || THEMES.still;
       return (
         <>
-          <KioskWelcome slides={slides} w={w} onStart={startKiosk}
+          <KioskWelcome slides={slides} w={w} onStart={startKiosk} onReach={onReach}
             accent={tv["--accent"]} chip={tv["--chip"]} panelBg={tv["--bg"]} />
           {/* Fixed as well, so the menu chooser's scrim covers the same screen
               the photograph does rather than stopping at the inset.
@@ -429,7 +438,7 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   );
 }
 // ============ DATA-DRIVEN BROWSE ============
-export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, bagCount, heroSlides, heroSet = false, kiosk = false }) {
+export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, onReach = null, bagCount, heroSlides, heroSet = false, kiosk = false }) {
   // HERO is seeded still. artwork, fine as a placeholder on a store that has
   // never been set up. A store that HAS been set up and chose "None" gets no
   // banner — otherwise Tove's kiosk shows another brand's cups.
@@ -512,6 +521,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
             )}
             <div style={{ display: "flex", gap: kiosk ? 14 : 12, alignItems: "center", flex: "none" }}>
               {circle(onOpenDrawer, "Your orders & menus", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>)}
+              {kiosk && onReach && circle(onReach, "Bring the screen within reach", <svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="4.5" r="2" /><path d="M5 8.5l7 1.5 7-1.5" /><path d="M12 10v5l-3 6" /><path d="M12 15l3 6" /></svg>)}
               {circle(onSearch, "Search", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>)}
               {circle(onBag, "Your bag", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8h14l-1.2 12H6.2z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg>,
                 bagCount > 0 ? <span style={{ position: "absolute", top: -2, right: -2, minWidth: 22, height: 22, padding: "0 5px", borderRadius: 11, background: "var(--accent)", color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{bagCount}</span> : null)}
@@ -577,13 +587,18 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
               {(section.items || []).map((it, i) => (
-                <div key={i} onClick={() => onItem(it)} style={{ background: "var(--bg3)", borderRadius: 20, overflow: "hidden", boxShadow: "0 6px 18px -6px rgba(56,53,43,.14),inset 0 0 0 1px var(--line)", display: "flex", flexDirection: "column", cursor: "pointer" }}>
+                <div key={i} onClick={() => { if (!it.soldOut) onItem(it); }} style={{ background: "var(--bg3)", borderRadius: 20, overflow: "hidden", boxShadow: "0 6px 18px -6px rgba(56,53,43,.14),inset 0 0 0 1px var(--line)", display: "flex", flexDirection: "column", opacity: it.soldOut ? .55 : 1, cursor: it.soldOut ? "default" : "pointer" }}>
                   <div style={{ aspectRatio: "1 / 1", width: "100%", position: "relative", backgroundImage: it.image_url ? `url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#F1E9D8,#E4D7BC)"), backgroundSize: "cover", backgroundPosition: "center" }}>
                     {!it.image_url && <>
                       <div style={{ position: "absolute", left: "50%", bottom: 30, transform: "translateX(-50%)", width: 150, height: 22, borderRadius: "50%", background: "rgba(80,65,40,.22)", filter: "blur(9px)" }} />
                       <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 188, height: 188, borderRadius: "50%", background: it.prod || "radial-gradient(60% 70% at 50% 36%,#FFFFFF,#EAE3D4 72%)", boxShadow: "0 16px 28px -12px rgba(90,70,40,.45)" }} />
                     </>}
-                    {it.tags && it.tags.length > 0 && <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(94,122,77,.94)", color: "#F4F6EC", fontFamily: "var(--font-head)", fontSize: 10, fontWeight: 600, letterSpacing: ".1em", padding: "6px 11px", borderRadius: 16 }}>{it.tags[0]}</div>}
+                    {it.soldOut && (
+                      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(250,249,245,.55)" }}>
+                        <span style={{ padding: "8px 18px", borderRadius: 999, background: "rgba(90,96,88,.88)", color: "#fff", fontFamily: "var(--font-head)", fontSize: 12.5, fontWeight: 700, letterSpacing: ".14em" }}>SOLD OUT TODAY</span>
+                      </div>
+                    )}
+                    {!it.soldOut && it.tags && it.tags.length > 0 && <div style={{ position: "absolute", top: 12, left: 12, background: "rgba(94,122,77,.94)", color: "#F4F6EC", fontFamily: "var(--font-head)", fontSize: 10, fontWeight: 600, letterSpacing: ".1em", padding: "6px 11px", borderRadius: 16 }}>{it.tags[0]}</div>}
                   </div>
                   <div style={{ padding: "11px 14px 12px", flex: 1, display: "flex", flexDirection: "column" }}>
                     <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 17, color: "var(--ink)", lineHeight: 1.2, overflow: "hidden", textOverflow: "ellipsis", display: "-webkit-box", WebkitLineClamp: 1, WebkitBoxOrient: "vertical" }}>{it.name}</div>
@@ -591,7 +606,9 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
                     <div style={{ flex: 1, minHeight: 8 }} />
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
-                      {(it.modifiers && it.modifiers.length > 0) ? (
+                      {it.soldOut ? (
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "var(--muted)" }}>Unavailable</span>
+                      ) : (it.modifiers && it.modifiers.length > 0) ? (
                         <div onClick={(e) => { e.stopPropagation(); onItem(it); }} style={{ height: 40, padding: "0 16px", borderRadius: 20, background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "var(--font-head)" }}>Customise</div>
                       ) : (
                         <div onClick={(e) => { e.stopPropagation(); onAdd({ item: it, qty: 1, unit: it.price, mods: [] }); flashAdded(); }} style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 500, lineHeight: 0, paddingBottom: 2, cursor: "pointer" }}>+</div>
@@ -2087,6 +2104,11 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const [tableMode, setTableMode] = useState("none");
   const [kioskDine, setKioskDine] = useState(null);     // kiosk: true = eat in, false = take away
   const [kioskTable, setKioskTable] = useState("");     // kiosk: optional table number typed by the customer
+  // Reach mode: a 1920px-tall kiosk puts the top of the screen out of reach of
+  // a wheelchair user or a child. This folds the whole interface into the
+  // lower part of the screen rather than rearranging it, so nothing moves
+  // relative to anything else and muscle memory still works.
+  const [reach, setReach] = useState(false);
   const [tables, setTables] = useState([]);
   const [table, setTable] = useState(null);          // chosen table row {id,label,...}
   const [showTablePicker, setShowTablePicker] = useState(false);
@@ -2140,7 +2162,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const [placing, setPlacing] = useState(false);
   const [confirmingOrder, setConfirmingOrder] = useState(false);
   const [orderErr, setOrderErr] = useState(null);
-  const addToBag = (line) => { setLines((p) => [...p, line]); setScreen("browse"); };
+  const addToBag = (line) => { if (line && line.item && line.item.soldOut) return; setLines((p) => [...p, line]); setScreen("browse"); };
   const pickMenu = (m) => {
     const idx = menus ? menus.findIndex((x) => x.id === m.id) : 0;
     setActiveMenu(idx < 0 ? 0 : idx);
@@ -2373,7 +2395,9 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   }, [activeMenu, menus]);
   useEffect(() => { setActiveCat(0); }, [activeMenu]);
 
-  const openItem = (it) => { setSelItem(it); setScreen("item"); };
+  // One gate for every way into an item — the grid, search, a deep link. A
+  // sold-out item is shown but never orderable.
+  const openItem = (it) => { if (it && it.soldOut) return; setSelItem(it); setScreen("item"); };
 
   // Clear the order and go back to the attract screen. Tapping the thank-you
   // screen does this; on a kiosk it also happens on its own, because the next
@@ -2386,6 +2410,8 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     setAllergensUnlocked(false);
     setKioskDine(null);
     setKioskTable("");
+    // The next customer is a different person: give them the full screen back.
+    setReach(false);
     setScreen("welcome");
   };
 
@@ -2480,14 +2506,26 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         *::-webkit-scrollbar{display:none;}
       `}</style>
 
+      {/* Reach mode: the banner that explains what happened and how to undo it.
+          Fixed, above everything, in the space the shrunken app leaves. */}
+      {kiosk && reach && (
+        <div style={{ position: "fixed", left: 0, right: 0, top: 0, height: `${100 - REACH_SCALE * 100}%`, zIndex: 50, background: "var(--accent)", color: "var(--bg)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 18, padding: 24, boxSizing: "border-box", textAlign: "center" }}>
+          <svg width="52" height="52" viewBox="0 0 24 24" fill="none" stroke="var(--chip)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="4" r="1.8" /><path d="M5 8.5l7 1.5 7-1.5" /><path d="M12 10v5l-3 6" /><path d="M12 15l3 6" /></svg>
+          <div style={{ fontFamily: "var(--font-head)", fontSize: 38, fontWeight: 500, letterSpacing: "-.02em" }}>Reach mode is on</div>
+          <div style={{ fontSize: 20, opacity: .85 }}>Everything is now within easy reach below.</div>
+          <div onClick={() => setReach(false)} style={{ marginTop: 6, padding: "16px 34px", borderRadius: 999, background: "var(--chip)", color: "var(--accent)", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 21, cursor: "pointer" }}>Back to full screen</div>
+        </div>
+      )}
       {/* 100% of the (possibly inset) root, not 100dvh — otherwise a kiosk's
-          safe-area inset just pushes the bottom of the app off the screen. */}
-      <div style={{ width: "100vw", height: "100%", margin: 0 }}>
+          safe-area inset just pushes the bottom of the app off the screen.
+          Reach mode scales the whole thing about its bottom edge, so every
+          screen folds down together and nothing has to be laid out twice. */}
+      <div style={{ width: "100vw", height: "100%", margin: 0, transform: kiosk && reach ? `scale(${REACH_SCALE})` : "none", transformOrigin: "bottom center", transition: "transform .45s cubic-bezier(.2,.8,.2,1)" }}>
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
-            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
+            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
               setAllergensUnlocked(true);

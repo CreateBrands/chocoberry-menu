@@ -57,7 +57,7 @@ const ArrowIcon = ({ size, stroke, delay }) => (
   </svg>
 );
 
-export default function KioskWelcome({ slides, w = {}, onStart, accent = "#344D42", chip = "#B3D2AE", panelBg = "#FFFBF2" }) {
+export default function KioskWelcome({ slides, w = {}, onStart, onReach = null, accent = "#344D42", chip = "#B3D2AE", panelBg = "#FFFBF2" }) {
   const wrapRef = useRef(null);
   const [k, setK] = useState(() => {
     try { return Math.max(.3, Math.min(1.6, window.innerWidth / 1080)); } catch { return 1; }
@@ -288,9 +288,16 @@ export default function KioskWelcome({ slides, w = {}, onStart, accent = "#344D4
               </div>
             )}
 
-            {address && (
-              <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
-                <div style={{ fontSize: px(21), fontWeight: 400, letterSpacing: ".04em", color: "#5E6B63" }}>{address}</div>
+            {(onReach || address) && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: px(24) }}>
+                {onReach ? (
+                  <button type="button" onClick={onReach}
+                    style={{ flex: "none", height: px(58), padding: `0 ${px(24)} 0 ${px(18)}`, borderRadius: px(29), border: `${Math.max(1, s(1.5))}px solid ${chip}`, background: "transparent", color: accent, fontFamily: body, fontSize: px(21), fontWeight: 500, display: "flex", alignItems: "center", gap: px(12), cursor: "pointer" }}>
+                    <svg aria-hidden="true" width={px(24)} height={px(24)} viewBox="0 0 24 24" fill="none" stroke={accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="4.5" r="2" /><path d="M5 8.5l7 1.5 7-1.5" /><path d="M12 10v5l-3 6" /><path d="M12 15l3 6" /></svg>
+                    {w.kiosk_reach_label || "Accessibility"}
+                  </button>
+                ) : <span />}
+                {address && <div style={{ fontSize: px(21), fontWeight: 400, letterSpacing: ".04em", color: "#5E6B63", textAlign: "right" }}>{address}</div>}
               </div>
             )}
           </div>
