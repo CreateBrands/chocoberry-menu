@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // ============================================================
 // KIOSK MENU
@@ -37,10 +37,27 @@ export default function KioskMenu({
   accent = "#344D42", chip = "#B3D2AE", bg = "#FFFBF2",
 }) {
   const [toast, setToast] = useState("");
+  const [slide, setSlide] = useState(0);
   const section = data[activeCat] || data[0] || { name: "", items: [] };
   const items = section.items || [];
-  const featured = items[0] || null;
-  const rest = items.slice(1);
+
+  // The banner rotates, but only ever borrows items the grid can spare: a
+  // category with four drinks would otherwise end up with an empty grid.
+  const nFeat = items.length >= 6 ? 3 : items.length >= 4 ? 2 : items.length >= 1 ? 1 : 0;
+  const featured = items.slice(0, nFeat);
+  const rest = items.slice(nFeat);
+
+  // Back to the first slide whenever the category changes, or the banner
+  // would open on a slide that no longer exists.
+  useEffect(() => { setSlide(0); }, [activeCat, activeMenu]);
+
+  useEffect(() => {
+    if (featured.length < 2) return undefined;
+    const t = setInterval(() => setSlide((s) => (s + 1) % featured.length), 5500);
+    return () => clearInterval(t);
+  }, [featured.length]);
+
+  const at = Math.min(slide, Math.max(0, featured.length - 1));
 
   const head = "var(--font-head)";
   // A category's "img" is sometimes a CSS gradient rather than a picture, so
@@ -146,37 +163,51 @@ export default function KioskMenu({
         </div>
       </div>
 
-      {/* the one that leads */}
-      {featured && (
-        <div onClick={() => { if (!featured.soldOut) onItem(featured); }}
-          style={{ position: "absolute", left: 260, right: 36, top: 336, height: 350, borderRadius: 40, overflow: "hidden", background: accent, display: "flex", cursor: featured.soldOut ? "default" : "pointer", boxShadow: "0 30px 50px -30px rgba(52,77,66,.75)", zIndex: 2 }}>
-          <div style={{ position: "relative", width: 270, flex: "none", overflow: "hidden", background: "#3E6F47" }}>
-            {featured.image_url && <img src={featured.image_url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 60%" }} />}
-            {featured.soldOut && soldOutVeil}
-            <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 120, background: `linear-gradient(90deg, rgba(52,77,66,0) 0%, ${accent} 100%)` }} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "40px 40px 36px 24px", display: "flex", flexDirection: "column", justifyContent: "space-between", color: bg }}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-              {featured.tags && featured.tags.length > 0 && (
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div style={{ flex: "none", whiteSpace: "nowrap", height: 36, padding: "0 14px", borderRadius: 18, background: chip, color: accent, display: "flex", alignItems: "center", fontSize: 14, fontWeight: 700, letterSpacing: ".16em" }}>{featured.tags[0]}</div>
+      {/* the one that leads — a slow carousel when the category can spare more than one */}
+      {featured.length > 0 && (
+        <div style={{ position: "absolute", left: 260, right: 36, top: 336, height: 350, borderRadius: 40, overflow: "hidden", background: accent, boxShadow: "0 30px 50px -30px rgba(52,77,66,.75)", zIndex: 2 }}>
+          <div style={{ display: "flex", width: `${featured.length * 100}%`, height: "100%", transform: `translateX(-${at * (100 / featured.length)}%)`, transition: "transform 760ms cubic-bezier(.22,.61,.36,1)" }}>
+            {featured.map((f, i) => (
+              <div key={i} onClick={() => { if (!f.soldOut) onItem(f); }}
+                style={{ width: `${100 / featured.length}%`, flex: "none", height: "100%", display: "flex", cursor: f.soldOut ? "default" : "pointer" }}>
+                <div style={{ position: "relative", width: 270, flex: "none", overflow: "hidden", background: "#3E6F47" }}>
+                  {f.image_url && <img src={f.image_url} alt="" style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "50% 60%" }} />}
+                  {f.soldOut && soldOutVeil}
+                  <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 120, background: `linear-gradient(90deg, rgba(52,77,66,0) 0%, ${accent} 100%)` }} />
                 </div>
-              )}
-              <div style={{ fontFamily: head, fontSize: 42, fontWeight: 500, lineHeight: 1.04, letterSpacing: "-.035em" }}>{featured.name}</div>
-              {featured.desc && <div style={{ fontSize: 23, fontWeight: 300, color: "#DCE8D9", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{featured.desc}</div>}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
-              <span style={{ fontFamily: head, fontSize: 40, fontWeight: 500, letterSpacing: "-.02em" }}>£{Number(featured.price).toFixed(2)}</span>
-              {featured.soldOut
-                ? <span style={{ fontSize: 20, fontWeight: 600, color: "#DCE8D9" }}>Unavailable</span>
-                : addBtn(featured, true)}
-            </div>
+                <div style={{ flex: 1, minWidth: 0, boxSizing: "border-box", padding: "40px 40px 36px 24px", display: "flex", flexDirection: "column", justifyContent: "space-between", color: bg }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    {f.tags && f.tags.length > 0 && (
+                      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                        <div style={{ flex: "none", whiteSpace: "nowrap", height: 36, padding: "0 14px", borderRadius: 18, background: chip, color: accent, display: "flex", alignItems: "center", fontSize: 14, fontWeight: 700, letterSpacing: ".16em" }}>{f.tags[0]}</div>
+                      </div>
+                    )}
+                    <div style={{ fontFamily: head, fontSize: 42, fontWeight: 500, lineHeight: 1.04, letterSpacing: "-.035em" }}>{f.name}</div>
+                    {f.desc && <div style={{ fontSize: 23, fontWeight: 300, color: "#DCE8D9", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{f.desc}</div>}
+                  </div>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
+                    <span style={{ fontFamily: head, fontSize: 40, fontWeight: 500, letterSpacing: "-.02em" }}>£{Number(f.price).toFixed(2)}</span>
+                    {f.soldOut
+                      ? <span style={{ fontSize: 20, fontWeight: 600, color: "#DCE8D9" }}>Unavailable</span>
+                      : addBtn(f, true)}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
+
+          {featured.length > 1 && (
+            <div aria-hidden="true" style={{ position: "absolute", top: 24, right: 32, display: "flex", alignItems: "center", gap: 10 }}>
+              {featured.map((_, i) => (
+                <span key={i} style={{ width: i === at ? 30 : 12, height: 12, borderRadius: 6, background: i === at ? chip : "rgba(220,232,217,.42)", transition: "width 400ms ease, background 400ms ease" }} />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* the rest of the category */}
-      <div style={{ position: "absolute", left: 260, right: 36, top: featured ? 712 : 336, bottom: 196, overflowY: "auto", scrollbarWidth: "none", zIndex: 2 }}>
+      <div style={{ position: "absolute", left: 260, right: 36, top: featured.length > 0 ? 712 : 336, bottom: 196, overflowY: "auto", scrollbarWidth: "none", zIndex: 2 }}>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 20, paddingBottom: 24 }}>
           {rest.map((it, i) => (
             <div key={i} onClick={() => { if (!it.soldOut) onItem(it); }}
