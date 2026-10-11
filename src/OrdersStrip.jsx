@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import CartLine from "./CartLine.jsx";
+import { payLabel } from "./payLabel.js";
 
 // ── Single-screen POS orders ─────────────────────────────────────────
 // OrdersList       → compact list (under master categories in col 1)
@@ -123,7 +124,7 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
         <Tile o={o} paid={paid} size={36} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: C.ink, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{orderName(o)}</div>
-          <div style={{ fontSize: 10.5, color: paid ? C.sub : ageColor(m), fontWeight: 600, marginTop: 2 }}>#{o.order_no}{paid ? " · " + (o.paid_method === "cash" ? "Cash" : "Card") : " · " + agoLabel(m)}{o.status === "hold" ? " · " : ""}{o.status === "hold" && <span style={{ color: "#fff", background: "#C67A2C", fontWeight: 800, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, letterSpacing: ".02em" }}>HOLD · NOT SENT</span>}{o.print_failed ? " · " : ""}{o.print_failed && <span style={{ color: "#fff", background: "#dc2626", fontWeight: 800, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, letterSpacing: ".02em" }}>⚠ NOT PRINTED</span>}</div>
+          <div style={{ fontSize: 10.5, color: paid ? C.sub : ageColor(m), fontWeight: 600, marginTop: 2 }}>#{o.order_no}{paid ? " · " + payLabel(o.paid_method) : " · " + agoLabel(m)}{o.status === "hold" ? " · " : ""}{o.status === "hold" && <span style={{ color: "#fff", background: "#C67A2C", fontWeight: 800, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, letterSpacing: ".02em" }}>HOLD · NOT SENT</span>}{o.print_failed ? " · " : ""}{o.print_failed && <span style={{ color: "#fff", background: "#dc2626", fontWeight: 800, fontSize: 9.5, padding: "1px 6px", borderRadius: 5, letterSpacing: ".02em" }}>⚠ NOT PRINTED</span>}</div>
         </div>
         <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14, color: paid ? C.paidText : C.danger }}>{money(o.total)}</div>
       </div>

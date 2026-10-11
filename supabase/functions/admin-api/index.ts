@@ -1273,22 +1273,46 @@ Deno.serve(async (req) => {
           by = st.name;
         }
         const already = Math.round(Number(ord.amount_paid || 0) * 100) / 100;
+        const due = Math.round((total - amount) * 100) / 100;
         const patch: Record<string, unknown> = { discount_type, discount_value: dv, discount_amount: amount, discount_reason: reason ? String(reason).slice(0, 80) : null, discount_by: by };
-        // If what's been paid already covers the discounted total, close it as paid.
-        if (already > 0 && already + 0.001 >= total - amount) { patch.paid_method = patch.paid_method || "cash"; patch.paid_amount = already; patch.paid_at = new Date().toISOString(); }
+        // Nothing left to pay — either because enough was paid already, or
+        // because the discount took the bill to zero. Close it here: a £0
+        // tender is refused by take_payment (rightly, no money moves), so a
+        // 100% discount otherwise leaves the order sitting in unpaid for ever
+        // and the till cannot be closed on it.
+        if (due <= 0.001 || (already > 0 && already + 0.001 >= due)) {
+          // "comp" when no money changed hands, so the day's report can tell a
+          // free order from a cash one. The ledger stays empty: nothing was
+          // taken, so nothing belongs in order_payments.
+          patch.paid_method = already > 0 ? "cash" : "comp";
+          patch.paid_amount = already;
+          patch.paid_at = new Date().toISOString();
+          if (ord.status === "hold") patch.status = "placed";
+        }
         const { error } = await admin.from("menu_orders").update(patch).eq("id", order_id);
         if (error) throw error;
-        return json({ ok: true, discount_amount: amount, due: Math.round((total - amount) * 100) / 100, by });
+        // Pay-first order released by the discount: it still has to reach the
+        // kitchen, the same way take_payment releases one.
+        if (ord.status === "hold" && patch.status === "placed") {
+          const { data: full } = await admin.from("menu_orders").select("*").eq("id", order_id).single();
+          if (full) { try { await callSunmi({ type: "INSERT", record: full }); } catch (e) { console.error("release print failed", e); } }
+        }
+        return json({ ok: true, discount_amount: amount, due, closed: !!patch.paid_method, by });
       }
       case "remove_discount": {
         const { order_id, staff_pin } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
-        const { data: ord } = await admin.from("menu_orders").select("id, location_id, paid_method").eq("id", order_id).maybeSingle();
+        const { data: ord } = await admin.from("menu_orders").select("id, location_id, paid_method, paid_amount").eq("id", order_id).maybeSingle();
         if (!ord) return json({ error: "order not found" }, 404);
-        if (ord.paid_method) return json({ error: "already_paid", message: "Paid orders can't have the discount removed." }, 409);
+        // A comp closed the order without taking anything, so it is reversible:
+        // undoing the discount puts it back in unpaid. A real tender is not.
+        const wasComp = ord.paid_method === "comp" && !(Number(ord.paid_amount || 0) > 0);
+        if (ord.paid_method && !wasComp) return json({ error: "already_paid", message: "Paid orders can't have the discount removed." }, 409);
         const st = await staffForPin(staff_pin, ord.location_id); const mgr = st && st.ok ? null : await managerForPin(staff_pin, ord.location_id);
         if (!(st && st.ok) && !(mgr && mgr.ok)) return json({ ok: false, error: "bad_pin", message: "PIN not recognised" }, 403);
-        const { error } = await admin.from("menu_orders").update({ discount_type: null, discount_value: null, discount_amount: null, discount_reason: null, discount_by: null }).eq("id", order_id);
+        const undo: Record<string, unknown> = { discount_type: null, discount_value: null, discount_amount: null, discount_reason: null, discount_by: null };
+        if (wasComp) { undo.paid_method = null; undo.paid_amount = null; undo.paid_at = null; }
+        const { error } = await admin.from("menu_orders").update(undo).eq("id", order_id);
         if (error) throw error;
         return json({ ok: true });
       }

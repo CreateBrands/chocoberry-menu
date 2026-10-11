@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { payLabel } from "./payLabel.js";
 
 // ── Order-management screen (flagship POS design) ─────────────────────
 // Self-contained. Renders inside the existing Drawer's "Till" tab.
@@ -300,7 +301,7 @@ export default function OrderManager({
           {isPaid ? (
             <div style={{ display: "flex", gap: 9, alignItems: "center" }}>
               <div style={{ flex: 1, padding: "14px 16px", borderRadius: 13, background: T.accentSoft, color: T.accent, fontWeight: 600, fontSize: 14.5, display: "flex", alignItems: "center", gap: 8 }}>
-                <i className={"ti " + (o.paid_method === "cash" ? "ti-cash" : "ti-credit-card")} /> Paid by {o.paid_method === "cash" ? "cash" : "card"}
+                <i className={"ti " + (o.paid_method === "cash" ? "ti-cash" : "ti-credit-card")} /> Paid by {payLabel(o.paid_method).toLowerCase()}
               </div>
               <span onClick={() => onUnpaid(o)} style={{ padding: "14px 18px", borderRadius: 13, background: "#fff", border: "1px solid rgba(60,70,45,.15)", color: T.muted, fontWeight: 600, fontSize: 13.5, cursor: "pointer" }}>Undo</span>
               <span onClick={() => onReprint(o)} style={{ width: 50, display: "flex", alignItems: "center", justifyContent: "center", background: "#fff", border: "1px solid rgba(60,70,45,.15)", color: T.accent, borderRadius: 13, fontSize: 19, cursor: "pointer", padding: "14px 0" }}><i className="ti ti-printer" /></span>

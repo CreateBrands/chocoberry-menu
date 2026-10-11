@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { getDevice, deviceToken } from "./device.js";
 import OrderManager from "./OrderManager.jsx";
 import KioskWelcome, { CupIcon, BagIcon } from "./KioskWelcome.jsx";
+import { payLabel } from "./payLabel.js";
 
 // ============================================================
 // still. / Chocoberry — Digital Menu (React port of approved design)
@@ -1103,7 +1104,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                                   {/* Payment controls */}
                                   {o.paid_method ? (
                                     <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 10, background: "#eaf1e4", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                                      <span style={{ fontSize: 13, fontWeight: 600, color: "#3c5a2e" }}>Paid · {o.paid_method === "cash" ? "Cash" : "Card"}{o.paid_amount != null && Number(o.paid_amount) !== Number(o.total) ? " · " + money(o.paid_amount) + (o.discount_type ? " (disc)" : "") : ""}</span>
+                                      <span style={{ fontSize: 13, fontWeight: 600, color: "#3c5a2e" }}>Paid · {payLabel(o.paid_method)}{o.paid_amount != null && Number(o.paid_amount) !== Number(o.total) ? " · " + money(o.paid_amount) + (o.discount_type ? " (disc)" : "") : ""}</span>
                                       <span onClick={(e) => { e.stopPropagation(); markUnpaid(o); }} style={{ fontSize: 12, color: "var(--muted)", cursor: "pointer", textDecoration: "underline" }}>Undo</span>
                                     </div>
                                   ) : payingOrder === okey ? (
