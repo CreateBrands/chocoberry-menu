@@ -2050,32 +2050,51 @@ export function Confirm(props) {
   const where = kioskDine
     ? (kioskTable ? "Table " + kioskTable : "Eat in")
     : (pickupName ? "Take away · " + pickupName : "Take away");
+  // This screen runs on both the portrait kiosk and a landscape tablet. It
+  // used to be pinned 120px from the top, which on a wide screen left half the
+  // board empty under the order number. Centre it instead and size everything
+  // off the shorter edge, so it fills whatever it is put on.
+  const fit = (node) => {
+    if (!node) return;
+    const w = node.clientWidth || 1080;
+    const h = node.clientHeight || 1920;
+    const k = Math.max(0.55, Math.min(1.2, Math.min(w / 1080, h / 1800)));
+    node.style.setProperty("--k", String(k));
+  };
+  const s = (n) => `calc(${n}px * var(--k, 1))`;
+
   return (
-    <div style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)", display: "flex", flexDirection: "column", alignItems: "center", padding: "120px 56px 0", boxSizing: "border-box", textAlign: "center" }}>
-      <div style={{ width: 170, height: 170, borderRadius: 85, background: "var(--chip)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <svg width="84" height="84" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M5 13l4 4L19 7" /></svg>
+    <div ref={fit} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: `${s(40)} ${s(56)} ${s(230)}`, boxSizing: "border-box", textAlign: "center" }}>
+      <div style={{ position: "relative", width: s(230), height: s(230), flex: "none" }}>
+        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "var(--chip)", animation: "tovepop 620ms cubic-bezier(.2,.8,.2,1)" }} />
+        <svg viewBox="0 0 260 260" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+          <path d="M80 134l34 34 68-76" fill="none" stroke="var(--accent)" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round"
+            strokeDasharray="180" strokeDashoffset="0" style={{ animation: "tovedraw 560ms ease 360ms backwards" }} />
+        </svg>
       </div>
-      <div style={{ fontFamily: "var(--font-head)", fontSize: 62, fontWeight: 500, letterSpacing: "-.03em", marginTop: 40, lineHeight: 1.05 }}>Tack! Thank you</div>
-      <div style={{ fontSize: 24, color: "var(--muted)", marginTop: 16, lineHeight: 1.5 }}>
+
+      <div style={{ fontFamily: "var(--font-head)", fontSize: s(76), fontWeight: 500, letterSpacing: "-.04em", marginTop: s(54), lineHeight: 1.02, animation: "toverise 500ms ease 160ms both" }}>Tack! Thank you</div>
+      <div style={{ fontSize: s(26), color: "var(--muted)", marginTop: s(18), lineHeight: 1.5, animation: "toverise 500ms ease 240ms both" }}>
         Take your slip to the till to pay.<br />We start making it once it's paid.
       </div>
 
-      <div style={{ marginTop: 48, width: "100%", maxWidth: 640, borderRadius: 36, background: "var(--accent)", color: "var(--bg)", padding: "34px 30px 30px" }}>
-        <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: ".24em", opacity: .75 }}>YOUR ORDER NUMBER</div>
-        <div style={{ fontFamily: "var(--font-head)", fontSize: 128, fontWeight: 500, lineHeight: 1, letterSpacing: "-.04em", marginTop: 10 }}>{orderNo || "—"}</div>
-        <div style={{ fontSize: 21, opacity: .85, marginTop: 14 }}>
+      <div style={{ marginTop: s(56), width: "100%", maxWidth: s(760), boxSizing: "border-box", borderRadius: s(44), background: "var(--accent)", color: "var(--bg)", padding: `${s(40)} ${s(34)} ${s(36)}`, boxShadow: "0 30px 60px -30px rgba(52,77,66,.8)", animation: "toverise 520ms ease 320ms both" }}>
+        <div style={{ fontSize: s(19), fontWeight: 700, letterSpacing: ".3em", color: "var(--chip)" }}>YOUR ORDER NUMBER</div>
+        <div style={{ fontFamily: "var(--font-head)", fontSize: s(168), fontWeight: 500, lineHeight: 1, letterSpacing: "-.05em", marginTop: s(8) }}>{orderNo || "—"}</div>
+        <div style={{ fontSize: s(23), opacity: .85, marginTop: s(16) }}>
           {kioskItems > 0 ? kioskItems + (kioskItems === 1 ? " item · " : " items · ") : ""}{kioskTotal > 0 ? money(kioskTotal) + " to pay · " : ""}{where}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 22, fontSize: 19, color: "var(--muted)" }}>
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 0 1-2-2v-5h20v5a2 2 0 0 1-2 2h-2" /><path d="M6 14h12v7H6z" /></svg>
+
+      <div style={{ display: "flex", alignItems: "center", gap: s(12), marginTop: s(32), fontSize: s(22), color: "var(--muted)", animation: "toverise 520ms ease 400ms both" }}>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ width: s(26), height: s(26), flex: "none" }}><path d="M6 9V3h12v6" /><path d="M6 18H4a2 2 0 0 1-2-2v-5h20v5a2 2 0 0 1-2 2h-2" /><path d="M6 14h12v7H6z" /></svg>
         Your slip is printing below
       </div>
 
-      <div style={{ position: "absolute", left: 56, right: 56, bottom: 48, height: 104, borderRadius: 52, background: "var(--accent)", color: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px 0 36px", fontFamily: "var(--font-head)", fontSize: 26, fontWeight: 500 }}>
+      <div style={{ position: "absolute", left: s(56), right: s(56), bottom: s(56), height: s(124), borderRadius: s(62), background: "var(--accent)", color: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: `0 ${s(16)} 0 ${s(44)}`, fontFamily: "var(--font-head)", fontSize: s(32), fontWeight: 500, cursor: "pointer" }}>
         <span>Start a new order</span>
         {autoSeconds > 0 && (
-          <span style={{ height: 72, padding: "0 28px", borderRadius: 36, background: "var(--chip)", color: "var(--accent)", display: "flex", alignItems: "center", fontSize: 20, fontWeight: 600 }}>Resets in {left}s</span>
+          <span style={{ height: s(92), padding: `0 ${s(30)}`, borderRadius: s(46), background: "var(--chip)", color: "var(--accent)", display: "flex", alignItems: "center", fontSize: s(24), fontWeight: 600 }}>Resets in {left}s</span>
         )}
       </div>
     </div>
@@ -2750,6 +2769,15 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         .screenwrap .screen > div{width:100% !important;height:100% !important;position:absolute;left:0;top:0;}
         .menu-card{cursor:pointer;}
         *::-webkit-scrollbar{display:none;}
+        /* Press feedback. Most kiosk buttons are divs with an inline
+           cursor:pointer rather than <button>, so the style-attribute match is
+           what actually catches them. touch-action kills the 300ms tap wait,
+           which is most of why a press felt like nothing happened. */
+        [data-kiosk] button,[data-kiosk] [role="tab"],[data-kiosk] [role="radio"],[data-kiosk] [style*="cursor: pointer"]{touch-action:manipulation;transition:transform 150ms ease;}
+        [data-kiosk] button:active,[data-kiosk] [role="tab"]:active,[data-kiosk] [role="radio"]:active,[data-kiosk] [style*="cursor: pointer"]:active{transform:scale(.97);}
+        @keyframes tovepop{0%{transform:scale(.55);opacity:0}62%{transform:scale(1.08);opacity:1}100%{transform:scale(1);opacity:1}}
+        @keyframes tovedraw{from{stroke-dashoffset:180}to{stroke-dashoffset:0}}
+        @keyframes toverise{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:none}}
       `}</style>
 
       {/* Reach mode: the banner that explains what happened and how to undo it.
@@ -2768,7 +2796,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
           screen folds down together and nothing has to be laid out twice. */}
       <div style={{ width: "100vw", height: "100%", margin: 0, transform: kiosk && reach ? `scale(${REACH_SCALE})` : "none", transformOrigin: "bottom center", transition: "transform .45s cubic-bezier(.2,.8,.2,1)" }}>
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
-          <div ref={wrapRef} className="screenwrap" style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
+          <div ref={wrapRef} className="screenwrap" data-kiosk={kiosk ? "1" : undefined} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
             <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} theme={themeVars} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
