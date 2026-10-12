@@ -11,6 +11,8 @@
 //   node scripts\teya-register.mjs --env production
 // Options: --env production|staging   --device-url <url>   (if Teya's doc shows a
 //          different device-authorisation endpoint)   --store <teya store uuid> (just one)
+//          --epos-id <name>  register under a distinct epos_external_id and write to
+//          its own .sql file, so an experiment cannot overwrite live credentials
 import { writeFileSync } from "node:fs";
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => { if (v.startsWith("--")) a.push([v.slice(2), arr[i + 1] && !arr[i + 1].startsWith("--") ? arr[i + 1] : true]); return a; }, []));
@@ -94,12 +96,19 @@ for (const s of stores) {
   console.log("\nStore:", name, sid);
   const terms = arr(await api(token, "GET", "/poslink/v1/stores/" + sid + "/terminals").catch(() => []), "terminals");
   terms.forEach((t) => console.log("   terminal", t.id || t.terminal_id, t.serial_number || t.serial || "", t.status || ""));
-  const reg = await api(token, "POST", "/poslink/v1/epos/register", { store_id: sid, epos_external_id: "chocoberry-pos-" + slug(name) });
+  // Registration is idempotent on (partner_id, store_id, epos_external_id), so
+  // re-running as a different Teya user returns the SAME credentials unless the
+  // external id changes. --epos-id gives you a distinct set to compare against
+  // without disturbing the one the tills are using.
+  const eposId = (args["epos-id"] ? String(args["epos-id"]) + "-" : "chocoberry-pos-") + slug(name);
+  const reg = await api(token, "POST", "/poslink/v1/epos/register", { store_id: sid, epos_external_id: eposId });
+  console.log("   epos_external_id:", eposId);
   console.log("   registered → client_id", reg.client_id, "scopes:", Array.isArray(reg.scopes) ? reg.scopes.join(" ") : reg.scopes);
   sql.push(`insert into teya_credentials (store_id, store_name, client_id, client_secret, scopes) values (${q(sid)}, ${q(name)}, ${q(reg.client_id)}, ${q(reg.client_secret)}, ${q(Array.isArray(reg.scopes) ? reg.scopes.join(" ") : (reg.scopes || ""))})`);
   sql.push(`  on conflict (store_id) do update set client_id = excluded.client_id, client_secret = excluded.client_secret, scopes = excluded.scopes, store_name = excluded.store_name;`);
   terms.forEach((t, i) => sql.push(`-- insert into teya_terminals (location_id, store_id, terminal_id, label) select id, ${q(sid)}, ${q(t.id || t.terminal_id)}, ${q(t.serial_number || t.serial || ("Terminal " + (i + 1)))} from menu_locations where name ilike '%${name.replace(/'/g, "")}%';`));
   sql.push("");
 }
-writeFileSync("teya-credentials.sql", sql.join("\n"));
-console.log("\nWrote teya-credentials.sql — run it in Supabase, then uncomment/adjust the teya_terminals lines so each Teya store maps to the right café, then delete the file.");
+const outFile = args["epos-id"] ? "teya-credentials-" + slug(String(args["epos-id"])) + ".sql" : "teya-credentials.sql";
+writeFileSync(outFile, sql.join("\n"));
+console.log("\nWrote " + outFile + " — run it in Supabase, then uncomment/adjust the teya_terminals lines so each Teya store maps to the right café, then delete the file.");
