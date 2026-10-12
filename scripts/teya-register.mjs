@@ -45,14 +45,27 @@ async function deviceLogin() {
     { name: "form id only", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form({ client_id: CLIENT_ID, scope }) },
     { name: "json id+secret", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ client_id: CLIENT_ID, client_secret: CLIENT_SECRET, ...(scope ? { scope } : {}) }) },
   ];
+  // A 401 invalid_client means the endpoint is right and the CLIENT is wrong.
+  // Reporting that as "no endpoint answered" sent us hunting for URLs once
+  // already, so keep the two apart.
+  let rejected = null;
   outer: for (const url of CANDIDATES) {
     for (const a of attempts) {
       r = await fetch(url, { method: "POST", headers: { Accept: "application/json", ...a.headers }, body: a.body });
       if (r.status === 404 || r.status === 405) continue outer;
       j = await r.json().catch(() => ({}));
       if (j.device_code) { used = url; console.log("Client auth:", a.name); break outer; }
+      if (j.error === "invalid_client" && !rejected) rejected = { url, desc: j.error_description || "" };
       console.error("  " + url + " [" + a.name + "] → " + r.status + " " + JSON.stringify(j).slice(0, 160));
     }
+  }
+  if (!used && rejected) {
+    console.error("\nThe endpoint is fine — " + rejected.url + " answered, and rejected the client:" +
+      "\n  invalid_client" + (rejected.desc ? " (" + rejected.desc + ")" : "") +
+      "\n\nSo TEYA_CLIENT_ID or TEYA_CLIENT_SECRET is wrong for this environment (--env " + ENV + ")." +
+      "\nCheck you set the real secret rather than a placeholder, and that the secret belongs to the app" +
+      "\nwith client id " + CLIENT_ID + ". Regenerate it in the partner portal if you no longer have it.");
+    process.exit(1);
   }
   if (!used) { console.error("\nNo device-authorisation endpoint answered. Tried:\n  " + CANDIDATES.join("\n  ") + "\nOpen the app page's 'Read more about OAuth device code grant' link and pass its URL: --device-url <url>"); process.exit(1); }
   console.log("Device endpoint:", used);
