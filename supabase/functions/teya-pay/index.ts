@@ -229,7 +229,20 @@ Deno.serve(async (req) => {
         for (const c of (creds || []) as any[]) {
           const t = await teya(c, "GET", "/poslink/v1/stores/" + encodeURIComponent(c.store_id) + "/terminals").catch((e) => ({ error: String(e.message) }));
           const tl = Array.isArray(t) ? t : (t?.terminals || t?.items || []);
-          out.push({ store_id: c.store_id, store_name: c.store_name, error: t?.error || null, terminals: tl.map((x: any) => ({ terminal_id: x.id || x.terminal_id, serial: x.serial_number || x.serial || null, name: x.name || null, status: x.status || null })) });
+          // GET /poslink/v1/stores takes the same scopes as the terminals call
+          // (stores/id/terminals, or the deprecated default_access). Calling
+          // both with the same machine token separates the two explanations
+          // for a 403 on terminals: if this one 403s too, the token is not
+          // carrying the scope; if it answers, the scope is fine and the
+          // refusal is about this store, which is Teya's end.
+          const s = await teya(c, "GET", "/poslink/v1/stores").catch((e) => ({ error: String(e.message) }));
+          out.push({
+            store_id: c.store_id, store_name: c.store_name,
+            scopes_on_record: c.scopes || null,
+            terminals_call: t?.error ? { error: t.error } : { ok: true, count: tl.length },
+            stores_call: s?.error ? { error: s.error } : { ok: true, count: (Array.isArray(s) ? s : (s?.stores || [])).length },
+            terminals: tl.map((x: any) => ({ terminal_id: x.id || x.terminal_id, serial: x.serial_number || x.serial || null, name: x.name || null, status: x.status || null })),
+          });
         }
         return json({ ok: true, stores: out });
       }
