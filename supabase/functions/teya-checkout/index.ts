@@ -81,6 +81,43 @@ async function storeIdFor(location_id: string | null): Promise<string | undefine
   return Deno.env.get("TEYA_CHECKOUT_STORE_ID") || undefined;
 }
 
+// ---- is this webhook really from Teya? ----
+// Teya publish no webhook contract in any of their OpenAPI documents, and two
+// mechanisms are in play. One is a shared secret echoed back in the
+// x-teya-signature header. The other — which their Business Portal wording
+// points to — is an RSA signature over the raw body, Base64 encoded, verified
+// with a public key taken from the webhook's settings in that portal.
+// We accept either, so that whichever Teya turns out to use, a genuine
+// webhook is not turned away: a rejected one is retried six times over about
+// nine hours and then dropped, and the order would sit on hold unpaid with
+// the drink never reaching the kitchen.
+// With neither configured the endpoint is open — only acceptable before Teya
+// have told us which they send.
+const b64bytes = (s: string) => Uint8Array.from(atob(s.replace(/\s+/g, "")), (c) => c.charCodeAt(0));
+let rsaKey: Promise<CryptoKey> | null = null;
+function rsaPublicKey(pem: string) {
+  if (!rsaKey) {
+    // Accepts PEM or the bare Base64 body; Teya's portal offers both.
+    const spki = b64bytes(pem.replace(/-----[A-Z ]+-----/g, ""));
+    rsaKey = crypto.subtle.importKey("spki", spki, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, ["verify"]);
+  }
+  return rsaKey;
+}
+async function webhookAuthorised(raw: string, sig: string): Promise<boolean> {
+  const secret = Deno.env.get("TEYA_CHECKOUT_WEBHOOK_SECRET");
+  const pem = Deno.env.get("TEYA_CHECKOUT_WEBHOOK_PUBKEY");
+  if (!secret && !pem) return true;
+  if (secret && sig && sig === secret) return true;
+  if (pem && sig) {
+    try {
+      if (await crypto.subtle.verify("RSASSA-PKCS1-v1_5", await rsaPublicKey(pem), b64bytes(sig), new TextEncoder().encode(raw))) return true;
+    } catch (e) { console.error("webhook rsa verify", String((e as Error).message || e)); }
+  }
+  // Log the shape, never the value, so we can see what Teya actually sends.
+  console.warn("webhook rejected — x-teya-signature " + (sig ? "present, " + sig.length + " chars" : "absent"));
+  return false;
+}
+
 // ---- booking the tender, shared by status and webhook ----
 async function bookPayment(order_id: string, amountMinor: number, ref: string, method = "card") {
   const amount = Math.round(Number(amountMinor)) / 100;
@@ -118,12 +155,14 @@ Deno.serve(async (req) => {
 
   // ---------- Teya webhook ----------
   if (url.searchParams.get("webhook")) {
-    const secret = Deno.env.get("TEYA_CHECKOUT_WEBHOOK_SECRET");
-    if (secret) {
-      const got = req.headers.get("x-teya-signature") || url.searchParams.get("secret") || "";
-      if (got !== secret) return json({ error: "bad signature" }, 401);
-    }
-    const body = await req.json().catch(() => ({}));
+    // The raw bytes, before any parse: an RSA signature covers exactly what
+    // Teya sent, and JSON round-tripped through parse and stringify will not
+    // match even when it means the same thing.
+    const raw = await req.text();
+    const sig = req.headers.get("x-teya-signature") || url.searchParams.get("secret") || "";
+    if (!(await webhookAuthorised(raw, sig))) return json({ error: "bad signature" }, 401);
+    let body: any = {};
+    try { body = JSON.parse(raw); } catch { body = {}; }
     try {
       const type = String(body.type || body.event || "");
       const d = body.data || body.payload || body;
