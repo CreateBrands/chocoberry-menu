@@ -14,7 +14,7 @@
 // an optional account-wide fallback; TEYA_SCOPES optional override.
 // Tables: teya_credentials, teya_terminals (location → store/terminal UUIDs), teya_payment_requests.
 // Teya API: POST /poslink/v3/payment-requests, GET (SSE) /poslink/v3/payment-requests/{id},
-//           PATCH /poslink/v2/payment-requests/{id} {status:CANCELLED},
+//           PATCH /poslink/v2/payment-requests/{id} {status:CANCELLING},
 //           GET /poslink/v1/stores, GET /poslink/v1/stores/{id}/terminals.
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -208,7 +208,13 @@ Deno.serve(async (req) => {
         const { payment_request_id } = data || {};
         if (!payment_request_id) return json({ error: "payment_request_id required" }, 400);
         const { data: pr } = await admin.from("teya_payment_requests").select("store_id").eq("payment_request_id", payment_request_id).maybeSingle();
-        try { await teya(await credFor(admin, pr?.store_id), "PATCH", "/poslink/v2/payment-requests/" + encodeURIComponent(payment_request_id), { status: "CANCELLED" }, crypto.randomUUID()); }
+        // CANCELLING is the only value the endpoint accepts — NewCancelPaymentRequest
+        // in Teya's POSLink spec has enum ["CANCELLING"]. We were sending CANCELLED,
+        // which the gateway rejects, so staff cancels never reached the terminal.
+        // It is a request, not a confirmation: if the terminal has already started,
+        // the payment runs to SUCCESSFUL/FAILED and that overrides CANCELLING, so
+        // the SSE stream stays the source of truth.
+        try { await teya(await credFor(admin, pr?.store_id), "PATCH", "/poslink/v2/payment-requests/" + encodeURIComponent(payment_request_id), { status: "CANCELLING" }, crypto.randomUUID()); }
         catch (e) { return json({ ok: false, message: String((e as Error).message) }); }
         await admin.from("teya_payment_requests").update({ status: "CANCELLING", updated_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
         return json({ ok: true, status: "CANCELLING" });
