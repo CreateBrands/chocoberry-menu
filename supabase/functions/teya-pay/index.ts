@@ -229,15 +229,34 @@ Deno.serve(async (req) => {
         // when ADMIN_PIN was never set, which told you nothing — say which.
         const ADMIN_PIN = Deno.env.get("ADMIN_PIN");
         const srv = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        // A credential you set yourself, so there is nothing to hunt for in a
+        // dashboard: supabase secrets set DIAG_TOKEN=something-you-choose.
+        // Projects on Supabase's new API-key system no longer get a legacy
+        // service-role JWT injected here, which is why that route can refuse a
+        // key that looks right.
+        const DIAG = Deno.env.get("DIAG_TOKEN");
         const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
         const byKey = !!srv && bearer === srv;
+        const byDiag = !!DIAG && bearer === String(DIAG).trim();
         const byPin = !!ADMIN_PIN && String(pin ?? "").trim() === String(ADMIN_PIN).trim();
-        if (!byKey && !byPin) {
+        if (!byKey && !byDiag && !byPin) {
+          // Describe only what the caller sent and which routes exist. Nothing
+          // about the stored values, not even a prefix.
+          const kind = !bearer ? "absent"
+            : bearer.startsWith("eyJ") ? "a JWT"
+            : bearer.startsWith("sb_") ? "a new-style sb_ key"
+            : "something else";
           return json({
             error: "unauthorized",
-            hint: ADMIN_PIN
-              ? "ADMIN_PIN is set on this project but the pin sent did not match it; or pass the service-role key as an Authorization: Bearer header instead"
-              : "ADMIN_PIN is not set on this project — pass the service-role key as an Authorization: Bearer header instead",
+            sent: { pin: pin == null ? "absent" : "present", authorization: kind, length: bearer.length || 0 },
+            accepts: {
+              admin_pin: !!ADMIN_PIN,
+              service_role_key: !!srv,
+              diag_token: !!DIAG,
+            },
+            hint: DIAG
+              ? "None matched. DIAG_TOKEN is set — pass it as Authorization: Bearer."
+              : "None matched. Easiest fix: supabase secrets set DIAG_TOKEN=something-you-choose, redeploy, then pass it as Authorization: Bearer.",
           }, 401);
         }
         const { data: creds } = await admin.from("teya_credentials").select("store_id, store_name, client_id, client_secret, scopes");
