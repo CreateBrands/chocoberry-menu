@@ -222,8 +222,24 @@ Deno.serve(async (req) => {
 
       // ---- Admin: list Teya stores + terminals so they can be mapped to locations ----
       case "terminals": {
+        // Read-only diagnostic, so the service-role key is accepted as well as
+        // the master PIN: anyone holding that key can already read everything
+        // directly, and it saves going looking for the PIN to run a check.
+        // The old test answered "unauthorized" both when the PIN was wrong and
+        // when ADMIN_PIN was never set, which told you nothing — say which.
         const ADMIN_PIN = Deno.env.get("ADMIN_PIN");
-        if (!ADMIN_PIN || pin !== ADMIN_PIN) return json({ error: "unauthorized" }, 401);
+        const srv = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+        const byKey = !!srv && bearer === srv;
+        const byPin = !!ADMIN_PIN && String(pin ?? "").trim() === String(ADMIN_PIN).trim();
+        if (!byKey && !byPin) {
+          return json({
+            error: "unauthorized",
+            hint: ADMIN_PIN
+              ? "ADMIN_PIN is set on this project but the pin sent did not match it; or pass the service-role key as an Authorization: Bearer header instead"
+              : "ADMIN_PIN is not set on this project — pass the service-role key as an Authorization: Bearer header instead",
+          }, 401);
+        }
         const { data: creds } = await admin.from("teya_credentials").select("store_id, store_name, client_id, client_secret, scopes");
         const out: any[] = [];
         for (const c of (creds || []) as any[]) {
