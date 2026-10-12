@@ -280,12 +280,33 @@ Deno.serve(async (req) => {
           // fix, and we can say so without hedging.
           const pr = await teya(c, "GET", "/poslink/v2/payment-requests?store_id=" + encodeURIComponent(c.store_id) + "&limit=1")
             .catch((e) => ({ error: String(e.message) }));
+          // What Teya actually PUT IN the token, as opposed to what we asked
+          // for and what they say they granted. The terminals endpoint accepts
+          // stores/id/terminals or default_access; if the issued token carries
+          // one of those and is still refused, the endpoint is not deciding on
+          // scope at all. Claims only — never the token itself.
+          let claims: Record<string, unknown> = { error: "not read" };
+          try {
+            const tok = await tokenFor(c);
+            const part = tok.split(".")[1];
+            if (!part) claims = { error: "token is not a JWT", length: tok.length };
+            else {
+              const p = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/") + "===".slice((part.length + 3) % 4)));
+              claims = {
+                scope_in_token: p.scope ?? p.scp ?? null,
+                has_stores_id_terminals: String(p.scope ?? p.scp ?? "").split(/[\s,]+/).includes("stores/id/terminals"),
+                has_default_access: String(p.scope ?? p.scp ?? "").split(/[\s,]+/).includes("default_access"),
+                aud: p.aud ?? null, iss: p.iss ?? null, store: p.store_id ?? p.store ?? null,
+              };
+            }
+          } catch (e) { claims = { error: String((e as Error).message || e) }; }
           out.push({
             store_id: c.store_id, store_name: c.store_name,
             scopes_on_record: c.scopes || null,
             terminals_call: t?.error ? { error: t.error } : { ok: true, count: tl.length },
             stores_call: s?.error ? { error: s.error } : { ok: true, count: (Array.isArray(s) ? s : (s?.stores || [])).length },
             payment_requests_call: pr?.error ? { error: pr.error } : { ok: true },
+            token: claims,
             terminals: tl.map((x: any) => ({ terminal_id: x.id || x.terminal_id, serial: x.serial_number || x.serial || null, name: x.name || null, status: x.status || null })),
           });
         }
