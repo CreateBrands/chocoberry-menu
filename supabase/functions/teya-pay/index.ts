@@ -271,11 +271,21 @@ Deno.serve(async (req) => {
           // carrying the scope; if it answers, the scope is fine and the
           // refusal is about this store, which is Teya's end.
           const s = await teya(c, "GET", "/poslink/v1/stores").catch((e) => ({ error: String(e.message) }));
+          // The decisive one. GET /poslink/v2/payment-requests needs the
+          // payment_requests scope, which this credential holds, and it names
+          // the store, so it exercises the same token and the same store as
+          // the terminals call. If it answers while terminals 403s, the
+          // credential and the store binding are both sound and only the
+          // stores/id/terminals grant is being refused — which is Teya's to
+          // fix, and we can say so without hedging.
+          const pr = await teya(c, "GET", "/poslink/v2/payment-requests?store_id=" + encodeURIComponent(c.store_id) + "&limit=1")
+            .catch((e) => ({ error: String(e.message) }));
           out.push({
             store_id: c.store_id, store_name: c.store_name,
             scopes_on_record: c.scopes || null,
             terminals_call: t?.error ? { error: t.error } : { ok: true, count: tl.length },
             stores_call: s?.error ? { error: s.error } : { ok: true, count: (Array.isArray(s) ? s : (s?.stores || [])).length },
+            payment_requests_call: pr?.error ? { error: pr.error } : { ok: true },
             terminals: tl.map((x: any) => ({ terminal_id: x.id || x.terminal_id, serial: x.serial_number || x.serial || null, name: x.name || null, status: x.status || null })),
           });
         }
