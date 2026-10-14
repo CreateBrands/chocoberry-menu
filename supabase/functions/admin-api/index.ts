@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
   // surface used by front-line staff, and gating every payment behind a PIN was
   // too much friction. Admin-panel actions still require the PIN below.
   const POS_ACTIONS = new Set([
-    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "refund_payment", "print_refund_receipt", "set_order_table", "staff_set_stock",
+    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "refund_payment", "print_refund_receipt", "set_order_table", "staff_set_stock",
     "remove_order_item", "set_order_item_qty", "void_fired_item",
     "set_order_type",
     "day_summary",
@@ -174,6 +174,24 @@ Deno.serve(async (req) => {
   // Tenders come from order_payments so split bills, part-payments and the
   // Teya card machine all count correctly; an order is "unpaid" by its balance.
   const round2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+  // Re-add the line discounts after one of them changes and push the order's
+  // total back in step. subtotal stays at full menu price throughout — it is
+  // what the day summary reports as gross — so the discount lives in
+  // items_discount_total and comes off total, alongside any app discount.
+  // The order-level till discount is NOT folded in here: it is taken off
+  // total later, at payment, exactly as before.
+  async function recalcItemDiscounts(order_id: string, ord: { subtotal?: unknown; total?: unknown; app_discount?: unknown }) {
+    const { data: lines } = await admin.from("menu_order_items").select("line_total, discount_amount").eq("order_id", order_id);
+    const rows: any[] = (lines as any[]) || [];
+    const itemsDisc = round2(rows.reduce((s: number, r: any) => s + Number(r.discount_amount || 0), 0));
+    // Trust the lines over a stored subtotal: an older order may predate the
+    // column, and a voided line rewrites both together.
+    const gross = round2(rows.reduce((s: number, r: any) => s + Number(r.line_total || 0), 0));
+    const app = round2(Number((ord as any)?.app_discount || 0));
+    const total = Math.max(0, round2(gross - app - itemsDisc));
+    await admin.from("menu_orders").update({ subtotal: gross, items_discount_total: itemsDisc, total }).eq("id", order_id);
+    return { itemsDisc, total, gross };
+  }
   // Trading day ends at 04:00 Europe/London. Returns the most recent 04:00 as
   // an ISO instant (today's if it's past 4am, otherwise yesterday's).
   const TRADING_DAY_END_HOUR = 4;
@@ -239,7 +257,7 @@ Deno.serve(async (req) => {
     const cutoff = tradingDayCutoff();
     const { data: allRows, error } = await admin
       .from("menu_orders")
-      .select("id, order_no, order_type, tablet_no, external_channel, total, subtotal, amount_paid, paid_amount, app_discount, discount_amount, discount_type, status, created_at, kds_bumped_at, customer_note")
+      .select("id, order_no, order_type, tablet_no, external_channel, total, subtotal, items_discount_total, amount_paid, paid_amount, app_discount, discount_amount, discount_type, status, created_at, kds_bumped_at, customer_note")
       .eq("location_id", location_id)
       .is("closed_at", null);
     if (error) throw error;
@@ -298,9 +316,14 @@ Deno.serve(async (req) => {
     for (const o of live) {
       const total = Number(o.total || 0);
       const paid = Math.max(Number(o.amount_paid || 0), paidByOrder[o.id] || 0, o.paid_amount != null ? Number(o.paid_amount) : 0);
-      gross += total;
-      // Discounts: app membership/reward discounts, and till discounts (paid less than total but marked paid).
+      // Gross is the full menu price. total already has the app discount and
+      // any line discounts taken off it, so counting total as gross while
+      // also adding those to discountTotal subtracted them from net twice.
+      gross += Number((o as any).subtotal ?? total);
+      // Discounts: app membership/reward discounts, per-line discounts, and
+      // till discounts (paid less than total but marked paid).
       if (o.app_discount) discountTotal += Number(o.app_discount);
+      if ((o as any).items_discount_total) discountTotal += Number((o as any).items_discount_total);
       if ((o as any).discount_amount) discountTotal += Number((o as any).discount_amount);
       if (o.discount_type && o.paid_amount != null && Number(o.paid_amount) < total) discountTotal += total - Number(o.paid_amount);
       const settled = o.discount_type && !(o as any).discount_amount ? true : paid + 0.001 >= total - Number((o as any).discount_amount || 0);
@@ -1261,7 +1284,10 @@ Deno.serve(async (req) => {
         if (ord.paid_method) return json({ error: "already_paid", message: "This order is already paid — refund instead." }, 409);
         const total = Math.round(Number(ord.total || 0) * 100) / 100;
         const amount = Math.min(total, Math.round((discount_type === "percent" ? total * dv / 100 : dv) * 100) / 100);
-        const pct = total > 0 ? amount / total * 100 : 0;
+        // Judge the percentage asked for, not the rounded money. 25% of £10.50
+        // is £2.625, which rounds to £2.63 and reads back as 25.05% — so the
+        // 25% preset was intermittently demanding a manager PIN.
+        const pct = discount_type === "percent" ? dv : (total > 0 ? amount / total * 100 : 0);
         // Who's authorising?
         let by = "";
         const mgr = await managerForPin(staff_pin, ord.location_id);
@@ -1299,6 +1325,72 @@ Deno.serve(async (req) => {
         }
         return json({ ok: true, discount_amount: amount, due, closed: !!patch.paid_method, by });
       }
+      // Discount one line rather than the whole order. Same PIN rule as
+      // apply_discount, measured against the line rather than the bill: a
+      // staff PIN can take 25% off a line, a manager anything.
+      // The line's own line_total is left at full menu price. What changes is
+      // the order's items_discount_total and total, so the day summary can
+      // still report the full price as gross and the giveaway as a discount.
+      case "apply_item_discount": {
+        const { order_id, order_item_id, discount_type, discount_value, scope, reason, staff_pin } = data || {};
+        if (!order_id || !order_item_id) return json({ error: "order_id and order_item_id required" }, 400);
+        if (!["percent", "amount"].includes(String(discount_type))) return json({ error: "discount_type must be percent or amount" }, 400);
+        const sc = scope === "unit" ? "unit" : "line";
+        const dv = Math.round(Number(discount_value) * 100) / 100;
+        if (!(dv > 0)) return json({ error: "discount_value must be > 0" }, 400);
+        const { data: ord } = await admin.from("menu_orders").select("id, subtotal, total, app_discount, amount_paid, status, location_id, paid_method").eq("id", order_id).maybeSingle();
+        if (!ord) return json({ error: "order not found" }, 404);
+        if (ord.status === "cancelled") return json({ error: "cancelled", message: "This order was cancelled." }, 409);
+        if (ord.paid_method) return json({ error: "already_paid", message: "This order is already paid — refund instead." }, 409);
+        const { data: line } = await admin.from("menu_order_items").select("id, name_snapshot, qty, line_total").eq("id", order_item_id).eq("order_id", order_id).maybeSingle();
+        if (!line) return json({ error: "line not found" }, 404);
+        const lineTotal = Math.round(Number(line.line_total || 0) * 100) / 100;
+        const qty = Math.max(1, Number(line.qty || 1));
+        // "unit" means the figure is per item and multiplies by the quantity;
+        // a percentage is the same either way, so only an amount scales.
+        const raw = discount_type === "percent" ? lineTotal * dv / 100 : (sc === "unit" ? dv * qty : dv);
+        const amount = Math.min(lineTotal, Math.round(raw * 100) / 100);
+        // Same rounding trap as the order-level discount above.
+        const pct = discount_type === "percent" ? dv : (lineTotal > 0 ? amount / lineTotal * 100 : 0);
+        let by = "";
+        const mgr = await managerForPin(staff_pin, ord.location_id);
+        if (mgr.ok) by = mgr.name || "Manager";
+        else {
+          const st = await staffForPin(staff_pin, ord.location_id);
+          if (!st || !st.ok) return json({ ok: false, error: "bad_pin", message: st && (st as any).reason === "not_this_store" ? "That PIN is for another store" : "PIN not recognised" }, 403);
+          if (pct > 25) return json({ ok: false, error: "manager_required", message: "Discounts over 25% need a manager PIN" }, 403);
+          by = st.name || "Staff";
+        }
+        const { error: lErr } = await admin.from("menu_order_items").update({
+          discount_amount: amount, discount_type, discount_value: dv, discount_scope: sc,
+          discount_reason: reason ? String(reason).slice(0, 80) : null, discount_by: by,
+        }).eq("id", order_item_id).eq("order_id", order_id);
+        if (lErr) throw lErr;
+        const r = await recalcItemDiscounts(order_id, ord);
+        return json({ ok: true, line_discount: amount, items_discount_total: r.itemsDisc, total: r.total, by });
+      }
+
+      case "remove_item_discount": {
+        const { order_id, order_item_id, staff_pin } = data || {};
+        if (!order_id || !order_item_id) return json({ error: "order_id and order_item_id required" }, 400);
+        const { data: ord } = await admin.from("menu_orders").select("id, subtotal, total, app_discount, status, location_id, paid_method").eq("id", order_id).maybeSingle();
+        if (!ord) return json({ error: "order not found" }, 404);
+        if (ord.paid_method) return json({ error: "already_paid", message: "This order is already paid — refund instead." }, 409);
+        // Taking a discount off puts money back on the bill, so any valid PIN
+        // for this store is enough.
+        const mgr = await managerForPin(staff_pin, ord.location_id);
+        if (!mgr.ok) {
+          const st = await staffForPin(staff_pin, ord.location_id);
+          if (!st || !st.ok) return json({ ok: false, error: "bad_pin", message: "PIN not recognised" }, 403);
+        }
+        await admin.from("menu_order_items").update({
+          discount_amount: null, discount_type: null, discount_value: null,
+          discount_scope: null, discount_reason: null, discount_by: null,
+        }).eq("id", order_item_id).eq("order_id", order_id);
+        const r = await recalcItemDiscounts(order_id, ord);
+        return json({ ok: true, items_discount_total: r.itemsDisc, total: r.total });
+      }
+
       case "remove_discount": {
         const { order_id, staff_pin } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);

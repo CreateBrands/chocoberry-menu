@@ -158,7 +158,7 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onRefund, onPrintRefund, onSetTable, onVoidOrder, tables = [], printingId = null }) {
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onItemDiscount, onRemoveItemDiscount, onRefund, onPrintRefund, onSetTable, onVoidOrder, tables = [], printingId = null }) {
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason | voidOrder
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
@@ -171,6 +171,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   const [evenGiven, setEvenGiven] = useState(null);    // cash tendered for current even share
   const [pickIds, setPickIds] = useState({});          // {itemId:true} chosen for split-by-item
   const [voidItem, setVoidItem] = useState(null);      // item pending a void reason
+  const [idsc, setIdsc] = useState(null);              // line pending a discount
   const [note, setNote] = useState("");                // transient status line
   const o = order;
   // When the panel is (re)opened for a NEW order via "Pay now", jump straight
@@ -181,7 +182,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     if (initialMode === "method") setMode("method");
     else setMode("detail");
     // reset transient inputs for the newly-shown order
-    setCashGiven(null); setCashTyped(""); setSplitAmt(""); setEvenGiven(null); setPickIds({}); setVoidItem(null); setNote("");
+    setCashGiven(null); setCashTyped(""); setSplitAmt(""); setEvenGiven(null); setPickIds({}); setVoidItem(null); setIdsc(null); setNote("");
   }, [oid, initialMode]); // eslint-disable-line
   // Sheets (declared before any early return so hook order is stable)
   const [moveTable, setMoveTable] = useState(false);
@@ -195,6 +196,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   const its = o.menu_order_items || [];
   const gross = Math.round(Number(o.total || 0) * 100) / 100;
   const discount = Math.round(Number(o.discount_amount || 0) * 100) / 100;
+  const itemsDiscount = Math.round(Number(o.items_discount_total || 0) * 100) / 100;
   const total = Math.round((gross - discount) * 100) / 100; // amount due after discount
   const paidSoFar = Math.round(Number(o.amount_paid || 0) * 100) / 100;
   const refunded = Math.round(Number(o.refund_total || 0) * 100) / 100;
@@ -579,6 +581,81 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     </>);
   }
 
+  // ── ITEM DISCOUNT SHEET ──
+  // Ahead of the edit sheet, which is where it is opened from.
+  if (idsc) {
+    const it = idsc.item;
+    const lineTotal = Math.round(Number(it.line_total || 0) * 100) / 100;
+    const qty = Math.max(1, Number(it.qty || 1));
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    const PCT_PRESETS = [5, 10, 15, 20, 25, 50, 100];
+    const customPct = idsc.type === "percent" && idsc.value !== 0 && idsc.value !== ""
+      && !PCT_PRESETS.includes(Number(idsc.value)) ? String(idsc.value) : "";
+    // A percentage means the same whether you read it per unit or per line,
+    // so only an amount multiplies by the quantity.
+    const rawOff = idsc.type === "percent" ? lineTotal * num(idsc.value) / 100
+      : (idsc.scope === "unit" ? num(idsc.value) * qty : num(idsc.value));
+    const off = Math.min(lineTotal, Math.round(rawOff * 100) / 100);
+    const pct = idsc.type === "percent" ? num(idsc.value) : (lineTotal > 0 ? off / lineTotal * 100 : 0);
+    const existing = Number(it.discount_amount || 0);
+    const applyIt = async () => {
+      if (!(num(idsc.value) > 0)) { setSheetErr("Choose a discount"); return; }
+      if (idsc.pin.length < 4) { setSheetErr("Enter your PIN"); return; }
+      setSheetBusy(true); setSheetErr("");
+      const r = await onItemDiscount(o, it.id, { discount_type: idsc.type, discount_value: num(idsc.value), scope: idsc.scope, reason: idsc.reason, staff_pin: idsc.pin });
+      setSheetBusy(false);
+      if (r && r.ok) { setIdsc(null); setNote("Item discount applied" + (r.by ? " by " + r.by : "")); }
+      else setSheetErr((r && (r.message || r.error)) || "Could not discount the item");
+    };
+    const clearIt = async () => {
+      if (idsc.pin.length < 4) { setSheetErr("Enter your PIN to remove it"); return; }
+      setSheetBusy(true); setSheetErr("");
+      const r = await onRemoveItemDiscount(o, it.id, idsc.pin);
+      setSheetBusy(false);
+      if (r && r.ok) { setIdsc(null); setNote("Item discount removed"); }
+      else setSheetErr((r && (r.message || r.error)) || "Could not remove it");
+    };
+    return Wrap(<>
+      {HeaderBar("Item discount")}
+      <div style={{ padding: 16, flex: 1, overflowY: "auto" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}><span onClick={() => setIdsc(null)} style={{ cursor: "pointer" }}>{Ico.back()}</span><span style={{ fontWeight: 700, fontSize: 15 }}>{it.name_snapshot}</span><span style={{ marginLeft: "auto", fontSize: 13, color: C.sub }}>{qty} × · {money(lineTotal)}</span></div>
+        <div style={{ fontSize: 11.5, color: C.sub, marginBottom: 12 }}>This line only. The order discount, if any, still applies on top.</div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Percent off</div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 12 }}>
+          {PCT_PRESETS.map((v) => <span key={v} onClick={() => { setIdsc({ ...idsc, type: "percent", value: v }); setSheetErr(""); }} style={{ padding: "13px 0", textAlign: "center", borderRadius: 10, background: idsc.type === "percent" && Number(idsc.value) === v ? C.ink : "#f3f4f6", color: idsc.type === "percent" && Number(idsc.value) === v ? "#fff" : C.ink, fontWeight: 800, cursor: "pointer" }}>{v}%</span>)}
+          <input inputMode="decimal" placeholder="Custom %" aria-label="Custom percent off this item" value={customPct}
+            onChange={(e) => { const raw = e.target.value.replace(/[^0-9.]/g, ""); setIdsc({ ...idsc, type: "percent", value: num(raw) > 100 ? "100" : raw }); setSheetErr(""); }}
+            style={{ gridColumn: "span 3", boxSizing: "border-box", width: "100%", padding: "13px 10px", textAlign: "center", fontSize: 15, fontWeight: 800, color: C.ink, background: "#fff", border: "1.5px solid " + (customPct ? C.ink : C.line), borderRadius: 10 }} />
+        </div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Or £ off</div>
+        <input inputMode="decimal" placeholder="e.g. 1.00" value={idsc.type === "amount" ? idsc.value : ""} onChange={(e) => { setIdsc({ ...idsc, type: "amount", value: e.target.value.replace(/[^0-9.]/g, "") }); setSheetErr(""); }} style={{ width: "100%", boxSizing: "border-box", padding: "12px 13px", fontSize: 16, border: "1.5px solid " + C.line, borderRadius: 10, marginBottom: 12 }} />
+        {/* Only meaningful for a £ amount on a multi-item line: 20% off is
+            20% off however you read it. */}
+        {idsc.type === "amount" && qty > 1 && (
+          <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
+            {[["line", "Off the line"], ["unit", "Off each of " + qty]].map(([k, lab]) => (
+              <span key={k} onClick={() => { setIdsc({ ...idsc, scope: k }); setSheetErr(""); }} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, border: "1.5px solid " + (idsc.scope === k ? C.ink : C.line), background: idsc.scope === k ? C.ink : "#fff", color: idsc.scope === k ? "#fff" : C.ink, fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{lab}</span>
+            ))}
+          </div>
+        )}
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Reason</div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
+          {["Wrong item", "Complaint", "Staff", "Loyal customer", "Manager's discretion", "Promotion"].map((rs) => <span key={rs} onClick={() => setIdsc({ ...idsc, reason: rs })} style={{ padding: "8px 12px", borderRadius: 999, background: idsc.reason === rs ? C.ink : "#fff", color: idsc.reason === rs ? "#fff" : C.ink, border: "1.5px solid " + (idsc.reason === rs ? C.ink : C.line), fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{rs}</span>)}
+        </div>
+        <div style={{ padding: "12px 14px", borderRadius: 12, background: "#f0f5ea", marginBottom: 14, display: "flex", justifyContent: "space-between", fontWeight: 800 }}><span>Off this item {money(off)}{pct > 25 && <span style={{ color: "#b4462f", fontWeight: 700, fontSize: 12 }}> · manager PIN needed</span>}</span><span>Line {money(Math.max(0, lineTotal - off))}</span></div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, textAlign: "center" }}>{pct > 25 ? "Manager PIN" : "Your punch-in PIN"}</div>
+        <Dots n={idsc.pin.length} />
+        <PinPad value={idsc.pin} onChange={(v) => { setIdsc({ ...idsc, pin: v }); setSheetErr(""); }} />
+        {sheetErr && <div style={{ color: "#b4462f", fontWeight: 700, textAlign: "center", marginTop: 12 }}>{sheetErr}</div>}
+      </div>
+      <div style={{ padding: "12px 15px", borderTop: "1px solid #eef0f2", display: "flex", gap: 8 }}>
+        <span onClick={() => setIdsc(null)} style={{ padding: "14px 18px", borderRadius: 13, background: "#fff", border: "1.5px solid " + C.line, fontWeight: 700, cursor: "pointer" }}>Cancel</span>
+        {existing > 0 && <span onClick={() => { if (!sheetBusy) clearIt(); }} style={{ padding: "14px 16px", borderRadius: 13, background: "#fff", border: "1.5px solid " + C.line, color: "#b4462f", fontWeight: 700, cursor: "pointer" }}>Remove</span>}
+        <span onClick={() => { if (!sheetBusy) applyIt(); }} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 13, background: C.ink, color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer", opacity: sheetBusy ? .6 : 1 }}>{sheetBusy ? "Applying…" : "Apply"}</span>
+      </div>
+    </>);
+  }
+
   // ── EDIT (unpaid) ──
   if (mode === "edit" && !isPaid) {
     return Wrap(<>
@@ -589,14 +666,31 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       </div>
       {note && <div style={{ margin: "4px 15px", fontSize: 11.5, color: "#2f6b4f", fontWeight: 600 }}>{note}</div>}
       <div style={{ flex: 1, overflowY: "auto", padding: "0 15px" }}>
-        {its.map((it, j) => (
-          <CartLine key={it.id || j} last={j === its.length - 1}
-            line={{ name: it.name_snapshot, qty: it.qty || 1, lineTotal: Number(it.line_total || 0), image_url: (it.menu_items && it.menu_items.image_url) || it.image_url, mods: modArray(it), note: it.note }}
-            onDec={() => onSetQty(o, it.id, (it.qty || 1) - 1)}
-            onInc={() => onSetQty(o, it.id, (it.qty || 1) + 1)}
-            onRemove={() => { setVoidItem(it); setMode("voidReason"); }}
-          />
-        ))}
+        {its.map((it, j) => {
+          const lineDisc = Number(it.discount_amount || 0);
+          return (
+            <div key={it.id || j}>
+              <CartLine last={false}
+                line={{ name: it.name_snapshot, qty: it.qty || 1, lineTotal: Number(it.line_total || 0), image_url: (it.menu_items && it.menu_items.image_url) || it.image_url, mods: modArray(it), note: it.note }}
+                onDec={() => onSetQty(o, it.id, (it.qty || 1) - 1)}
+                onInc={() => onSetQty(o, it.id, (it.qty || 1) + 1)}
+                onRemove={() => { setVoidItem(it); setMode("voidReason"); }}
+              />
+              {/* Per-line discount sits under the row rather than inside
+                  CartLine, which is shared with the customer-facing bag. */}
+              {!isPaid && onItemDiscount && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 0 10px 2px", marginTop: -4, borderBottom: j === its.length - 1 ? "none" : "1px solid " + C.line, paddingBottom: 10, marginBottom: 10 }}>
+                  <span onClick={() => { setIdsc({ item: it, type: "percent", value: lineDisc > 0 ? Number(it.discount_value || 0) : 0, scope: it.discount_scope === "unit" ? "unit" : "line", reason: it.discount_reason || "", pin: "" }); setSheetErr(""); }}
+                    style={{ padding: "6px 11px", borderRadius: 999, border: "1.5px solid " + (lineDisc > 0 ? "#2f6b4f" : C.line), background: lineDisc > 0 ? "#eaf3ec" : "#fff", color: lineDisc > 0 ? "#2f6b4f" : C.sub, fontWeight: 700, fontSize: 11.5, cursor: "pointer" }}>
+                    {lineDisc > 0 ? "Discount −" + money(lineDisc) : "Discount this item"}
+                  </span>
+                  {lineDisc > 0 && it.discount_reason && <span style={{ fontSize: 11, color: C.sub }}>{it.discount_reason}</span>}
+                  {lineDisc > 0 && it.discount_by && <span style={{ fontSize: 11, color: C.sub, marginLeft: "auto" }}>{it.discount_by}</span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
         {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items left.</div>}
       </div>
       <div style={{ padding: "12px 15px", borderTop: "1px solid " + C.line, background: "#faf9f5", display: "flex", alignItems: "center", gap: 9, flexShrink: 0 }}>
@@ -617,7 +711,8 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     const customPct = dsc.type === "percent" && dsc.value !== 0 && dsc.value !== ""
       && !PCT_PRESETS.includes(Number(dsc.value)) ? String(dsc.value) : "";
     const preview = Math.min(gross, dsc.type === "percent" ? gross * num(dsc.value) / 100 : num(dsc.value));
-    const pct = gross > 0 ? preview / gross * 100 : 0;
+    // Mirrors the server: the percentage asked for, not the rounded money.
+    const pct = dsc.type === "percent" ? num(dsc.value) : (gross > 0 ? preview / gross * 100 : 0);
     const apply = async () => {
       if (!(num(dsc.value) > 0)) { setSheetErr("Choose a discount"); return; }
       if (dsc.pin.length < 4) { setSheetErr("Enter your PIN"); return; }
@@ -719,6 +814,11 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       {its.length === 0 && <div style={{ padding: 24, textAlign: "center", color: C.sub, fontSize: 13 }}>No items.</div>}
     </div>
     <div style={{ padding: "13px 15px", borderTop: "1px solid #eef0f2", background: "#faf9f5", flexShrink: 0 }}>
+      {/* Line discounts are already off the total, so without this the staff
+          see a total that does not add up from the menu prices. */}
+      {itemsDiscount > 0 && (
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: "#2f6b4f", fontWeight: 700, marginBottom: 6 }}><span>Item discounts</span><span>−{money(itemsDiscount)}</span></div>
+      )}
       {discount > 0 && (
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 12.5, color: "#2f6b4f", fontWeight: 700, marginBottom: 6 }}><span>Discount{o.discount_reason ? " · " + o.discount_reason : ""}{o.discount_type === "percent" ? " (" + Number(o.discount_value) + "%)" : ""}</span><span>−{money(discount)}{!isPaid && onRemoveDiscount && <span onClick={() => { const pin = window.prompt("Your PIN to remove the discount"); if (pin) onRemoveDiscount(o, pin); }} style={{ marginLeft: 10, color: C.sub, cursor: "pointer", fontWeight: 700 }}>✕</span>}</span></div>
       )}
