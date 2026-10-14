@@ -1,5 +1,7 @@
 import { useState, useMemo } from "react";
 import { payLabel } from "./payLabel.js";
+// Currency follows the store being served — see src/money.js.
+import { money } from "./money.js";
 
 // ── Order-management screen (flagship POS design) ─────────────────────
 // Self-contained. Renders inside the existing Drawer's "Till" tab.
@@ -16,7 +18,6 @@ import { payLabel } from "./payLabel.js";
 //
 // All money in GBP. Colours match the Chocoberry admin palette.
 
-const money = (n) => "£" + Number(n || 0).toFixed(2);
 
 function minsAgo(ts, now) {
   const m = Math.max(0, Math.floor((now - ts) / 60000));

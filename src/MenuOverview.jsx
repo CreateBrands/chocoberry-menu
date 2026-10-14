@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+// Currency follows the store being served — see src/money.js.
+import { money as fmtMoney } from "./money.js";
 
 /* ─────────────────────────────────────────────────────────────────────────────
    MENU OVERVIEW — the whole menu on one page, laid out the way Uber Eats does:
@@ -54,7 +56,7 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
   const overrideFor = (itemId) =>
     storeId ? (state.overrides || []).find((o) => o.item_id === itemId && o.location_id === storeId) : null;
 
-  const money = (n) => (n == null || n === "" ? "—" : "£" + Number(n).toFixed(2));
+  const money = (n) => (n == null || n === "" ? "—" : fmtMoney(n));
   const bandPriceOf = (itemId, bId) =>
     (state.bandPrices || []).find((p) => p.item_id === itemId && p.band_id === bId)?.price ?? null;
   const bandOptPriceOf = (optId, bId) =>

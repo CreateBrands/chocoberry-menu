@@ -4,6 +4,8 @@ import OrderManager from "./OrderManager.jsx";
 import KioskWelcome, { CupIcon, BagIcon } from "./KioskWelcome.jsx";
 import KioskMenu from "./KioskMenu.jsx";
 import { payLabel } from "./payLabel.js";
+// Currency follows the store being served — see src/money.js.
+import { money, setActiveCurrency, currencySymbol } from "./money.js";
 
 // ============================================================
 // still. / Chocoberry — Digital Menu (React port of approved design)
@@ -65,7 +67,6 @@ const HERO = [
 
 // Item cards and modifier prices have always used "£"; the bag said "GBP 5.75"
 // against "£5.75" on the card it came from.
-const money = (n) => "£" + Number(n).toFixed(2);
 
 const H = { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json" };
 
@@ -1239,8 +1240,8 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
                                     <div onClick={(e) => e.stopPropagation()} style={{ marginTop: 10, padding: "12px", borderRadius: 10, background: "var(--bg3)" }}>
                                       <div style={{ display: "flex", gap: 6, marginBottom: 8 }}>
                                         <span onClick={() => { setDiscType(discType === "percent" ? "" : "percent"); }} style={{ flex: 1, textAlign: "center", padding: "7px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: discType === "percent" ? "var(--accent)" : "var(--bg2)", color: discType === "percent" ? "#F7F4EC" : "var(--ink)" }}>% off</span>
-                                        <span onClick={() => { setDiscType(discType === "amount" ? "" : "amount"); }} style={{ flex: 1, textAlign: "center", padding: "7px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: discType === "amount" ? "var(--accent)" : "var(--bg2)", color: discType === "amount" ? "#F7F4EC" : "var(--ink)" }}>£ off</span>
-                                        {discType && <input type="number" value={discVal} onChange={(e) => setDiscVal(e.target.value)} placeholder={discType === "percent" ? "%" : "£"} style={{ width: 60, padding: "7px 8px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 13 }} />}
+                                        <span onClick={() => { setDiscType(discType === "amount" ? "" : "amount"); }} style={{ flex: 1, textAlign: "center", padding: "7px 0", borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: "pointer", background: discType === "amount" ? "var(--accent)" : "var(--bg2)", color: discType === "amount" ? "#F7F4EC" : "var(--ink)" }}>{currencySymbol().trim()} off</span>
+                                        {discType && <input type="number" value={discVal} onChange={(e) => setDiscVal(e.target.value)} placeholder={discType === "percent" ? "%" : currencySymbol().trim()} style={{ width: 60, padding: "7px 8px", borderRadius: 8, border: "1px solid var(--line)", background: "var(--bg)", color: "var(--ink)", fontSize: 13 }} />}
                                       </div>
                                       <div style={{ display: "flex", gap: 8 }}>
                                         <span onClick={() => markPaid(o, "cash")} style={{ flex: 1, textAlign: "center", padding: "11px 0", borderRadius: 10, background: "#3c5a2e", color: "#F7F4EC", fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 14, cursor: "pointer", opacity: savingPaid ? .6 : 1 }}>Cash</span>
@@ -1517,7 +1518,7 @@ export function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onA
                 <div style={{ marginBottom: 14, opacity: .92 }}>{o.image_url ? <img src={o.image_url} alt="" style={{ width: 38, height: 38, borderRadius: 8, objectFit: "cover" }} /> : addonArt(o.name)}</div>
                 <div style={{ fontSize: kiosk ? 19 : 12, fontWeight: 600, lineHeight: 1.3, color: "var(--ink)", marginBottom: kiosk ? 8 : 6 }}>{o.name.trim()}</div>
                 {Number(o.price_delta)
-                  ? <div style={{ fontSize: kiosk ? 15 : 12, color: "var(--accent)", fontWeight: 700, ...(kiosk ? { background: "var(--bg2)", padding: "5px 12px", borderRadius: 999 } : null) }}>+£{Number(o.price_delta).toFixed(2)}</div>
+                  ? <div style={{ fontSize: kiosk ? 15 : 12, color: "var(--accent)", fontWeight: 700, ...(kiosk ? { background: "var(--bg2)", padding: "5px 12px", borderRadius: 999 } : null) }}>+{money(o.price_delta)}</div>
                   : (kiosk ? <div style={{ fontSize: 15, color: "var(--muted)", fontWeight: 600, background: "var(--bg2)", padding: "5px 12px", borderRadius: 999 }}>Included</div> : null)}
               </div>
             );
@@ -2185,7 +2186,7 @@ function SearchOverlay({ menus, onItem, onClose }) {
               <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 17, color: "var(--ink)" }}>{it.name}</div>
               <div style={{ fontSize: 13, color: "var(--muted)" }}>{it.menu} · {it.cat}</div>
             </div>
-            <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>£{Number(it.price).toFixed(2)}</div>
+            <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</div>
           </div>
         ))}
       </div>
@@ -2697,6 +2698,10 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
 
   const storeLocId = kioskStoreId || (store && (store.id || store.location_id));
   const settingsEff = applyStoreOverrides(settings, storeLocId);
+  // Set before anything below renders a price. A store in Dubai carries
+  // `currency:<location_id>` = AED in settings; everywhere else keeps GBP,
+  // so UK tills are byte-for-byte unchanged.
+  setActiveCurrency(settingsEff.currency);
   // Both of these read settingsEff, so they have to come after it.
   let heroSlides = [];
   try { heroSlides = settingsEff.hero_slides ? (typeof settingsEff.hero_slides === "string" ? JSON.parse(settingsEff.hero_slides) : settingsEff.hero_slides) : []; } catch { heroSlides = []; }

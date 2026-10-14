@@ -8,7 +8,8 @@
 // Interactivity is opt-in via handlers. When a handler is omitted the control
 // is hidden, but the visual format is otherwise identical.
 
-const gbp = (n) => "£" + Number(n || 0).toFixed(2);
+// Prices follow the store being served — see src/money.js.
+import { money as gbp } from "./money.js";
 
 // Category icon + gradient fallback (used when a line has no photo).
 const CB_CAT_ICONS = [

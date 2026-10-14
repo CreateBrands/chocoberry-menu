@@ -1,6 +1,8 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import CartLine from "./CartLine.jsx";
 import { payLabel } from "./payLabel.js";
+// Currency follows the store being served — see src/money.js.
+import { money } from "./money.js";
 
 // ── Single-screen POS orders ─────────────────────────────────────────
 // OrdersList       → compact list (under master categories in col 1)
@@ -8,7 +10,6 @@ import { payLabel } from "./payLabel.js";
 //                    order is tapped: detail → payment → edit.
 // No icon-font dependency (inline SVG + text); high-contrast colours.
 
-const money = (n) => "£" + Number(n || 0).toFixed(2);
 function mins(ts, now) { return Math.max(0, Math.floor((now - ts) / 60000)); }
 function agoLabel(m) { if (m < 1) return "just now"; if (m < 60) return m + " min"; return Math.floor(m / 60) + "h " + (m % 60) + "m"; }
 function ageColor(m) { if (m < 5) return "#B23B3B"; if (m < 15) return "#C67A2C"; return "#6b7260"; }

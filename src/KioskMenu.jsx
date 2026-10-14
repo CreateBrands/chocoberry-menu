@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+// Prices follow the store being served — see src/money.js.
+import { money } from "./money.js";
 
 // ============================================================
 // KIOSK MENU
@@ -213,7 +215,7 @@ export default function KioskMenu({
                   <div style={{ flex: 1, boxSizing: "border-box", padding: "24px 26px 26px", display: "flex", flexDirection: "column", justifyContent: "space-between", gap: 14 }}>
                     <span style={{ fontFamily: head, fontSize: 29, fontWeight: 600, letterSpacing: "-.025em", lineHeight: 1.12, minHeight: 66, color: NAME_INK }}>{it.name}</span>
                     <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                      <span style={{ fontFamily: head, fontSize: 27, fontWeight: 600, letterSpacing: "-.01em", color: accent }}>£{Number(it.price).toFixed(2)}</span>
+                      <span style={{ fontFamily: head, fontSize: 27, fontWeight: 600, letterSpacing: "-.01em", color: accent }}>{money(it.price)}</span>
                       {it.soldOut
                         ? <span style={{ fontSize: 19, fontWeight: 600, color: INK }}>Unavailable</span>
                         : addBtn(it)}

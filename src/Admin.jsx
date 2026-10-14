@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import MenuOverview from "./MenuOverview";
 import { openTableStickerSheet } from "./tableStickers";
 import PricingManager from "./PricingManager";
+// Currency follows the store being served — see src/money.js.
+import { money } from "./money.js";
 
 // ============================================================
 // Menu Admin — MyMenu-style. Menu > Section > Item drill-down,
@@ -16,7 +18,6 @@ const T = {
   bg: "#F3F0E7", card: "#FFFFFF", ink: "#2F3326", muted: "#7E8470",
   accent: "#5E7A4D", line: "rgba(60,70,45,.14)", danger: "#B23B3B", faint: "#9AA189",
 };
-const money = (n) => "£" + Number(n || 0).toFixed(2);
 
 async function callAdmin(pin, action, body_) {
   const res = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
