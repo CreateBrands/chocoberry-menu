@@ -608,10 +608,18 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
 
   // ── DISCOUNT SHEET ──
   if (dsc) {
-    const preview = Math.min(gross, dsc.type === "percent" ? gross * Number(dsc.value || 0) / 100 : Number(dsc.value || 0));
+    // A half-typed figure — "." or "1.2.3" — is not a number, and feeding NaN
+    // into the preview printed "£NaN" at staff mid-keystroke.
+    const num = (v) => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+    const PCT_PRESETS = [5, 10, 15, 20, 25, 50, 100];
+    // Filled only when the percent is not one of the presets, so tapping 10%
+    // doesn't light up the custom box as well.
+    const customPct = dsc.type === "percent" && dsc.value !== 0 && dsc.value !== ""
+      && !PCT_PRESETS.includes(Number(dsc.value)) ? String(dsc.value) : "";
+    const preview = Math.min(gross, dsc.type === "percent" ? gross * num(dsc.value) / 100 : num(dsc.value));
     const pct = gross > 0 ? preview / gross * 100 : 0;
     const apply = async () => {
-      if (!(Number(dsc.value) > 0)) { setSheetErr("Choose a discount"); return; }
+      if (!(num(dsc.value) > 0)) { setSheetErr("Choose a discount"); return; }
       if (dsc.pin.length < 4) { setSheetErr("Enter your PIN"); return; }
       setSheetBusy(true); setSheetErr("");
       const r = await onDiscount(o, { discount_type: dsc.type, discount_value: Number(dsc.value), reason: dsc.reason, staff_pin: dsc.pin });
@@ -625,7 +633,12 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}><span onClick={() => setDsc(null)} style={{ cursor: "pointer" }}>{Ico.back()}</span><span style={{ fontWeight: 700, fontSize: 15 }}>Apply a discount</span><span style={{ marginLeft: "auto", fontSize: 13, color: C.sub }}>Order {money(gross)}</span></div>
         <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Percent off</div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 8, marginBottom: 12 }}>
-          {[5, 10, 15, 20, 25, 50, 100].map((v) => <span key={v} onClick={() => setDsc({ ...dsc, type: "percent", value: v })} style={{ padding: "13px 0", textAlign: "center", borderRadius: 10, background: dsc.type === "percent" && Number(dsc.value) === v ? C.ink : "#f3f4f6", color: dsc.type === "percent" && Number(dsc.value) === v ? "#fff" : C.ink, fontWeight: 800, cursor: "pointer" }}>{v}%</span>)}
+          {PCT_PRESETS.map((v) => <span key={v} onClick={() => { setDsc({ ...dsc, type: "percent", value: v }); setSheetErr(""); }} style={{ padding: "13px 0", textAlign: "center", borderRadius: 10, background: dsc.type === "percent" && Number(dsc.value) === v ? C.ink : "#f3f4f6", color: dsc.type === "percent" && Number(dsc.value) === v ? "#fff" : C.ink, fontWeight: 800, cursor: "pointer" }}>{v}%</span>)}
+          {/* Fills the three spare cells the presets leave on the second row,
+              so an odd figure like 12% needs no workaround in £ off. */}
+          <input inputMode="decimal" placeholder="Custom %" aria-label="Custom percent off" value={customPct}
+            onChange={(e) => { const raw = e.target.value.replace(/[^0-9.]/g, ""); setDsc({ ...dsc, type: "percent", value: num(raw) > 100 ? "100" : raw }); setSheetErr(""); }}
+            style={{ gridColumn: "span 3", boxSizing: "border-box", width: "100%", padding: "13px 10px", textAlign: "center", fontSize: 15, fontWeight: 800, color: C.ink, background: "#fff", border: "1.5px solid " + (customPct ? C.ink : C.line), borderRadius: 10 }} />
         </div>
         <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, marginBottom: 8 }}>Or £ off</div>
         <input inputMode="decimal" placeholder="e.g. 2.50" value={dsc.type === "amount" ? dsc.value : ""} onChange={(e) => setDsc({ ...dsc, type: "amount", value: e.target.value.replace(/[^0-9.]/g, "") })} style={{ width: "100%", boxSizing: "border-box", padding: "12px 13px", fontSize: 16, border: "1.5px solid " + C.line, borderRadius: 10, marginBottom: 14 }} />
