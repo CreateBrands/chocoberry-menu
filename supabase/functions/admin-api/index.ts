@@ -201,14 +201,20 @@ Deno.serve(async (req) => {
     for (const x of f.formatToParts(new Date(ms))) if (x.type !== "literal") p[x.type] = Number(x.value);
     return (Date.UTC(p.year, p.month - 1, p.day, p.hour, p.minute, p.second) - ms) / 60000;
   }
-  function tradingDayCutoff(): string {
+  // 04:00 in the STORE's own zone. Hard-wiring London rolls a Dubai store's
+  // trading day at 08:00 local — in the middle of its opening hours — so the
+  // morning's orders would land either side of the boundary and the closing
+  // report would be wrong in a way nobody could see. A null or empty zone
+  // means London, so every UK store behaves exactly as before.
+  function tradingDayCutoff(tz?: string | null): string {
+    const zone = String(tz || "").trim() || "Europe/London";
     const now = Date.now();
-    const off = tzOffsetMinutes(now, "Europe/London");
-    const local = new Date(now + off * 60000); // London wall clock, expressed in UTC fields
+    const off = tzOffsetMinutes(now, zone);
+    const local = new Date(now + off * 60000); // store wall clock, expressed in UTC fields
     let y = local.getUTCFullYear(), m = local.getUTCMonth(), d = local.getUTCDate();
     if (local.getUTCHours() < TRADING_DAY_END_HOUR) { const prev = new Date(Date.UTC(y, m, d - 1)); y = prev.getUTCFullYear(); m = prev.getUTCMonth(); d = prev.getUTCDate(); }
     const wall = Date.UTC(y, m, d, TRADING_DAY_END_HOUR);
-    return new Date(wall - tzOffsetMinutes(wall, "Europe/London") * 60000).toISOString();
+    return new Date(wall - tzOffsetMinutes(wall, zone) * 60000).toISOString();
   }
   // ---- Device licences ----
   async function sha256(s: string) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join(""); }
@@ -254,7 +260,8 @@ Deno.serve(async (req) => {
   }
   // mode "trading_day": only orders created before the last 04:00; "all": every open order.
   async function dayTotals(location_id: string, mode: "trading_day" | "all" = "all") {
-    const cutoff = tradingDayCutoff();
+    const { data: locRow } = await admin.from("menu_locations").select("timezone").eq("id", location_id).maybeSingle();
+    const cutoff = tradingDayCutoff((locRow as any)?.timezone);
     const { data: allRows, error } = await admin
       .from("menu_orders")
       .select("id, order_no, order_type, tablet_no, external_channel, total, subtotal, items_discount_total, amount_paid, paid_amount, app_discount, discount_amount, discount_type, status, created_at, kds_bumped_at, customer_note")
