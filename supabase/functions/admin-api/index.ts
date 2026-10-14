@@ -1104,6 +1104,22 @@ Deno.serve(async (req) => {
         if (wasHold) patch.status = "placed";
         const { error } = await admin.from("menu_orders").update(patch).eq("id", order_id);
         if (error) throw error;
+        // Record the tender. The closing report builds "cash taken" purely from
+        // order_payments, and this path wrote only the order's own paid_method,
+        // so every order paid as it was rung up at the counter was money in the
+        // drawer that the report never saw — the till read over by exactly that
+        // much, and the day's takings were understated.
+        // Only the part not already in the ledger, so calling this twice, or
+        // after a part-payment, cannot double-count.
+        if (paid > 0) {
+          const { data: existing } = await admin.from("order_payments").select("amount, kind").eq("order_id", order_id);
+          const already = Math.round((existing || []).filter((p: any) => p.kind !== "refund").reduce((s: number, p: any) => s + Number(p.amount || 0), 0) * 100) / 100;
+          const delta = Math.round((paid - already) * 100) / 100;
+          if (delta > 0.001) {
+            const { error: pErr } = await admin.from("order_payments").insert({ order_id, method, amount: delta, kind: "payment", note: "Till" });
+            if (pErr) console.error("mark_paid tender", pErr);
+          }
+        }
         if (wasHold) {
           // Re-fetch the full row and fire the print (the INSERT webhook skipped
           // it while on hold). KDS picks it up automatically via the poll.
