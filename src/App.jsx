@@ -2441,6 +2441,13 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     } catch { setTablePinErr("Wrong PIN."); } finally { setTablePinChecking(false); }
   }
   const orderingOn = settings.ordering_enabled !== "off" && settings.ordering_enabled !== false;
+  // Two separate switches, and until now only the global one reached the UI.
+  // ordering_enabled turns ordering off everywhere; accepting_orders:<store>
+  // turns it off for one store, which is how Dubai runs — the till there is
+  // Petpooja, so the tablets are a menu and nothing else. The per-store one
+  // was read but only checked at submit, so Dubai still offered Place Order
+  // and only refused once the customer had filled a bag and tapped it.
+  const canOrder = orderingOn && acceptingOrders;
   // The kiosk shell reads this to decide whether leaving would lose an order.
   useEffect(() => { try { window.__kioskBagCount = lines.reduce((n, l) => n + l.qty, 0); } catch {} });
   const [sessionOrders, setSessionOrders] = useState(() => {
@@ -2536,7 +2543,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     if (kiosk && kioskDine === null) { setOrderErr("Please choose eat in or take away."); return; }
     if (kiosk && kioskDine === true && !String(kioskTable || "").trim()) { setOrderErr("Please enter your table number."); return; }
     if (kiosk && kioskDine === false && String(pickupName || "").trim().length < 2) { setOrderErr("Please enter your name so we can call you."); return; }
-    if (!kiosk && orderingOn && tableMode === "pick" && !table) {
+    if (!kiosk && canOrder && tableMode === "pick" && !table) {
       setOrderErr("Please ask a staff member to set your table before ordering.");
       openTablePicker();
       return;
@@ -2858,19 +2865,19 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
               if (kiosk && kioskDine === null) { setOrderErr("Please choose eat in or take away."); return; }
     if (kiosk && kioskDine === true && !String(kioskTable || "").trim()) { setOrderErr("Please enter your table number."); return; }
     if (kiosk && kioskDine === false && String(pickupName || "").trim().length < 2) { setOrderErr("Please enter your name so we can call you."); return; }
-    if (!kiosk && orderingOn && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
+    if (!kiosk && canOrder && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
-            }} orderingEnabled={settings.ordering_enabled !== "off" && settings.ordering_enabled !== false} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
+            }} orderingEnabled={canOrder} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
             <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={startOver}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} kioskItems={lastCount} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} autoSeconds={kiosk ? confirmSeconds : 0} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
-            {orderingOn && tableMode === "pick" && screen === "welcome" && (
+            {canOrder && tableMode === "pick" && screen === "welcome" && (
               <div onClick={openTablePicker}
                 style={{ position: "absolute", top: 14, right: 14, zIndex: 40, padding: "8px 14px", borderRadius: 20, background: "var(--bg3)", boxShadow: "inset 0 0 0 1px var(--line)", fontSize: 12, fontWeight: 700, letterSpacing: ".04em", color: "var(--muted)", cursor: "pointer", opacity: 0.85 }}>
                 {table ? `Table: ${table.label}` : "Staff · Set table"}
               </div>
             )}
-            {orderingOn && showTablePicker && (
+            {canOrder && showTablePicker && (
               <TablePicker tables={tables} current={table} required={false}
                 onPick={(t) => { setTable({ id: t.id, label: t.label }); setShowTablePicker(false); setTableUnlocked(false); }}
                 onClose={() => { setShowTablePicker(false); setTableUnlocked(false); }} />
