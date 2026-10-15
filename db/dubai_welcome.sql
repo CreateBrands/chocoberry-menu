@@ -9,6 +9,16 @@
 -- what Dubai already publishes: the Tiramisu Caviar banner and the reddish
 -- brown Chocoberry London logo, both from the apetito CDN.
 --
+-- Two keys are overridden to EMPTY rather than left out, and both matter.
+-- A key that is merely absent inherits the global one, which is the UK
+-- setting. welcome_layout is the important one: when a layout is present the
+-- app draws its elements and ignores welcome_logo_url, welcome_eyebrow and
+-- welcome_subtitle completely, so Dubai was rendering the UK layout and none
+-- of the settings below. An empty array parses to a zero-length layout, which
+-- turns that branch off and brings back the plain welcome. welcome_bg_url is
+-- emptied for the same reason: deleting it let the UK background photo back
+-- in.
+--
 -- The banner is set as the hero strip only, never welcome_bg_url. It is
 -- 1200x700, and a landscape image used as a full-bleed background on a
 -- portrait tablet gets scaled to fill the height, ending up far wider than
@@ -46,6 +56,8 @@ begin
       ('welcome_subtitle',  v_dt, 'Boulevard Central Tower 1<br />Downtown Dubai'),
       ('welcome_button',    v_dt, 'View Menu'),
       ('welcome_footer',    v_dt, 'BROWSE THE MENU · ORDER AT THE COUNTER'),
+      ('welcome_layout',    v_dt, '[]'),
+      ('welcome_bg_url',    v_dt, ''),
       ('hero_slides',       v_dt, v_hero),
       -- Al Zahia Mall
       ('welcome_logo_url',  v_zm, v_logo),
@@ -53,6 +65,8 @@ begin
       ('welcome_subtitle',  v_zm, 'City Centre, Al Zahia<br />Sharjah'),
       ('welcome_button',    v_zm, 'View Menu'),
       ('welcome_footer',    v_zm, 'BROWSE THE MENU · ORDER AT THE COUNTER'),
+      ('welcome_layout',    v_zm, '[]'),
+      ('welcome_bg_url',    v_zm, ''),
       ('hero_slides',       v_zm, v_hero)
     ) as t(k, loc, val)
   loop
@@ -66,7 +80,7 @@ begin
   raise notice 'Welcome and hero set for both Dubai stores';
 end $$;
 
--- What each store now carries. 8 rows per store, counting the currency and
+-- What each store now carries. 10 rows per store, counting the currency and
 -- accepting_orders rows set by the earlier scripts.
 select l.name as store, split_part(s.key, ':', 1) as setting,
        left(s.value, 70) as value
