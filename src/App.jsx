@@ -452,7 +452,7 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   );
 }
 // ============ DATA-DRIVEN BROWSE ============
-export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, onReach = null, bagCount, heroSlides, heroSet = false, kiosk = false, brandLogo = "", theme = null, catJump = null }) {
+export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, onReach = null, bagCount, heroSlides, heroSet = false, kiosk = false, brandLogo = "", theme = null, catJump = null, canOrder = true }) {
   // HERO is seeded still. artwork, fine as a placeholder on a store that has
   // never been set up. A store that HAS been set up and chose "None" gets no
   // banner — otherwise Tove's kiosk shows another brand's cups.
@@ -533,7 +533,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
         }}>
         <div style={{ width: 1080, height: 1920, flex: "none", transform: "scale(var(--fit,1))", transformOrigin: "top center" }}>
           <KioskMenu data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu}
-            activeCat={activeCat} setActiveCat={setActiveCat} onItem={onItem} onAdd={onAdd} onBag={onBag}
+            activeCat={activeCat} setActiveCat={setActiveCat} onItem={onItem} onAdd={onAdd} onBag={onBag} canOrder={canOrder}
             onBack={onBack} onSearch={onSearch} onReach={onReach} bagCount={bagCount} brandLogo={brandLogo}
             accent={tv["--accent"]} chip={tv["--chip"]} bg={tv["--bg"]} />
         </div>
@@ -583,7 +583,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
               {circle(onOpenDrawer, "Your orders & menus", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>)}
               {kiosk && onReach && circle(onReach, "Bring the screen within reach", <svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="4.5" r="2" /><path d="M5 8.5l7 1.5 7-1.5" /><path d="M12 10v5l-3 6" /><path d="M12 15l3 6" /></svg>)}
               {circle(onSearch, "Search", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>)}
-              {circle(onBag, "Your bag", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8h14l-1.2 12H6.2z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg>,
+              {canOrder && circle(onBag, "Your bag", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8h14l-1.2 12H6.2z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg>,
                 bagCount > 0 ? <span style={{ position: "absolute", top: -2, right: -2, minWidth: 22, height: 22, padding: "0 5px", borderRadius: 11, background: "var(--accent)", color: "#fff", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", justifyContent: "center" }}>{bagCount}</span> : null)}
             </div>
           </div>
@@ -653,7 +653,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
           const hero = items[0] || null;
           const rest = items.slice(1);
           const addBtn = (it, dark) => (
-            <div onClick={(e) => { e.stopPropagation(); if (it.soldOut) return; if (it.modifiers && it.modifiers.length) onItem(it); else { onAdd({ item: it, qty: 1, unit: it.price, mods: [] }); flashAdded(); } }}
+            <div onClick={(e) => { e.stopPropagation(); if (it.soldOut) return; if (!canOrder || (it.modifiers && it.modifiers.length)) onItem(it); else { onAdd({ item: it, qty: 1, unit: it.price, mods: [] }); flashAdded(); } }}
               style={{ flex: "none", height: 66, padding: "0 10px 0 26px", borderRadius: 33, display: "flex", alignItems: "center", gap: 14, cursor: it.soldOut ? "default" : "pointer", background: it.soldOut ? "rgba(120,126,118,.25)" : (dark ? "var(--chip)" : "var(--accent)"), color: it.soldOut ? "var(--muted)" : (dark ? "var(--accent)" : "var(--bg)"), fontFamily: "var(--font-head)", fontSize: 21, fontWeight: 600 }}>
               Add
               <span style={{ width: 46, height: 46, borderRadius: 23, background: it.soldOut ? "transparent" : (dark ? "var(--accent)" : "var(--chip)"), color: dark ? "var(--chip)" : "var(--accent)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -739,7 +739,8 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
                       <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 16, color: "var(--ink)" }}>{money(it.price)}</span>
                       {it.soldOut ? (
                         <span style={{ fontSize: 13, fontWeight: 700, color: "var(--muted)" }}>Unavailable</span>
-                      ) : (it.modifiers && it.modifiers.length > 0) ? (
+                      ) : !canOrder ? null
+                      : (it.modifiers && it.modifiers.length > 0) ? (
                         <div onClick={(e) => { e.stopPropagation(); onItem(it); }} style={{ height: 40, padding: "0 16px", borderRadius: 20, background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "var(--font-head)" }}>Customise</div>
                       ) : (
                         <div onClick={(e) => { e.stopPropagation(); onAdd({ item: it, qty: 1, unit: it.price, mods: [] }); flashAdded(); }} style={{ width: 40, height: 40, borderRadius: "50%", background: "var(--accent)", color: "#F7F4EC", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26, fontWeight: 500, lineHeight: 0, paddingBottom: 2, cursor: "pointer" }}>+</div>
@@ -1496,7 +1497,7 @@ function addonArt(name = "") {
   return <svg {...p}><circle cx="24" cy="24" r="13" /><path d="M24 11v26M11 24h26" /></svg>;
 }
 
-export function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergensAccepted, kiosk = false }) {
+export function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onAllergensAccepted, kiosk = false, canOrder = true }) {
   const it = item || { name: "Vanilla Matcha", desc: "Ceremonial grade · Smooth, sweet, deep umami.", price: 4.95, bg: null, prod: null, tags: [], allergens: [], allergensContains: ["MILK"], allergensMay: [], modifiers: [] };
   const [qty, setQty] = useState(1);
   const groups = it.modifiers || [];
@@ -1757,7 +1758,7 @@ export function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onA
               </div>
             </div>
           )}
-          <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
+          {canOrder && <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
             <div style={{ flex: "none", display: "flex", alignItems: "center", gap: 20, background: "var(--bg)", borderRadius: 999, padding: "10px 22px" }}>
               <span onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ fontSize: 30, color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
               <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 26, minWidth: 24, textAlign: "center" }}>{qty}</span>
@@ -1768,10 +1769,10 @@ export function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onA
               <span id="kioskcta">{missingRequired ? askFor(nextMissing) : "Add to bag"}</span>
               <span style={{ fontWeight: 600 }}>{money(unit * qty)}</span>
             </div>
-          </div>
+          </div>}
         </div>
       ) : (
-      <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 32px 28px", background: "linear-gradient(to top,var(--bg3) 72%,transparent)", display: "flex", alignItems: "center", gap: 16 }}>
+      canOrder && <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, padding: "18px 32px 28px", background: "linear-gradient(to top,var(--bg3) 72%,transparent)", display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 18, background: "var(--bg)", borderRadius: 40, padding: "12px 20px" }}>
           <span onClick={() => setQty((q) => Math.max(1, q - 1))} style={{ fontSize: 24, color: "var(--muted)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>−</span>
           <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 20, minWidth: 16, textAlign: "center" }}>{qty}</span>
@@ -2851,9 +2852,9 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
           <div ref={wrapRef} className="screenwrap" data-kiosk={kiosk ? "1" : undefined} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} theme={themeVars} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} catJump={catJump} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} theme={themeVars} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} catJump={catJump} canOrder={canOrder} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
-            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail kiosk={kiosk} key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
+            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail kiosk={kiosk} canOrder={canOrder} key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
               setAllergensUnlocked(true);
               // They've just typed their name for the allergen record; don't
               // ask for it again at checkout.

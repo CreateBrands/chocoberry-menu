@@ -35,7 +35,7 @@ const NAME_INK = "#233A2E";
 
 export default function KioskMenu({
   data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat,
-  onItem, onAdd, onBag, onBack, onSearch, onReach, bagCount, brandLogo, bagThumbs = [],
+  onItem, onAdd, onBag, onBack, onSearch, onReach, bagCount, brandLogo, bagThumbs = [], canOrder = true,
   accent = "#344D42", chip = "#B3D2AE", bg = "#FFFBF2",
 }) {
   const [toast, setToast] = useState("");
@@ -98,7 +98,9 @@ export default function KioskMenu({
 
   const add = (it) => {
     if (it.soldOut) return;
-    if (it.modifiers && it.modifiers.length) { onItem(it); return; }
+    // With ordering off for this store the pill opens the item instead, so a
+    // board in browse-only mode never puts anything in a bag.
+    if (!canOrder || (it.modifiers && it.modifiers.length)) { onItem(it); return; }
     onAdd({ item: it, qty: 1, unit: it.price, mods: [] });
     setToast(it.name + " added");
     setTimeout(() => setToast(""), 2200);
@@ -260,7 +262,7 @@ export default function KioskMenu({
         <span style={{ fontFamily: head, fontSize: 25, fontWeight: 500, letterSpacing: "-.02em" }}>Search</span>
       </button>
 
-      <button type="button" onClick={bagCount > 0 ? onBag : undefined} aria-label="View your bag"
+      <button type="button" hidden={!canOrder} onClick={bagCount > 0 ? onBag : undefined} aria-label="View your bag"
         style={{ position: "absolute", left: 246, right: 40, bottom: 44, height: 124, boxSizing: "border-box", padding: "0 16px 0 36px", borderRadius: 62, border: "none", background: accent, color: bg, fontFamily: "inherit", display: "flex", alignItems: "center", justifyContent: "space-between", cursor: bagCount > 0 ? "pointer" : "default", boxShadow: "0 24px 44px -20px rgba(52,77,66,.7)", zIndex: 4 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 22 }}>
           {bagThumbs.length > 0 ? (
