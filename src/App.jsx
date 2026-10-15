@@ -2315,6 +2315,11 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const storeRef = useRef(null);
   useEffect(() => { storeRef.current = store; }, [store]);
   const [locked, setLocked] = useState(false); // QR claimed by another device
+  // A ?store= token with no row in menu_tables. Without this the app falls
+  // back to the storeless path, which loads every menu in the estate at
+  // master prices in the default currency, with ordering on - a deleted or
+  // mistyped link silently showed another country menu.
+  const [unknownToken, setUnknownToken] = useState(false);
   const [acceptingOrders, setAcceptingOrders] = useState(true);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settings, setSettings] = useState({});
@@ -2629,6 +2634,19 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
       const st = await claimToken(token);
       if (alive && st === "locked") setLocked(true);
     })();
+    // Is this token real? Checked against menu_tables with no is_table filter,
+    // so a dining-table QR passes as well as a tablet link. Only a token that
+    // matches nothing at all stops the app.
+    (async () => {
+      if (!token || kiosk) return;
+      try {
+        const r = await fetch(SUPABASE_URL + "/rest/v1/menu_tables?qr_token=eq."
+          + encodeURIComponent(token) + "&select=id&limit=1", { headers: H, cache: "no-store" });
+        if (!r.ok) return;              // a network blip is not a bad token
+        const rows = await r.json();
+        if (alive && Array.isArray(rows) && rows.length === 0) setUnknownToken(true);
+      } catch { /* offline: leave the menu alone */ }
+    })();
     // Determine dining-table mode from the token.
     (async () => {
       if (!token) { setTableMode("none"); return; }
@@ -2767,6 +2785,18 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const themeBg = settings.theme === "chocoberry"
     ? "linear-gradient(160deg,#F3EADA,#F4E9DD)"
     : "linear-gradient(160deg,#EEF2E4,#E1E8D2)";
+  if (unknownToken) {
+    return (
+      <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", position: "fixed", top: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
+        <div style={{ maxWidth: 420, textAlign: "center" }}>
+          <div style={{ fontSize: 52, marginBottom: 12 }}>🔗</div>
+          <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 22, color: "var(--ink)", marginBottom: 10 }}>This menu link is not recognised</div>
+          <div style={{ fontSize: 15, color: "var(--muted)", lineHeight: 1.5 }}>It may have been removed, or the address may be mistyped. Ask a manager for this store current tablet link from the admin, under Stores.</div>
+        </div>
+      </div>
+    );
+  }
+
   if (locked) {
     return (
       <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", position: "fixed", top: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
