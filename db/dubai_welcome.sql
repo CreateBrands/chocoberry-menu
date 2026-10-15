@@ -9,6 +9,14 @@
 -- what Dubai already publishes: the Tiramisu Caviar banner and the reddish
 -- brown Chocoberry London logo, both from the apetito CDN.
 --
+-- The banner is set as the hero strip only, never welcome_bg_url. It is
+-- 1200x700, and a landscape image used as a full-bleed background on a
+-- portrait tablet gets scaled to fill the height, ending up far wider than
+-- the screen: you see a crop of the middle with the artwork own logo and
+-- text pushed off the edges. A welcome background needs a portrait image,
+-- around 1080x1920. Without one the welcome renders logo, eyebrow, subtitle
+-- and button on the brand background, which is also what apetito does.
+--
 -- Safe to re-run: each key is updated if present, inserted if not.
 
 do $$
@@ -38,7 +46,6 @@ begin
       ('welcome_subtitle',  v_dt, 'Boulevard Central Tower 1<br />Downtown Dubai'),
       ('welcome_button',    v_dt, 'View Menu'),
       ('welcome_footer',    v_dt, 'BROWSE THE MENU · ORDER AT THE COUNTER'),
-      ('welcome_bg_url',    v_dt, v_ban),
       ('hero_slides',       v_dt, v_hero),
       -- Al Zahia Mall
       ('welcome_logo_url',  v_zm, v_logo),
@@ -46,7 +53,6 @@ begin
       ('welcome_subtitle',  v_zm, 'City Centre, Al Zahia<br />Sharjah'),
       ('welcome_button',    v_zm, 'View Menu'),
       ('welcome_footer',    v_zm, 'BROWSE THE MENU · ORDER AT THE COUNTER'),
-      ('welcome_bg_url',    v_zm, v_ban),
       ('hero_slides',       v_zm, v_hero)
     ) as t(k, loc, val)
   loop
@@ -60,7 +66,8 @@ begin
   raise notice 'Welcome and hero set for both Dubai stores';
 end $$;
 
--- What each store now carries. 7 rows per store.
+-- What each store now carries. 8 rows per store, counting the currency and
+-- accepting_orders rows set by the earlier scripts.
 select l.name as store, split_part(s.key, ':', 1) as setting,
        left(s.value, 70) as value
 from menu_app_settings s
