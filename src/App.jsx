@@ -328,10 +328,16 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   }, []);
   // Kiosk: the customer says eat in / take away here rather than at the bag,
   // then goes straight to the menu (or the picker when there is more than one).
+  // A store carrying a single menu — Dubai and Al Zahia each carry one — has
+  // nothing to choose between, so the sheet offers that menu's categories
+  // instead. Sharjah has 21 of them, which is why the list scrolls.
+  const only = (menus || []).length === 1 ? menus[0] : null;
+  const onlyCats = only ? (only.categories || []) : [];
+  const catMode = !!only && onlyCats.length > 1;
   const startKiosk = (dine) => {
     if (onKioskStart) onKioskStart(dine);
     const list = menus || [];
-    if (list.length > 1) setOpen(true);
+    if (list.length > 1 || catMode) setOpen(true);
     else if (list[0]) onPick(list[0]);
   };
   let layout = null;
@@ -345,9 +351,13 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   const picker = (
     <div onClick={() => setOpen(false)} style={{position: 'absolute', inset: 0, zIndex: 30, pointerEvents: open ? 'auto' : 'none', background: open ? 'rgba(30,36,20,.34)' : 'transparent', transition: 'background .3s ease', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}}>
       <div onClick={(e) => e.stopPropagation()} style={{width: 'min(400px, 72%)', marginBottom: 0, background: 'var(--bg)', borderRadius: '28px 28px 0 0', padding: '26px 18px 34px', boxShadow: '0 -20px 50px -18px rgba(0,0,0,.35)', transform: open ? 'translateY(0)' : 'translateY(100%)', opacity: 1, transition: 'transform .34s cubic-bezier(.2,.8,.2,1)'}}>
-        <div style={{textAlign: 'center', fontFamily: 'var(--font-head)', fontSize: '17px', fontWeight: '600', color: 'var(--accent)', marginBottom: '14px'}}>Choose Menu</div>
-        <div style={{display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden'}}>
-          {(menus || []).map((m, i) => {
+        <div style={{textAlign: 'center', fontFamily: 'var(--font-head)', fontSize: '17px', fontWeight: '600', color: 'var(--accent)', marginBottom: '14px'}}>{catMode ? 'Choose Category' : 'Choose Menu'}</div>
+        {/* overflowY after overflow, so the rounded corners still clip
+            horizontally while a long category list scrolls. */}
+        <div style={{display: 'flex', flexDirection: 'column', borderRadius: '16px', overflow: 'hidden', maxHeight: '52vh', overflowY: 'auto'}}>
+          {catMode ? onlyCats.map((c, i) => (
+            <div key={(c.name || '') + i} onClick={() => { onPick(only, i); setOpen(false); }} style={{padding: '18px 0', textAlign: 'center', cursor: 'pointer', background: i === 0 ? 'var(--accent)' : 'var(--bg2)', color: i === 0 ? '#F5F1E6' : 'var(--ink)', fontFamily: 'var(--font-head)', fontSize: '15px', fontWeight: '600', letterSpacing: '.04em', textTransform: 'uppercase', borderTop: i === 0 ? 'none' : '1px solid rgba(60,70,45,.08)'}}>{c.name}</div>
+          )) : (menus || []).map((m, i) => {
             const on = m.open !== false;
             return (
               <div key={m.id} onClick={() => { if (on) { onPick(m); setOpen(false); } }} style={{padding: '18px 0', textAlign: 'center', cursor: on ? 'pointer' : 'default', background: i === 0 ? 'var(--accent)' : 'var(--bg2)', color: i === 0 ? '#F5F1E6' : (on ? 'var(--ink)' : 'var(--muted)'), fontFamily: 'var(--font-head)', fontSize: '15px', fontWeight: '600', letterSpacing: '.04em', textTransform: 'uppercase', borderTop: i === 0 ? 'none' : '1px solid rgba(60,70,45,.08)', opacity: on ? 1 : .55}}>{m.name}</div>
@@ -442,7 +452,7 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   );
 }
 // ============ DATA-DRIVEN BROWSE ============
-export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, onReach = null, bagCount, heroSlides, heroSet = false, kiosk = false, brandLogo = "", theme = null }) {
+export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setActiveCat, onItem, onAdd, onBag, onBack, onSearch, onOpenDrawer, onReach = null, bagCount, heroSlides, heroSet = false, kiosk = false, brandLogo = "", theme = null, catJump = null }) {
   // HERO is seeded still. artwork, fine as a placeholder on a store that has
   // never been set up. A store that HAS been set up and chose "None" gets no
   // banner — otherwise Tove's kiosk shows another brand's cups.
@@ -494,6 +504,16 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
       });
     }
   };
+
+  // A category chosen on the welcome sheet. The sections are only laid out
+  // once this screen is shown, so the scroll waits a frame for offsetTop to
+  // mean something; without that it lands at the top and the scroll-spy then
+  // drags activeCat back to 0.
+  useEffect(() => {
+    if (!catJump || !catJump.i) return;
+    const t = setTimeout(() => scrollToCat(catJump.i), 80);
+    return () => clearTimeout(t);
+  }, [catJump]);
 
   const cat = data[activeCat] || data[0] || { name: "", items: [] };
 
@@ -2298,6 +2318,11 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const [searchOpen, setSearchOpen] = useState(false);
   const [settings, setSettings] = useState({});
   const [activeCat, setActiveCat] = useState(0);
+  // Set when the customer chose a category on the welcome sheet. pendingCat is
+  // read once by the activeMenu effect; catJump is handed to Browse so it can
+  // scroll the chosen section into view.
+  const pendingCat = useRef(null);
+  const [catJump, setCatJump] = useState(null);
   const [selItem, setSelItem] = useState(null);
   const [lines, setLines] = useState([]);
   const linesRef = useRef([]);
@@ -2428,9 +2453,18 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const [confirmingOrder, setConfirmingOrder] = useState(false);
   const [orderErr, setOrderErr] = useState(null);
   const addToBag = (line) => { if (line && line.item && line.item.soldOut) return; setLines((p) => [...p, line]); setScreen("browse"); };
-  const pickMenu = (m) => {
+  // catIdx comes from the welcome sheet when it is listing categories rather
+  // than menus. pendingCat survives the activeMenu effect below, which would
+  // otherwise reset the choice to 0; catJump is what tells Browse to scroll
+  // there, since setting activeCat alone only moves the highlight.
+  const pickMenu = (m, catIdx = null) => {
     const idx = menus ? menus.findIndex((x) => x.id === m.id) : 0;
+    pendingCat.current = catIdx;
     setActiveMenu(idx < 0 ? 0 : idx);
+    if (catIdx != null) {
+      setActiveCat(catIdx);
+      setCatJump({ i: catIdx, n: (catJump ? catJump.n : 0) + 1 });
+    }
     setScreen("browse");
   };
 
@@ -2659,7 +2693,13 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   useEffect(() => {
     if (menus && menus[activeMenu]) setData(menus[activeMenu].categories);
   }, [activeMenu, menus]);
-  useEffect(() => { setActiveCat(0); }, [activeMenu]);
+  // Switching menu starts at the first category, unless the customer picked a
+  // category on the way in — pendingCat carries that choice through and is
+  // cleared straight after, so the next plain menu switch resets as before.
+  useEffect(() => {
+    setActiveCat(pendingCat.current == null ? 0 : pendingCat.current);
+    pendingCat.current = null;
+  }, [activeMenu]);
 
   // One gate for every way into an item — the grid, search, a deep link. A
   // sold-out item is shown but never orderable.
@@ -2804,7 +2844,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
           <div ref={wrapRef} className="screenwrap" data-kiosk={kiosk ? "1" : undefined} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
             <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} theme={themeVars} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} theme={themeVars} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} catJump={catJump} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail kiosk={kiosk} key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
               setAllergensUnlocked(true);
