@@ -7,13 +7,20 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="theme-color" content="#E1E8D2" />
-    <!-- Installable: the manifest is swapped per surface (kiosk/kds/pos) at runtime so each installs as its own app. -->
-    <link rel="manifest" id="app-manifest" href="/manifest.webmanifest" />
+    <!-- Installable: the manifest is swapped per surface (menu/kiosk/kds/pos) at runtime so each installs as its own app. -->
+    <link rel="manifest" id="app-manifest" href="/manifest-menu.webmanifest" />
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <script>
       (function () {
         var p = location.pathname.replace(/\/+$/, "");
-        var m = p === "/kds" ? "/manifest-kds.webmanifest" : p === "/pos" ? "/manifest-pos.webmanifest" : "/manifest.webmanifest";
+        // The tablet menu is the default surface and gets its own manifest.
+        // Until now it fell through to the kiosk one, whose start_url is
+        // /kiosk — so installing the menu to a home screen produced the kiosk
+        // app, which opens the licensed surface and asks to be activated.
+        var m = p === "/kds" ? "/manifest-kds.webmanifest"
+              : p === "/pos" ? "/manifest-pos.webmanifest"
+              : p === "/kiosk" ? "/manifest.webmanifest"
+              : "/manifest-menu.webmanifest";
         var el = document.getElementById("app-manifest");
         if (el) el.setAttribute("href", m);
       })();
