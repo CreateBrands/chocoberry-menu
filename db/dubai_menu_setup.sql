@@ -3,6 +3,12 @@
 -- Section 3 creates the two stores and their settings. Sections 1 and 2 only
 -- LOOK, and their output is what the menu-seeding script will be built from —
 -- run them and send the results back before anything seeds items.
+--
+-- Run order:
+--   1. db/dubai_menu_setup.sql   (this file — the two stores)
+--   2. db/dubai_menu_seed.sql    (the menus, categories and items)
+--   3. db/dubai_store_brand.sql  (puts the stores on the brand the seed made)
+-- The brand can only be set after step 2, because step 2 is what creates it.
 
 -- ---------- 1. The column the trading day needs ----------
 -- 04:00 is the trading-day boundary. Without a zone the server assumes
