@@ -288,6 +288,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // The cash-count and float fields relied on the system one, so on the
   // actual hardware they could not be typed into at all.
   const [padFor, setPadFor] = useState(null);  // null | {kind:"float"|"counted"} | {kind:"denom", d}
+  // The variance note was the one field left on the system keyboard, so on the
+  // till it could not be typed into either. Same treatment: its own letters.
+  const [noteKb, setNoteKb] = useState(false);
+  const [kbCaps, setKbCaps] = useState(true);  // sentences start capitalised
+  const [kbNum, setKbNum] = useState(false);   // letters ⇄ numbers/symbols layer
   async function loadCloseTillSummary(mode) {
     const r = await ordActionJson("day_summary", { location_id: loc, mode });
     if (!r || !r.summary) closeTillErr.current = (r && (r.message || r.error)) || "";
@@ -1528,7 +1533,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           <div onClick={() => !disabled && onClick && onClick()} style={{ flex: grow || 1, textAlign: "center", padding: "15px 0", borderRadius: 13, fontWeight: 800, fontSize: 15.5, cursor: disabled ? "default" : "pointer", background: primary ? (disabled ? "#b9bfb3" : C.ink) : C.soft, color: primary ? "#fff" : C.ink, transition: "background .15s", userSelect: "none" }}>{children}</div>
         );
         return (
-          <div onClick={() => !closeTill.busy && setCloseTill(null)} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.58)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
+          <div onClick={() => { if (closeTill.busy) return; setNoteKb(false); setPadFor(null); setCloseTill(null); }} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.58)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
             <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, width: 760, maxWidth: "100%", height: "min(92vh, 820px)", display: "flex", flexDirection: "column", boxShadow: "0 30px 80px rgba(18,21,28,.35)", overflow: "hidden", fontFamily: "inherit", position: "relative" }}>
               {/* header */}
               <div style={{ padding: "20px 26px 0" }}>
@@ -1738,7 +1743,29 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                         <div style={{ fontSize: 12.5, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>The Z-report prints on this store's printer and the close is saved for head office. {sm.mode === "trading_day" && sm.later_count > 0 ? sm.later_count + " orders since 4:00 stay open." : ""}</div>
                       </Section>
                       <Section title="NOTE">
-                        <textarea value={closeTill.note} onChange={(e) => setCloseTill((c) => ({ ...c, note: e.target.value }))} placeholder={varianceNeedsNote ? "Required: explain the cash variance" : "Note (optional — petty cash taken, reason for variance…)"} rows={3} style={input({ marginTop: 10, fontWeight: 500, fontSize: 14, fontFamily: "inherit", resize: "none", borderColor: varianceNeedsNote ? C.warn : C.line })} />
+                        {/* readOnly + blur on focus, like every other field in
+                            this sheet: the device has no system keyboard, and
+                            letting it try just put a caret in a dead box. */}
+                        <textarea value={closeTill.note} readOnly onFocus={(e) => e.target.blur()} onClick={() => setNoteKb(true)}
+                          placeholder={varianceNeedsNote ? "Required: explain the cash variance" : "Note (optional — petty cash taken, reason for variance…)"} rows={3}
+                          style={input({ marginTop: 10, fontWeight: 500, fontSize: 14, fontFamily: "inherit", resize: "none", cursor: "pointer", borderColor: varianceNeedsNote ? C.warn : noteKb ? C.brand : C.line })} />
+                        {/* Most variances have one of a handful of causes. One
+                            tap beats spelling it out on a glass keyboard, and
+                            head office gets wording it can actually group by. */}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                          {["Petty cash taken", "Wrong change given", "Cash refund", "Supplier paid in cash", "Float miscounted", "Miscount"].map((r) => (
+                            <span key={r} onClick={() => setCloseTill((c) => {
+                              const cur = (c.note || "").trim();
+                              if (cur.toLowerCase().includes(r.toLowerCase())) return c;
+                              return { ...c, note: (cur ? cur.replace(/[.,\s]*$/, "") + ", " + r.charAt(0).toLowerCase() + r.slice(1) : r).slice(0, 240) };
+                            })}
+                              style={{ padding: "6px 11px", borderRadius: 999, background: C.soft, border: "1px solid " + C.line, fontSize: 12.5, fontWeight: 700, cursor: "pointer", userSelect: "none" }}>{r}</span>
+                          ))}
+                          {closeTill.note ? (
+                            <span onClick={() => setCloseTill((c) => ({ ...c, note: "" }))}
+                              style={{ padding: "6px 11px", borderRadius: 999, background: "transparent", border: "1px solid " + C.line, fontSize: 12.5, fontWeight: 700, cursor: "pointer", userSelect: "none", color: C.bad }}>Clear</span>
+                          ) : null}
+                        </div>
                       </Section>
                     </div>
                     <div>
@@ -1797,7 +1824,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               {/* footer */}
               <div style={{ padding: "14px 26px 20px", borderTop: "1px solid " + C.line, display: "flex", gap: 10, background: "#fff" }}>
                 {closeTill.step === "summary" && stage === 0 && (<>
-                  <Btn onClick={() => !closeTill.busy && setCloseTill(null)}>Cancel</Btn>
+                  <Btn onClick={() => { if (closeTill.busy) return; setNoteKb(false); setPadFor(null); setCloseTill(null); }}>Cancel</Btn>
                   <Btn primary grow={2} disabled={closeTill.busy || !sm} onClick={() => setCloseTill((c) => ({ ...c, stage: 1 }))}>Next: count cash →</Btn>
                 </>)}
                 {/* On-screen number pad. The till has no keyboard, so every
@@ -1829,12 +1856,52 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     </div>
                   </div>
                 )}
+                {/* Letters for the note. Same slide-up shape as the number pad
+                    so it behaves the way the rest of the sheet already does. */}
+                {closeTill.step === "summary" && stage === 2 && noteKb && (() => {
+                  const rows = kbNum
+                    ? ["1234567890", "£.,-/:", "()&%!?'"]
+                    : ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+                  const type = (ch) => {
+                    setCloseTill((c) => ({ ...c, note: ((c.note || "") + ch).slice(0, 240) }));
+                    if (!kbNum && kbCaps) setKbCaps(false);
+                  };
+                  const Key = ({ label, on, grow = 1, tone }) => (
+                    <div onClick={on} style={{ flex: grow, minWidth: 0, padding: "13px 0", textAlign: "center", borderRadius: 9,
+                      background: tone === "dark" ? C.ink : tone === "soft" ? C.soft : "#fff",
+                      color: tone === "dark" ? "#fff" : C.ink,
+                      border: "1px solid " + C.line, fontWeight: 700, fontSize: 16, fontFamily: F, cursor: "pointer", userSelect: "none" }}>{label}</div>
+                  );
+                  return (
+                    <div style={{ position: "absolute", left: 0, right: 0, bottom: 72, background: "#fff", borderTop: "1px solid " + C.line, padding: "10px 12px 12px", boxShadow: "0 -14px 30px -18px rgba(0,0,0,.35)", zIndex: 30 }}>
+                      <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+                        <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".06em", color: C.muted, textTransform: "uppercase" }}>Note</span>
+                        <span style={{ marginLeft: 10, fontSize: 12, color: C.muted }}>{(closeTill.note || "").length}/240</span>
+                        <span onClick={() => setNoteKb(false)} style={{ marginLeft: "auto", fontWeight: 800, fontSize: 15, cursor: "pointer", padding: "2px 8px" }}>Done</span>
+                      </div>
+                      {rows.map((r, ri) => (
+                        <div key={ri} style={{ display: "flex", gap: 5, marginBottom: 5, paddingInline: ri === 1 ? 14 : ri === 2 ? 28 : 0 }}>
+                          {r.split("").map((ch) => {
+                            const out = !kbNum && kbCaps ? ch.toUpperCase() : ch;
+                            return <Key key={ch} label={out} on={() => type(out)} />;
+                          })}
+                        </div>
+                      ))}
+                      <div style={{ display: "flex", gap: 5 }}>
+                        <Key label={kbNum ? "ABC" : "123"} grow={1.4} tone="soft" on={() => setKbNum((v) => !v)} />
+                        {!kbNum && <Key label="⇧" grow={1} tone={kbCaps ? "dark" : "soft"} on={() => setKbCaps((v) => !v)} />}
+                        <Key label="space" grow={4} on={() => type(" ")} />
+                        <Key label="⌫" grow={1.4} tone="soft" on={() => setCloseTill((c) => ({ ...c, note: (c.note || "").slice(0, -1) }))} />
+                      </div>
+                    </div>
+                  );
+                })()}
                 {closeTill.step === "summary" && stage === 1 && (<>
                   <Btn onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 0 })); }}>← Back</Btn>
                   <Btn primary grow={2} onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 2, err: "" })); }}>{countedVal == null ? "Skip count →" : "Next: sign off →"}</Btn>
                 </>)}
                 {closeTill.step === "summary" && stage === 2 && (<>
-                  <Btn onClick={() => !closeTill.busy && setCloseTill((c) => ({ ...c, stage: 1, err: "" }))}>← Back</Btn>
+                  <Btn onClick={() => { if (closeTill.busy) return; setNoteKb(false); setCloseTill((c) => ({ ...c, stage: 1, err: "" })); }}>← Back</Btn>
                   <Btn primary grow={2} disabled={closeTill.busy || !signoffOk} onClick={() => confirmCloseTill({ counted: countedVal == null ? "" : String(countedVal) })}>
                     {closeTill.busy ? "Closing…" : varianceNeedsNote ? "Add a note for the variance" : closeTill.pin.length < 4 ? "Enter your PIN" : closer ? "Close till as " + closer.split(" ")[0] : "Close till & print Z-report"}
                   </Btn>
