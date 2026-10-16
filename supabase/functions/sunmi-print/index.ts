@@ -421,6 +421,35 @@ async function logJob(fields: Record<string, unknown>) {
   if (error) console.error("print_jobs insert failed:", error.message);
 }
 
+// BACKOFF. A printer whose last few jobs all failed is almost always out of
+// paper or sitting with its cover open. Pushing more at it does not help, and
+// on the Sunmi devices it actively harms: every rejected job still lands in
+// the printer's own 20MB task queue, and once that fills the unit refuses
+// everything until somebody restarts it. A new roll stops being enough and a
+// restart becomes necessary — which is exactly how Tove lost 75 minutes and
+// 15 tickets on 15 Oct. So after three failures in a row we stop sending.
+//
+// Deliberately derived from print_jobs rather than a flag on the printer:
+// nothing has to be reset by hand. A paused printer gets no new jobs, so the
+// streak stands until something succeeds, and the first success — a manual
+// test print, which never checks this — clears it on its own.
+const FAIL_PAUSE_AT = 3;
+async function printerPaused(sn: string): Promise<boolean> {
+  const { data } = await supabase
+    .from("print_jobs")
+    .select("status")
+    .eq("printer_sn", sn)
+    .in("status", ["sent", "failed"])   // queued jobs have no outcome yet
+    .order("created_at", { ascending: false })
+    .limit(FAIL_PAUSE_AT);
+  const rows = (data ?? []) as Array<{ status: string }>;
+  return rows.length >= FAIL_PAUSE_AT && rows.every((r) => r.status === "failed");
+}
+
+// How long a local agent may go quiet before we call it offline. It polls
+// every 3 seconds, so three minutes is sixty missed polls — not a blip.
+const LOCAL_STALE_MS = 3 * 60 * 1000;
+
 async function alreadyPrinted(orderId: string, sn: string, slip = "ticket"): Promise<boolean> {
   const { data } = await supabase
     .from("print_jobs")
@@ -560,6 +589,17 @@ async function printOrder(
       : ((printer as any).auto_ticket ?? (printer as any).auto_print ?? true);
     if (!force && !target && autoForSlip === false) {
       results.push({ printer: sn, station, slip: pass.mode, skipped: true, reason: "auto-print off for this slip" });
+      continue;
+    }
+
+    // Paused by repeated failures. A deliberate reprint or a targeted print
+    // still goes through, so this never blocks someone trying to recover.
+    if (!force && !target && await printerPaused(sn)) {
+      results.push({ printer: sn, station, slip: pass.mode, skipped: true, reason: "paused after repeated failures" });
+      await supabase.from("menu_orders").update({
+        print_failed: true,
+        print_error: "Printer paused after repeated failures - check paper and the cover, then restart the device",
+      }).eq("id", orderId);
       continue;
     }
 
@@ -789,10 +829,22 @@ Deno.serve(async (req) => {
       // minute via cron; open action (no secret) like the sweep.
       case "printer-health": {
         const { data: printers } = await supabase
-          .from("printers").select("id, sn, active").eq("active", true);
+          .from("printers").select("id, sn, active, last_online_at").eq("active", true);
         const nowIso = new Date().toISOString();
         const out = [];
         for (const p of printers || []) {
+          // Sunmi knows nothing about a local agent: the lookup always fails,
+          // and writing that null back used to wipe the heartbeat the agent
+          // stamps on itself every time it polls. That is why local printers
+          // showed no status at all on the KDS. Their own last_online_at is
+          // the real signal, so use it and leave it alone.
+          if (isLocalSn(String((p as any).sn))) {
+            const seen = (p as any).last_online_at ? Date.parse(String((p as any).last_online_at)) : 0;
+            const fresh = seen > 0 && (Date.now() - seen) < LOCAL_STALE_MS;
+            if (!fresh) { try { await supabase.from("printers").update({ online: false }).eq("id", (p as any).id); } catch { /* best effort */ } }
+            out.push({ sn: (p as any).sn, online: fresh, local: true, last_online_at: (p as any).last_online_at ?? null });
+            continue;
+          }
           let online: boolean | null = null;
           try {
             const r = await sunmi.onlineStatus(String((p as any).sn));
@@ -1068,7 +1120,11 @@ Deno.serve(async (req) => {
             const maxB = new Map<string, number>();
             for (const it of its || []) { const b = (it as any).added_batch ?? 0; const c = maxB.get((it as any).order_id); if (c === undefined || b > c) maxB.set((it as any).order_id, b); }
             const rows: any[] = [];
-            for (const id of ids) for (const pr of printers || []) rows.push({ order_id: id, printer_sn: String(pr.sn), status: "sent", max_batch: maxB.get(id) ?? 0, note: "queue cleared" });
+            // No `note` column on print_jobs: including one made this insert fail
+            // every time, so the queue was emptied but the open orders were never
+            // marked as sent and the sweep could push the whole backlog straight
+            // back at the printer.
+            for (const id of ids) for (const pr of printers || []) rows.push({ order_id: String(id), printer_sn: String(pr.sn), status: "sent", max_batch: maxB.get(id) ?? 0 });
             for (let i = 0; i < rows.length; i += 200) { await supabase.from("print_jobs").upsert(rows.slice(i, i + 200), { onConflict: "order_id,printer_sn" }).then(() => {}, () => supabase.from("print_jobs").insert(rows.slice(i, i + 200))); }
             await supabase.from("menu_orders").update({ print_failed: false, print_error: null }).in("id", ids);
             marked = ids.length;

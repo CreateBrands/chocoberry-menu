@@ -629,6 +629,39 @@ export default function KDS({ surface = "kds" }) {
   active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0) || new Date(clockStart(a)) - new Date(clockStart(b)));
   // Orders that failed to print — shown as an un-ignorable banner across the KDS.
   const failedOrders = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled" && o.print_failed);
+
+  // A SILENT printer raises nothing on its own. A failing printer at least
+  // marks its orders print_failed and lights the banner above; one whose agent
+  // has stopped polling just leaves jobs sitting queued, so there is no failure
+  // to show and nobody finds out. Tove had a till printer dead for sixteen
+  // hours that way. The agent stamps last_online_at every poll (every 3s), so
+  // silence is unambiguous.
+  const [silentPrinters, setSilentPrinters] = useState([]);
+  useEffect(() => {
+    if (!loc) return;
+    let alive = true;
+    const STALE_MS = 3 * 60 * 1000;
+    const check = async () => {
+      try {
+        const r = await fetch(SUPABASE_URL + "/rest/v1/printers?select=sn,label,station,last_online_at"
+          + "&active=eq.true&location_id=eq." + loc, { headers: H, cache: "no-store" });
+        if (!r.ok) return;
+        const rows = await r.json();
+        const now = Date.now();
+        const quiet = (rows || []).filter((p) => {
+          // Only the local agents report a heartbeat; a cloud printer has none
+          // and is not ours to judge here.
+          if (!/^(usb|agent):/.test(String(p.sn || ""))) return false;
+          const seen = p.last_online_at ? Date.parse(p.last_online_at) : 0;
+          return !seen || (now - seen) > STALE_MS;
+        });
+        if (alive) setSilentPrinters(quiet);
+      } catch { /* a blip is not an outage */ }
+    };
+    check();
+    const t = setInterval(check, 60000);
+    return () => { alive = false; clearInterval(t); };
+  }, [loc]);
   const [retryingPrint, setRetryingPrint] = useState(false);
   async function retryPrint(list) {
     if (retryingPrint) return;
@@ -845,6 +878,23 @@ export default function KDS({ surface = "kds" }) {
             <span onClick={() => retryPrint(failedOrders)} className="kbtn" style={{ cursor: "pointer", background: "#fff", color: "#991b1b", borderRadius: 9, padding: "8px 14px", fontWeight: 900, fontSize: F(13) }}>{retryingPrint ? "Retrying…" : "⟳ Retry " + (failedOrders.length === 1 ? "print" : "all")}</span>
             <span onClick={() => dismissPrint(failedOrders)} className="kbtn" style={{ cursor: "pointer", background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: F(13) }}>Dismiss</span>
             <span onClick={clearPrintQueue} className="kbtn" title="Wipe the printers' pending jobs and stop re-pushing today's open orders" style={{ cursor: "pointer", background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: F(13) }}>{clearingQueue ? "Clearing…" : "🧹 Clear queue"}</span>
+          </div>
+        </div>
+      )}
+
+      {silentPrinters.length > 0 && view !== "pos" && (
+        <div style={{ background: "#b45309", color: "#fff", padding: "10px 18px", display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 18, boxShadow: "0 4px 14px rgba(0,0,0,.2)", flexWrap: "wrap" }}>
+          <span style={{ fontSize: F(20) }}>🔌</span>
+          <div style={{ flex: 1, minWidth: 260 }}>
+            <div style={{ fontWeight: 900, fontSize: F(15), letterSpacing: ".02em" }}>
+              {silentPrinters.length === 1
+                ? (silentPrinters[0].label || silentPrinters[0].station || "A printer") + " IS NOT RESPONDING"
+                : silentPrinters.length + " PRINTERS ARE NOT RESPONDING"}
+            </div>
+            <div style={{ fontWeight: 600, fontSize: F(13), opacity: .95, marginTop: 2 }}>
+              {silentPrinters.map((p) => (p.label || p.station || p.sn) + (p.last_online_at ? " · last seen " + new Date(p.last_online_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : " · never seen")).join(" — ")}
+              {" · open the Print Agent app on that device, or switch it on"}
+            </div>
           </div>
         </div>
       )}
