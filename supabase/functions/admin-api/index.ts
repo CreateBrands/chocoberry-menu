@@ -34,7 +34,7 @@ Deno.serve(async (req) => {
     "set_order_type",
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
-    "sweep_unprinted", "retry_print", "clear_print_flag", "clear_print_queue",
+    "sweep_unprinted", "retry_print", "clear_print_flag", "clear_print_flags", "clear_print_queue",
     "local_print_jobs", "local_print_done", "usb_printer_register", "usb_printer_test", "device_printer_register", "kiosk_slip",
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
@@ -230,7 +230,7 @@ Deno.serve(async (req) => {
     return d;
   }
   // Till-only actions. Screen setup (kds_screen_self), targets and kitchen prints are KDS actions and stay allowed for kitchen licences.
-  const POS_ONLY = new Set(["mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "service_log_delete", "clear_print_queue"]);
+  const POS_ONLY = new Set(["mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue"]);
   // Kitchen speed for the closing report, same definition as the KDS Performance tab:
   // completion = latest bump within 30 min of the first bump (later bumps are housekeeping).
   async function kitchenStats(location_id: string, from: string, to: string, targetMin: number) {
@@ -1964,8 +1964,41 @@ Deno.serve(async (req) => {
         const { sn, location_id } = data || {};
         const { data: bn } = await admin.from("menu_app_settings").select("value").eq("key", "brand_name:" + location_id).maybeSingle();
         const { data: l } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle();
-        const r = await callSunmi({ action: "test", sn, store_name: l?.name || "", brand_name: bn?.value || "Chocoberry" });
-        return json(r.body || { ok: false });
+        const common = { store_name: l?.name || "", brand_name: bn?.value || "Chocoberry" };
+        if (sn) {
+          const r = await callSunmi({ action: "test", sn, ...common });
+          return json(r.body || { ok: false });
+        }
+        // No sn given: test every printer at this store. The recovery button
+        // on the POS failure banner has no printer picked, and staff should
+        // not have to work out which unit stopped. A test also never checks
+        // the failure pause, so a slip coming out is what releases a printer
+        // that backed off.
+        const { data: ps } = await admin.from("printers")
+          .select("sn, label").eq("active", true).eq("location_id", location_id);
+        const results: any[] = [];
+        for (const pr of ps || []) {
+          try {
+            const r = await callSunmi({ action: "test", sn: String((pr as any).sn), ...common });
+            results.push({ sn: (pr as any).sn, label: (pr as any).label, ok: !!(r.body as any)?.ok });
+          } catch (e) {
+            results.push({ sn: (pr as any).sn, label: (pr as any).label, ok: false, error: String(e) });
+          }
+        }
+        return json({ ok: results.some((r) => r.ok), printers: results });
+      }
+
+      // ---- Clear every print-failure flag at a store, in one call ----
+      // The banner Dismiss looped one order at a time and stopped at 20, so a
+      // long outage left the alarm up with orders it had never touched.
+      case "clear_print_flags": {
+        const { location_id } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const { error } = await admin.from("menu_orders")
+          .update({ print_failed: false, print_error: null })
+          .eq("location_id", location_id).eq("print_failed", true);
+        if (error) throw error;
+        return json({ ok: true });
       }
       // ---- PRINT QUEUE: wipe pending cloud jobs + mark open orders as printed ----
       case "clear_print_queue": {
