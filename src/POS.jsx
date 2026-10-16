@@ -575,7 +575,14 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     // 'hold' is a half-started pay-now transaction, not a table owing money.
     // Counting them put 12 phantom entries and £111 of imaginary debt in this
     // list and made it disagree with the Orders screen, which excludes them.
-    .filter((o) => o.status !== "cancelled" && (o.status !== "hold" || /^KIOSK/i.test(String(o.tablet_no || ""))) && !o.paid_method)
+    //
+    // UNLESS money has already been taken against it. A split bill paid from
+    // the Pay button creates the order on hold, and the first tender leaves it
+    // hold (it is only released to the kitchen once the balance clears). With
+    // no paid_method yet it is not in the settled list either, so a half-paid
+    // order disappeared off the till entirely with the rest still owing. A
+    // hold carrying money is a real debt and belongs in this list.
+    .filter((o) => o.status !== "cancelled" && (o.status !== "hold" || /^KIOSK/i.test(String(o.tablet_no || "")) || Number(o.amount_paid || 0) > 0) && !o.paid_method)
     .sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
   // Settled orders, newest first, shown under the unpaid ones so staff can
   // reopen or reprint a recent order without leaving the till screen.
@@ -1243,6 +1250,15 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 // Split payments came through here unwrapped, so a split that
                 // settled the bill neither confirmed nor closed the panel.
                 const res = await ordTakePayment(o, method, amount, extra);
+                // A part payment has to be written back into the local order
+                // the pay-now panel is driven from, or the panel keeps showing
+                // the ORIGINAL balance and the second half gets charged at the
+                // full amount.
+                if (res && res.ok && !res.fully_paid && res.paid != null) {
+                  setPayNowOrder((p) => (p && p.id === o.id)
+                    ? { ...p, amount_paid: Number(res.paid), is_split: !!res.is_split }
+                    : p);
+                }
                 if (res && res.ok && res.fully_paid) {
                   setPaidBanner({ label: o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no), total: o.total, method });
                   try { if (navigator.vibrate) navigator.vibrate([12, 40, 12]); } catch { /* no haptics */ }
