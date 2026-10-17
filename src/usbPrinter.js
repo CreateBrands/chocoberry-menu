@@ -67,6 +67,22 @@ export async function print(hex) {
   return true;
 }
 
+// Hand the printer back. Claiming a USB interface is exclusive, so while this
+// till holds it nothing else on the cable can print — which matters where a
+// printer is shared with another POS during a trial. close() drops the claim;
+// on most hosts that is enough for the other side to take over without a
+// replug, though Windows print drivers sometimes need the cable pulled.
+export async function release() {
+  try {
+    if (device && device.opened) {
+      if (iface !== null) { try { await device.releaseInterface(iface); } catch { /* already released */ } }
+      await device.close();
+    }
+  } catch { /* already unplugged — nothing to release */ }
+  device = null; iface = null; epOut = null;
+  forget();
+}
+
 export async function status() {
   if (!supported()) return "unsupported";
   if (!remembered()) return "unpaired";

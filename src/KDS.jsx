@@ -1505,6 +1505,23 @@ function ScreenSetup({ loc, screenKey: ownKey, current: ownCurrent, siblings, or
                       }}>🔌 USB printer on this device{printer === "usb:" + screenKey && usbPrinter.info() ? " · " + (usbPrinter.info().productName || "connected") : ""}</Chip>
                     )}
                     {printer === "usb:" + screenKey && <Chip small onClick={async () => { const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "usb_printer_test", data: { sn: "usb:" + screenKey, location_id: loc } }) }); const j = await r.json().catch(() => ({})); setUsbMsg(j.ok ? "Test slip queued — it prints within a few seconds once the printer is connected." : "Test print failed to queue: " + (j.error || j.message || ("HTTP " + r.status))); }}>Test print</Chip>}
+                    {/* Hand a shared printer back. A USB interface has one owner, so
+                        while this till holds it nothing else on the cable can print —
+                        which is the whole problem when a printer is borrowed from
+                        another POS for a trial. Tapping the printer chip takes it back. */}
+                    {printer === "usb:" + screenKey && <Chip small tone="#b4462f" onClick={async () => {
+                      if (!window.confirm("Release this printer?\n\nThis till stops printing to it and anything waiting is dropped, so the other till can have the cable back. Tap the printer chip again to take it over.")) return;
+                      try {
+                        setUsbMsg("Releasing…");
+                        await usbPrinter.release();
+                        const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "usb_printer_release", data: { location_id: loc, screen_key: screenKey, manager_pin: gateOk } }) });
+                        const j = await r.json().catch(() => ({}));
+                        if (!r.ok || !j.ok) throw new Error(j.message || j.error || ("HTTP " + r.status));
+                        setPrinter(""); setPrinters((ps) => (ps || []).filter((p) => p.sn !== "usb:" + screenKey));
+                        setUsbMsg("Printer released" + (j.cancelled ? " · " + j.cancelled + " waiting job" + (j.cancelled === 1 ? "" : "s") + " dropped" : "") + ". The cable is free for the other till. Remember to Save.");
+                        setErr("");
+                      } catch (e) { setUsbMsg("Release didn't complete: " + (e.message || e)); }
+                    }}>Release printer</Chip>}
                   </div>
                 )}
                 {usbMsg && <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: /can't|failed|cancel|USB:/.test(usbMsg) ? C.warn : C.good, lineHeight: 1.45 }}>{usbMsg}</div>}

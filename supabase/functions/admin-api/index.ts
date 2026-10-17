@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag", "clear_print_flags", "clear_print_queue",
-    "local_print_jobs", "local_print_done", "usb_printer_register", "usb_printer_test", "device_printer_register", "kiosk_slip",
+    "local_print_jobs", "local_print_done", "usb_printer_register", "usb_printer_release", "usb_printer_test", "device_printer_register", "kiosk_slip",
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
@@ -1874,6 +1874,31 @@ Deno.serve(async (req) => {
         const { id, sn, ok: printed, error } = data || {};
         const r = await callSunmi({ action: "local-job-done", id, sn, ok: !!printed, error });
         return json(r.body || { ok: false });
+      }
+      case "usb_printer_release": {
+        // Give a shared USB printer back. A USB interface has one owner, so
+        // while this till holds it, anything else on the cable (another POS
+        // during a side-by-side trial) cannot print. Releasing deactivates the
+        // printer row so no further jobs are routed to it, and cancels any
+        // already queued, so reclaiming it later does not flush a backlog of
+        // stale tickets at whoever is standing there.
+        const { location_id, screen_key, manager_pin } = data || {};
+        if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
+        if (!manager_pin) return json({ ok: false, error: "pin_required", message: "Manager PIN required" }, 401);
+        if (String(manager_pin) !== String(ADMIN_PIN)) {
+          const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
+          if (!sp || sp.location_id !== location_id) return json({ ok: false, error: "bad_pin", message: "That PIN isn't a manager PIN for this store" }, 403);
+        }
+        const rsn = "usb:" + String(screen_key);
+        const { error: upErr } = await admin.from("printers")
+          .update({ active: false, online: false }).eq("sn", rsn).eq("location_id", location_id);
+        if (upErr) throw upErr;
+        const { data: dropped } = await admin.from("print_jobs")
+          .update({ status: "cancelled", error: "printer released" })
+          .eq("printer_sn", rsn).eq("status", "queued").select("id");
+        await admin.from("kds_screens").update({ printer_sn: null })
+          .eq("location_id", location_id).eq("screen_key", String(screen_key));
+        return json({ ok: true, sn: rsn, cancelled: (dropped ?? []).length });
       }
       case "usb_printer_register": {
         // A till/KDS registers the printer plugged into it. Needs the manager PIN like screen setup.
