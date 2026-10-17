@@ -434,16 +434,32 @@ async function logJob(fields: Record<string, unknown>) {
 // streak stands until something succeeds, and the first success — a manual
 // test print, which never checks this — clears it on its own.
 const FAIL_PAUSE_AT = 3;
+// How long a pause lasts before the printer is given another go. The pause
+// exists to stop a dead printer eating a hundred tickets, not to stay on
+// until somebody opens a SQL editor -- and until now it did exactly that:
+// nothing is sent while paused, so the three failures it reads stay the three
+// newest failures for ever. A printer that came back on its own stayed off,
+// and on Saturday it refused a live phone order with the paper blamed for it.
+//
+// Ten minutes is long enough that a genuinely dead printer is not hammered,
+// and short enough that a blip costs one service round rather than a day.
+const PAUSE_FOR_MS = 10 * 60 * 1000;
+
 async function printerPaused(sn: string): Promise<boolean> {
   const { data } = await supabase
     .from("print_jobs")
-    .select("status")
+    .select("status, created_at")
     .eq("printer_sn", sn)
     .in("status", ["sent", "failed"])   // queued jobs have no outcome yet
     .order("created_at", { ascending: false })
     .limit(FAIL_PAUSE_AT);
-  const rows = (data ?? []) as Array<{ status: string }>;
-  return rows.length >= FAIL_PAUSE_AT && rows.every((r) => r.status === "failed");
+  const rows = (data ?? []) as Array<{ status: string; created_at: string }>;
+  if (rows.length < FAIL_PAUSE_AT || !rows.every((r) => r.status === "failed")) return false;
+  // Paused -- but only until the newest of those failures is old enough to be
+  // worth testing again.
+  const newest = Date.parse(rows[0].created_at);
+  if (!isFinite(newest)) return true;
+  return (Date.now() - newest) < PAUSE_FOR_MS;
 }
 
 // How long a local agent may go quiet before we call it offline. It polls
@@ -598,7 +614,7 @@ async function printOrder(
       results.push({ printer: sn, station, slip: pass.mode, skipped: true, reason: "paused after repeated failures" });
       await supabase.from("menu_orders").update({
         print_failed: true,
-        print_error: "Printer paused after repeated failures - check paper and the cover, then restart the device",
+        print_error: "Held: the printer failed three times in a row, so this was not sent. It retries on its own within ten minutes. If it keeps happening, check the printer is on and the Print Agent app is open.",
       }).eq("id", orderId);
       continue;
     }
