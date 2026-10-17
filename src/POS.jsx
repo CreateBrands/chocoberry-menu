@@ -815,10 +815,22 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     });
   }
   // required groups must have their minimum satisfied before Add is allowed
-  const modMissing = (modItem?.modifiers || []).some((g) => g.required && (modSel[g.id] || []).length < (g.min_select || 1));
+  const modMissingReq = (modItem?.modifiers || []).some((g) => g.required && (modSel[g.id] || []).length < (g.min_select || 1));
+  // A carrier item costs nothing until a choice is made — "Add Ons" on the
+  // breakfast menu is priced at zero and takes all its money from its options
+  // — so adding one untouched puts a 0.00 line on the ticket that tells the
+  // kitchen nothing. The option group itself cannot be made required: it is
+  // shared by twenty-four breakfast dishes. Scoped to items that HAVE groups
+  // and have had NOTHING chosen, so a free item with no groups still adds and
+  // so does a choice deliberately priced at zero.
   const modReqGroups = (modItem?.modifiers || []).filter((g) => g.required);
   const modReqDone = modReqGroups.filter((g) => (modSel[g.id] || []).length >= (g.min_select || 1)).length;
   const modUnit = modItem ? modItem.price + (modItem.modifiers || []).flatMap((g) => (g.options || []).filter((o) => (modSel[g.id] || []).includes(o.id))).reduce((s, o) => s + Number(o.price_delta || 0), 0) : 0;
+  // Declared after modUnit on purpose — it reads it.
+  const modEmptyCarrier = !!modItem && (modItem.modifiers || []).length > 0
+    && (modItem.modifiers || []).every((g) => !(modSel[g.id] || []).length)
+    && modUnit === 0;
+  const modMissing = modMissingReq || modEmptyCarrier;
   const setQty = (key, d) => setTicket((p) => p.flatMap((l) => l.key === key ? (l.qty + d <= 0 ? [] : [{ ...l, qty: l.qty + d }]) : [l]));
   const removeLine = (key) => setTicket((p) => p.filter((l) => l.key !== key));
   const clearAll = () => { setTicket([]); setTable(null); setAppendTo(null); setOrderKind("takeaway"); setOrderNote(""); setPlaced(null); setMsg(""); setPayMethod(null); setPayPin(""); };
@@ -2109,7 +2121,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             {/* footer */}
             <div style={{ display: "flex", gap: 12, padding: "14px 28px 22px", borderTop: "1px solid #eef0f3", flexShrink: 0, background: "#fff" }}>
               <div onClick={() => { setModItem(null); setEditKey(null); setModNote(""); }} style={{ padding: "19px 28px", borderRadius: 18, background: "#f4f6f8", color: "#5b6472", fontWeight: 700, cursor: "pointer", fontSize: 17 }}>Cancel</div>
-              <div onClick={() => !modMissing && confirmMods()} style={{ flex: 1, textAlign: "center", padding: "19px 0", borderRadius: 18, background: modMissing ? "#dde1e5" : grad, color: modMissing ? "#8a929c" : "#fff", fontWeight: 700, fontSize: 19, letterSpacing: "-.01em", cursor: modMissing ? "default" : "pointer", boxShadow: modMissing ? "none" : "0 10px 26px rgba(13,148,136,.34)" }}>{modMissing ? "Choose required options" : (editKey ? "Update · " : "Add · ") + gbp(modUnit)}</div>
+              <div onClick={() => !modMissing && confirmMods()} style={{ flex: 1, textAlign: "center", padding: "19px 0", borderRadius: 18, background: modMissing ? "#dde1e5" : grad, color: modMissing ? "#8a929c" : "#fff", fontWeight: 700, fontSize: 19, letterSpacing: "-.01em", cursor: modMissing ? "default" : "pointer", boxShadow: modMissing ? "none" : "0 10px 26px rgba(13,148,136,.34)" }}>{modMissingReq ? "Choose required options" : modEmptyCarrier ? "Choose an option" : (editKey ? "Update · " : "Add · ") + gbp(modUnit)}</div>
             </div>
           </div>
         </div>

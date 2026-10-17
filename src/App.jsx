@@ -2007,7 +2007,24 @@ export function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onA
   const reqGroups = groups.filter((g) => g.required);
   const nextMissing = reqGroups.find((g) => !groupDone(g)) || null;
   const reqDone = reqGroups.filter(groupDone).length;
-  const askFor = (g) => /^choose/i.test(g.name || "") ? g.name : "Choose " + String(g.name || "an option").toLowerCase();
+  const askFor = (g) => { const n = String((g && g.name) || "an option"); return /^choose/i.test(n) ? n : "Choose " + n.toLowerCase(); };
+
+  // A carrier item costs nothing until a choice is made: "Add Ons" on the
+  // breakfast menu is priced at zero and takes all its money from its options.
+  // Without this a tap on Add drops a 0.00 line in the bag and the kitchen
+  // gets a ticket line that says nothing at all.
+  //
+  // Deliberately NOT solved by making the option group required: twenty-four
+  // breakfast dishes share that group, and requiring it would force an add-on
+  // onto every omelette on the menu.
+  //
+  // Scoped to items that HAVE groups and have had NOTHING chosen, so a
+  // genuinely free item with no groups still adds, and so does a choice
+  // deliberately priced at zero.
+  const nothingChosen = groups.length > 0 && groups.every((g) => !(sel[g.id] || []).length);
+  const emptyCarrier = nothingChosen && unit === 0;
+  const blockAdd = missingRequired || emptyCarrier;
+  const askAbout = nextMissing || groups[0] || null;
 
   // Item's own allergens plus those of every option currently selected.
   // "contains" wins over "may contain" if an allergen appears in both.
@@ -2139,9 +2156,9 @@ export function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onA
               <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 26, minWidth: 24, textAlign: "center" }}>{qty}</span>
               <span onClick={() => setQty((q) => q + 1)} style={{ fontSize: 28, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
             </div>
-            <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: allMods }); }}
-              style={{ flex: 1, minHeight: 84, padding: "0 30px", borderRadius: 42, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, cursor: missingRequired ? "default" : "pointer", background: missingRequired ? "var(--bg2)" : "var(--accent)", color: missingRequired ? "var(--muted)" : "var(--bg)", boxShadow: missingRequired ? "inset 0 0 0 1px var(--line)" : "0 18px 36px -16px rgba(0,0,0,.45)", fontFamily: "var(--font-head)", fontWeight: 500, fontSize: 24 }}>
-              <span id="kioskcta">{missingRequired ? askFor(nextMissing) : "Add to bag"}</span>
+            <div onClick={() => { if (blockAdd) return; onAdd({ item: it, qty, unit, mods: allMods }); }}
+              style={{ flex: 1, minHeight: 84, padding: "0 30px", borderRadius: 42, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, cursor: blockAdd ? "default" : "pointer", background: blockAdd ? "var(--bg2)" : "var(--accent)", color: blockAdd ? "var(--muted)" : "var(--bg)", boxShadow: blockAdd ? "inset 0 0 0 1px var(--line)" : "0 18px 36px -16px rgba(0,0,0,.45)", fontFamily: "var(--font-head)", fontWeight: 500, fontSize: 24 }}>
+              <span id="kioskcta">{blockAdd ? askFor(askAbout) : "Add to bag"}</span>
               <span style={{ fontWeight: 600 }}>{money(unit * qty)}</span>
             </div>
           </div>}
@@ -2153,7 +2170,7 @@ export function ItemDetail({ item, store, onAdd, onClose, allergensUnlocked, onA
           <span style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 20, minWidth: 16, textAlign: "center" }}>{qty}</span>
           <span onClick={() => setQty((q) => q + 1)} style={{ fontSize: 22, color: "var(--accent)", lineHeight: 1, cursor: "pointer", userSelect: "none" }}>+</span>
         </div>
-        <div onClick={() => { if (missingRequired) return; onAdd({ item: it, qty, unit, mods: allMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: missingRequired ? "not-allowed" : "pointer", opacity: missingRequired ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
+        <div onClick={() => { if (blockAdd) return; onAdd({ item: it, qty, unit, mods: allMods }); }} style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12, background: "var(--accent)", color: "#F7F4EC", padding: "19px 0", borderRadius: 40, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 18, boxShadow: "0 16px 32px -12px rgba(94,122,77,.5)", cursor: blockAdd ? "not-allowed" : "pointer", opacity: blockAdd ? .5 : 1 }}>Add to Bag · {money(unit * qty)}</div>
       </div>
       )}
     </div>
