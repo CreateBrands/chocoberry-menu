@@ -678,6 +678,35 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
         </div>
         )}
 
+        {/* MAIN CATEGORIES — always on screen, directly under the banner.
+            This is the top level: Drinks, Desserts, All Day Breakfast and so
+            on. The strip below reveals on scroll and lists the sub-categories
+            inside whichever one is open, so the two do not say the same thing.
+            A store with a single main category gets nothing here — a row of
+            one tile tells a customer less than no row at all. */}
+        {!kiosk && menus && menus.length > 1 && (
+          <div style={{ padding: "16px 0 2px" }}>
+            <div style={{ display: "flex", gap: 10, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 16px", scrollbarWidth: "none" }}>
+              {menus.map((m, i) => {
+                const on = i === activeMenu;
+                // Borrow a photo from the first item inside that has one, so
+                // the tiles look like the menu rather than like swatches.
+                const img = (m.categories || []).flatMap((c) => c.items || []).map((x) => x.image_url).find((u) => u && /^https?:/.test(u)) || null;
+                return (
+                  <div key={m.id} onClick={() => { setActiveMenu(i); setActiveCat(0); }} style={{ flex: "none", width: 124, scrollSnapAlign: "start", cursor: "pointer" }}>
+                    <div style={{ height: 88, borderRadius: 16, position: "relative", overflow: "hidden", background: img ? "var(--accent-soft)" : "var(--accent-soft)", backgroundImage: img ? `url(${img})` : "none", backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 4px 12px -5px rgba(56,53,43,.2)", transition: "box-shadow .2s" }}>
+                      {img && <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(20,26,14,.40),rgba(20,26,14,.02))" }} />}
+                      {!img && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", opacity: .85 }}>{menuIcon(m.name, false)}</div>}
+                      {on && <div style={{ position: "absolute", inset: 0, borderRadius: 16, boxShadow: "inset 0 0 0 3px var(--accent)" }} />}
+                    </div>
+                    <div style={{ textAlign: "center", marginTop: 8, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 13, lineHeight: 1.2, color: on ? "var(--accent)" : "var(--ink)" }}>{m.name}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {/* category strip — reveals on scroll. The kiosk uses the left rail. */}
         {!kiosk && <div style={{ position: "sticky", top: 0, zIndex: 6, background: "var(--bg)", boxShadow: scrolled ? "0 12px 16px -14px rgba(56,53,43,.5)" : "none", overflow: "hidden", maxHeight: scrolled ? 160 : 0, opacity: scrolled ? 1 : 0, paddingTop: scrolled ? 14 : 0, paddingBottom: scrolled ? 14 : 0, transition: "max-height .35s ease, opacity .3s ease, padding .35s ease" }}>
           <div style={{ display: "flex", gap: 8, overflowX: "auto", scrollSnapType: "x mandatory", padding: "0 20px", scrollbarWidth: "none" }}>
@@ -814,8 +843,11 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
       <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: 120, pointerEvents: "none", background: "linear-gradient(to top,var(--bg) 22%,transparent)" }} />
       {added && <div style={{ position: "absolute", bottom: 90, left: "50%", transform: "translateX(-50%)", background: "var(--accent)", color: "#fff", padding: "10px 22px", borderRadius: 30, fontSize: 14, fontWeight: 600, fontFamily: "var(--font-head)", zIndex: 40, boxShadow: "0 10px 24px -8px rgba(0,0,0,.3)" }}>Added to bag ✓</div>}
       {/* horizontal bottom strip; active expands inline, others shuffle aside.
-          Not on a kiosk — the switcher is in the top bar there. */}
-      {!kiosk && menus && menus.length > 1 && (
+          Not on a kiosk — the switcher is in the top bar there. It waits for
+          the scroll now: the main-category row under the banner covers the
+          top of the page, and two switchers for the same thing on one screen
+          is just clutter. This one takes over once that row is out of sight. */}
+      {!kiosk && menus && menus.length > 1 && scrolled && (
       <div style={{ position: "absolute", left: "50%", transform: "translateX(-50%)", bottom: 14, maxWidth: "calc(100% - 24px)", background: "rgba(255,255,255,.55)", backdropFilter: "blur(14px)", borderRadius: 30, boxShadow: "0 8px 24px -10px rgba(56,53,43,.2)", padding: "5px 8px", display: "flex", alignItems: "center", gap: 3, overflowX: "auto", scrollbarWidth: "none", zIndex: 20 }}>
         {menus.map((m, i) => {
           const on = i === activeMenu;
