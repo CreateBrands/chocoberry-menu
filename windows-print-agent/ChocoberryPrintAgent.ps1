@@ -259,6 +259,31 @@ Write-Status "Chocoberry Print Agent $Version" "Cyan"
 
 if ($Printers.Count -eq 0) { throw "No printers configured. Edit the settings block." }
 
+# Creating a print queue needs administrator. Rather than telling someone to
+# right-click the shortcut -- which is easy to forget and easy to get wrong --
+# ask Windows for elevation here and carry on in the new window. Only done
+# when a queue is actually missing, so the everyday run never prompts.
+$needsQueue = $false
+foreach ($cfg in $Printers) {
+  if ($cfg.Target -like "win:*") {
+    $q = $cfg.Target.Substring(4)
+    if (-not (Get-Printer -Name $q -ErrorAction SilentlyContinue)) { $needsQueue = $true }
+  }
+}
+if ($needsQueue -and -not (Test-IsAdmin)) {
+  Write-Status "A printer queue needs creating, which needs administrator." "Yellow"
+  Write-Status "Asking Windows for permission - approve the prompt and watch the new window." "Yellow"
+  $relaunch = @("-ExecutionPolicy", "Bypass", "-NoExit", "-File", ('"' + $PSCommandPath + '"'))
+  if ($Once) { $relaunch += "-Once" }
+  try {
+    Start-Process -FilePath "powershell.exe" -ArgumentList $relaunch -Verb RunAs | Out-Null
+  } catch {
+    throw "Elevation was refused, so the queue cannot be created. Either approve the prompt, or add the printer yourself in Printers and scanners with the Generic / Text Only driver and run this again."
+  }
+  Write-Status "Handed over to the elevated window. This one is done." "Cyan"
+  exit 0
+}
+
 $storeId = Get-StoreId $StoreName
 Write-Status "Store: $StoreName" "Cyan"
 
