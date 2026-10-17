@@ -8,7 +8,7 @@ the ESC/POS bytes, mark each job sent or failed.
 
 A browser cannot print to a printer Windows owns. WebUSB only drives devices
 bound to WinUSB, and a USB receipt printer on Windows is bound to the printing
-subsystem instead — so Chrome fails with `Access denied` on open, or claims the
+subsystem instead - so Chrome fails with `Access denied` on open, or claims the
 interface and then loses it to the spooler mid-service. Fighting Windows for
 the cable does not work and is not worth trying.
 
@@ -20,7 +20,7 @@ from both systems rather than one locking the other out.
 
 | Target in the config | Printer |
 | --- | --- |
-| `win:<queue name>` | A printer installed in Windows. Install it with the **Generic / Text Only** driver — it passes bytes through untouched, which is what ESC/POS needs. A vendor driver would try to render pages. |
+| `win:<queue name>` | A printer installed in Windows. Install it with the **Generic / Text Only** driver - it passes bytes through untouched, which is what ESC/POS needs. A vendor driver would try to render pages. |
 | `tcp:<ip>:<port>` | A network printer, spoken to directly on port 9100. No Windows queue needed, and several systems can print to it at once. |
 
 One agent on one machine can drive any number of both, so a store with a till
@@ -31,7 +31,7 @@ printer and three kitchen printers needs one copy of this, not four.
 1. Open `ChocoberryPrintAgent.ps1` and edit the settings block: the store name
    exactly as it appears in Admin, the store manager PIN, and one entry per
    printer. For a printer on a cable, `Target` is just what you want the queue
-   called — you do not have to create it first.
+   called - you do not have to create it first.
 2. Run it once, **as administrator** if any printer is on a cable:
 
    ```
@@ -46,7 +46,7 @@ printer and three kitchen printers needs one copy of this, not four.
    `-Once`, and no longer needing admin) in `shell:startup`.
 
 Only step 2 needs administrator, and only when a Windows queue has to be
-created — that is a Windows rule about installing printers, not a choice this
+created - that is a Windows rule about installing printers, not a choice this
 script makes. Network printers need no admin at all, because nothing is
 installed for them. There is no installer, nothing to package, and no browser
 involved.

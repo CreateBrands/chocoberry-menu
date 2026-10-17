@@ -9,7 +9,7 @@
 
   Why this exists. A browser cannot print to a printer Windows owns. WebUSB can
   only drive a device bound to WinUSB, and a USB receipt printer on Windows is
-  bound to the printing subsystem instead — which is why the till reports
+  bound to the printing subsystem instead - which is why the till reports
   "Access denied" when Chrome tries to open it. The fix is not to fight Windows
   for the cable but to hand Windows the bytes, exactly as the other POS on that
   machine does.
@@ -29,7 +29,7 @@
     2. Run it once from PowerShell to register the printers and check a slip
        comes out:  powershell -ExecutionPolicy Bypass -File ChocoberryPrintAgent.ps1
     3. To start it with the machine, put a shortcut to that same command in
-       shell:startup. Clear the manager PIN from the file afterwards — once a
+       shell:startup. Clear the manager PIN from the file afterwards - once a
        printer is registered it is never needed again.
 
   It needs no admin rights, no installer and no open browser.
@@ -43,7 +43,7 @@ param(
   [int]$IdleSeconds = 3
 )
 
-# ─── SETTINGS ────────────────────────────────────────────────────────────────
+# --- SETTINGS ----------------------------------------------------------------
 
 $StoreName  = "Al Zahia Mall"
 
@@ -51,18 +51,18 @@ $StoreName  = "Al Zahia Mall"
 $ManagerPin = ""
 
 # One entry per printer this machine should drive.
-#   Target "win:NAME"           — a printer on a cable. The queue is created
+#   Target "win:NAME"           - a printer on a cable. The queue is created
 #                                 for you if Windows does not have one yet;
 #                                 NAME is just what you want it called.
-#   Target "tcp:10.0.0.50:9100" — a network printer. Nothing to install.
-#   Port                        — optional, only to pick a specific USB port
+#   Target "tcp:10.0.0.50:9100" - a network printer. Nothing to install.
+#   Port                        - optional, only to pick a specific USB port
 #                                 when the machine has several.
 $Printers = @(
   @{ Label = "Till printer"; Station = "kitchen"; Target = "win:XP-Q80A"; Paper = 80 }
   # @{ Label = "Kitchen";    Station = "kitchen"; Target = "tcp:192.168.1.50:9100"; Paper = 80 }
 )
 
-# ─────────────────────────────────────────────────────────────────────────────
+# -----------------------------------------------------------------------
 
 $ErrorActionPreference = "Stop"
 
@@ -120,7 +120,7 @@ function Get-StoreId([string]$name) {
 }
 
 # Raw bytes to a Windows print queue. The spooler takes them verbatim with the
-# RAW datatype, which is what ESC/POS needs — anything else would try to render
+# RAW datatype, which is what ESC/POS needs - anything else would try to render
 # a page and print gibberish.
 if (-not ("ChocoRawPrint" -as [type])) {
 Add-Type -TypeDefinition @'
@@ -199,7 +199,7 @@ function Initialize-WindowsQueue([string]$name, [string]$portHint) {
     }
     $port = $usb[0].Name
     if ($usb.Count -gt 1) {
-      Write-Status ("Several USB ports: {0}. Using {1} — set Port in the settings block to choose another." -f (($usb | Select-Object -ExpandProperty Name) -join ', '), $port) "Yellow"
+      Write-Status ("Several USB ports: {0}. Using {1} - set Port in the settings block to choose another." -f (($usb | Select-Object -ExpandProperty Name) -join ', '), $port) "Yellow"
     }
   }
 
@@ -253,7 +253,7 @@ function Get-Serial([int]$index) {
   return "agent:win-$host_-$index"
 }
 
-# ─── start up ────────────────────────────────────────────────────────────────
+# --- start up ----------------------------------------------------------------
 
 Write-Status "Chocoberry Print Agent $Version" "Cyan"
 
@@ -291,7 +291,7 @@ for ($i = 0; $i -lt $Printers.Count; $i++) {
     $paper = 80
     if ($p.Paper) { $paper = [int]$p.Paper }
     # A rejected PIN comes back as an HTTP error, which Invoke-RestMethod turns
-    # into an exception — catch it so the message says what to fix.
+    # into an exception - catch it so the message says what to fix.
     try {
       $res = Invoke-Api "device_printer_register" @{
         location_id = $storeId; sn = $sn; label = $p.Label
@@ -313,7 +313,7 @@ for ($i = 0; $i -lt $Printers.Count; $i++) {
 
 Write-Status "Watching for jobs. Leave this window open." "Cyan"
 
-# ─── the loop ────────────────────────────────────────────────────────────────
+# --- the loop ----------------------------------------------------------------
 
 $backoff = $IdleSeconds
 while ($true) {
@@ -360,7 +360,7 @@ while ($true) {
     $backoff = $IdleSeconds
   } catch {
     # Network or server trouble. Back off rather than hammering, and keep going
-    # — a till that stops printing because the wifi blinked is no use.
+    # - a till that stops printing because the wifi blinked is no use.
     Write-Status "offline: $($_.Exception.Message)" "Yellow"
     $backoff = [Math]::Min($backoff * 2, 60)
   }
