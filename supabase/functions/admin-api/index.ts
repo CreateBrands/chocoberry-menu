@@ -318,7 +318,12 @@ Deno.serve(async (req) => {
     const bySource: Record<string, { count: number; amount: number }> = {};
     const byHour: Record<string, { count: number; amount: number }> = {};
     let first: string | null = null, last: string | null = null;
-    const hourOf = (iso: string) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: "Europe/London", hour: "2-digit", hourCycle: "h23" }).format(new Date(iso)));
+    // The same zone the trading-day cutoff above already uses. Hard-wiring
+    // London put a Dubai store's busiest hour three hours out, and the hourly
+    // bars on the closing report with it. Null or empty means London, so every
+    // UK store reports exactly as before.
+    const sumZone = String((locRow as any)?.timezone || "").trim() || "Europe/London";
+    const hourOf = (iso: string) => Number(new Intl.DateTimeFormat("en-GB", { timeZone: sumZone, hour: "2-digit", hourCycle: "h23" }).format(new Date(iso)));
     for (const o of orders) if (o.status === "cancelled") cancelledTotal += Number(o.total || 0);
     for (const o of live) {
       const total = Number(o.total || 0);
@@ -1952,9 +1957,13 @@ Deno.serve(async (req) => {
         const prs = mine.length ? mine : receipts.length ? receipts : counter.length ? counter : (all || []);
         if (!prs.length) return json({ ok: false, error: "no_printer", message: "This store has no active printer, so the kiosk slip could not print." });
         const { data: bn } = await admin.from("menu_app_settings").select("value").eq("key", "brand_name:" + location_id).maybeSingle();
+        // Timestamp in the store zone, so a slip printed in Sharjah does not
+        // carry London time. No zone set means London, as every UK store has.
+        const { data: kz } = await admin.from("menu_locations").select("timezone").eq("id", location_id).maybeSingle();
+        const kZone = String((kz as any)?.timezone || "").trim() || "Europe/London";
         let lines: string[] = [];
         let title = "YOUR ORDER";
-        if (test) { lines = ["Kiosk printer test", new Date().toLocaleString("en-GB", { timeZone: "Europe/London" })]; title = "KIOSK TEST"; }
+        if (test) { lines = ["Kiosk printer test", new Date().toLocaleString("en-GB", { timeZone: kZone })]; title = "KIOSK TEST"; }
         else {
           const { data: o } = await admin.from("menu_orders").select("order_no, total, order_type, discount_amount").eq("id", order_id).maybeSingle();
           const { data: lr } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle();
@@ -1979,7 +1988,7 @@ Deno.serve(async (req) => {
             "--------------------------------",
             ...(its || []).map((it: any) => `${it.qty} x ${it.name_snapshot}` + (Array.isArray(it.modifiers_snapshot) && it.modifiers_snapshot.length ? " (" + it.modifiers_snapshot.join(", ") + ")" : "") + (it.note ? " - " + it.note : "")),
             "--------------------------------",
-            String(bn?.value || "Chocoberry") + (locRowName ? " · " + locRowName : "") + " · " + new Date().toLocaleString("en-GB", { timeZone: "Europe/London" }),
+            String(bn?.value || "Chocoberry") + (locRowName ? " · " + locRowName : "") + " · " + new Date().toLocaleString("en-GB", { timeZone: kZone }),
           ];
         }
         const r = await callSunmi({ action: "print-message", location_id, title, lines, sns: prs.map((p: any) => p.sn) });

@@ -81,6 +81,19 @@ const sunmi = new SunmiClient(
   Deno.env.get("SUNMI_APP_KEY") ?? "",
 );
 
+// A slip is printed in the STORE timezone, not the server one. UK stores have
+// no timezone set, so they fall back to Europe/London and their slips come out
+// exactly as before; Dubai stores are Asia/Dubai and were printing three hours
+// behind the clock on the wall.
+// Takes unknown because the callers hand it straight off an untyped body.
+async function storeZone(locationId?: unknown): Promise<string> {
+  if (!locationId) return "Europe/London";
+  const { data } = await supabase
+    .from("menu_locations").select("timezone").eq("id", String(locationId)).maybeSingle();
+  const tz = (data as { timezone?: unknown } | null)?.timezone;
+  return tz ? String(tz) : "Europe/London";
+}
+
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-print-secret",
@@ -251,13 +264,7 @@ async function loadReceiptOrder(
     }
   }
   const maxBatch = Math.max(0, ...[...batchFirstTs.keys()]);
-  const batchTimes: string[] = [];
-  for (let b = 0; b <= maxBatch; b++) {
-    const ts = batchFirstTs.get(b);
-    batchTimes[b] = ts !== undefined
-      ? new Date(ts).toLocaleTimeString("en-GB", { timeZone: "Europe/London", hour: "numeric", minute: "2-digit", hour12: true })
-      : "";
-  }
+  // Formatted lower down, once the store timezone is known.
 
   // Dine-in table name (best-effort: tolerate unknown column naming)
   let tableLabel: string | undefined;
@@ -279,6 +286,12 @@ async function loadReceiptOrder(
 
   // Store name (best-effort)
   let storeName: string | undefined;
+  // Every time on this slip is printed in the STORE timezone, not the server
+  // one. A Sharjah ticket formatted in London time prints three hours behind,
+  // which misdates the kitchen ticket, the aging on it and the customer
+  // receipt. UK stores have no timezone set, so they keep Europe/London and
+  // their slips are unchanged.
+  let zone = "Europe/London";
   if (rec.location_id) {
     const { data: loc } = await supabase
       .from("menu_locations")
@@ -289,6 +302,7 @@ async function loadReceiptOrder(
       const ll = loc as Record<string, unknown>;
       const raw = ll.name ?? ll.label ?? ll.title;
       if (raw != null) storeName = String(raw);
+      if (ll.timezone) zone = String(ll.timezone);
     }
   }
 
@@ -315,8 +329,16 @@ async function loadReceiptOrder(
 
   const created = rec.created_at ? String(rec.created_at) : undefined;
   const placedAt = new Date(created ?? Date.now()).toLocaleString("en-GB", {
-    timeZone: "Europe/London",
+    timeZone: zone,
   });
+
+  const batchTimes: string[] = [];
+  for (let b = 0; b <= maxBatch; b++) {
+    const ts = batchFirstTs.get(b);
+    batchTimes[b] = ts !== undefined
+      ? new Date(ts).toLocaleTimeString("en-GB", { timeZone: zone, hour: "numeric", minute: "2-digit", hour12: true })
+      : "";
+  }
 
   const num = (v: unknown) => {
     const x = typeof v === "string" ? parseFloat(v) : (v as number);
@@ -1051,7 +1073,7 @@ Deno.serve(async (req) => {
         // store (or all printers if we can't resolve one).
         const s = body.summary || {};
         const storeName = String(body.store_name || "");
-        const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+        const when = new Date().toLocaleString("en-GB", { timeZone: await storeZone(body.location_id) });
         const { data: zc } = await supabase.from("menu_app_settings").select("value")
           .eq("key", "currency:" + String(body.location_id || "")).maybeSingle();
         const fmtZ = moneyFor(zc?.value ? String(zc.value) : "GBP");
@@ -1196,13 +1218,14 @@ Deno.serve(async (req) => {
         const { data: rc } = await supabase.from("menu_app_settings").select("value").eq("key", "currency:" + String(location_id || "")).maybeSingle();
         const fmtR = moneyFor(rc?.value ? String(rc.value) : "GBP");
         const { data: locRow } = await supabase.from("menu_locations").select("name").eq("id", String(location_id || "")).maybeSingle();
-        const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+        const rZone = await storeZone(location_id);
+        const when = new Date().toLocaleString("en-GB", { timeZone: rZone });
         const r = new Receipt();
         r.align(1).size(1, 1).bold(true).line(String(bn?.value || "Chocoberry")).bold(false).size(0, 0);
         if (locRow?.name) r.line(String(locRow.name));
         r.feed(1).size(0, 1).bold(true).line("REFUND RECEIPT").bold(false).size(0, 0).feed(1);
         r.align(0).leftRight("Order", "#" + o.order_no).leftRight("Refunded on", when);
-        r.leftRight("Original order", new Date(o.created_at).toLocaleString("en-GB", { timeZone: "Europe/London" }));
+        r.leftRight("Original order", new Date(o.created_at).toLocaleString("en-GB", { timeZone: rZone }));
         r.divider();
         for (const it of its || []) r.line(`${it.qty} x ${it.name_snapshot}`);
         r.divider();
@@ -1232,7 +1255,7 @@ Deno.serve(async (req) => {
       case "print-message": {
         const title = String(body.title || "NOTICE").slice(0, 40);
         const msgLines: string[] = Array.isArray(body.lines) ? body.lines.map((l: unknown) => String(l).slice(0, 46)) : [];
-        const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+        const when = new Date().toLocaleString("en-GB", { timeZone: await storeZone(body.location_id) });
         const r = new Receipt();
         r.align(1).size(1, 1).bold(true).line(title).bold(false).size(0, 0).feed(1);
         r.align(0);
