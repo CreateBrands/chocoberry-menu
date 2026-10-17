@@ -51,8 +51,12 @@ $StoreName  = "Al Zahia Mall"
 $ManagerPin = ""
 
 # One entry per printer this machine should drive.
-#   Target "win:NAME"           — exactly as the printer appears in Windows
-#   Target "tcp:10.0.0.50:9100" — a network printer
+#   Target "win:NAME"           — a printer on a cable. The queue is created
+#                                 for you if Windows does not have one yet;
+#                                 NAME is just what you want it called.
+#   Target "tcp:10.0.0.50:9100" — a network printer. Nothing to install.
+#   Port                        — optional, only to pick a specific USB port
+#                                 when the machine has several.
 $Printers = @(
   @{ Label = "Till printer"; Station = "kitchen"; Target = "win:XP-Q80A"; Paper = 80 }
   # @{ Label = "Kitchen";    Station = "kitchen"; Target = "tcp:192.168.1.50:9100"; Paper = 80 }
@@ -159,6 +163,51 @@ public class ChocoRawPrint {
 '@
 }
 
+function Test-IsAdmin {
+  $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+  return (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+# Create the Windows print queue if it is missing, rather than making someone
+# click through Printers & scanners on every till. Installing a printer is an
+# administrator action on Windows, so this is the one step that needs the
+# script run as administrator -- once, after which it never asks again.
+#
+# Generic / Text Only is deliberate: it is an in-box driver that passes bytes
+# through untouched, which is what ESC/POS needs. A vendor driver would try to
+# render a page and print nonsense.
+function Initialize-WindowsQueue([string]$name, [string]$portHint) {
+  if (Get-Printer -Name $name -ErrorAction SilentlyContinue) { return $false }
+
+  if (-not (Test-IsAdmin)) {
+    throw "The printer queue '$name' does not exist yet and creating one needs administrator rights. Right-click PowerShell, choose Run as administrator, and run this script once more. After that it never needs admin again."
+  }
+
+  $driver = "Generic / Text Only"
+  if (-not (Get-PrinterDriver -Name $driver -ErrorAction SilentlyContinue)) {
+    Write-Status "Installing the $driver driver" "Yellow"
+    Add-PrinterDriver -Name $driver
+  }
+
+  $port = $portHint
+  if ([string]::IsNullOrWhiteSpace($port)) {
+    $usb = @(Get-PrinterPort -ErrorAction SilentlyContinue | Where-Object { $_.Name -like 'USB*' })
+    if ($usb.Count -eq 0) {
+      $all = (Get-PrinterPort -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join ', '
+      throw "No USB printer port found, so Windows cannot see the printer on a cable. Check it is plugged in and switched on. Ports Windows has: $all"
+    }
+    $port = $usb[0].Name
+    if ($usb.Count -gt 1) {
+      Write-Status ("Several USB ports: {0}. Using {1} — set Port in the settings block to choose another." -f (($usb | Select-Object -ExpandProperty Name) -join ', '), $port) "Yellow"
+    }
+  }
+
+  Write-Status "Creating queue '$name' on $port" "Yellow"
+  Add-Printer -Name $name -DriverName $driver -PortName $port
+  return $true
+}
+
 function Send-ToTcp([string]$target, [byte[]]$bytes) {
   $bits = $target.Split(':')
   if ($bits.Count -lt 3) { throw "Target should look like tcp:10.0.0.50:9100" }
@@ -223,6 +272,16 @@ for ($i = 0; $i -lt $Printers.Count; $i++) {
   $p    = $Printers[$i]
   $sn   = Get-Serial $i
   $sn_  = $sn
+
+  # Make sure Windows has a queue for it before we promise the server we can
+  # print. A missing queue is the commonest reason a till prints nothing.
+  if ($p.Target -like "win:*") {
+    $queue = $p.Target.Substring(4)
+    if (Initialize-WindowsQueue $queue $p.Port) {
+      Write-Status "Windows queue '$queue' created" "Green"
+    }
+  }
+
   $need = -not ($registered -contains $sn_)
 
   if ($need) {
