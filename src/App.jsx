@@ -315,6 +315,195 @@ function KioskStartTiles({ onStart, w = {} }) {
   );
 }
 
+// ── Landing page: the window ─────────────────────────────────────────────
+// A tablet sits on a table for the whole trading day, so this screen is
+// signage first and a door second. The old welcome was a logo over a button:
+// it said nothing about the place. This one carries the menu's own index —
+// every main category, what is inside it, and how many dishes — so someone
+// sitting down reads the shape of the whole menu before touching anything,
+// and can go straight to the part they want.
+//
+// Everything on it comes from the store's own data: the index from `menus`,
+// the feature from hero_slides, the address from welcome_subtitle. Nothing
+// here is per-store content that has to be written twice.
+//
+// Opt a store in with welcome_style=window. Every other store keeps the
+// welcome it already has.
+function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
+  // Re-read the clock each minute: the screen is open for hours at a time, so
+  // it has to notice that the afternoon became the evening on its own.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(id);
+  }, []);
+  const hour = now.getHours();
+  const mode = hour < 11 ? "morning" : hour < 17 ? "day" : "evening";
+
+  // Night dress is opt-in: a dark palette has to be chosen per brand, and a
+  // store that has not chosen one keeps its daylight colours all evening.
+  const night = mode === "evening" && String(w.welcome_night || "") === "on";
+  const P = night
+    ? { panel: "#241309", ink: "#F4E9DD", sub: "#B29A82", line: "rgba(244,233,221,.22)", accent: "#D9A066", warm: "#D9A066", ctaBg: "#F4E9DD", ctaInk: "#241309" }
+    : { panel: "var(--bg)", ink: "var(--ink)", sub: "var(--muted)", line: "var(--line)", accent: "var(--accent)", warm: "#EBD2AE", ctaBg: "var(--ink)", ctaInk: "var(--bg)" };
+
+  // A store carrying one menu has no top level to show, so its own sections
+  // become the index instead — the same trick the menu picker already does.
+  const single = (menus || []).length === 1 ? menus[0] : null;
+  const rows = single
+    ? (single.categories || []).map((c, i) => ({
+      key: "c" + i, name: c.name, n: (c.items || []).length, inside: "",
+      go: () => onPick(single, i),
+    }))
+    : (menus || []).map((m) => ({
+      key: m.id, name: m.name,
+      n: (m.categories || []).reduce((s, c) => s + (c.items || []).length, 0),
+      inside: (m.categories || []).map((c) => c.name).join(" · "),
+      go: () => onPick(m),
+    }));
+  const dishes = rows.reduce((s, r) => s + r.n, 0);
+
+  // Mark whichever part of the menu the hour belongs to. Matched on the
+  // store's own category names, so a store without one simply has no mark.
+  const HINT = { morning: /breakfast|brunch/i, day: /main|lunch/i, evening: /dessert|sweet|cake/i }[mode];
+  const nowName = (rows.find((r) => HINT.test(r.name)) || {}).name;
+
+  let feat = null;
+  try {
+    const s = w.hero_slides ? (typeof w.hero_slides === "string" ? JSON.parse(w.hero_slides) : w.hero_slides) : [];
+    feat = Array.isArray(s) && s.length ? s[0] : null;
+  } catch { feat = null; }
+
+  // The masthead wants the locality, which is already the last line of the
+  // address, so a store that has set a welcome needs nothing new.
+  const subLines = String(w.welcome_subtitle || "").split(/<br\s*\/?>/i);
+  const place = String(w.welcome_masthead || subLines[subLines.length - 1] || "").replace(/<[^>]*>/g, "").trim();
+
+  const openH = Number(w.welcome_open_hour), closeH = Number(w.welcome_close_hour);
+  let hours = String(w.welcome_hours || "");
+  if (!hours && isFinite(openH) && isFinite(closeH)) {
+    const h12 = (n) => (n > 12 ? n - 12 : n);
+    hours = hour < openH ? "Opens at " + h12(openH)
+      : hour >= closeH - 1 ? "Closing"
+        : "Open until " + h12(closeH);
+  }
+  const greeting = mode === "morning" ? "Good morning" : mode === "day" ? "Good afternoon" : "Good evening";
+
+  const pad = "clamp(20px,5vw,56px)";
+  const capStyle = { fontFamily: "var(--font-head)", fontSize: 10.5, fontWeight: 600, letterSpacing: ".26em", textTransform: "uppercase" };
+
+  return (
+    <div className="cb-t" style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", backgroundColor: P.panel, color: P.ink, fontFamily: "var(--font-body)" }}>
+
+      {/* ── the window ── */}
+      <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: "46%", overflow: "hidden", backgroundColor: "#2d1708" }}>
+        <div className="cb-plate">
+          {feat && feat.image_url ? (
+            <div className="cb-layer" style={{ opacity: 1, backgroundImage: `url(${feat.image_url})`, backgroundSize: "cover", backgroundPosition: "center" }} />
+          ) : (<>
+            {/* No banner uploaded: three light studies, cross-faded by the hour.
+                Layered radials rather than a two-stop ramp, so it reads as a
+                lit room instead of a fill. */}
+            <div className="cb-layer" style={{ opacity: mode === "morning" ? 1 : 0, background: "radial-gradient(64% 50% at 78% 12%,rgba(255,221,163,.95),rgba(255,221,163,0) 64%),radial-gradient(88% 66% at 16% 94%,rgba(138,66,27,.96),rgba(138,66,27,0) 72%),linear-gradient(158deg,#9c5a28 0%,#c4854a 48%,#e9c694 100%)" }} />
+            <div className="cb-layer" style={{ opacity: mode === "day" ? 1 : 0, background: "radial-gradient(60% 46% at 72% 16%,rgba(238,186,124,.72),rgba(238,186,124,0) 62%),radial-gradient(92% 70% at 14% 96%,rgba(70,32,13,.92),rgba(70,32,13,0) 74%),linear-gradient(152deg,#5d2d14 0%,#8d4f2b 44%,#c08d5b 100%)" }} />
+            <div className="cb-layer" style={{ opacity: mode === "evening" ? 1 : 0, background: "radial-gradient(54% 42% at 80% 20%,rgba(217,160,102,.56),rgba(217,160,102,0) 66%),radial-gradient(96% 76% at 12% 98%,rgba(16,8,3,.97),rgba(16,8,3,0) 76%),linear-gradient(158deg,#140a03 0%,#4d2711 48%,#8a4f27 100%)" }} />
+          </>)}
+          <div className="cb-sun" style={{ background: "radial-gradient(28% 24% at 74% 20%,rgba(255,236,206,.5),rgba(255,236,206,0) 70%)" }} />
+        </div>
+
+        {/* vignette then grain: the two things that stop a gradient looking
+            like a gradient, and that keep a photograph from looking pasted on */}
+        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(124% 92% at 50% 42%,rgba(20,10,4,0) 46%,rgba(20,10,4,.46) 100%)" }} />
+        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: .07, mixBlendMode: "overlay", pointerEvents: "none" }} aria-hidden="true">
+          <filter id="cbGrain"><feTurbulence type="fractalNoise" baseFrequency="0.86" numOctaves="3" stitchTiles="stitch" /><feColorMatrix type="saturate" values="0" /></filter>
+          <rect width="100%" height="100%" filter="url(#cbGrain)" />
+        </svg>
+
+        <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: 210, background: "linear-gradient(to bottom,rgba(24,13,6,.5),rgba(24,13,6,0))" }} />
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "72%", background: "linear-gradient(to top,rgba(24,13,6,.88) 0%,rgba(24,13,6,.56) 28%,rgba(24,13,6,.12) 66%,rgba(24,13,6,0) 100%)" }} />
+
+        <div style={{ position: "absolute", left: pad, right: pad, top: "clamp(22px,3.6vh,46px)" }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 16, paddingBottom: 12, borderBottom: "1px solid rgba(244,233,221,.3)" }}>
+            <div style={{ ...capStyle, color: "rgba(251,246,236,.94)" }}>{place}</div>
+            <span style={{ flexGrow: 1 }} />
+            {hours && <div style={{ ...capStyle, color: "rgba(251,246,236,.94)" }}>{hours}</div>}
+          </div>
+        </div>
+
+        {feat && (
+          <button type="button" className="cb-feature" onClick={onOpenPicker}
+            // Clear the wordmark tab. It is a fixed 52px overlay hanging above
+            // a panel whose height is a percentage, so on a shorter tablet it
+            // reaches up into the image and lands on the subtitle. Reserving
+            // its height here is what keeps the two apart at every size.
+            style={{ position: "absolute", left: pad, right: pad, bottom: "calc(52px + clamp(14px,2.2vh,28px))", border: "none", background: "transparent", padding: 0, textAlign: "left", cursor: "pointer", display: "block" }}>
+            <div style={{ fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 600, letterSpacing: ".3em", textTransform: "uppercase", color: P.warm }}>{greeting}</div>
+            {feat.tag && (
+              <div style={{ display: "inline-flex", alignItems: "center", gap: 9, border: "1px solid rgba(251,246,236,.5)", borderRadius: 22, padding: "7px 15px", marginTop: 13 }}>
+                <span className="cb-dot" style={{ width: 6, height: 6, borderRadius: "50%", background: P.warm }} />
+                <span style={{ fontFamily: "var(--font-head)", fontSize: 10.5, fontWeight: 600, letterSpacing: ".2em", textTransform: "uppercase", color: "#FBF6EC" }}>{feat.tag}</span>
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "flex-end", gap: 18, marginTop: 15 }}>
+              <div style={{ flexGrow: 1, minWidth: 0 }}>
+                {feat.title && <div style={{ fontFamily: "var(--font-head)", fontSize: "clamp(30px,5.6vw,54px)", fontWeight: 500, letterSpacing: "-.042em", lineHeight: 1, color: "#FBF6EC", textShadow: "0 3px 30px rgba(18,9,3,.5)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{feat.title}</div>}
+                {feat.sub && <div style={{ fontSize: "clamp(14px,1.9vw,18px)", lineHeight: 1.45, color: "rgba(251,246,236,.88)", marginTop: 10, display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{feat.sub}</div>}
+              </div>
+              <span style={{ flex: "none", width: 54, height: 54, borderRadius: "50%", border: "1px solid rgba(251,246,236,.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#FBF6EC" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h13M12 5.5L18.5 12 12 18.5" /></svg>
+              </span>
+            </div>
+          </button>
+        )}
+      </div>
+
+      {/* ── the panel ── */}
+      <div className="cb-t" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "54%", backgroundColor: P.panel, borderRadius: "44px 44px 0 0", boxShadow: "0 -28px 54px -32px rgba(18,9,3,.72)", padding: `0 ${pad} clamp(18px,3vh,38px)`, boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+
+        <div className="cb-t" style={{ position: "absolute", left: pad, top: -52, height: 52, backgroundColor: P.panel, borderRadius: "20px 20px 0 0", padding: "0 26px", display: "flex", alignItems: "center" }}>
+          {w.welcome_logo_url
+            ? <img src={w.welcome_logo_url} alt="" style={{ height: 30, maxWidth: 220, objectFit: "contain" }} />
+            : <div style={{ fontFamily: "var(--font-head)", fontSize: 27, fontWeight: 600, letterSpacing: "-.028em", lineHeight: 1, color: P.ink }} dangerouslySetInnerHTML={{ __html: w.welcome_logo_text || "still<span style='color:var(--accent)'>.</span>" }} />}
+        </div>
+
+        <div style={{ marginTop: 34, display: "flex", alignItems: "baseline", gap: 14 }}>
+          <div style={{ ...capStyle, fontSize: 11, color: P.accent }}>On the menu</div>
+          <span style={{ flexGrow: 1 }} />
+          <div style={{ fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 500, letterSpacing: ".14em", textTransform: "uppercase", color: P.sub }}>{dishes} dishes</div>
+        </div>
+
+        <div className="cb-t" style={{ marginTop: 14, borderTop: "1px solid " + P.line, flexGrow: 1, minHeight: 0, overflowY: "auto" }}>
+          {rows.map((r) => (
+            <button key={r.key} type="button" className="cb-row cb-t" onClick={r.go}
+              style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 10px 11px", margin: "0 -10px", border: "none", borderBottom: "1px solid " + P.line, background: "transparent", borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
+              <span style={{ flexGrow: 1, minWidth: 0 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontFamily: "var(--font-head)", fontSize: "clamp(16px,2.4vw,20px)", fontWeight: 500, letterSpacing: "-.012em", color: P.ink }}>{r.name}</span>
+                  {r.name === nowName && (
+                    <span className="cb-t" style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: 9.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: P.panel, backgroundColor: P.accent, borderRadius: 10, padding: "4px 9px" }}>Now</span>
+                  )}
+                </span>
+                {r.inside && <span style={{ display: "block", fontSize: 13, lineHeight: 1.35, color: P.sub, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.inside}</span>}
+              </span>
+              <span style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: 15, fontWeight: 300, color: P.sub, fontVariantNumeric: "tabular-nums" }}>{r.n}</span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={P.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+            </button>
+          ))}
+        </div>
+
+        <button type="button" className="cb-cta cb-t" onClick={onOpenPicker}
+          style={{ flex: "none", width: "100%", height: "clamp(62px,8vh,84px)", marginTop: 14, border: "none", borderRadius: 42, backgroundColor: P.ctaBg, color: P.ctaInk, fontFamily: "var(--font-head)", fontSize: "clamp(16px,2.3vw,20px)", fontWeight: 500, letterSpacing: ".01em", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
+          {w.welcome_button || "View the whole menu"}
+          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h13M12 5.5L18.5 12 12 18.5" /></svg>
+        </button>
+
+        {w.welcome_footer && <div style={{ flex: "none", textAlign: "center", fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 500, letterSpacing: ".2em", textTransform: "uppercase", color: P.sub, marginTop: 14 }}>{w.welcome_footer}</div>}
+
+      </div>
+    </div>
+  );
+}
+
 function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null, theme = null, onReach = null }) {
   const [open, setOpen] = useState(false);
   // The designed kiosk welcome is a portrait layout (1080x1920). On a landscape
@@ -400,6 +589,17 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
         </>
       );
     }
+  }
+
+  // The window landing page, for stores that have opted in. The kiosk keeps
+  // its own welcome: it has to ask eat-in or takeaway before anything else.
+  if (!kiosk && String(w.welcome_style || "") === "window") {
+    return (
+      <>
+        <WindowWelcome menus={menus} w={w} onPick={onPick} onOpenPicker={() => setOpen(true)} />
+        {picker}
+      </>
+    );
   }
 
   return (
@@ -2933,6 +3133,22 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=Sora:wght@400;500;600&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}
+        /* The window landing page. Slow enough to read as light changing in a
+           room rather than as an animation on a screen. */
+        @keyframes cbDrift{0%,100%{transform:scale(1.08) translate3d(0,0,0)}50%{transform:scale(1.16) translate3d(-18px,-12px,0)}}
+        @keyframes cbSun{0%,100%{transform:translate3d(0,0,0);opacity:.42}50%{transform:translate3d(-54px,26px,0);opacity:.72}}
+        @keyframes cbPulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.5)}}
+        @keyframes cbSheen{0%{transform:translateX(-120%)}62%{transform:translateX(260%)}100%{transform:translateX(260%)}}
+        .cb-plate{position:absolute;inset:-8%;animation:cbDrift 34s ease-in-out infinite}
+        .cb-layer{position:absolute;inset:0;transition:opacity 1.1s ease}
+        .cb-sun{position:absolute;inset:0;animation:cbSun 26s ease-in-out infinite}
+        .cb-dot{animation:cbPulse 2.8s ease-in-out infinite}
+        .cb-cta{position:relative;overflow:hidden}
+        .cb-cta::after{content:"";position:absolute;top:0;bottom:0;width:34%;background:linear-gradient(100deg,rgba(255,255,255,0),rgba(255,255,255,.24),rgba(255,255,255,0));animation:cbSheen 8s ease-in-out infinite}
+        /* The hour is a dimmer, not a switch. */
+        .cb-t{transition:background-color 1.1s ease,color 1.1s ease,border-color 1.1s ease}
+        .cb-row:focus-visible,.cb-cta:focus-visible,.cb-feature:focus-visible{outline:2px solid currentColor;outline-offset:3px}
+        @media (prefers-reduced-motion:reduce){.cb-plate,.cb-sun,.cb-dot,.cb-cta::after{animation:none}}
         [data-catstrip]{max-height:0;opacity:0;overflow:hidden;padding-top:0 !important;padding-bottom:0 !important;transition:max-height .35s ease,opacity .3s ease,padding .35s ease;}
         [data-catstrip].show{max-height:160px;opacity:1;padding-top:14px !important;padding-bottom:14px !important;}
         .screenwrap .screen{position:absolute;inset:0;}
