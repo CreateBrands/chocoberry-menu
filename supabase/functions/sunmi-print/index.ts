@@ -647,7 +647,16 @@ async function printOrder(
       results.push({ printer: sn, station, slip: pass.mode, skipped: true, reason: "paused after repeated failures" });
       await supabase.from("menu_orders").update({
         print_failed: true,
-        print_error: "Held: the printer failed three times in a row, so this was not sent. It retries on its own within ten minutes. If it keeps happening, check the printer is on and the Print Agent app is open.",
+        // What to check depends on how this printer is reached. Telling
+        // someone to open the Print Agent is no help when the printer is on a
+        // USB cable driven by the till's own browser, or sitting on Sunmi's
+        // cloud — and a wrong instruction costs more than a vague one.
+        print_error: "Held: the printer failed three times in a row, so this was not sent. It retries on its own within ten minutes. If it keeps happening, "
+          + (/^usb:/.test(sn)
+            ? "check the printer is plugged into the till and the till screen is awake with the app open."
+            : /^agent:/.test(sn)
+              ? "check the printer is on and the Print Agent app is open."
+              : "check the printer is on, has paper, and its cover is shut."),
       }).eq("id", orderId);
       continue;
     }
