@@ -184,10 +184,25 @@ function Initialize-WindowsQueue([string]$name, [string]$portHint) {
     throw "The printer queue '$name' does not exist yet and creating one needs administrator rights. Right-click PowerShell, choose Run as administrator, and run this script once more. After that it never needs admin again."
   }
 
+  # Generic / Text Only ships with Windows but is not always staged in the
+  # driver store, and asking for it by name alone then fails with "the
+  # specified driver does not exist". Pointing at the in-box INF stages it.
   $driver = "Generic / Text Only"
   if (-not (Get-PrinterDriver -Name $driver -ErrorAction SilentlyContinue)) {
     Write-Status "Installing the $driver driver" "Yellow"
-    Add-PrinterDriver -Name $driver
+    $added = $false
+    try { Add-PrinterDriver -Name $driver -ErrorAction Stop; $added = $true } catch { }
+    if (-not $added) {
+      foreach ($inf in @("$env:WINDIR\inf\prnge001.inf", "$env:WINDIR\inf\ntprint.inf")) {
+        if (-not (Test-Path $inf)) { continue }
+        Write-Status "Staging it from $inf" "Yellow"
+        try { Add-PrinterDriver -Name $driver -InfPath $inf -ErrorAction Stop; $added = $true; break } catch { }
+      }
+    }
+    if (-not $added) {
+      $have = ((Get-PrinterDriver -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name) -join '; ')
+      throw "Could not install the '$driver' driver. Add the printer once by hand in Printers and scanners, choosing Generic as the manufacturer and Generic / Text Only as the driver, then run this again and it will use it. Drivers on this machine now: $have"
+    }
   }
 
   $port = $portHint
