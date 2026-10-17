@@ -479,10 +479,13 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
           : "linear-gradient(to top,rgba(24,13,6,.62) 0%,rgba(24,13,6,.22) 48%,rgba(24,13,6,0) 100%)" }} />
 
         <div style={{ position: "absolute", left: pad, right: pad, top: "clamp(22px,3.6vh,46px)" }}>
-          <div style={{ display: "flex", alignItems: "baseline", gap: 16, paddingBottom: 12, borderBottom: "1px solid rgba(244,233,221,.3)" }}>
-            <div style={{ ...capStyle, color: "rgba(251,246,236,.94)" }}>{place}</div>
+          <div style={{ display: "flex", alignItems: "center", gap: 16, paddingBottom: 13, borderBottom: "1px solid rgba(244,233,221,.34)" }}>
+            {w.welcome_logo_url
+              ? <img src={w.welcome_logo_url} alt="" style={{ height: "clamp(22px,3vh,30px)", maxWidth: 230, objectFit: "contain", objectPosition: "left center", filter: "brightness(0) invert(1)", opacity: .96 }} />
+              : <div style={{ fontFamily: "var(--font-head)", fontSize: "clamp(20px,3.2vw,27px)", fontWeight: 600, letterSpacing: "-.028em", lineHeight: 1, color: "#FBF6EC" }}
+                dangerouslySetInnerHTML={{ __html: w.welcome_logo_text || "still<span style='color:#E8C9A6'>.</span>" }} />}
             <span style={{ flexGrow: 1 }} />
-            <div style={{ ...capStyle, color: "rgba(251,246,236,.94)" }}>{hours || greeting}</div>
+            <div style={{ ...capStyle, color: "rgba(251,246,236,.92)", textAlign: "right" }}>{place}{hours ? " · " + hours : ""}</div>
           </div>
         </div>
 
@@ -515,14 +518,15 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
       {/* ── the panel ── */}
       <div className="cb-t" style={{ position: "relative", flex: "1 1 auto", minHeight: 0, zIndex: 2, backgroundColor: P.panel, borderRadius: "44px 44px 0 0", boxShadow: "0 -28px 54px -32px rgba(18,9,3,.72)", padding: `0 ${pad} clamp(18px,3vh,38px)`, boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
 
-        <div className="cb-t" style={{ position: "absolute", left: pad, top: -52, height: 52, backgroundColor: P.panel, borderRadius: "20px 20px 0 0", padding: "0 26px", display: "flex", alignItems: "center" }}>
-          {w.welcome_logo_url
-            ? <img src={w.welcome_logo_url} alt="" style={{ height: 30, maxWidth: 220, objectFit: "contain" }} />
-            : <div style={{ fontFamily: "var(--font-head)", fontSize: 27, fontWeight: 600, letterSpacing: "-.028em", lineHeight: 1, color: P.ink }} dangerouslySetInnerHTML={{ __html: w.welcome_logo_text || "still<span style='color:var(--accent)'>.</span>" }} />}
-        </div>
+        {/* Paper. A flat fill is the thing that makes a screen look like a
+            screen; this is the same grain as the drawn banner, far quieter. */}
+        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: night ? .05 : .035, mixBlendMode: night ? "overlay" : "multiply", pointerEvents: "none", borderRadius: "44px 44px 0 0" }} aria-hidden="true">
+          <filter id="cbGrainP"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch" /><feColorMatrix type="saturate" values="0" /></filter>
+          <rect width="100%" height="100%" filter="url(#cbGrainP)" />
+        </svg>
 
-        <div style={{ marginTop: 34, display: "flex", alignItems: "baseline", gap: 14 }}>
-          <div style={{ ...capStyle, fontSize: 11, color: P.accent }}>On the menu</div>
+        <div style={{ position: "relative", marginTop: "clamp(22px,3.2vh,36px)", display: "flex", alignItems: "baseline", gap: 14 }}>
+          <div style={{ ...capStyle, fontSize: 11, color: P.accent }}>{greeting}</div>
           <span style={{ flexGrow: 1 }} />
           <div style={{ fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 500, letterSpacing: ".14em", textTransform: "uppercase", color: P.sub }}>{dishes} dishes</div>
         </div>
@@ -530,23 +534,29 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
         {/* The rows take the height the button used to, which makes them
             easier to hit rather than leaving a hole at the foot of the page.
             Capped, so a store with few categories does not get bands. */}
-        <div className="cb-t" style={{ marginTop: 14, borderTop: "1px solid " + P.line, flexGrow: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-          {rows.map((r, i) => (
+        {/* The index, set like the contents page it is. The counts carry the
+            numeric rhythm down the right edge at a size you can read standing
+            up; the chevrons are gone, because seven of them is noise and the
+            whole row is the target anyway. */}
+        <div className="cb-t" style={{ position: "relative", marginTop: "clamp(10px,1.6vh,16px)", borderTop: "1px solid " + P.line, flexGrow: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+          {rows.map((r, i) => {
+            const on = r.raw === nowName;
+            return (
             <button key={r.key} type="button" className="cb-row cb-t cb-in" onClick={r.go}
-              style={{ animationDelay: (i * 55) + "ms", width: "100%", flex: "1 1 auto", minHeight: 58, maxHeight: 112, display: "flex", alignItems: "center", gap: 12, padding: "12px 10px 11px", margin: "0 -10px", border: "none", borderBottom: "1px solid " + P.line, background: "transparent", borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
+              style={{ animationDelay: (i * 55) + "ms", width: "100%", flex: "1 1 auto", minHeight: 62, maxHeight: 124, display: "flex", alignItems: "center", gap: "clamp(12px,2vw,26px)", padding: "10px 10px 9px", margin: "0 -10px", border: "none", borderBottom: "1px solid " + P.line, background: "transparent", borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
               <span style={{ flexGrow: 1, minWidth: 0 }}>
-                <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ fontFamily: "var(--font-head)", fontSize: "clamp(16px,2.4vw,20px)", fontWeight: 500, letterSpacing: "-.012em", color: P.ink }}>{r.name}</span>
-                  {r.raw === nowName && (
-                    <span className="cb-t" style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: 9.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: P.panel, backgroundColor: P.accent, borderRadius: 10, padding: "4px 9px" }}>Now</span>
-                  )}
+                <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                  {/* The brand dot, doing a job: it marks the hour rather than
+                      a filled badge shouting next to the name. */}
+                  {on && <span style={{ flex: "none", width: 7, height: 7, borderRadius: "50%", backgroundColor: P.accent }} />}
+                  <span style={{ fontFamily: "var(--font-head)", fontSize: "clamp(19px,3vw,26px)", fontWeight: 500, letterSpacing: "-.022em", lineHeight: 1.1, color: on ? P.accent : P.ink }}>{r.name}</span>
+                  {on && <span style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: 9.5, fontWeight: 600, letterSpacing: ".2em", textTransform: "uppercase", color: P.accent, opacity: .9 }}>Now</span>}
                 </span>
-                {r.inside && <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 13, lineHeight: 1.35, color: P.sub, marginTop: 3 }}>{r.inside}</span>}
+                {r.inside && <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: "clamp(11px,1.5vw,12.5px)", letterSpacing: ".012em", lineHeight: 1.4, color: P.sub, marginTop: 5 }}>{r.inside}</span>}
               </span>
-              <span style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: 15, fontWeight: 300, color: P.sub, fontVariantNumeric: "tabular-nums" }}>{r.n}</span>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={P.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
+              <span style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: "clamp(24px,4vw,36px)", fontWeight: 200, lineHeight: 1, color: on ? P.accent : P.sub, fontVariantNumeric: "tabular-nums", letterSpacing: "-.02em" }}>{r.n}</span>
             </button>
-          ))}
+          );})}
         </div>
 
         {/* Every row above opens the menu at that point, so a button that
