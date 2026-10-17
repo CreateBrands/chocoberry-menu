@@ -3,6 +3,8 @@ import POS from "./POS.jsx";
 import ServiceFeedback, { TAGS as SVC_TAGS, CATEGORY_LABEL as SVC_CAT } from "./ServiceFeedback.jsx";
 import { getDevice, setDevice, clearDevice, deviceToken, fingerprint, APP_VERSION } from "./device.js";
 import * as usbPrinter from "./usbPrinter.js";
+// Currency follows the store this screen is serving — see src/money.js.
+import { money, currencySymbol, setActiveCurrency } from "./money.js";
 
 // ============================================================================
 // Create Brands / Chocoberry — Kitchen Display System (v2, comprehensive)
@@ -38,7 +40,13 @@ const typeBadge = (o, F) => { const b = TYPE_BADGE[typeKey(o)]; return (
   </span>
 ); };
 // KDS-MODS 2026-10-03: show the choice, not the price. "Ice Cream: Ice Cream · Full (+£2.50)" → "Ice Cream · Full"
-const cleanMod = (m) => String(m || "").replace(/\s*\(\+?£?-?\d[\d.,]*\)\s*/g, "").replace(/^[^:]{1,40}:\s*/, "").trim();
+// The currency prefix is matched as an alternation rather than just "£" so a
+// Dubai modifier ("Full (+AED 2.50)") is stripped the same way a London one is.
+const cleanMod = (m) => String(m || "").replace(/\s*\(\+?\s*(?:£|\$|€|AED|SAR|QAR|USD|EUR|GBP)?\s*-?\d[\d.,]*\)\s*/gi, "").replace(/^[^:]{1,40}:\s*/, "").trim();
+
+// Money with the pence dropped, for the compact analytics tiles where
+// "AED 120" reads and "AED 120.00" does not fit.
+const m0 = (n) => currencySymbol() + Math.round(Number(n) || 0);
 const cleanMods = (mods) => { const out = []; for (const m of mods) { const c = cleanMod(m); if (c && !out.includes(c)) out.push(c); } return out; };
 const ALLERGY_RE = /allerg|nut|gluten|coeliac|celiac|dairy|lactose|vegan|halal|sesame|egg|shellfish|soy/i;
 const noteBox = (text, F) => {
@@ -290,10 +298,20 @@ export default function KDS({ surface = "kds" }) {
   const kind = device ? device.kind : "kds+pos"; // unlicensed legacy screens keep everything until claimed
   const [licence, setLicence] = useState("ok"); // ok | revoked | unclaimed | needs_code
   const [brand, setBrand] = useState({ name: "Chocoberry", accent: "#f472b6", logo: null });
+  // money() holds the active currency in module state, so nothing re-renders
+  // on its own when it changes — this bump is what repaints the figures.
+  const [, setCurTick] = useState(0);
   useEffect(() => {
     if (!loc) return;
-    fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=key,value&key=in.(" + ["brand_name", "brand_primary", "brand_logo_url", "brand_button_text"].map((k) => '"' + k + ":" + loc + '"').join(",") + ")", { headers: H, cache: "no-store" })
-      .then((r) => r.ok ? r.json() : []).then((rows) => { const m = Object.fromEntries((rows || []).map((r) => [r.key.split(":")[0], r.value])); if (m.brand_name) setBrand({ name: m.brand_name, accent: m.brand_button_text || m.brand_primary || "#344d42", logo: m.brand_logo_url || null }); }).catch(() => {});
+    fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=key,value&key=in.(" + ["brand_name", "brand_primary", "brand_logo_url", "brand_button_text", "currency"].map((k) => '"' + k + ":" + loc + '"').join(",") + ")", { headers: H, cache: "no-store" })
+      .then((r) => r.ok ? r.json() : []).then((rows) => {
+        const m = Object.fromEntries((rows || []).map((r) => [r.key.split(":")[0], r.value]));
+        if (m.brand_name) setBrand({ name: m.brand_name, accent: m.brand_button_text || m.brand_primary || "#344d42", logo: m.brand_logo_url || null });
+        // The board, its figures and the till it hosts all price in the
+        // store's own currency. No setting means GBP, as before.
+        setActiveCurrency(m.currency || "GBP");
+        setCurTick((n) => n + 1);
+      }).catch(() => {});
   }, [loc]);
   const beatRef = useRef(null);      // licence heartbeat, driven by the orders poll
   // Self-update: when Vercel ships a new build, the module script hash in
@@ -2368,7 +2386,7 @@ function PerformanceView({ loc, F, lateMin }) {
             {r.resolved === true && <span style={{ fontSize: F(11), fontWeight: 800, color: C.good }}>left happy</span>}
             {r.resolved === false && <span style={{ fontSize: F(11), fontWeight: 800, color: C.bad }}>left unhappy</span>}
           </div>
-          <div style={{ color: C.muted, fontSize: F(12), marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(r.item_names || []).join(", ")}{r.item_names?.length && r.note ? " · " : ""}{r.note || ""}{r.action && r.action !== "none" ? " · " + r.action + (r.action_value ? " £" + Number(r.action_value).toFixed(2) : "") : ""}</div>
+          <div style={{ color: C.muted, fontSize: F(12), marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{(r.item_names || []).join(", ")}{r.item_names?.length && r.note ? " · " : ""}{r.note || ""}{r.action && r.action !== "none" ? " · " + r.action + (r.action_value ? " " + money(r.action_value) : "") : ""}</div>
         </span>
         <span style={{ textAlign: "right", fontSize: F(11.5), color: C.muted, whiteSpace: "nowrap" }}>{new Date(r.created_at).toLocaleString("en-GB", period === "today" || period === "yesterday" ? { hour: "2-digit", minute: "2-digit" } : { weekday: "short", hour: "2-digit", minute: "2-digit" })}<br />{r.logged_by || r.source}{r.ticket_secs != null ? " · kitchen " + mmss(r.ticket_secs) : ""}</span>
       </div>
@@ -2475,7 +2493,7 @@ function PerformanceView({ loc, F, lateMin }) {
 
       {view2 === "service" && (<>
         <div style={{ fontSize: F(14), color: C.ink, background: "#fff", border: "1px solid " + C.line, borderRadius: 14, padding: F(12) + "px " + F(16) + "px", lineHeight: 1.5 }}>
-          <b>{range.label}:</b> {service.rows.length === 0 ? "nothing logged yet on " + done.length + " tickets." : service.rows.length + " feedback entr" + (service.rows.length === 1 ? "y" : "ies") + " on " + done.length + " tickets — "}{service.rows.length > 0 && <><b style={{ color: service.issues.length ? C.bad : C.good }}>{service.issues.length} issue{service.issues.length === 1 ? "" : "s"}</b>{service.per100 != null ? " (" + service.per100.toFixed(1) + " per 100 tickets)" : ""}, {service.positives.length} positive{service.positives.length === 1 ? "" : "s"}.{service.avgRating != null ? " Average guest mood " + service.avgRating.toFixed(1) + " / 5." : ""}{service.resolvedRate != null ? " " + service.resolvedRate + "% of issues ended with the guest leaving happy." : ""}{service.compValue ? " £" + service.compValue.toFixed(2) + " given back in comps and discounts." : ""}</>}
+          <b>{range.label}:</b> {service.rows.length === 0 ? "nothing logged yet on " + done.length + " tickets." : service.rows.length + " feedback entr" + (service.rows.length === 1 ? "y" : "ies") + " on " + done.length + " tickets — "}{service.rows.length > 0 && <><b style={{ color: service.issues.length ? C.bad : C.good }}>{service.issues.length} issue{service.issues.length === 1 ? "" : "s"}</b>{service.per100 != null ? " (" + service.per100.toFixed(1) + " per 100 tickets)" : ""}, {service.positives.length} positive{service.positives.length === 1 ? "" : "s"}.{service.avgRating != null ? " Average guest mood " + service.avgRating.toFixed(1) + " / 5." : ""}{service.resolvedRate != null ? " " + service.resolvedRate + "% of issues ended with the guest leaving happy." : ""}{service.compValue ? " " + money(service.compValue) + " given back in comps and discounts." : ""}</>}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: F(10) }}>
           <Tile onClick={() => openServiceDrill("All issues", service.issues)} big label="ISSUES" value={String(service.issues.length)} tone={service.issues.length ? "bad" : "good"} sub={(service.per100 != null ? service.per100.toFixed(1) + " per 100 tickets" : "") + (service.prevPer100 != null && service.per100 != null ? " · " + (service.per100 <= service.prevPer100 ? "▼" : "▲") + " vs " + service.prevPer100.toFixed(1) + " last time" : "")} />
@@ -2483,7 +2501,7 @@ function PerformanceView({ loc, F, lateMin }) {
           <Tile onClick={() => openServiceDrill("Unresolved issues", service.issues.filter((r) => r.resolved === false))} label="LEFT HAPPY" value={service.resolvedRate != null ? service.resolvedRate + "%" : "—"} tone={service.resolvedRate == null ? undefined : service.resolvedRate >= 80 ? "good" : service.resolvedRate >= 60 ? "warn" : "bad"} sub={service.issues.filter((r) => r.resolved === false).length + " left unhappy" + (service.prevResolved != null && service.resolvedRate != null ? " · " + (service.resolvedRate >= service.prevResolved ? "▲" : "▼") + " vs " + service.prevResolved + "%" : "")} />
           <Tile onClick={() => openServiceDrill("Positives", service.positives)} label="POSITIVES" value={String(service.positives.length)} tone="good" sub="compliments, regulars, occasions" />
           <Tile onClick={() => openDrill("Served tickets", done.filter((o) => o.served_at))} label="SERVE TIME" value={service.serveAvg != null ? mmss(service.serveAvg) : "—"} tone={service.serveAvg == null ? undefined : service.serveAvg <= 180 ? "good" : service.serveAvg <= 360 ? "warn" : "bad"} sub={service.serveTimes.length ? "kitchen done → table · " + service.serveTimes.length + " tapped" : "needs the Served tap on a pass screen"} />
-          <Tile onClick={() => openServiceDrill("High severity", service.issues.filter((r) => r.severity === "high"))} label="HIGH SEVERITY" value={String(service.issues.filter((r) => r.severity === "high").length)} tone={service.issues.some((r) => r.severity === "high") ? "bad" : undefined} sub={"£" + service.compValue.toFixed(0) + " comps / discounts"} />
+          <Tile onClick={() => openServiceDrill("High severity", service.issues.filter((r) => r.severity === "high"))} label="HIGH SEVERITY" value={String(service.issues.filter((r) => r.severity === "high").length)} tone={service.issues.some((r) => r.severity === "high") ? "bad" : undefined} sub={m0(service.compValue) + " comps / discounts"} />
         </div>
         {service.rows.length === 0 && (
           <Card title="GETTING STARTED">
@@ -2573,11 +2591,11 @@ function PerformanceView({ loc, F, lateMin }) {
             <Card title="DOES RECOVERY WORK?" right={<span style={{ fontSize: F(11), color: C.muted }}>what was done → % left happy</span>}>
               {service.recovery.length ? service.recovery.map((r) => (
                 <div key={r.k} onClick={() => openServiceDrill(r.label + " — outcomes", r.rows)} className="kbtn" style={{ cursor: "pointer", padding: "7px 0", borderTop: "1px solid " + C.line }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: F(13.5), alignItems: "baseline" }}><span style={{ fontWeight: 700 }}>{r.label} <span style={{ color: C.muted, fontWeight: 500 }}>· {r.n}{r.value ? " · £" + r.value.toFixed(0) : ""}</span></span><b style={{ fontFamily: PF, color: r.pct >= 80 ? C.good : r.pct >= 50 ? C.warn : C.bad }}>{r.pct}% happy</b></div>
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: F(13.5), alignItems: "baseline" }}><span style={{ fontWeight: 700 }}>{r.label} <span style={{ color: C.muted, fontWeight: 500 }}>· {r.n}{r.value ? " · " + m0(r.value) : ""}</span></span><b style={{ fontFamily: PF, color: r.pct >= 80 ? C.good : r.pct >= 50 ? C.warn : C.bad }}>{r.pct}% happy</b></div>
                   <div style={{ height: 6, background: C.soft, borderRadius: 3, marginTop: 4 }}><div style={{ width: r.pct + "%", height: "100%", borderRadius: 3, background: r.pct >= 80 ? "#86efac" : r.pct >= 50 ? "#fde68a" : "#fca5a5" }} /></div>
                 </div>
               )) : <div style={{ fontSize: F(13), color: C.muted }}>Needs issues with an action and a "left happy?" answer</div>}
-              {service.compsByCat.length > 0 && <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>Comps & discounts: {service.compsByCat.map((x) => x.k + " £" + x.v.toFixed(0)).join(" · ")}</div>}
+              {service.compsByCat.length > 0 && <div style={{ fontSize: F(11.5), color: C.muted, marginTop: 8 }}>Comps & discounts: {service.compsByCat.map((x) => x.k + " " + m0(x.v)).join(" · ")}</div>}
             </Card>
             <Card title="WATCHLIST" right={<span style={{ fontSize: F(11), color: C.muted }}>dishes with 2+ issues</span>}>
               {service.watchlist.length ? service.watchlist.map((x) => (

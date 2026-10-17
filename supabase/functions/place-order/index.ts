@@ -16,8 +16,6 @@ const cors = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const gbp = (n) => "£" + Number(n).toFixed(2);
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") {
@@ -131,7 +129,21 @@ Deno.serve(async (req) => {
     // stops an order, for the same reason prices are re-resolved here rather
     // than trusted from the client.
     // ONLY the exact string "off" pauses; a missing row means accepting.
-    if (location_id) {
+    //
+    // THE TILL IS EXEMPT. "off" is how a store stops CUSTOMERS ordering —
+    // tablets put away, the kiosk closed, the shop about to shut — and the
+    // message it returns ("please order at the counter") says exactly that.
+    // Blocking the counter as well just means staff cannot serve anybody,
+    // which is how a Dubai store with browse-only tablets would have had
+    // every single till order refused.
+    //
+    // These three are the only tablet_no values the till sends: "POS", or
+    // "phone"/"web" for an order a staff member keys in on a customer's
+    // behalf. Customer tablets send their own number, the kiosk sends
+    // "KIOSK <key>", and the app and the online-payment function send no
+    // tablet_no at all — so none of them can reach this exemption.
+    const fromTill = ["POS", "PHONE", "WEB"].includes(String(tablet_no || "").trim().toUpperCase());
+    if (location_id && !fromTill) {
       const { data: acc } = await admin
         .from("menu_app_settings")
         .select("value")
@@ -157,7 +169,7 @@ Deno.serve(async (req) => {
     const allOptIds = [...new Set(items.filter((l) => !isOpen(l)).flatMap((l) => Array.isArray(l.modifiers) ? l.modifiers : []))]
       .filter((x) => typeof x === "string" && !x.startsWith("remove:"));
 
-    const [itemsRes, locRes, ovsRes, optsRes] = await Promise.all([
+    const [itemsRes, locRes, ovsRes, optsRes, curRes] = await Promise.all([
       admin.from("menu_items").select("id, name, price, available").in("id", ids),
       location_id
         ? admin.from("menu_locations").select("price_band_id").eq("id", location_id).single()
@@ -168,7 +180,18 @@ Deno.serve(async (req) => {
       allOptIds.length
         ? admin.from("menu_modifiers").select("id, name, price_delta, group_id, menu_modifier_groups(name)").in("id", allOptIds)
         : Promise.resolve({ data: [] }),
+      location_id
+        ? admin.from("menu_app_settings").select("value").eq("key", "currency:" + location_id).maybeSingle()
+        : Promise.resolve({ data: null }),
     ]);
+
+    // Modifier snapshots carry their price as TEXT, and that text is what the
+    // kitchen screen and the receipt read back months later — so it has to be
+    // written in the store's own currency at the moment of the order. No
+    // currency setting means GBP, which is what every store had before.
+    const CUR_SYMBOLS: Record<string, string> = { GBP: "£", AED: "AED ", USD: "$", EUR: "€", SAR: "SAR ", QAR: "QAR " };
+    const curSym = CUR_SYMBOLS[String(curRes?.data?.value || "GBP").trim().toUpperCase()] || "£";
+    const fmt = (n: number) => curSym + Number(n).toFixed(2);
     if (itemsRes.error) throw itemsRes.error;
     const dbItems = itemsRes.data;
     const byId = new Map((dbItems ?? []).map((i) => [i.id, i]));
@@ -229,7 +252,7 @@ Deno.serve(async (req) => {
           return new Response(JSON.stringify({ error: "open_name", message: "An open item needs a name." }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
         }
         if (!isFinite(px) || px < 0 || px > 500) {
-          return new Response(JSON.stringify({ error: "open_price", message: "An open item must be between £0 and £500." }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
+          return new Response(JSON.stringify({ error: "open_price", message: "An open item must be between " + fmt(0) + " and " + fmt(500) + "." }), { status: 400, headers: { ...cors, "Content-Type": "application/json" } });
         }
       }
     }
@@ -275,7 +298,7 @@ Deno.serve(async (req) => {
         if (o.group === "Remove" || o.name.toUpperCase().startsWith("NO ")) {
           snapshot.push(o.name);
         } else if (o.price_delta) {
-          snapshot.push(`${o.name} (+${gbp(o.price_delta)})`);
+          snapshot.push(`${o.name} (+${fmt(o.price_delta)})`);
         } else {
           snapshot.push(o.group ? `${o.group}: ${o.name}` : o.name);
         }

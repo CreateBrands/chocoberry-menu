@@ -154,15 +154,25 @@ export interface ReceiptOrder {
   amountPaid?: number;  // taken so far, from the order_payments ledger
   paidMethod?: string;  // cash | card | split | ... once fully paid
   batchTimes?: string[]; // pre-formatted local time per round; batchTimes[0]=original, [1]=2nd round ...
+  currency?: string;    // ISO code for the store; absent = GBP
 }
 
-const gbp = (n: number) => "GBP " + n.toFixed(2);
+// Money on a slip is printed as a CODE, not a symbol: "GBP 7.50", "AED 7.50".
 // NOTE: "£" prints fine on most NT-series charset configs (UTF-8 world font).
-// Test it; if it renders as garbage, keep "GBP", or set the printer's default
-// character set to UTF-8 in the Cloud Printer Utility.
+// Test it; if it renders as garbage, keep the code, or set the printer's
+// default character set to UTF-8 in the Cloud Printer Utility. A code also
+// side-steps the question entirely for a Dubai printer, which is why the
+// Sharjah slips were left this way rather than switched to a symbol.
+const CODES = ["GBP", "AED", "USD", "EUR", "SAR", "QAR"];
+export function moneyFor(currency?: string): (n: number) => string {
+  const raw = String(currency || "GBP").trim().toUpperCase();
+  const code = CODES.includes(raw) ? raw : "GBP";
+  return (n: number) => code + " " + n.toFixed(2);
+}
 
 export function buildOrderReceipt(o: ReceiptOrder): Receipt {
   const r = new Receipt().init();
+  const gbp = moneyFor(o.currency);
 
   // Header
   r.align(1).size(1, 1).bold(true).line("CHOCOBERRY").bold(false).size(0, 0);

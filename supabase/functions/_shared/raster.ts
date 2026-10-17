@@ -53,9 +53,19 @@ const row = (l: string, r: string, sL: Record<string, unknown> = {}, sR: Record<
     el("div", { ...sR }, r));
 const rule = () => el("div", { borderBottom: "2px solid #000", width: "100%", margin: "10px 0" });
 
-const gbp = (n: number) => "\u00A3" + n.toFixed(2);
+// This slip is rendered to an image, so a real symbol is safe here \u2014 unlike
+// the text/ESC-POS path, which prints the currency code to stay inside
+// whatever charset the printer happens to be configured for.
+const SYMBOLS: Record<string, string> = { GBP: "\u00A3", AED: "AED ", USD: "$", EUR: "\u20AC", SAR: "SAR ", QAR: "QAR " };
+const moneyFor = (currency?: string) => {
+  const sym = SYMBOLS[String(currency || "GBP").trim().toUpperCase()] || "\u00A3";
+  return (n: number) => sym + n.toFixed(2);
+};
 
 function receiptTree(o: ReceiptOrder): Node {
+  // Shadows nothing: every figure below goes through this one formatter, so a
+  // store with no currency setting gets exactly the pounds it got before.
+  const gbp = moneyFor(o.currency);
   const [typeMain, ...typeRest] = (o.orderType ?? "ORDER").split(" - ");
   return el("div",
     { flexDirection: "column", width: "100%", fontFamily: "Inter", fontSize: 24, color: "#000", background: "#fff", padding: "8px 10px" },

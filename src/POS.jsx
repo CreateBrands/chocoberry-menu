@@ -4,12 +4,16 @@ import { OrdersList, OrderDetailPanel } from "./OrdersStrip.jsx";
 import ServiceFeedback from "./ServiceFeedback.jsx";
 import { deviceToken } from "./device.js";
 import CartLine from "./CartLine.jsx";
+// Currency, cash-up denominations and the variance threshold all follow the
+// store this till is serving — see src/money.js. A store with no currency
+// setting is GBP, which is exactly what every till did before.
+import { money as gbp, currencySymbol, denominations, denomLabel, varianceNoteFrom, setActiveCurrency } from "./money.js";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
 const H = { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY, "Content-Type": "application/json" };
 
-const gbp = (n) => "£" + Number(n || 0).toFixed(2);
+const CUR_KEY = "pos_currency_";
 
 // Category icon + gradient fallback (used when an item has no photo).
 const CAT_ICONS = [
@@ -193,6 +197,31 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   useEffect(() => { setMode(defaultView === "orders" ? "orders" : "new"); }, []); // eslint-disable-line
   // Tick for live elapsed-time colouring in the orders list.
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(id); }, []);
+
+  // Currency for this store. money() keeps the active code in module state, so
+  // nothing re-renders on its own — hence the bump. The last answer is cached
+  // per store because the fetch is async and a till that reloads mid-service
+  // would otherwise paint pounds for a frame. No setting at all means GBP.
+  const [, bumpCur] = useState(0);
+  useEffect(() => {
+    if (!loc) return;
+    let gone = false;
+    try {
+      const cached = localStorage.getItem(CUR_KEY + loc);
+      if (cached) { setActiveCurrency(cached); bumpCur((n) => n + 1); }
+    } catch { /* private mode — fall through to the fetch */ }
+    fetch(SUPABASE_URL + "/rest/v1/menu_app_settings?select=value&key=eq." + encodeURIComponent("currency:" + loc), { headers: H })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows) => {
+        if (gone) return;
+        const code = (rows && rows[0] ? String(rows[0].value || "") : "").trim().toUpperCase() || "GBP";
+        setActiveCurrency(code);
+        try { localStorage.setItem(CUR_KEY + loc, code); } catch { /* ignore */ }
+        bumpCur((n) => n + 1);
+      })
+      .catch(() => { /* keep whatever was cached rather than blanking prices */ });
+    return () => { gone = true; };
+  }, [loc]);
 
   function setDefault(v) {
     setDefaultView(v);
@@ -1020,7 +1049,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         <div style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(20,24,18,.55)", display: "flex", alignItems: "center", justifyContent: "center" }}>
           <div style={{ width: 420, maxWidth: "90vw", background: "#fff", borderRadius: 20, padding: "30px 28px 24px", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
             <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".08em", color: "#6b7a60", textTransform: "uppercase" }}>{teyaWait.label ? "Card machine · " + teyaWait.label : "Card machine"}</div>
-            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 800, fontSize: 44, letterSpacing: "-1px", margin: "10px 0 4px", color: "#22271f" }}>£{Number(teyaWait.amount || 0).toFixed(2)}</div>
+            <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 800, fontSize: 44, letterSpacing: "-1px", margin: "10px 0 4px", color: "#22271f" }}>{gbp(teyaWait.amount)}</div>
             <div style={{ fontSize: 15, color: "#4b5543", minHeight: 22 }}>
               {teyaWait.status === "IN_PROGRESS" ? "Customer is paying…" : teyaWait.status === "CANCELLING" ? "Cancelling…" : "Ask the customer to tap or insert their card"}
             </div>
@@ -1073,7 +1102,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 style={{ width: "100%", boxSizing: "border-box", marginTop: 16, padding: "13px 15px", fontSize: 17, borderRadius: 12, border: "1px solid #e2e8f0", background: "#f8fafc", fontFamily: "'Poppins',sans-serif" }} />
               <div style={{ display: "flex", gap: 10, marginTop: 10 }}>
                 <input value={openAsk.price} onChange={(e) => setOpenAsk({ ...openAsk, price: e.target.value.replace(/[^0-9.]/g, "").slice(0, 7), err: "" })}
-                  inputMode="decimal" placeholder="Price £"
+                  inputMode="decimal" placeholder={"Price " + currencySymbol().trim()}
                   style={{ flex: 2, minWidth: 0, boxSizing: "border-box", padding: "13px 15px", fontSize: 19, fontWeight: 700, textAlign: "center", borderRadius: 12, border: "1px solid " + (openAsk.price !== "" && !priceOk ? "#c94a4a" : "#e2e8f0"), background: "#f8fafc", fontFamily: "'Poppins',sans-serif" }} />
                 <input value={openAsk.qty} onChange={(e) => setOpenAsk({ ...openAsk, qty: e.target.value.replace(/\D/g, "").slice(0, 2) })}
                   inputMode="numeric" placeholder="Qty"
@@ -1082,7 +1111,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               <input value={openAsk.pin} onChange={(e) => setOpenAsk({ ...openAsk, pin: e.target.value.replace(/\D/g, "").slice(0, 8), err: "" })}
                 inputMode="numeric" type="password" placeholder="Your PIN"
                 style={{ width: "100%", boxSizing: "border-box", marginTop: 10, padding: "13px 15px", fontSize: 20, letterSpacing: ".3em", textAlign: "center", borderRadius: 12, border: "1px solid #e2e8f0", background: "#f8fafc", fontFamily: "'Poppins',sans-serif" }} />
-              {openAsk.price !== "" && !priceOk && <div style={{ color: "#b4462f", fontSize: 13.5, marginTop: 10, fontWeight: 600 }}>Price must be between £0 and £500.</div>}
+              {openAsk.price !== "" && !priceOk && <div style={{ color: "#b4462f", fontSize: 13.5, marginTop: 10, fontWeight: 600 }}>Price must be between {gbp(0)} and {gbp(500)}.</div>}
               <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
                 <span onClick={() => setOpenAsk(null)} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#f1f5f9", color: "#22271f", fontWeight: 800, cursor: "pointer" }}>Cancel</span>
                 <span onClick={add} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: ready ? "#22271f" : "#cbd5e1", color: "#fff", fontWeight: 800, cursor: ready ? "pointer" : "default" }}>Add{priceOk && openAsk.price !== "" ? " " + gbp(px * Math.max(1, parseInt(openAsk.qty) || 1)) : ""}</span>
@@ -1485,8 +1514,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
 
       {/* CLOSE TILL — guided closing report: Review → Cash → Sign off → Done */}
       {closeTill && (() => {
-        const DENOMS = [50, 20, 10, 5, 2, 1, 0.5, 0.2, 0.1, 0.05, 0.02, 0.01];
-        const dLabel = (d) => d >= 1 ? "£" + d : (d * 100).toFixed(0) + "p";
+        // Notes and coins of whatever the store takes. UK stores get the same
+        // twelve buttons they have always had.
+        const DENOMS = denominations();
+        const dLabel = denomLabel;
         const denomTotal = Math.round(DENOMS.reduce((t, d) => t + d * (Number(closeTill.denoms?.[d]) || 0), 0) * 100) / 100;
         const denomsTouched = Object.values(closeTill.denoms || {}).some((v) => v !== "" && v != null);
         const countedVal = closeTill.countMode === "denoms" ? (denomsTouched ? denomTotal : null) : (closeTill.counted === "" ? null : Number(closeTill.counted));
@@ -1494,7 +1525,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const flt = closeTill.float === "" ? 0 : Number(closeTill.float);
         const expected = sm ? Math.round(((flt || 0) + Number(sm.cash || 0)) * 100) / 100 : 0;
         const variance = countedVal == null ? null : Math.round((countedVal - expected) * 100) / 100;
-        const VARIANCE_NOTE_FROM = 5; // £ — beyond this a note is required
+        const VARIANCE_NOTE_FROM = varianceNoteFrom(); // beyond this a note is required
         const C = { ink: "#22271f", muted: "#6b7a60", line: "#e6e8e1", soft: "#f6f7f3", brand: "#5E7A4D", good: "#166534", bad: "#b91c1c", over: "#1d4ed8", warn: "#9a3412" };
         const F = "'Poppins',sans-serif";
         const typeLabel = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
@@ -1833,7 +1864,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   <div style={{ position: "absolute", left: 0, right: 0, bottom: 72, background: "#fff", borderTop: "1px solid " + C.line, padding: "12px 14px 14px", boxShadow: "0 -14px 30px -18px rgba(0,0,0,.35)", zIndex: 30 }}>
                     <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
                       <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".06em", color: C.muted, textTransform: "uppercase" }}>
-                        {padFor.kind === "float" ? "Float for tomorrow" : padFor.kind === "counted" ? "Counted total" : "How many £" + (padFor.d >= 1 ? padFor.d : "") + (padFor.d < 1 ? Math.round(padFor.d * 100) + "p" : "") + " ?"}
+                        {padFor.kind === "float" ? "Float for tomorrow" : padFor.kind === "counted" ? "Counted total" : "How many " + denomLabel(padFor.d) + " ?"}
                       </span>
                       <span onClick={() => setPadFor(null)} style={{ marginLeft: "auto", fontWeight: 800, fontSize: 15, cursor: "pointer", padding: "2px 8px" }}>Done</span>
                     </div>

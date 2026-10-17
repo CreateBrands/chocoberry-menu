@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import CartLine from "./CartLine.jsx";
 import { payLabel } from "./payLabel.js";
-// Currency follows the store being served — see src/money.js.
-import { money } from "./money.js";
+// Currency follows the store being served — see src/money.js. The till sets
+// the active currency once on load, so the sheets here just format.
+import { money, moneyShort, currencySymbol, cashNotes } from "./money.js";
 
 // ── Single-screen POS orders ─────────────────────────────────────────
 // OrdersList       → compact list (under master categories in col 1)
@@ -234,7 +235,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     if (res && res.fully_paid) { /* parent closes panel */ return res; }
     // partial: reset transient inputs, stay on detail with updated remaining
     setCashGiven(null); setCashTyped(""); setSplitAmt(""); setEvenGiven(null);
-    setNote(res && res.remaining != null ? ("£" + Number(res.remaining).toFixed(2) + " left to pay") : "");
+    setNote(res && res.remaining != null ? (money(res.remaining) + " left to pay") : "");
     setMode("detail");
     return res;
   }
@@ -258,7 +259,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
           {onSetTable && tables.length > 0 && o.status !== "cancelled" && (
             <span onClick={(e) => { e.stopPropagation(); setMoveTable(true); }} title="Move this order to another table" style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#eef1f4", padding: "4px 9px", borderRadius: 8, cursor: "pointer", fontWeight: 700 }}>{Ico.utensils(12)} {o.menu_tables && o.menu_tables.label ? o.menu_tables.label : "No table"} · Move</span>
           )}
-          {paidSoFar > 0 && !isPaid ? <span>· £{paidSoFar.toFixed(2)} paid</span> : null}
+          {paidSoFar > 0 && !isPaid ? <span>· {money(paidSoFar)} paid</span> : null}
         </div>
       </div>
       {isPaid
@@ -339,7 +340,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
             // Same tile language as Cash and Card, one step quieter: white with
             // a green edge rather than solid green, so they read as the same
             // family without competing with the two primary actions.
-            { key: "amt",  label: "By amount", hint: "£X, rest after", icon: Ico.cash,     go: () => { setSplitAmt(""); setMode("splitAmt"); } },
+            { key: "amt",  label: "By amount", hint: "part now, rest after", icon: Ico.cash,     go: () => { setSplitAmt(""); setMode("splitAmt"); } },
             { key: "even", label: "Evenly",    hint: "2, 3, 4 ways",   icon: Ico.card,     go: () => { setEvenN(2); setEvenGiven(null); setMode("splitEven"); } },
             { key: "item", label: "By item",   hint: "pick items",     icon: Ico.utensils, go: () => { setPickIds({}); setMode("splitItem"); } },
           ].map((o2) => (
@@ -367,7 +368,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
     // (a handful of coins, a £100) gets typed in.
     const r2 = (v) => Math.round(v * 100) / 100;
     const smart = [...new Set([r2(due), Math.ceil(due), Math.ceil(due / 5) * 5])].filter((v) => v >= due - 0.001).slice(0, 3);
-    const notes = [5, 10, 20, 50].filter((v) => v >= due - 0.001 && !smart.includes(v));
+    const notes = cashNotes().filter((v) => v >= due - 0.001 && !smart.includes(v));
     return Wrap(<>
       {HeaderBar("Cash")}
       <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto" }}>
@@ -381,7 +382,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
           {smart.map((v, i) => (
             <div key={"s" + v} onClick={() => { setCashGiven(v); setCashTyped(""); }}
               style={{ padding: "13px 0", borderRadius: 11, background: given === v ? "#e6ecd9" : "#efeadf", border: given === v ? "1.5px solid #5E7A4D" : "1.5px solid transparent", textAlign: "center", fontWeight: 700, fontSize: 15, color: "#33402f", cursor: "pointer" }}>
-              £{Number(v).toFixed(2).replace(/\.00$/, "")}
+              {moneyShort(v)}
               {i === 0 && <div style={{ fontSize: 9.5, fontWeight: 700, color: C.sub, letterSpacing: ".06em" }}>EXACT</div>}
             </div>
           ))}
@@ -390,7 +391,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
           <div style={{ display: "grid", gridTemplateColumns: "repeat(" + notes.length + ",1fr)", gap: 9, marginBottom: 9 }}>
             {notes.map((v) => (
               <div key={"n" + v} onClick={() => { setCashGiven(v); setCashTyped(""); }}
-                style={{ padding: "11px 0", borderRadius: 11, background: given === v ? "#e6ecd9" : "#f5f2ea", border: given === v ? "1.5px solid #5E7A4D" : "1.5px solid #e6e2d6", textAlign: "center", fontWeight: 700, fontSize: 14, color: "#5a6350", cursor: "pointer" }}>£{v}</div>
+                style={{ padding: "11px 0", borderRadius: 11, background: given === v ? "#e6ecd9" : "#f5f2ea", border: given === v ? "1.5px solid #5E7A4D" : "1.5px solid #e6e2d6", textAlign: "center", fontWeight: 700, fontSize: 14, color: "#5a6350", cursor: "pointer" }}>{moneyShort(v)}</div>
             ))}
           </div>
         )}
@@ -431,12 +432,12 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         </div>
         <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, marginBottom: 5 }}>AMOUNT FOR THIS PAYMENT</div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, background: "#F4F1E8", borderRadius: 12, padding: "6px 14px", marginBottom: 10 }}>
-          <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22 }}>£</span>
+          <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22 }}>{currencySymbol().trim()}</span>
           <input type="text" inputMode="decimal" value={splitAmt} onChange={(e) => setSplitAmt(e.target.value.replace(/[^0-9.]/g, ""))} placeholder={remaining.toFixed(2)} autoFocus
             style={{ flex: 1, border: "none", outline: "none", background: "transparent", fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 22, color: C.ink }} />
         </div>
         <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
-          {[remaining / 2, remaining].map((v, i) => (<div key={i} onClick={() => setSplitAmt((Math.round(v * 100) / 100).toFixed(2))} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 10, background: "#efeadf", fontWeight: 700, fontSize: 13, color: "#4a4f3d", cursor: "pointer" }}>{i === 0 ? "Half" : "All"} · £{(Math.round(v * 100) / 100).toFixed(2)}</div>))}
+          {[remaining / 2, remaining].map((v, i) => (<div key={i} onClick={() => setSplitAmt((Math.round(v * 100) / 100).toFixed(2))} style={{ flex: 1, textAlign: "center", padding: "10px 0", borderRadius: 10, background: "#efeadf", fontWeight: 700, fontSize: 13, color: "#4a4f3d", cursor: "pointer" }}>{i === 0 ? "Half" : "All"} · {money(Math.round(v * 100) / 100)}</div>))}
         </div>
         <div style={{ fontSize: 11, color: C.sub, fontWeight: 700, marginBottom: 7 }}>TAKE THIS PART AS</div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 9 }}>

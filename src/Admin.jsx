@@ -2139,15 +2139,17 @@ export default function Admin() {
                           <span style={{ fontSize: 9.5, color: T.faint, fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase" }}>{lbl}</span>
                         </div>
                       ))}
-                      {/* Pause/resume customer ordering at this store. Reads the
+                      {/* Pause/resume CUSTOMER ordering at this store. Reads the
                           same menu_app_settings key the tablets poll every 10s;
-                          ONLY the exact string "off" means paused. */}
+                          ONLY the exact string "off" means paused. The till is
+                          exempt (see place-order) — pausing stops tablets, the
+                          kiosk and the app, never the counter. */}
                       {(() => {
                         const sRow = (state.settings || []).find((x) => x.key === "accepting_orders:" + loc.id);
                         const paused = sRow && sRow.value === "off";
                         return (
                           <div onClick={(e) => { e.stopPropagation(); act("set_accepting_orders", { location_id: loc.id, accepting: !!paused }); }}
-                            title={paused ? "Ordering paused — tap to resume" : "Accepting orders — tap to pause"}
+                            title={paused ? "Customer ordering paused — tap to resume. The till still takes orders." : "Customers can order — tap to pause tablets, kiosk and app. The till is never paused."}
                             style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 11px", borderRadius: 10, cursor: "pointer", background: paused ? "#f7e6e2" : T.bg, border: "1px solid " + (paused ? "#b4462f" : T.line), marginLeft: 6 }}>
                             <span style={{ width: 8, height: 8, borderRadius: 4, background: paused ? "#b4462f" : "#2e7d52" }} />
                             <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".03em", textTransform: "uppercase", color: paused ? "#b4462f" : T.muted }}>{paused ? "Paused" : "Ordering"}</span>
@@ -2328,6 +2330,17 @@ export default function Admin() {
                                 <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
                                   {[["", "Inherit"], ["chocoberry", "Chocoberry"], ["tove", "Tove"], ["still", "still."]].map(([v, l]) => <span key={v} onClick={() => setK("theme", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: theme === v ? T.ink : T.bg, color: theme === v ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>)}
                                 </div>
+                                {/* Currency is a picker rather than a text field: a typo here
+                                    would silently fall back to pounds on the till and the
+                                    receipt, which is exactly the mistake worth preventing. */}
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>Currency</div>
+                                <div style={{ display: "flex", gap: 6, marginBottom: 4 }}>
+                                  {[["", "£ GBP"], ["AED", "AED"]].map(([v, l]) => {
+                                    const on = String(g("currency") || "").trim().toUpperCase() === v;
+                                    return <span key={v || "gbp"} onClick={() => setK("currency", v)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 9, fontSize: 12.5, fontWeight: 700, background: on ? T.ink : T.bg, color: on ? T.card : T.ink, border: "1px solid " + T.line }}>{l}</span>;
+                                  })}
+                                </div>
+                                <div style={{ fontSize: 11, color: T.muted, marginBottom: 12, lineHeight: 1.45 }}>The menu, the till, the cash-up pad and the printed receipt all follow this. It does not convert anything — set this store's prices in its own money first.</div>
                                 <Field k="brand_name" label="Brand name" placeholder="Chocoberry" hint="Shown on the KDS/POS header, receipts, QR stickers and the get-the-app strip." />
                                 <Field k="brand_tagline" label="Tagline" placeholder="Desserts, beautifully done." />
                                 <Field k="welcome_eyebrow" label="Welcome · eyebrow" placeholder="WELCOME TO" />

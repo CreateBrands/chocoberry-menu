@@ -19,6 +19,7 @@ import { SunmiClient, ok } from "../_shared/sunmi.ts";
 import {
   buildOrderReceipt,
   buildTestReceipt,
+  moneyFor,
   Receipt,
   type ReceiptOrder,
   type ReceiptItem,
@@ -293,9 +294,18 @@ async function loadReceiptOrder(
 
   // Brand name for the receipt footer: per-store setting, default Chocoberry.
   let brandName = "Chocoberry";
+  // Currency for every figure on the slip. Absent setting = GBP, so a UK
+  // receipt is byte-for-byte what it was before.
+  let currency = "GBP";
   if (rec.location_id) {
-    const { data: bn } = await supabase.from("menu_app_settings").select("value").eq("key", "brand_name:" + String(rec.location_id)).maybeSingle();
-    if (bn?.value) brandName = String(bn.value);
+    const { data: cfg } = await supabase.from("menu_app_settings").select("key, value")
+      .in("key", ["brand_name:" + String(rec.location_id), "currency:" + String(rec.location_id)]);
+    for (const row of cfg ?? []) {
+      const k = String((row as { key: string }).key).split(":")[0];
+      const v = (row as { value: unknown }).value;
+      if (k === "brand_name" && v) brandName = String(v);
+      if (k === "currency" && v) currency = String(v);
+    }
   }
 
   const orderType =
@@ -329,6 +339,7 @@ async function loadReceiptOrder(
     tabletNo: rec.tablet_no ? String(rec.tablet_no) : undefined,
     storeName,
     brandName,
+    currency,
     hasAdditions,
     batchTimes,
   };
@@ -1041,7 +1052,10 @@ Deno.serve(async (req) => {
         const s = body.summary || {};
         const storeName = String(body.store_name || "");
         const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
-        const money = (n: number) => "GBP " + (Number(n) || 0).toFixed(2);
+        const { data: zc } = await supabase.from("menu_app_settings").select("value")
+          .eq("key", "currency:" + String(body.location_id || "")).maybeSingle();
+        const fmtZ = moneyFor(zc?.value ? String(zc.value) : "GBP");
+        const money = (n: number) => fmtZ(Number(n) || 0);
         const W = 48;
         const r = new Receipt();
         r.align(1).size(1, 1).bold(true).line("END OF DAY").bold(false).size(0, 0);
@@ -1179,6 +1193,8 @@ Deno.serve(async (req) => {
         if (!o) return json({ error: "order not found" }, 404);
         const { data: its } = await supabase.from("menu_order_items").select("name_snapshot, qty").eq("order_id", order_id);
         const { data: bn } = await supabase.from("menu_app_settings").select("value").eq("key", "brand_name:" + String(location_id || "")).maybeSingle();
+        const { data: rc } = await supabase.from("menu_app_settings").select("value").eq("key", "currency:" + String(location_id || "")).maybeSingle();
+        const fmtR = moneyFor(rc?.value ? String(rc.value) : "GBP");
         const { data: locRow } = await supabase.from("menu_locations").select("name").eq("id", String(location_id || "")).maybeSingle();
         const when = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
         const r = new Receipt();
@@ -1190,10 +1206,10 @@ Deno.serve(async (req) => {
         r.divider();
         for (const it of its || []) r.line(`${it.qty} x ${it.name_snapshot}`);
         r.divider();
-        r.leftRight("Order total", "£" + Number(o.total || 0).toFixed(2));
-        r.size(0, 1).bold(true).leftRight("REFUNDED", "£" + Number(amount || 0).toFixed(2)).bold(false).size(0, 0);
+        r.leftRight("Order total", fmtR(Number(o.total || 0)));
+        r.size(0, 1).bold(true).leftRight("REFUNDED", fmtR(Number(amount || 0))).bold(false).size(0, 0);
         r.leftRight("Refund to", method === "card" ? "Card (same card as paid)" : method === "cash" ? "Cash" : String(method || ""));
-        if (Number(o.refund_total || 0) > Number(amount || 0)) r.leftRight("Total refunded", "£" + Number(o.refund_total || 0).toFixed(2));
+        if (Number(o.refund_total || 0) > Number(amount || 0)) r.leftRight("Total refunded", fmtR(Number(o.refund_total || 0)));
         if (reason) r.line("Reason: " + String(reason));
         r.line("Authorised by: " + String(by || "manager"));
         r.feed(1).align(1).line("Please keep this as proof of refund.");
