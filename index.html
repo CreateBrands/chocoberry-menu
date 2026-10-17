@@ -6,10 +6,11 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="mobile-web-app-capable" content="yes" />
-    <meta name="theme-color" content="#E1E8D2" />
+    <meta name="theme-color" id="theme-colour" content="#E1E8D2" />
     <!-- Installable: the manifest is swapped per surface (menu/kiosk/kds/pos) at runtime so each installs as its own app. -->
     <link rel="manifest" id="app-manifest" href="/manifest-menu.webmanifest" />
-    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <link rel="apple-touch-icon" id="app-touch-icon" href="/icon-menu-192.png" />
+    <meta name="apple-mobile-web-app-title" id="app-title" content="Menu" />
     <script>
       (function () {
         var p = location.pathname.replace(/\/+$/, "");
@@ -17,12 +18,27 @@
         // Until now it fell through to the kiosk one, whose start_url is
         // /kiosk — so installing the menu to a home screen produced the kiosk
         // app, which opens the licensed surface and asks to be activated.
-        var m = p === "/kds" ? "/manifest-kds.webmanifest"
-              : p === "/pos" ? "/manifest-pos.webmanifest"
-              : p === "/kiosk" ? "/manifest.webmanifest"
-              : "/manifest-menu.webmanifest";
-        var el = document.getElementById("app-manifest");
-        if (el) el.setAttribute("href", m);
+        //
+        // Each surface also gets its own icon and home-screen name. Four apps
+        // wearing one icon is how a tablet ends up on the wrong one: staff
+        // pick by the picture, not by reading the label.
+        var S = {
+          "/kds":   { m: "/manifest-kds.webmanifest",  i: "kds",   t: "KDS",   c: "#1F2937" },
+          "/pos":   { m: "/manifest-pos.webmanifest",  i: "till",  t: "Till",  c: "#5E7A4D" },
+          "/kiosk": { m: "/manifest.webmanifest",      i: "kiosk", t: "Kiosk", c: "#844429" },
+        };
+        var s = S[p] || { m: "/manifest-menu.webmanifest", i: "menu", t: "Menu", c: "#F4E9DD" };
+        var set = function (id, attr, val) {
+          var el = document.getElementById(id);
+          if (el) el.setAttribute(attr, val);
+        };
+        set("app-manifest", "href", s.m);
+        // iOS ignores the manifest for home-screen installs and reads these
+        // two instead, so an iPad would otherwise land on the generic icon
+        // and the page title.
+        set("app-touch-icon", "href", "/icon-" + s.i + "-192.png");
+        set("app-title", "content", s.t);
+        set("theme-colour", "content", s.c);
       })();
     </script>
     <!-- iOS Smart App Banner: Safari shows a native "Open / View in App Store" strip on phones.
