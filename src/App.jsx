@@ -358,18 +358,28 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
     ? { panel: "#241309", ink: "#F4E9DD", sub: "#B29A82", line: "rgba(244,233,221,.22)", accent: "#D9A066", warm: "#D9A066", ctaBg: "#F4E9DD", ctaInk: "#241309" }
     : { panel: "var(--bg)", ink: "var(--ink)", sub: "var(--muted)", line: "var(--line)", accent: "var(--accent)", warm: "#EBD2AE", ctaBg: "var(--ink)", ctaInk: "var(--bg)" };
 
+  // Menu and section names are stored shouting — ALL DAY BREAKFAST, SOUPS &
+  // SALADS — which is right on a printed board and heavy in a list of seven.
+  // A name already in mixed case is somebody's deliberate spelling, so only
+  // all-caps names are softened.
+  const titled = (n) => (n && n === n.toUpperCase()
+    ? n.toLowerCase().replace(/(^|[\s&·/-])([a-z])/g, (_, a, b) => a + b.toUpperCase())
+    : n);
+
   // A store carrying one menu has no top level to show, so its own sections
   // become the index instead — the same trick the menu picker already does.
   const single = (menus || []).length === 1 ? menus[0] : null;
   const rows = single
     ? (single.categories || []).map((c, i) => ({
-      key: "c" + i, name: c.name, n: (c.items || []).length, inside: "",
+      key: "c" + i, raw: c.name, name: titled(c.name), n: (c.items || []).length, inside: "",
       go: () => onPick(single, i),
     }))
     : (menus || []).map((m) => ({
-      key: m.id, name: m.name,
+      key: m.id, raw: m.name, name: titled(m.name),
       n: (m.categories || []).reduce((s, c) => s + (c.items || []).length, 0),
-      inside: (m.categories || []).map((c) => c.name).join(" · "),
+      // One section that only repeats its category name tells nobody anything.
+      inside: (m.categories || []).length > 1
+        ? (m.categories || []).map((c) => titled(c.name)).join(" · ") : "",
       go: () => onPick(m),
     }));
   const dishes = rows.reduce((s, r) => s + r.n, 0);
@@ -387,12 +397,12 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
   } else if (nowCfg != null) {
     const want = String(nowCfg.split("|")[part] || "").trim().toLowerCase();
     nowName = want
-      ? (rows.find((r) => r.name.toLowerCase() === want)
-        || rows.find((r) => r.name.toLowerCase().includes(want)) || {}).name
+      ? (rows.find((r) => r.raw.toLowerCase() === want)
+        || rows.find((r) => r.raw.toLowerCase().includes(want)) || {}).raw
       : undefined;
   } else {
     const HINT = [/breakfast|brunch/i, /main|lunch/i, /dessert|sweet|cake/i][part];
-    nowName = (rows.find((r) => HINT.test(r.name)) || {}).name;
+    nowName = (rows.find((r) => HINT.test(r.raw)) || {}).raw;
   }
 
   let feat = null;
@@ -428,7 +438,7 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
   const capStyle = { fontFamily: "var(--font-head)", fontSize: 10.5, fontWeight: 600, letterSpacing: ".26em", textTransform: "uppercase" };
 
   return (
-    <div className="cb-t" style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", backgroundColor: P.panel, color: P.ink, fontFamily: "var(--font-body)", display: "flex", flexDirection: "column" }}>
+    <div className={"cb-t" + (night ? " cb-night" : "")} style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", backgroundColor: P.panel, color: P.ink, fontFamily: "var(--font-body)", display: "flex", flexDirection: "column" }}>
 
       {/* ── the window ── */}
       <div style={{ position: "relative", flex: "none", width: "100%", aspectRatio: String(aspect), maxHeight: "50%", minHeight: "30%", overflow: "hidden", backgroundColor: "#2d1708" }}>
@@ -472,18 +482,17 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
           <div style={{ display: "flex", alignItems: "baseline", gap: 16, paddingBottom: 12, borderBottom: "1px solid rgba(244,233,221,.3)" }}>
             <div style={{ ...capStyle, color: "rgba(251,246,236,.94)" }}>{place}</div>
             <span style={{ flexGrow: 1 }} />
-            {hours && <div style={{ ...capStyle, color: "rgba(251,246,236,.94)" }}>{hours}</div>}
+            <div style={{ ...capStyle, color: "rgba(251,246,236,.94)" }}>{hours || greeting}</div>
           </div>
         </div>
 
-        {feat && (
+        {hasWording && (
           <button type="button" className="cb-feature" onClick={onOpenPicker}
             // Clear the wordmark tab. It is a fixed 52px overlay hanging above
             // a panel whose height is a percentage, so on a shorter tablet it
             // reaches up into the image and lands on the subtitle. Reserving
             // its height here is what keeps the two apart at every size.
             style={{ position: "absolute", left: pad, right: pad, bottom: "calc(52px + clamp(14px,2.2vh,28px))", border: "none", background: "transparent", padding: 0, textAlign: "left", cursor: "pointer", display: "block" }}>
-            <div style={{ fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 600, letterSpacing: ".3em", textTransform: "uppercase", color: P.warm }}>{greeting}</div>
             {feat.tag && (
               <div style={{ display: "inline-flex", alignItems: "center", gap: 9, border: "1px solid rgba(251,246,236,.5)", borderRadius: 22, padding: "7px 15px", marginTop: 13 }}>
                 <span className="cb-dot" style={{ width: 6, height: 6, borderRadius: "50%", background: P.warm }} />
@@ -522,17 +531,17 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
             easier to hit rather than leaving a hole at the foot of the page.
             Capped, so a store with few categories does not get bands. */}
         <div className="cb-t" style={{ marginTop: 14, borderTop: "1px solid " + P.line, flexGrow: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-          {rows.map((r) => (
-            <button key={r.key} type="button" className="cb-row cb-t" onClick={r.go}
-              style={{ width: "100%", flex: "1 1 auto", minHeight: 58, maxHeight: 112, display: "flex", alignItems: "center", gap: 12, padding: "12px 10px 11px", margin: "0 -10px", border: "none", borderBottom: "1px solid " + P.line, background: "transparent", borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
+          {rows.map((r, i) => (
+            <button key={r.key} type="button" className="cb-row cb-t cb-in" onClick={r.go}
+              style={{ animationDelay: (i * 55) + "ms", width: "100%", flex: "1 1 auto", minHeight: 58, maxHeight: 112, display: "flex", alignItems: "center", gap: 12, padding: "12px 10px 11px", margin: "0 -10px", border: "none", borderBottom: "1px solid " + P.line, background: "transparent", borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
               <span style={{ flexGrow: 1, minWidth: 0 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ fontFamily: "var(--font-head)", fontSize: "clamp(16px,2.4vw,20px)", fontWeight: 500, letterSpacing: "-.012em", color: P.ink }}>{r.name}</span>
-                  {r.name === nowName && (
+                  {r.raw === nowName && (
                     <span className="cb-t" style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: 9.5, fontWeight: 600, letterSpacing: ".16em", textTransform: "uppercase", color: P.panel, backgroundColor: P.accent, borderRadius: 10, padding: "4px 9px" }}>Now</span>
                   )}
                 </span>
-                {r.inside && <span style={{ display: "block", fontSize: 13, lineHeight: 1.35, color: P.sub, marginTop: 3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.inside}</span>}
+                {r.inside && <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: 13, lineHeight: 1.35, color: P.sub, marginTop: 3 }}>{r.inside}</span>}
               </span>
               <span style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: 15, fontWeight: 300, color: P.sub, fontVariantNumeric: "tabular-nums" }}>{r.n}</span>
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={P.accent} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 5l7 7-7 7" /></svg>
@@ -3202,7 +3211,14 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         /* The hour is a dimmer, not a switch. */
         .cb-t{transition:background-color 1.1s ease,color 1.1s ease,border-color 1.1s ease}
         .cb-row:focus-visible,.cb-cta:focus-visible,.cb-feature:focus-visible{outline:2px solid currentColor;outline-offset:3px}
-        @media (prefers-reduced-motion:reduce){.cb-plate,.cb-sun,.cb-dot,.cb-cta::after{animation:none}}
+        /* The rows arrive rather than appear. Short, staggered, once. */
+        @keyframes cbIn{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+        .cb-in{animation:cbIn .52s cubic-bezier(.22,.7,.3,1) both}
+        /* A press has to be felt on glass. Inline styles set the resting
+           background, so this needs the weight to win. */
+        .cb-row:active{background-color:rgba(132,68,41,.09) !important}
+        .cb-night .cb-row:active{background-color:rgba(244,233,221,.10) !important}
+        @media (prefers-reduced-motion:reduce){.cb-plate,.cb-sun,.cb-dot,.cb-cta::after,.cb-in{animation:none}}
         [data-catstrip]{max-height:0;opacity:0;overflow:hidden;padding-top:0 !important;padding-bottom:0 !important;transition:max-height .35s ease,opacity .3s ease,padding .35s ease;}
         [data-catstrip].show{max-height:160px;opacity:1;padding-top:14px !important;padding-bottom:14px !important;}
         .screenwrap .screen{position:absolute;inset:0;}
