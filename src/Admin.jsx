@@ -2306,7 +2306,14 @@ export default function Admin() {
                         const Field = ({ k, label, placeholder, hint }) => (
                           <label style={{ display: "block", marginBottom: 10 }}>
                             <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".5px", textTransform: "uppercase", marginBottom: 4 }}>{label}</div>
-                            <input defaultValue={g(k)} placeholder={placeholder} onBlur={(e) => { if (e.target.value !== g(k)) setK(k, e.target.value); }} style={{ width: "100%", boxSizing: "border-box", padding: "9px 11px", fontSize: 13, border: "1px solid " + T.line, borderRadius: 9, background: T.card, color: T.ink }} />
+                            {/* Enter saves as well as clicking away. These
+                                fields only wrote on blur, so typing a value
+                                and pressing Enter looked like it had saved
+                                and had not. */}
+                            <input defaultValue={g(k)} placeholder={placeholder}
+                              onKeyDown={(e) => { if (e.key === "Enter") e.target.blur(); }}
+                              onBlur={(e) => { if (e.target.value !== g(k)) setK(k, e.target.value); }}
+                              style={{ width: "100%", boxSizing: "border-box", padding: "9px 11px", fontSize: 13, border: "1px solid " + T.line, borderRadius: 9, background: T.card, color: T.ink }} />
                             {hint && <div style={{ fontSize: 11, color: T.faint, marginTop: 3 }}>{hint}</div>}
                           </label>
                         );
