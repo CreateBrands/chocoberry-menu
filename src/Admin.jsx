@@ -2310,8 +2310,8 @@ export default function Admin() {
                                 <Field k="welcome_subtitle" label="Welcome · subtitle" placeholder="Tap below to start your order" />
                                 <Field k="welcome_button" label="Welcome · button" placeholder="Menu" />
                                 <Field k="welcome_footer" label="Welcome · footer" placeholder="" hint="Leave empty to take the line off this store." />
-                                <Field k="welcome_masthead" label="Welcome · store line" placeholder="Downtown Dubai" hint="Shown beside the dish count. Defaults to the last line of the subtitle." />
-                                <Field k="welcome_hours" label="Welcome · hours" placeholder="Open until 11" hint="Free text, shown beside the store line. Leave empty for none." />
+                                <Field k="welcome_masthead" label="Welcome · store line" placeholder="" hint="Shown beside the dish count. Leave empty to use the last line of the subtitle, which is usually right." />
+                                <Field k="welcome_hours" label="Welcome · hours" placeholder="" hint="Free text, shown beside the store line. Leave empty for none." />
                                 <Field k="welcome_dayparts" label="Welcome · day parts" placeholder="11,17" hint="Two hours on a 24h clock: when morning ends and when evening starts. Sets the greeting and the colour as well as the Now mark." />
                                 <Field k="welcome_now" label="Welcome · Now mark" placeholder="ALL DAY BREAKFAST | MAIN | DESSERTS" hint="Three category names for morning, afternoon and evening. Leave a gap between bars for no mark in that part. Type off for none." />
                               </div>
