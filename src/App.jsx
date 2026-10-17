@@ -341,8 +341,15 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
   // 1200x700 marketing banner forced into a fixed portrait box loses a third
   // of itself off the sides, taking the artwork's own wording with it.
   const [aspect, setAspect] = useState(16 / 9);
+  // When the day turns. welcome_dayparts is two hours on a 24h clock: the
+  // hour the morning ends and the hour the evening starts. "11,17" is the
+  // default and is what every store gets until it says otherwise.
+  const bounds = String(w.welcome_dayparts || "11,17").split(",").map((n) => parseInt(n, 10));
+  const m1 = isFinite(bounds[0]) ? bounds[0] : 11;
+  const m2 = isFinite(bounds[1]) ? bounds[1] : 17;
   const hour = now.getHours();
-  const mode = hour < 11 ? "morning" : hour < 17 ? "day" : "evening";
+  const part = hour < m1 ? 0 : hour < m2 ? 1 : 2;
+  const mode = ["morning", "day", "evening"][part];
 
   // Night dress is opt-in: a dark palette has to be chosen per brand, and a
   // store that has not chosen one keeps its daylight colours all evening.
@@ -367,10 +374,26 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
     }));
   const dishes = rows.reduce((s, r) => s + r.n, 0);
 
-  // Mark whichever part of the menu the hour belongs to. Matched on the
-  // store's own category names, so a store without one simply has no mark.
-  const HINT = { morning: /breakfast|brunch/i, day: /main|lunch/i, evening: /dessert|sweet|cake/i }[mode];
-  const nowName = (rows.find((r) => HINT.test(r.name)) || {}).name;
+  // Which row wears the Now badge, part by part. welcome_now is three
+  // category names separated by bars, in morning | afternoon | evening order:
+  //   ALL DAY BREAKFAST | MAIN | DESSERTS
+  // "off" turns the badge off altogether, and a blank between two bars leaves
+  // that part of the day unmarked. Left unset it falls back to looking for a
+  // breakfast, a main and a dessert, which is what most of the estate has.
+  const nowCfg = w.welcome_now == null ? null : String(w.welcome_now).trim();
+  let nowName;
+  if (nowCfg != null && /^(off|none|)$/i.test(nowCfg)) {
+    nowName = undefined;
+  } else if (nowCfg != null) {
+    const want = String(nowCfg.split("|")[part] || "").trim().toLowerCase();
+    nowName = want
+      ? (rows.find((r) => r.name.toLowerCase() === want)
+        || rows.find((r) => r.name.toLowerCase().includes(want)) || {}).name
+      : undefined;
+  } else {
+    const HINT = [/breakfast|brunch/i, /main|lunch/i, /dessert|sweet|cake/i][part];
+    nowName = (rows.find((r) => HINT.test(r.name)) || {}).name;
+  }
 
   let feat = null;
   try {
