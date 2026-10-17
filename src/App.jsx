@@ -412,6 +412,9 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
   } catch { feat = null; }
 
   const hasWording = !!(feat && (feat.tag || feat.title || feat.sub));
+  // A finished banner: a real image with none of our words over it. Those are
+  // left completely alone.
+  const clean = !!(feat && feat.image_url) && !hasWording;
 
   // The masthead wants the locality, which is already the last line of the
   // address, so a store that has set a welcome needs nothing new.
@@ -470,24 +473,29 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
           </svg>
         </>)}
 
-        <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: 150, background: "linear-gradient(to bottom,rgba(24,13,6,.46),rgba(24,13,6,0))" }} />
+        {!clean && <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: 150, background: "linear-gradient(to bottom,rgba(24,13,6,.46),rgba(24,13,6,0))" }} />}
         {/* Only darken the foot of the banner as far as the wording on it
             needs. A finished banner carries its own words and loses them
             under a scrim built for ours. */}
-        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: hasWording ? "72%" : "34%", background: hasWording
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: hasWording ? "72%" : (clean ? "16%" : "34%"), background: hasWording
           ? "linear-gradient(to top,rgba(24,13,6,.88) 0%,rgba(24,13,6,.56) 28%,rgba(24,13,6,.12) 66%,rgba(24,13,6,0) 100%)"
           : "linear-gradient(to top,rgba(24,13,6,.62) 0%,rgba(24,13,6,.22) 48%,rgba(24,13,6,0) 100%)" }} />
 
-        <div style={{ position: "absolute", left: pad, right: pad, top: "clamp(22px,3.6vh,46px)" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 16, paddingBottom: 13, borderBottom: "1px solid rgba(244,233,221,.34)" }}>
-            {w.welcome_logo_url
-              ? <img src={w.welcome_logo_url} alt="" style={{ height: "clamp(22px,3vh,30px)", maxWidth: 230, objectFit: "contain", objectPosition: "left center", filter: "brightness(0) invert(1)", opacity: .96 }} />
-              : <div style={{ fontFamily: "var(--font-head)", fontSize: "clamp(20px,3.2vw,27px)", fontWeight: 600, letterSpacing: "-.028em", lineHeight: 1, color: "#FBF6EC" }}
-                dangerouslySetInnerHTML={{ __html: w.welcome_logo_text || "still<span style='color:#E8C9A6'>.</span>" }} />}
-            <span style={{ flexGrow: 1 }} />
-            <div style={{ ...capStyle, color: "rgba(251,246,236,.92)", textAlign: "right" }}>{place}{hours ? " · " + hours : ""}</div>
+        {/* Only on a banner we drew ourselves. A store that uploaded one has
+            its name and its brand in the picture already, so the masthead
+            would be the second logo on the same image. */}
+        {!clean && (
+          <div style={{ position: "absolute", left: pad, right: pad, top: "clamp(22px,3.6vh,46px)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, paddingBottom: 13, borderBottom: "1px solid rgba(244,233,221,.34)" }}>
+              {w.welcome_logo_url
+                ? <img src={w.welcome_logo_url} alt="" style={{ height: "clamp(22px,3vh,30px)", maxWidth: 230, objectFit: "contain", objectPosition: "left center", filter: "brightness(0) invert(1)", opacity: .96 }} />
+                : <div style={{ fontFamily: "var(--font-head)", fontSize: "clamp(20px,3.2vw,27px)", fontWeight: 600, letterSpacing: "-.028em", lineHeight: 1, color: "#FBF6EC" }}
+                  dangerouslySetInnerHTML={{ __html: w.welcome_logo_text || "still<span style='color:#E8C9A6'>.</span>" }} />}
+              <span style={{ flexGrow: 1 }} />
+              <div style={{ ...capStyle, color: "rgba(251,246,236,.92)", textAlign: "right" }}>{place}</div>
+            </div>
           </div>
-        </div>
+        )}
 
         {hasWording && (
           <button type="button" className="cb-feature" onClick={onOpenPicker}
@@ -528,7 +536,9 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
         <div style={{ position: "relative", marginTop: "clamp(22px,3.2vh,36px)", display: "flex", alignItems: "baseline", gap: 14 }}>
           <div style={{ ...capStyle, fontSize: 11, color: P.accent }}>{greeting}</div>
           <span style={{ flexGrow: 1 }} />
-          <div style={{ fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 500, letterSpacing: ".14em", textTransform: "uppercase", color: P.sub }}>{dishes} dishes</div>
+          <div style={{ fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 500, letterSpacing: ".14em", textTransform: "uppercase", color: P.sub, textAlign: "right" }}>
+            {[clean ? place : "", hours, dishes + " dishes"].filter(Boolean).join(" · ")}
+          </div>
         </div>
 
         {/* The rows take the height the button used to, which makes them
