@@ -371,11 +371,11 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
   const single = (menus || []).length === 1 ? menus[0] : null;
   const rows = single
     ? (single.categories || []).map((c, i) => ({
-      key: "c" + i, raw: c.name, name: titled(c.name), n: (c.items || []).length, inside: "",
+      key: "c" + i, raw: c.name, name: titled(c.name), open: true, n: (c.items || []).length, inside: "",
       go: () => onPick(single, i),
     }))
     : (menus || []).map((m) => ({
-      key: m.id, raw: m.name, name: titled(m.name),
+      key: m.id, raw: m.name, name: titled(m.name), open: m.open !== false,
       n: (m.categories || []).reduce((s, c) => s + (c.items || []).length, 0),
       // One section that only repeats its category name tells nobody anything.
       inside: (m.categories || []).length > 1
@@ -390,6 +390,7 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
   // "off" turns the badge off altogether, and a blank between two bars leaves
   // that part of the day unmarked. Left unset it falls back to looking for a
   // breakfast, a main and a dessert, which is what most of the estate has.
+  const servedNow = (r) => r.open !== false;
   const nowCfg = w.welcome_now == null ? null : String(w.welcome_now).trim();
   let nowName;
   if (nowCfg != null && /^(off|none|)$/i.test(nowCfg)) {
@@ -397,12 +398,12 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
   } else if (nowCfg != null) {
     const want = String(nowCfg.split("|")[part] || "").trim().toLowerCase();
     nowName = want
-      ? (rows.find((r) => r.raw.toLowerCase() === want)
-        || rows.find((r) => r.raw.toLowerCase().includes(want)) || {}).raw
+      ? (rows.find((r) => servedNow(r) && r.raw.toLowerCase() === want)
+        || rows.find((r) => servedNow(r) && r.raw.toLowerCase().includes(want)) || {}).raw
       : undefined;
   } else {
     const HINT = [/breakfast|brunch/i, /main|lunch/i, /dessert|sweet|cake/i][part];
-    nowName = (rows.find((r) => HINT.test(r.raw)) || {}).raw;
+    nowName = (rows.find((r) => servedNow(r) && HINT.test(r.raw)) || {}).raw;
   }
 
   let feat = null;
@@ -551,20 +552,24 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
         <div className="cb-t" style={{ position: "relative", marginTop: "clamp(10px,1.6vh,16px)", borderTop: "1px solid " + P.line, flexGrow: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
           {rows.map((r, i) => {
             const on = r.raw === nowName;
+            const shut = r.open === false;
             return (
             <button key={r.key} type="button" className="cb-row cb-t cb-in" onClick={r.go}
               style={{ animationDelay: (i * 55) + "ms", width: "100%", flex: "1 1 auto", minHeight: 62, maxHeight: 124, display: "flex", alignItems: "center", gap: "clamp(12px,2vw,26px)", padding: "10px 10px 9px", margin: "0 -10px", border: "none", borderBottom: "1px solid " + P.line, background: "transparent", borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
-              <span style={{ flexGrow: 1, minWidth: 0 }}>
+              <span style={{ flexGrow: 1, minWidth: 0, opacity: shut ? .62 : 1 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 9 }}>
                   {/* The brand dot, doing a job: it marks the hour rather than
                       a filled badge shouting next to the name. */}
                   {on && <span style={{ flex: "none", width: 7, height: 7, borderRadius: "50%", backgroundColor: P.accent }} />}
-                  <span style={{ fontFamily: "var(--font-head)", fontSize: "clamp(19px,3vw,26px)", fontWeight: 500, letterSpacing: "-.022em", lineHeight: 1.1, color: on ? P.accent : P.ink }}>{r.name}</span>
+                  <span style={{ fontFamily: "var(--font-head)", fontSize: "clamp(19px,3vw,26px)", fontWeight: 500, letterSpacing: "-.022em", lineHeight: 1.1, color: shut ? P.sub : (on ? P.accent : P.ink) }}>{r.name}</span>
                   {on && <span style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: 9.5, fontWeight: 600, letterSpacing: ".2em", textTransform: "uppercase", color: P.accent, opacity: .9 }}>Now</span>}
+                  {/* A menu outside its serving hours is still worth reading,
+                      so it is greyed and labelled rather than taken away. */}
+                  {shut && <span style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: 9.5, fontWeight: 600, letterSpacing: ".2em", textTransform: "uppercase", color: P.sub, border: "1px solid " + P.line, borderRadius: 9, padding: "3px 7px" }}>Not now</span>}
                 </span>
                 {r.inside && <span style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", fontSize: "clamp(11px,1.5vw,12.5px)", letterSpacing: ".012em", lineHeight: 1.4, color: P.sub, marginTop: 5 }}>{r.inside}</span>}
               </span>
-              <span style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: "clamp(24px,4vw,36px)", fontWeight: 200, lineHeight: 1, color: on ? P.accent : P.sub, fontVariantNumeric: "tabular-nums", letterSpacing: "-.02em" }}>{r.n}</span>
+              <span style={{ flex: "none", fontFamily: "var(--font-head)", fontSize: "clamp(24px,4vw,36px)", fontWeight: 200, lineHeight: 1, color: on ? P.accent : P.sub, opacity: shut ? .45 : 1, fontVariantNumeric: "tabular-nums", letterSpacing: "-.02em" }}>{r.n}</span>
             </button>
           );})}
         </div>

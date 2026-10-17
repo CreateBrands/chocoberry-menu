@@ -143,7 +143,10 @@ function useDragList(ids, onReorder) {
   });
 }
 
-function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSetImage, onRename, onTillName, tillName, drag }) {
+// "17:00:00" -> "17:00". Blank for a menu served all day.
+const hhmm = (v) => (v ? String(v).slice(0, 5) : "");
+
+function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSetImage, onRename, onTillName, tillName, onHours, hours, drag }) {
   return (
     <div {...drag} style={{ ...drag.style, border: "1px solid " + T.line, borderRadius: 14, overflow: "hidden", background: T.card, cursor: "pointer", position: "relative" }}>
       <div onClick={onClick} style={{ height: 74, background: img || "linear-gradient(160deg,#EAD9C4,#C99E74)", display: "flex", alignItems: "flex-start", justifyContent: "space-between", padding: 8 }}>
@@ -168,6 +171,17 @@ function Card({ img, title, subtitle, active, onToggle, onClick, onDelete, onSet
                 border: "1px solid " + (tillName ? "#D9E6D2" : T.line),
                 borderRadius: 5, padding: "1px 5px" }}>
               {tillName ? "TILL: " + tillName : "TILL"}
+            </span>
+          )}
+          {onHours && (
+            <span onClick={(e) => { e.stopPropagation(); onHours(); }}
+              title={hours ? "Served " + hours : "Served all day. Click to set hours."}
+              style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", cursor: "pointer",
+                color: hours ? T.accent : T.faint,
+                background: hours ? "#EEF3EA" : "transparent",
+                border: "1px solid " + (hours ? "#D9E6D2" : T.line),
+                borderRadius: 5, padding: "1px 5px" }}>
+              {hours || "ALL DAY"}
             </span>
           )}
         </div>
@@ -1752,6 +1766,25 @@ export default function Admin() {
                 onRename={() => { const n = window.prompt("Rename menu", m.name); if (n && n !== m.name) act("update_menu", { id: m.id, fields: { name: n } }); }}
                 onTillName={() => { const n = window.prompt("Short name for the POS button only.\nLeave blank to use the full name.", m.pos_name || ""); if (n !== null) act("update_menu", { id: m.id, fields: { pos_name: n.trim() || null } }); }}
                 tillName={m.pos_name}
+                hours={hhmm(m.available_from) && hhmm(m.available_to) ? hhmm(m.available_from) + "–" + hhmm(m.available_to) : ""}
+                onHours={() => {
+                  const cur = hhmm(m.available_from) && hhmm(m.available_to) ? hhmm(m.available_from) + "-" + hhmm(m.available_to) : "";
+                  const n = window.prompt(
+                    "When is " + m.name + " served?\n\n" +
+                    "Enter a window as 17:00-23:00.\n" +
+                    "Leave blank for all day.\n\n" +
+                    "Outside its hours the menu is greyed out and says when it is back, on the tablet and the welcome page.", cur);
+                  if (n === null) return;
+                  const t = n.trim();
+                  if (!t) { act("update_menu", { id: m.id, fields: { available_from: null, available_to: null } }); return; }
+                  const mm = t.match(/^(\d{1,2}):?(\d{2})?\s*[-–to]+\s*(\d{1,2}):?(\d{2})?$/i);
+                  if (!mm) { window.alert("Could not read that. Use 17:00-23:00."); return; }
+                  const pad2 = (x) => String(x).padStart(2, "0");
+                  act("update_menu", { id: m.id, fields: {
+                    available_from: pad2(mm[1]) + ":" + (mm[2] || "00") + ":00",
+                    available_to: pad2(mm[3]) + ":" + (mm[4] || "00") + ":00",
+                  } });
+                }}
                 onSetImage={() => setImgTarget({ kind: "menu", id: m.id })}
                 onDelete={() => { if (window.confirm("Delete menu '" + m.name + "'? Its sections must be empty.")) act("delete_menu", { id: m.id }); }} />
             ))}
