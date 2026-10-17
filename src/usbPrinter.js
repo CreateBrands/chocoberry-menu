@@ -35,34 +35,61 @@ async function reconnect() {
   device = d; await open(d); return d;
 }
 
-let iface = null, epOut = null;
+let iface = null, epOut = null, altSetting = 0;
 async function open(d) {
   if (!d.opened) await d.open();
   if (d.configuration === null) await d.selectConfiguration(1);
   // Find the first interface with a bulk OUT endpoint (printer or vendor class).
-  iface = null; epOut = null;
+  iface = null; epOut = null; altSetting = 0;
   for (const inf of d.configuration.interfaces) {
     for (const alt of inf.alternates) {
       if (![7, 0xff].includes(alt.interfaceClass)) continue;
       const out = alt.endpoints.find((e) => e.direction === "out" && e.type === "bulk");
-      if (out) { iface = inf.interfaceNumber; epOut = out.endpointNumber; break; }
+      if (out) { iface = inf.interfaceNumber; epOut = out.endpointNumber; altSetting = alt.alternateSetting; break; }
     }
     if (iface !== null) break;
   }
   if (iface === null) throw new Error("No printer interface found on this USB device");
   try { await d.claimInterface(iface); } catch (e) { if (!String(e).includes("already")) throw e; }
+  // The endpoint above was found by searching EVERY alternate setting, but
+  // claiming an interface selects none of them. Until the setting that owns
+  // the endpoint is selected, the endpoint is not addressable and the write
+  // fails with "The specified endpoint is not part of a claimed and selected
+  // alternate interface" — which is exactly what the XP-Q80A at Al Zahia did,
+  // silently, on every job.
+  try {
+    await d.selectAlternateInterface(iface, altSetting);
+  } catch (e) {
+    // Devices exposing a single setting sometimes reject the call outright.
+    // Ignoring that is only safe when the default was the one we wanted.
+    if (altSetting !== 0) throw e;
+  }
 }
 
 const hexToBytes = (hex) => { const h = String(hex).replace(/\s+/g, ""); const a = new Uint8Array(h.length / 2); for (let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; };
+
+async function writeAll(d, bytes) {
+  const CHUNK = 4096;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    const r = await d.transferOut(epOut, bytes.slice(i, i + CHUNK));
+    if (r.status !== "ok") throw new Error("USB transfer " + r.status);
+  }
+}
 
 export async function print(hex) {
   const d = await reconnect();
   if (!d) throw new Error("USB printer not connected");
   const bytes = hexToBytes(hex);
-  const CHUNK = 4096;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    const r = await d.transferOut(epOut, bytes.slice(i, i + CHUNK));
-    if (r.status !== "ok") throw new Error("USB transfer " + r.status);
+  try {
+    await writeAll(d, bytes);
+  } catch (e) {
+    // A claim can lapse without the disconnect event firing — the tablet
+    // sleeping, or Android's own print service taking the interface back.
+    // Re-open and try once more before reporting a failure, because the job is
+    // marked failed on the server and a three-strike streak pauses the printer.
+    if (!/claimed|selected|interface|endpoint|transfer/i.test(String(e))) throw e;
+    await open(d);
+    await writeAll(d, bytes);
   }
   return true;
 }
@@ -79,7 +106,7 @@ export async function release() {
       await device.close();
     }
   } catch { /* already unplugged — nothing to release */ }
-  device = null; iface = null; epOut = null;
+  device = null; iface = null; epOut = null; altSetting = 0;
   forget();
 }
 
