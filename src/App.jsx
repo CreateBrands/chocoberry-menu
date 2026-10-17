@@ -408,8 +408,14 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
   const subLines = String(w.welcome_subtitle || "").split(/<br\s*\/?>/i);
   const place = String(w.welcome_masthead || subLines[subLines.length - 1] || "").replace(/<[^>]*>/g, "").trim();
 
-  const openH = Number(w.welcome_open_hour), closeH = Number(w.welcome_close_hour);
-  let hours = String(w.welcome_hours || "");
+  // Blank means off, not zero. Number("") is 0 and isFinite(0) is true, so
+  // emptying these to hide the line printed "Closing" instead of nothing --
+  // the same trap as a welcome key that inherits when it is merely absent.
+  const rawOpen = String(w.welcome_open_hour ?? "").trim();
+  const rawClose = String(w.welcome_close_hour ?? "").trim();
+  const openH = rawOpen === "" ? NaN : Number(rawOpen);
+  const closeH = rawClose === "" ? NaN : Number(rawClose);
+  let hours = String(w.welcome_hours || "").trim();
   if (!hours && isFinite(openH) && isFinite(closeH)) {
     const h12 = (n) => (n > 12 ? n - 12 : n);
     hours = hour < openH ? "Opens at " + h12(openH)
