@@ -1757,10 +1757,27 @@ export default function Admin() {
         </div>
         {msg && <div style={{ color: T.danger, marginBottom: 12 }}>{msg}</div>}
 
-        {level === "menus" && (
+        {level === "menus" && (() => {
+        // Which stores actually resolve each menu. Two stores on one brand
+        // each carry their own DRINKS, because menu_menus has no store column
+        // and their items differ -- so the list shows the same name twice and
+        // looks like a mistake until it says whose is whose.
+        const allLocs = (state.locations || []).filter((l) => l.active);
+        const lMenus = state.locationMenus || [];
+        const bMenus = state.bandMenus || [];
+        const carriers = (menuId) => allLocs.filter((l) => {
+          const pinned = lMenus.some((x) => x.location_id === l.id);
+          if (pinned) return lMenus.some((x) => x.location_id === l.id && x.menu_id === menuId);
+          const band = l.menu_band_id || l.price_band_id;
+          return !!band && bMenus.some((x) => x.band_id === band && x.menu_id === menuId);
+        }).map((l) => l.name);
+        return (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 12 }}>
-            {menus.map((m) => (
-              <Card key={m.id} drag={menuDrag(m.id)} img={m.img} title={m.name} subtitle={itemCount(m.id) + " items"}
+            {menus.map((m) => {
+            const who = carriers(m.id);
+            return (
+              <Card key={m.id} drag={menuDrag(m.id)} img={m.img} title={m.name}
+                subtitle={itemCount(m.id) + " items · " + (who.length ? who.join(", ") : "no store carries this")}
                 active={m.active} onToggle={() => act("update_menu", { id: m.id, fields: { active: !m.active } })}
                 onClick={() => { setMenuId(m.id); setLevel("sections"); }}
                 onRename={() => { const n = window.prompt("Rename menu", m.name); if (n && n !== m.name) act("update_menu", { id: m.id, fields: { name: n } }); }}
@@ -1787,10 +1804,10 @@ export default function Admin() {
                 }}
                 onSetImage={() => setImgTarget({ kind: "menu", id: m.id })}
                 onDelete={() => { if (window.confirm("Delete menu '" + m.name + "'? Its sections must be empty.")) act("delete_menu", { id: m.id }); }} />
-            ))}
+            );})}
             <AddCard label="Add menu" onClick={() => { const n = window.prompt("Menu name?"); if (n) act("create_menu", { brand_id: activeBrandId, name: n }); }} />
           </div>
-        )}
+        );})()}
 
         {level === "sections" && menu && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 12 }}>
