@@ -1055,6 +1055,12 @@ function MenuBands({ state, T, act, money }) {
   const [q, setQ] = useState("");
   const [diffOnly, setDiffOnly] = useState(false);
   const [cat, setCat] = useState("all");
+  // Which row has its per-store panel open. A band sets the default for every
+  // store on it; this is the escape hatch for the one store that differs,
+  // without leaving the screen you are already on.
+  const [perStore, setPerStore] = useState(null);
+  const overrides = state.overrides || [];
+  const ovFor = (itemId, locId) => overrides.find((o) => o.item_id === itemId && o.location_id === locId);
 
   useEffect(() => {
     if (bandId && bands.some((b) => b.id === bandId)) return;
@@ -1272,7 +1278,8 @@ function MenuBands({ state, T, act, money }) {
               const baseOn = it.available !== false && it.published !== false;
               const result = says === null ? baseOn : says;
               return (
-                <div key={it.id} style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 190px 130px", padding: "10px 16px", borderTop: "1px solid " + T.line, alignItems: "center", background: says === false ? "#fdf6f6" : "transparent" }}>
+                <Fragment key={it.id}>
+                <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 190px 130px", padding: "10px 16px", borderTop: "1px solid " + T.line, alignItems: "center", background: says === false ? "#fdf6f6" : "transparent" }}>
                   <span style={{ minWidth: 0 }}>
                     <span style={{ fontSize: 14, color: result ? T.ink : T.muted, textDecoration: result ? "none" : "line-through" }}>{it.name}</span>
                     <span style={{ fontSize: 11.5, color: T.faint, marginLeft: 8 }}>
@@ -1288,17 +1295,55 @@ function MenuBands({ state, T, act, money }) {
                       {says === false ? "Not carried" : "Stop carrying"}
                     </span>
                   </span>
-                  <span style={{ fontSize: 12.5, fontWeight: 600, textAlign: "right", color: result ? "#2f6b3f" : "#8a3b3b" }}>
-                    {result ? "On sale" : "Hidden"}
+                  <span onClick={() => setPerStore(perStore === it.id ? null : it.id)}
+                    title="Set this item store by store"
+                    style={{ fontSize: 12.5, fontWeight: 600, textAlign: "right", color: result ? "#2f6b3f" : "#8a3b3b", cursor: "pointer", userSelect: "none" }}>
+                    {result ? "On sale" : "Hidden"} <span style={{ color: T.faint, fontWeight: 700 }}>{perStore === it.id ? "▴" : "▾"}</span>
                   </span>
                 </div>
+                {perStore === it.id && (
+                  <div style={{ padding: "4px 16px 14px", background: T.bg, borderTop: "1px dashed " + T.line }}>
+                    {it.published === false ? (
+                      // published is a hard gate: store_menu_full joins on it,
+                      // so an unpublished item cannot be brought back by any
+                      // store or band setting. Say so rather than offering
+                      // buttons that would look like they worked.
+                      <div style={{ fontSize: 12.5, color: "#8a3b3b", padding: "10px 0", fontWeight: 600 }}>
+                        This item is unpublished, so it is off everywhere and no store setting can bring it back. Publish it in Overview first — the per-store settings below are kept and take effect the moment you do.
+                      </div>
+                    ) : null}
+                    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".8px", color: T.faint, padding: "8px 0 6px" }}>THIS ITEM, STORE BY STORE</div>
+                    {onBand.length === 0 && <div style={{ fontSize: 12.5, color: T.muted, paddingBottom: 8 }}>No stores are on this band yet.</div>}
+                    {onBand.map((l) => {
+                      const ov = ovFor(it.id, l.id);
+                      const has = ov && ov.available != null;
+                      const now = has ? ov.available : (says === null ? (it.available !== false) : says);
+                      const set = (v) => act("set_override", { item_id: it.id, location_id: l.id, price: ov ? ov.price : null, available: v });
+                      const pill = (label, on, onClick, colour) => (
+                        <span onClick={onClick} style={{ fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "6px 12px", borderRadius: 8,
+                          color: on ? "#fff" : T.muted, background: on ? colour : "transparent",
+                          border: "1px solid " + (on ? colour : T.line) }}>{label}</span>
+                      );
+                      return (
+                        <div key={l.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
+                          <span style={{ flex: 1, minWidth: 0, fontSize: 13.5, color: now ? T.ink : T.muted }}>{l.name}</span>
+                          {!has && <span style={{ fontSize: 11.5, color: T.faint, marginRight: 2 }}>follows the band</span>}
+                          {pill("Follow band", !has, () => set(null), "#5a6b4a")}
+                          {pill("On sale", has && now === true, () => set(true), "#4f7a3a")}
+                          {pill("Hidden", has && now === false, () => set(false), "#a34a4a")}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                </Fragment>
               );
             })}
             {rows.length === 0 && <div style={{ padding: 26, textAlign: "center", fontSize: 13.5, color: T.muted }}>Nothing matches.</div>}
           </div>
 
           <div style={{ fontSize: 12.5, color: T.muted, marginTop: 12 }}>
-            Everything is carried unless you say otherwise. Click <b>Stop carrying</b> to hide an item at every store on this band; click again to put it back.
+            Everything is carried unless you say otherwise. Click <b>Stop carrying</b> to hide an item at every store on this band; click again to put it back. To change one store only, click its result under <b>At these stores</b> and set that store on its own — a store setting always beats the band.
           </div>
         </>
       )}
