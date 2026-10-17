@@ -337,6 +337,10 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
     const id = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(id);
   }, []);
+  // The banner sets the height of the window, not the other way round. A
+  // 1200x700 marketing banner forced into a fixed portrait box loses a third
+  // of itself off the sides, taking the artwork's own wording with it.
+  const [aspect, setAspect] = useState(16 / 9);
   const hour = now.getHours();
   const mode = hour < 11 ? "morning" : hour < 17 ? "day" : "evening";
 
@@ -374,6 +378,8 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
     feat = Array.isArray(s) && s.length ? s[0] : null;
   } catch { feat = null; }
 
+  const hasWording = !!(feat && (feat.tag || feat.title || feat.sub));
+
   // The masthead wants the locality, which is already the last line of the
   // address, so a store that has set a welcome needs nothing new.
   const subLines = String(w.welcome_subtitle || "").split(/<br\s*\/?>/i);
@@ -393,34 +399,45 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
   const capStyle = { fontFamily: "var(--font-head)", fontSize: 10.5, fontWeight: 600, letterSpacing: ".26em", textTransform: "uppercase" };
 
   return (
-    <div className="cb-t" style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", backgroundColor: P.panel, color: P.ink, fontFamily: "var(--font-body)" }}>
+    <div className="cb-t" style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", backgroundColor: P.panel, color: P.ink, fontFamily: "var(--font-body)", display: "flex", flexDirection: "column" }}>
 
       {/* ── the window ── */}
-      <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: "46%", overflow: "hidden", backgroundColor: "#2d1708" }}>
+      <div style={{ position: "relative", flex: "none", width: "100%", aspectRatio: String(aspect), maxHeight: "50%", minHeight: "30%", overflow: "hidden", backgroundColor: "#2d1708" }}>
+        {feat && feat.image_url ? (
+          <img src={feat.image_url} alt="" draggable="false"
+            onLoad={(e) => { const n = e.target; if (n.naturalWidth && n.naturalHeight) setAspect(n.naturalWidth / n.naturalHeight); }}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
+        ) : (
         <div className="cb-plate">
-          {feat && feat.image_url ? (
-            <div className="cb-layer" style={{ opacity: 1, backgroundImage: `url(${feat.image_url})`, backgroundSize: "cover", backgroundPosition: "center" }} />
-          ) : (<>
+          <>
             {/* No banner uploaded: three light studies, cross-faded by the hour.
                 Layered radials rather than a two-stop ramp, so it reads as a
                 lit room instead of a fill. */}
             <div className="cb-layer" style={{ opacity: mode === "morning" ? 1 : 0, background: "radial-gradient(64% 50% at 78% 12%,rgba(255,221,163,.95),rgba(255,221,163,0) 64%),radial-gradient(88% 66% at 16% 94%,rgba(138,66,27,.96),rgba(138,66,27,0) 72%),linear-gradient(158deg,#9c5a28 0%,#c4854a 48%,#e9c694 100%)" }} />
             <div className="cb-layer" style={{ opacity: mode === "day" ? 1 : 0, background: "radial-gradient(60% 46% at 72% 16%,rgba(238,186,124,.72),rgba(238,186,124,0) 62%),radial-gradient(92% 70% at 14% 96%,rgba(70,32,13,.92),rgba(70,32,13,0) 74%),linear-gradient(152deg,#5d2d14 0%,#8d4f2b 44%,#c08d5b 100%)" }} />
             <div className="cb-layer" style={{ opacity: mode === "evening" ? 1 : 0, background: "radial-gradient(54% 42% at 80% 20%,rgba(217,160,102,.56),rgba(217,160,102,0) 66%),radial-gradient(96% 76% at 12% 98%,rgba(16,8,3,.97),rgba(16,8,3,0) 76%),linear-gradient(158deg,#140a03 0%,#4d2711 48%,#8a4f27 100%)" }} />
-          </>)}
+          </>
           <div className="cb-sun" style={{ background: "radial-gradient(28% 24% at 74% 20%,rgba(255,236,206,.5),rgba(255,236,206,0) 70%)" }} />
         </div>
+        )}
 
         {/* vignette then grain: the two things that stop a gradient looking
             like a gradient, and that keep a photograph from looking pasted on */}
-        <div style={{ position: "absolute", inset: 0, background: "radial-gradient(124% 92% at 50% 42%,rgba(20,10,4,0) 46%,rgba(20,10,4,.46) 100%)" }} />
-        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: .07, mixBlendMode: "overlay", pointerEvents: "none" }} aria-hidden="true">
-          <filter id="cbGrain"><feTurbulence type="fractalNoise" baseFrequency="0.86" numOctaves="3" stitchTiles="stitch" /><feColorMatrix type="saturate" values="0" /></filter>
-          <rect width="100%" height="100%" filter="url(#cbGrain)" />
-        </svg>
+        {!(feat && feat.image_url) && (<>
+          <div style={{ position: "absolute", inset: 0, background: "radial-gradient(124% 92% at 50% 42%,rgba(20,10,4,0) 46%,rgba(20,10,4,.46) 100%)" }} />
+          <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: .07, mixBlendMode: "overlay", pointerEvents: "none" }} aria-hidden="true">
+            <filter id="cbGrain"><feTurbulence type="fractalNoise" baseFrequency="0.86" numOctaves="3" stitchTiles="stitch" /><feColorMatrix type="saturate" values="0" /></filter>
+            <rect width="100%" height="100%" filter="url(#cbGrain)" />
+          </svg>
+        </>)}
 
-        <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: 210, background: "linear-gradient(to bottom,rgba(24,13,6,.5),rgba(24,13,6,0))" }} />
-        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "72%", background: "linear-gradient(to top,rgba(24,13,6,.88) 0%,rgba(24,13,6,.56) 28%,rgba(24,13,6,.12) 66%,rgba(24,13,6,0) 100%)" }} />
+        <div style={{ position: "absolute", left: 0, right: 0, top: 0, height: 150, background: "linear-gradient(to bottom,rgba(24,13,6,.46),rgba(24,13,6,0))" }} />
+        {/* Only darken the foot of the banner as far as the wording on it
+            needs. A finished banner carries its own words and loses them
+            under a scrim built for ours. */}
+        <div style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: hasWording ? "72%" : "34%", background: hasWording
+          ? "linear-gradient(to top,rgba(24,13,6,.88) 0%,rgba(24,13,6,.56) 28%,rgba(24,13,6,.12) 66%,rgba(24,13,6,0) 100%)"
+          : "linear-gradient(to top,rgba(24,13,6,.62) 0%,rgba(24,13,6,.22) 48%,rgba(24,13,6,0) 100%)" }} />
 
         <div style={{ position: "absolute", left: pad, right: pad, top: "clamp(22px,3.6vh,46px)" }}>
           <div style={{ display: "flex", alignItems: "baseline", gap: 16, paddingBottom: 12, borderBottom: "1px solid rgba(244,233,221,.3)" }}>
@@ -458,7 +475,7 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
       </div>
 
       {/* ── the panel ── */}
-      <div className="cb-t" style={{ position: "absolute", left: 0, right: 0, bottom: 0, height: "54%", backgroundColor: P.panel, borderRadius: "44px 44px 0 0", boxShadow: "0 -28px 54px -32px rgba(18,9,3,.72)", padding: `0 ${pad} clamp(18px,3vh,38px)`, boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
+      <div className="cb-t" style={{ position: "relative", flex: "1 1 auto", minHeight: 0, zIndex: 2, backgroundColor: P.panel, borderRadius: "44px 44px 0 0", boxShadow: "0 -28px 54px -32px rgba(18,9,3,.72)", padding: `0 ${pad} clamp(18px,3vh,38px)`, boxSizing: "border-box", display: "flex", flexDirection: "column" }}>
 
         <div className="cb-t" style={{ position: "absolute", left: pad, top: -52, height: 52, backgroundColor: P.panel, borderRadius: "20px 20px 0 0", padding: "0 26px", display: "flex", alignItems: "center" }}>
           {w.welcome_logo_url
@@ -472,10 +489,13 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
           <div style={{ fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 500, letterSpacing: ".14em", textTransform: "uppercase", color: P.sub }}>{dishes} dishes</div>
         </div>
 
-        <div className="cb-t" style={{ marginTop: 14, borderTop: "1px solid " + P.line, flexGrow: 1, minHeight: 0, overflowY: "auto" }}>
+        {/* The rows take the height the button used to, which makes them
+            easier to hit rather than leaving a hole at the foot of the page.
+            Capped, so a store with few categories does not get bands. */}
+        <div className="cb-t" style={{ marginTop: 14, borderTop: "1px solid " + P.line, flexGrow: 1, minHeight: 0, overflowY: "auto", display: "flex", flexDirection: "column" }}>
           {rows.map((r) => (
             <button key={r.key} type="button" className="cb-row cb-t" onClick={r.go}
-              style={{ width: "100%", display: "flex", alignItems: "center", gap: 12, padding: "12px 10px 11px", margin: "0 -10px", border: "none", borderBottom: "1px solid " + P.line, background: "transparent", borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
+              style={{ width: "100%", flex: "1 1 auto", minHeight: 58, maxHeight: 112, display: "flex", alignItems: "center", gap: 12, padding: "12px 10px 11px", margin: "0 -10px", border: "none", borderBottom: "1px solid " + P.line, background: "transparent", borderRadius: 10, cursor: "pointer", textAlign: "left" }}>
               <span style={{ flexGrow: 1, minWidth: 0 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ fontFamily: "var(--font-head)", fontSize: "clamp(16px,2.4vw,20px)", fontWeight: 500, letterSpacing: "-.012em", color: P.ink }}>{r.name}</span>
@@ -491,11 +511,16 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
           ))}
         </div>
 
-        <button type="button" className="cb-cta cb-t" onClick={onOpenPicker}
-          style={{ flex: "none", width: "100%", height: "clamp(62px,8vh,84px)", marginTop: 14, border: "none", borderRadius: 42, backgroundColor: P.ctaBg, color: P.ctaInk, fontFamily: "var(--font-head)", fontSize: "clamp(16px,2.3vw,20px)", fontWeight: 500, letterSpacing: ".01em", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
-          {w.welcome_button || "View the whole menu"}
-          <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h13M12 5.5L18.5 12 12 18.5" /></svg>
-        </button>
+        {/* Every row above opens the menu at that point, so a button that
+            opens it at the top is one more thing to read and nothing more.
+            It stays only where there is no index to tap. */}
+        {rows.length === 0 && (
+          <button type="button" className="cb-cta cb-t" onClick={onOpenPicker}
+            style={{ flex: "none", width: "100%", height: "clamp(62px,8vh,84px)", marginTop: 14, border: "none", borderRadius: 42, backgroundColor: P.ctaBg, color: P.ctaInk, fontFamily: "var(--font-head)", fontSize: "clamp(16px,2.3vw,20px)", fontWeight: 500, letterSpacing: ".01em", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 16 }}>
+            {w.welcome_button || "View the whole menu"}
+            <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12h13M12 5.5L18.5 12 12 18.5" /></svg>
+          </button>
+        )}
 
         {w.welcome_footer && <div style={{ flex: "none", textAlign: "center", fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 500, letterSpacing: ".2em", textTransform: "uppercase", color: P.sub, marginTop: 14 }}>{w.welcome_footer}</div>}
 
