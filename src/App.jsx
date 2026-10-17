@@ -600,20 +600,63 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
 
 
       <div data-menuscroll="1" style={{ position: "absolute", top: 90, left: 0, right: 0, bottom: 0, overflowY: "auto", scrollbarWidth: "none" }}>
-{/* hero carousel */}
+{/* hero carousel.
+    The box used to be a fixed 200px (300 on the kiosk) while the text inside
+    it was free to grow. A two-line title plus tag, rule and subtitle comes to
+    roughly 215px, so the subtitle was being cut off by the overflow:hidden —
+    and a banner scaled to cover a box that short is mostly cropped away. It is
+    now sized by ratio, so it grows with the screen and shows far more of the
+    artwork. */}
         {HEROX.length > 0 && (
-        <div style={{ margin: kiosk ? "0 30px" : "0 16px", borderRadius: kiosk ? 32 : 22, overflow: "hidden", position: "relative", height: kiosk ? 300 : 200 }}>
+        <div style={{ margin: kiosk ? "0 30px" : "0 16px", borderRadius: kiosk ? 32 : 22, overflow: "hidden", position: "relative", aspectRatio: kiosk ? "21 / 9" : "16 / 9", minHeight: kiosk ? 260 : 180, maxHeight: kiosk ? "34vh" : "40vh" }}>
           <div style={{ display: "flex", height: "100%", transition: "transform .6s cubic-bezier(.4,0,.2,1)", transform: `translateX(-${hero * 100}%)` }}>
             {HEROX.map((s, i) => (
-              <div key={i} style={{ flex: "none", width: "100%", height: "100%", position: "relative", ...(s.image_url ? { backgroundImage: `url(${s.image_url})`, backgroundSize: "cover", backgroundPosition: "center" } : { background: s.bg }) }}>
-                <div style={{ position: "absolute", inset: 0, background: s.image_url ? "linear-gradient(90deg,rgba(20,26,14,.62),rgba(20,26,14,.15) 60%,transparent)" : "radial-gradient(120% 80% at 12% 22%,rgba(255,255,255,.22),transparent 52%),radial-gradient(90% 90% at 88% 84%,rgba(33,48,22,.4),transparent 60%)" }} />
-                <div style={{ position: "absolute", left: kiosk ? 46 : 34, top: kiosk ? 62 : 48, maxWidth: kiosk ? 640 : 300 }}>
-                  <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,.18)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.32)", color: "#FBFAF2", fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 600, letterSpacing: ".12em", padding: "6px 13px", borderRadius: 20, marginBottom: 14 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot }} />{s.tag}</div>
-                  <div style={{ fontFamily: "var(--font-head)", fontSize: kiosk ? 52 : 38, fontWeight: 600, lineHeight: 1.04, color: "#FBFAF2", textShadow: "0 2px 18px rgba(30,40,20,.32)" }}>{s.title}</div>
-                  <div style={{ width: 120, height: 1.5, background: "rgba(255,255,255,.7)", margin: "14px 0 12px" }} />
-                  <div style={{ fontSize: kiosk ? 21 : 15, color: "rgba(255,255,255,.92)", fontWeight: 500 }}>{s.sub}</div>
-                </div>
-                {!s.image_url && <div style={{ position: "absolute", right: 46, bottom: -8, width: 150, height: 200 }}>
+              <div key={i} style={{ flex: "none", width: "100%", height: "100%", position: "relative", overflow: "hidden", ...(s.image_url
+                ? { backgroundImage: `url(${s.image_url})`, backgroundSize: s.fit === "contain" ? "contain" : "cover", backgroundPosition: s.focus || "center", backgroundRepeat: "no-repeat", backgroundColor: s.bg || "var(--accent)" }
+                : { background: s.bg }) }}>
+                {/* On a photo the text sits at the bottom, so the scrim rises
+                    from the bottom with it. On the drawn slides the text is
+                    top-left beside the cup, and the old two-blob wash stays. */}
+                <div style={{ position: "absolute", inset: 0, background: s.image_url
+                  // A banner carrying its own wording needs no scrim at all —
+                  // darkening it would only dull artwork nobody has to read
+                  // white text off.
+                  ? ((s.tag || s.title || s.sub)
+                    ? "linear-gradient(to top,rgba(18,24,14,.82) 0%,rgba(18,24,14,.52) 34%,rgba(18,24,14,.08) 66%,transparent 100%)"
+                    : "none")
+                  : "radial-gradient(120% 80% at 12% 22%,rgba(255,255,255,.22),transparent 52%),radial-gradient(90% 90% at 88% 84%,rgba(33,48,22,.4),transparent 60%)" }} />
+                {/* Anchored to the bottom on a photo: text can only grow
+                    upward into the scrim, so it can never spill out of the
+                    frame however long the title runs. The drawn slides keep
+                    their composition but leave the cup its corner. A slide
+                    with no wording of its own renders nothing here, so a
+                    finished banner is shown exactly as it was designed. */}
+                {(s.tag || s.title || s.sub) && <div style={{ position: "absolute",
+                  left: kiosk ? 46 : 24,
+                  // Drawn slides must leave the cup its corner: it is 150 wide
+                  // and sits 46 in, so anything past ~200 would run under it.
+                  right: s.image_url ? (kiosk ? 46 : 24) : (kiosk ? 250 : 210),
+                  // Clear the pager when there is one, or the subtitle sits on
+                  // top of the dots.
+                  // A drawn slide centres on its cup rather than sitting in
+                  // the top-left corner of a box that is now much taller.
+                  ...(s.image_url
+                    ? { bottom: heroCount > 1 ? (kiosk ? 50 : 38) : (kiosk ? 34 : 22) }
+                    : { top: "50%", transform: "translateY(-50%)" }),
+                  maxWidth: kiosk ? 760 : 520 }}>
+                  {s.tag && <div style={{ display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,.18)", backdropFilter: "blur(6px)", border: "1px solid rgba(255,255,255,.32)", color: "#FBFAF2", fontFamily: "var(--font-head)", fontSize: 11, fontWeight: 600, letterSpacing: ".12em", padding: "6px 13px", borderRadius: 20, marginBottom: 12 }}><span style={{ width: 6, height: 6, borderRadius: "50%", background: s.dot || "var(--chip)" }} />{s.tag}</div>}
+                  {/* Sized against the viewport and clamped to two lines: a
+                      long name shrinks and then stops, instead of pushing the
+                      subtitle out through the bottom of the box. */}
+                  {s.title && <div style={{ fontFamily: "var(--font-head)", fontSize: kiosk ? "clamp(34px,3.3vw,52px)" : "clamp(23px,3.4vw,38px)", fontWeight: 600, lineHeight: 1.06, color: "#FBFAF2", textShadow: "0 2px 18px rgba(30,40,20,.45)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden", overflowWrap: "anywhere" }}>{s.title}</div>}
+                  {/* The rule separates two things. With only one of them it
+                      is a stray line, so it waits for both. */}
+                  {s.title && s.sub && <div style={{ width: 110, height: 1.5, background: "rgba(255,255,255,.7)", margin: kiosk ? "14px 0 12px" : "10px 0 9px" }} />}
+                  {s.sub && <div style={{ fontSize: kiosk ? 21 : "clamp(13px,1.7vw,16px)", color: "rgba(255,255,255,.92)", fontWeight: 500, lineHeight: 1.35, textShadow: "0 1px 10px rgba(30,40,20,.4)", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>{s.sub}</div>}
+                </div>}
+                {/* The cup is fixed-size art, so in a taller box it is pinned
+                    to the bottom-right corner rather than floated in space. */}
+                {!s.image_url && <div style={{ position: "absolute", right: kiosk ? 56 : 40, bottom: -8, width: 150, height: 200 }}>
                   <div style={{ position: "absolute", left: 6, bottom: 6, width: 138, height: 32, borderRadius: "50%", background: "rgba(25,35,15,.3)", filter: "blur(10px)" }} />
                   <div style={{ position: "absolute", bottom: 0, width: 150, height: 184, borderRadius: "14px 14px 50px 50px", overflow: "hidden", background: s.cup, boxShadow: "inset 0 0 34px rgba(40,50,25,.4)" }}>
                     <div style={{ position: "absolute", left: -12, top: 36, width: 92, height: 92, borderRadius: "50%", background: s.blob, filter: "blur(7px)", opacity: .9 }} />
