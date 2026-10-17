@@ -32,6 +32,20 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
   const storeBandId = storeId
     ? ((state.locations || []).find((l) => l.id === storeId)?.price_band_id || "")
     : "";
+  // Carry ("does this store sell it") is NOT the price band. store_menu_full
+  // resolves it against coalesce(menu_band_id, price_band_id), so a store on a
+  // menu band like Cafe Menu reads its carry list from there while its prices
+  // still come from its price band. Reading carry off the price band, or not
+  // reading it at all, is how this screen came to disagree with the tablet.
+  const storeCarryBandId = storeId
+    ? (() => {
+      const l = (state.locations || []).find((x) => x.id === storeId);
+      return l ? (l.menu_band_id || l.price_band_id || "") : "";
+    })()
+    : "";
+  const bandItemFor = (itemId) => (storeCarryBandId
+    ? (state.bandItems || []).find((r) => r.band_id === storeCarryBandId && r.item_id === itemId)
+    : null);
   const [q, setQ] = useState("");
   const [draft, setDraft] = useState({});          // id -> in-progress text
   const [saving, setSaving] = useState({});
@@ -226,7 +240,19 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
                   const shownPrice = bandId ? bandPriceOf(it.id, bandId)
                     : storeId ? (ov && ov.price != null ? ov.price : null)
                     : it.price;
-                  const hidden = storeId ? (!!ov && ov.available === false) : it.published === false;
+                  // Match the live rule exactly: published gates it outright,
+                  // then coalesce(store exception, band carry, item default).
+                  // This used to read the store exception ALONE, so an item
+                  // switched off for the whole band still showed here as
+                  // "Shown" while the tablet correctly hid it.
+                  const bi = storeId ? bandItemFor(it.id) : null;
+                  const ovAv = ov && ov.available != null ? ov.available : null;
+                  const biAv = bi && bi.available != null ? bi.available : null;
+                  const effAvail = ovAv != null ? ovAv : (biAv != null ? biAv : it.available !== false);
+                  const hidden = storeId ? (it.published === false || !effAvail) : it.published === false;
+                  // Hidden by the band rather than by anything set on this
+                  // store — worth saying, because the fix is on the band page.
+                  const bandHidden = !!storeId && ovAv == null && biAv === false;
                   const gs = groupsFor(it.id);
                   const key = it.id;
                   return (
@@ -281,8 +307,11 @@ export default function MenuOverview({ state, T, act, onEditItem, onClose }) {
                         onClick={() => storeId
                           ? act("set_override", { item_id: it.id, location_id: storeId, price: ov ? ov.price : null, available: hidden ? true : false })
                           : act("update_item", { id: it.id, fields: { published: hidden } })}
+                        title={bandHidden
+                          ? "Not carried on this store's band, so it is off at every store on that band. Click to carry it at this store only; to bring it back everywhere, use Carry on the Band menus page."
+                          : hidden ? "Hidden at this store" : "On sale at this store"}
                         style={{ fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", padding: "6px 10px", borderRadius: 8, border: "1px solid " + T.line, color: hidden ? "#b4462f" : T.accent }}>
-                        {hidden ? "Hidden" : "Shown"}
+                        {hidden ? (bandHidden ? "Hidden · band" : "Hidden") : "Shown"}
                       </span>
                     </div>
 
