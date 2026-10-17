@@ -463,10 +463,18 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
   const catRefs = useRef([]);
   const [scrolled, setScrolled] = useState(false);
   const [hero, setHero] = useState(0);
+  // The timer used to close over HEROX.length from the FIRST render, with an
+  // empty dependency list. Settings arrive after mount, so that length was
+  // always 3 — the seeded placeholder set — and a store with one banner kept
+  // cycling through two slides that were not there. Keying the effect on the
+  // count fixes it, and a single slide now needs no timer at all.
+  const heroCount = HEROX.length;
   useEffect(() => {
-    const id = setInterval(() => setHero((i) => (i + 1) % HEROX.length), 4200);
+    setHero((i) => (heroCount ? Math.min(i, heroCount - 1) : 0));
+    if (heroCount < 2) return;
+    const id = setInterval(() => setHero((i) => (i + 1) % heroCount), 4200);
     return () => clearInterval(id);
-  }, []);
+  }, [heroCount]);
   useEffect(() => {
     const root = rootRef.current; if (!root) return;
     const sc = root.querySelector("[data-menuscroll]");
@@ -617,9 +625,13 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
               </div>
             ))}
           </div>
-          <div style={{ position: "absolute", bottom: 16, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 7 }}>
-            {HEROX.map((_, i) => <div key={i} style={{ width: i === hero ? 22 : 8, height: 8, borderRadius: "50%", background: i === hero ? "#FFFFFF" : "rgba(255,255,255,.45)", transition: "width .3s" }} />)}
-          </div>
+          {/* One banner is not a carousel — a lone dot just looks like a mark
+              on the picture, so the pager only appears when it has a job. */}
+          {heroCount > 1 && (
+            <div style={{ position: "absolute", bottom: 16, left: 0, right: 0, display: "flex", justifyContent: "center", gap: 7 }}>
+              {HEROX.map((_, i) => <div key={i} style={{ width: i === hero ? 22 : 8, height: 8, borderRadius: "50%", background: i === hero ? "#FFFFFF" : "rgba(255,255,255,.45)", transition: "width .3s" }} />)}
+            </div>
+          )}
         </div>
         )}
 
