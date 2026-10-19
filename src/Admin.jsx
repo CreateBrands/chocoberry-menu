@@ -587,6 +587,11 @@ function PrintersModal({ pin, locations, onClose }) {
   const [form, setForm] = useState({ sn: "", label: "", location_id: "", station: "kitchen" });
 
   const [screens, setScreens] = useState([]);
+  // Which store to show, and which printers are expanded. Everything starts
+  // collapsed: the list is for finding a printer, not for reading five sets of
+  // settings at once.
+  const [storeFilter, setStoreFilter] = useState("");
+  const [open, setOpen] = useState({});
   const load = async () => {
     setMsg("");
     try { const res = await callAdmin(pin, "printer_list", {}); setPrinters(res.printers || []); }
@@ -682,6 +687,28 @@ function PrintersModal({ pin, locations, onClose }) {
         background: online === true ? "#3EA662" : online === false ? T.danger : "#C9C4B4" }} />
   );
 
+  // Printers grouped by the store they serve, in the order the stores are
+  // listed, with the unassigned ones last. A flat list mixed every café
+  // together and the only clue which was which was a dropdown halfway down
+  // each card.
+  const groups = (() => {
+    const byLoc = new Map();
+    for (const p of printers || []) {
+      const key = p.location_id || "";
+      if (!byLoc.has(key)) byLoc.set(key, []);
+      byLoc.get(key).push(p);
+    }
+    const out = [];
+    for (const l of locations) if (byLoc.has(l.id)) out.push({ id: l.id, name: l.name, printers: byLoc.get(l.id) });
+    if (byLoc.has("")) out.push({ id: "", name: "Not assigned to a store", printers: byLoc.get("") });
+    return out;
+  })();
+  // Reassigning the last printer out of a store empties that group, and a
+  // filter still pointing at it would show nothing at all with no way back.
+  const picked = storeFilter === "" ? groups
+    : groups.filter((g) => (storeFilter === "__none" ? g.id === "" : g.id === storeFilter));
+  const shown = picked.length ? picked : groups;
+
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(30,34,24,.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", zIndex: 50, padding: "40px 16px", overflowY: "auto" }} onClick={onClose}>
       <div onClick={(e) => e.stopPropagation()} style={{ background: T.bg, borderRadius: 18, width: "100%", maxWidth: 720, boxShadow: "0 30px 70px -25px rgba(30,34,24,.5)", padding: "26px 26px 30px" }}>
@@ -695,11 +722,43 @@ function PrintersModal({ pin, locations, onClose }) {
 
         {msg && <div style={{ fontSize: 13, color: msg.startsWith("Test sent") ? T.accent : T.danger, marginBottom: 12 }}>{msg}</div>}
 
-        {/* LIST */}
-        <div style={{ background: T.card, borderRadius: 14, border: "1px solid " + T.line, overflow: "hidden", marginBottom: 18 }}>
-          {printers === null && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>Loading…</div>}
-          {printers && printers.length === 0 && <div style={{ padding: 18, color: T.muted, fontSize: 14 }}>No printers yet. Add one below.</div>}
-          {printers && printers.map((p, idx) => {
+        {/* WHICH STORE */}
+        {printers && printers.length > 0 && (
+          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 12, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", color: T.faint, textTransform: "uppercase" }}>Show</span>
+            <select value={storeFilter} onChange={(e) => { setStoreFilter(e.target.value); setOpen({}); }}
+              style={{ fontSize: 13, padding: "8px 10px", borderRadius: 9, border: "1px solid " + T.line, background: T.card, color: T.ink, fontWeight: 600 }}>
+              <option value="">All stores ({printers.length})</option>
+              {groups.map((g) => <option key={g.id || "__none"} value={g.id || "__none"}>{g.name} ({g.printers.length})</option>)}
+            </select>
+            <span style={{ flex: 1 }} />
+            {Object.values(open).some(Boolean) && (
+              <button onClick={() => setOpen({})} style={{ fontSize: 12.5, fontWeight: 600, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 12px", cursor: "pointer" }}>Collapse all</button>
+            )}
+          </div>
+        )}
+
+        {/* LIST, grouped by store */}
+        {printers === null && <div style={{ background: T.card, borderRadius: 14, border: "1px solid " + T.line, padding: 18, color: T.muted, fontSize: 14, marginBottom: 18 }}>Loading…</div>}
+        {printers && printers.length === 0 && <div style={{ background: T.card, borderRadius: 14, border: "1px solid " + T.line, padding: 18, color: T.muted, fontSize: 14, marginBottom: 18 }}>No printers yet. Add one below.</div>}
+
+        {shown.map((g) => {
+          const live = g.printers.filter((x) => x.active).length;
+          return (
+          <div key={g.id || "__none"} style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 9, padding: "0 2px 7px" }}>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14.5, color: g.id ? T.ink : "#A3651F" }}>{g.name}</span>
+              <span style={{ fontSize: 12, color: T.faint }}>
+                {g.printers.length} printer{g.printers.length === 1 ? "" : "s"}{live < g.printers.length ? " · " + (g.printers.length - live) + " off" : ""}
+              </span>
+            </div>
+            {!g.id && (
+              <div style={{ fontSize: 12, color: "#8a5a2c", background: "#FBF2E2", border: "1px solid #EBD9B8", borderRadius: 10, padding: "9px 12px", marginBottom: 8, lineHeight: 1.45 }}>
+                A printer with no store never receives an order — the lookup matches on store first. Give it one below, or switch it off.
+              </div>
+            )}
+            <div style={{ background: T.card, borderRadius: 14, border: "1px solid " + T.line, overflow: "hidden" }}>
+          {g.printers.map((p, idx) => {
             // One CARD per printer rather than one wide row. Eight controls in a
             // grid overflowed the dialog and clipped the last column; stacking
             // them into labelled fields fits, and each control can say what it
@@ -717,12 +776,12 @@ function PrintersModal({ pin, locations, onClose }) {
             const fieldLab = { fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", color: T.faint, marginBottom: 5, textTransform: "uppercase" };
             const sel = { width: "100%", fontSize: 13, padding: "8px 9px", borderRadius: 9, border: "1px solid " + T.line, background: T.bg, color: T.ink };
             return (
-            <div key={p.id} style={{ padding: "16px 18px", borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .6 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14, flexWrap: "wrap" }}>
+            <div key={p.id} style={{ borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .55 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", flexWrap: "wrap" }}>
                 <Dot online={p.online} />
-                <div style={{ minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, color: T.ink, fontSize: 15 }}>{p.label || "Printer"}</div>
-                  <div style={{ fontSize: 11.5, color: T.faint, fontFamily: "monospace" }}>{p.sn}</div>
+                <div onClick={() => setOpen((o) => ({ ...o, [p.id]: !o[p.id] }))} title="Settings" style={{ minWidth: 0, cursor: "pointer" }}>
+                  <div style={{ fontWeight: 700, color: T.ink, fontSize: 14.5 }}>{p.label || "Printer"}</div>
+                  <div style={{ fontSize: 11, color: T.faint, fontFamily: "monospace" }}>{p.sn}</div>
                 </div>
                 {ticket && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#FAEEDA", color: "#854F0B" }}>TICKET</span>}
                 {receipt && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#E1F5EE", color: "#0F6E56" }}>RECEIPT</span>}
@@ -731,10 +790,21 @@ function PrintersModal({ pin, locations, onClose }) {
                 <span style={{ flex: 1 }} />
                 <button disabled={busy} onClick={() => testPrint(p)} style={{ fontSize: 13, fontWeight: 600, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 13px", cursor: "pointer" }}>Test print</button>
                 <button onClick={() => toggleActive(p)} style={{ fontSize: 12.5, fontWeight: 700, border: "none", borderRadius: 9, padding: "8px 13px", cursor: "pointer", background: p.active ? "rgba(94,122,77,.14)" : "rgba(178,59,59,.12)", color: p.active ? T.accent : T.danger }}>{p.active ? "Active" : "Off"}</button>
+                <button onClick={() => setOpen((o) => ({ ...o, [p.id]: !o[p.id] }))}
+                  title={open[p.id] ? "Hide settings" : "Settings"}
+                  style={{ fontSize: 12.5, fontWeight: 600, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 11px", cursor: "pointer" }}>
+                  {open[p.id] ? "Done" : "Settings"}
+                </button>
                 <button disabled={busy} onClick={() => removePrinter(p)} title="Remove printer" style={{ fontSize: 18, color: T.faint, background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}>×</button>
               </div>
 
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+              {/* Settings sit in a tinted drawer, inset from the row. Flat on
+                  the card they ran straight into the next printer and it was
+                  not obvious which one you were editing. 200px columns rather
+                  than 150 so five fields land 3 + 2 instead of 4 + 1 orphan. */}
+              {open[p.id] && (
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12,
+                background: T.bg, border: "1px solid " + T.line, borderRadius: 12, margin: "0 16px 14px", padding: 14 }}>
                 <div>
                   <div style={fieldLab}>Store</div>
                   <select value={p.location_id || ""} onChange={(e) => changeStore(p, e.target.value)} style={sel}>
@@ -743,12 +813,14 @@ function PrintersModal({ pin, locations, onClose }) {
                   </select>
                 </div>
                 <div>
-                  <div style={fieldLab}>Prints orders from</div>
+                  {/* The long explanation used to sit under every printer, five
+                      times over. It is the same sentence each time, so it lives
+                      in the hint once and on hover here. */}
+                  <div style={fieldLab} title="Tie a printer to one till or handheld and it prints only the orders placed there. Reprints still reach it.">Prints orders from</div>
                   <select value={p.source_screen_key || ""} onChange={(e) => updatePrinter(p, { source_screen_key: e.target.value || null })} disabled={busy} style={sel}>
                     <option value="">Any source (tablets, tills, online)</option>
                     {(screens || []).filter((k) => k.location_id === p.location_id).map((k) => <option key={k.screen_key} value={k.screen_key}>Only {k.label || ("Screen " + k.screen_key)} ({k.screen_key})</option>)}
                   </select>
-                  <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>Tie a printer to one till or handheld and it prints only the orders placed there. Reprints still reach it.</div>
                 </div>
                 <div>
                   <div style={fieldLab}>Kitchen ticket</div>
@@ -766,9 +838,6 @@ function PrintersModal({ pin, locations, onClose }) {
                         {autoTicket ? "Auto" : "Manual"}
                       </button>
                     )}
-                  </div>
-                  <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
-                    What to make. No prices.
                   </div>
                 </div>
                 <div>
@@ -788,9 +857,6 @@ function PrintersModal({ pin, locations, onClose }) {
                       </button>
                     )}
                   </div>
-                  <div style={{ fontSize: 11, color: T.faint, marginTop: 4, lineHeight: 1.35 }}>
-                    Every line, with prices.
-                  </div>
                 </div>
                 <div>
                   <div style={fieldLab}>Copies</div>
@@ -802,10 +868,14 @@ function PrintersModal({ pin, locations, onClose }) {
                   </select>
                 </div>
               </div>
+              )}
             </div>
             );
           })}
-        </div>
+            </div>
+          </div>
+          );
+        })}
 
         {/* ADD */}
         {!adding && (
