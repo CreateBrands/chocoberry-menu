@@ -168,10 +168,37 @@ func TestMACResolvesToWhereverItIsNow(t *testing.T) {
 	if err != nil || got != "10.0.0.51:9100" {
 		t.Fatalf("followed the wrong printer: %q, %v", got, err)
 	}
-	// Gone entirely: an error, never the nearest other printer.
+	// Absent from one sweep is NOT gone. Thermal printers take one connection
+	// at a time, so a sweep landing mid-ticket misses a perfectly healthy
+	// printer - and declaring it missing costs three failed jobs and a
+	// ten-minute server-side pause, exactly when the kitchen is busiest. Its
+	// last known address is kept and tried.
 	discovered.set([]NetPrinter{{IP: "10.0.0.50", MAC: "11:22:33:44:55:66"}})
-	if _, err = addressFor("mac:AA:BB:CC:DD:EE:FF"); err == nil {
-		t.Fatal("a missing printer must be an error, not a substitution")
+	got, err = addressFor("mac:AA:BB:CC:DD:EE:FF")
+	if err != nil {
+		t.Fatalf("one missed sweep must not lose the printer: %v", err)
+	}
+	if got != "10.0.0.51:9100" {
+		t.Fatalf("kept the wrong address: %s", got)
+	}
+	// What must never happen, whatever else does: resolving to a different
+	// printer's address.
+	if got == "10.0.0.50:9100" {
+		t.Fatal("resolved to the other printer - this is the failure the MAC exists to prevent")
+	}
+}
+
+func TestAPrinterGoneLongEnoughIsAnError(t *testing.T) {
+	discovered.set([]NetPrinter{{IP: "10.0.0.50", MAC: "AA:BB:CC:DD:EE:FF"}})
+	// Age it past the point where absence means something.
+	discovered.mu.Lock()
+	for k := range discovered.lastSeen {
+		discovered.lastSeen[k] = time.Now().Add(-forgetAfter - time.Minute)
+	}
+	discovered.mu.Unlock()
+	discovered.set(nil)
+	if _, err := addressFor("mac:AA:BB:CC:DD:EE:FF"); err == nil {
+		t.Fatal("a printer gone this long must be reported missing, not guessed at")
 	}
 }
 

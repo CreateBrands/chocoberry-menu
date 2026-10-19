@@ -85,7 +85,12 @@ func localIPv4Nets() []*net.IPNet {
 				continue
 			}
 			ones, bits := ipnet.Mask.Size()
-			if bits != 32 || ones < 24 {
+			// Exactly /24. A /25, /30 or the /32 a VPN or mobile adapter
+			// hands out would otherwise have its fourth octet discarded below
+			// and 254 addresses swept on a network this machine is not on,
+			// reached through the default gateway - an unsolicited scan of a
+			// neighbouring VLAN, or of a carrier's network, every two minutes.
+			if bits != 32 || ones != 24 {
 				continue
 			}
 			out = append(out, ipnet)
@@ -139,7 +144,12 @@ func DiscoverNetPrinters(timeout time.Duration) []NetPrinter {
 	wg.Wait()
 
 	out := make([]NetPrinter, 0, len(hits))
+	seenIP := map[string]bool{}
 	for _, h := range hits {
+		if seenIP[h.ip] {
+			continue // two interfaces on overlapping /24s find the same printer
+		}
+		seenIP[h.ip] = true
 		// The ARP entry exists because we just connected to it.
 		out = append(out, NetPrinter{IP: h.ip, MAC: macOf(h.ip)})
 	}
@@ -150,17 +160,63 @@ func DiscoverNetPrinters(timeout time.Duration) []NetPrinter {
 // netCache holds the last sweep, so printing can turn a MAC back into the
 // address it is at right now.
 type netCache struct {
-	mu   sync.RWMutex
-	seen []NetPrinter
-	at   time.Time
+	mu       sync.RWMutex
+	seen     []NetPrinter
+	at       time.Time
+	lastSeen map[string]time.Time
 }
 
 var discovered netCache
 
+// set merges a sweep into what is already known rather than replacing it.
+//
+// Most thermal network printers accept one connection on 9100 at a time, so a
+// sweep that lands while the kitchen printer is mid-ticket gets no answer
+// inside the probe window and the printer would vanish from a cache that
+// simply replaced itself. The next job then fails "not answering anywhere",
+// three of those pause the printer for ten minutes server-side - and the
+// trigger, the printer being busy, is exactly correlated with the moment more
+// tickets are arriving. A busy service could knock a perfectly healthy
+// printer out repeatedly.
+//
+// So a printer that answered recently is kept, with its last known address,
+// until it has been quiet long enough to mean it.
+const forgetAfter = 30 * time.Minute
+
 func (c *netCache) set(list []NetPrinter) {
+	now := time.Now()
 	c.mu.Lock()
-	c.seen, c.at = list, time.Now()
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	if c.lastSeen == nil {
+		c.lastSeen = map[string]time.Time{}
+	}
+	keep := map[string]NetPrinter{}
+	for _, p := range c.seen {
+		keep[p.key()] = p
+	}
+	for _, p := range list {
+		keep[p.key()] = p
+		c.lastSeen[p.key()] = now
+	}
+	out := make([]NetPrinter, 0, len(keep))
+	for k, p := range keep {
+		if t, ok := c.lastSeen[k]; ok && now.Sub(t) > forgetAfter {
+			delete(c.lastSeen, k)
+			continue
+		}
+		out = append(out, p)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].IP < out[j].IP })
+	c.seen, c.at = out, now
+}
+
+// key identifies a printer across sweeps: the MAC when there is one, since
+// that is the whole point, and the address only when there is not.
+func (n NetPrinter) key() string {
+	if n.MAC != "" {
+		return "m:" + strings.ToUpper(n.MAC)
+	}
+	return "a:" + n.IP
 }
 
 func (c *netCache) all() []NetPrinter {

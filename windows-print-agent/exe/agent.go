@@ -93,7 +93,15 @@ func (c *config) save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(configPath(), append(b, '\n'), 0o600)
+	// Write and rename, rather than truncate and write. A till losing power
+	// mid-save would otherwise leave a truncated file that the agent cannot
+	// parse, and it would never start again.
+	path := configPath()
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 func (c *config) isRegistered(sn string) bool {
@@ -317,7 +325,7 @@ func sendTo(target string, data []byte) error {
 		// Straight at the printer, no queue in the way.
 		return sendUSB(strings.TrimPrefix(target, "usbdev:"), data)
 	default:
-		return errors.New("target must start with usbdev:, win: or tcp:")
+		return errors.New("target must start with usbdev:, mac:, win: or tcp:")
 	}
 }
 
@@ -339,7 +347,33 @@ func ask(prompt, def string) string {
 	return line
 }
 
+// interactive reports whether there is a person at this console.
+//
+// The background task runs as SYSTEM with a session-0 console: stdin is a
+// valid handle that never produces input. Pausing there does not wait for a
+// keypress, it hangs the process forever - and because Task Scheduler then
+// sees it still Running, the restart-on-failure rule never fires and the till
+// never prints again until someone reboots it, with no window and no sign of
+// why.
+var notInteractive = os.Getenv("CHOCOBERRY_AGENT_SERVICE") == "1"
+
+func interactive() bool {
+	if notInteractive {
+		return false
+	}
+	st, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	// A console hands back a character device. A service console, a pipe or a
+	// closed handle do not.
+	return st.Mode()&os.ModeCharDevice != 0
+}
+
 func pause() {
+	if !interactive() {
+		return
+	}
 	fmt.Print("\nPress Enter to close. ")
 	_, _ = in.ReadString('\n')
 }
@@ -358,7 +392,7 @@ func okLine(label string, ok bool, detail string) {
 
 // ---------------------------------------------------------------- modes
 
-func runSetup() error {
+func runSetup() (installedBackground bool, err error) {
 	cfg, _ := loadConfig()
 	if cfg == nil {
 		cfg = &config{}
@@ -368,11 +402,11 @@ func runSetup() error {
 
 	a, err := newAPI()
 	if err != nil {
-		return err
+		return false, err
 	}
 	rows, err := a.stores()
 	if err != nil {
-		return err
+		return false, err
 	}
 	fmt.Println("Stores:")
 	for i, r := range rows {
@@ -387,7 +421,7 @@ func runSetup() error {
 		}
 	}
 	if _, err := a.storeID(chosen); err != nil {
-		return err
+		return false, err
 	}
 	cfg.Store = chosen
 
@@ -409,7 +443,7 @@ func runSetup() error {
 		}
 		pc, perr := askPrinter(cfg, len(cfg.Printers))
 		if perr != nil {
-			return perr
+			return false, perr
 		}
 		cfg.Printers = append(cfg.Printers, pc)
 	}
@@ -419,7 +453,7 @@ func runSetup() error {
 	cfg.ManagerPin = ask("Manager PIN", "")
 
 	if err := cfg.save(); err != nil {
-		return err
+		return false, err
 	}
 	fmt.Println()
 	fmt.Printf("Saved to %s\n", configPath())
@@ -441,12 +475,12 @@ func runSetup() error {
 				fmt.Println()
 				fmt.Println("Done. It is running in the background and will start with the machine.")
 				fmt.Println("You can close this window.")
-				return nil
+				return true, nil
 			}
 		}
 	}
 	fmt.Println("Now run the agent with no options to register and start printing.")
-	return nil
+	return false, nil
 }
 
 func runCheck() int {
@@ -463,11 +497,24 @@ func runCheck() int {
 	}
 	fmt.Printf("Machine: %s   Store in the config: '%s'\n\n", host, cfg.Store)
 	okLine("config file", true, configPath())
+	// The PIN is meant to be wiped once it has been used. Several paths used
+	// to leave it behind, and both the README and this check asserted it was
+	// gone without ever looking.
+	if strings.TrimSpace(cfg.ManagerPin) != "" {
+		fail++
+		okLine("manager PIN removed after use", false,
+			"still in "+configPath()+" - run the agent once to register and clear it, or blank manager_pin by hand")
+	} else {
+		okLine("manager PIN removed after use", true, "")
+	}
 
 	if taskInstalled() {
 		okLine("runs in the background", true, "starts with the machine")
 	} else {
-		okLine("runs in the background", true, "no - only prints while a window is open. -install fixes that")
+		// Scored as a pass, this - the single commonest reason a till stops
+		// printing - rendered as [ ok ] in the only diagnostic in the product.
+		fail++
+		okLine("runs in the background", false, "no - it only prints while a window is open. Run -install")
 	}
 
 	a, err := newAPI()
@@ -605,7 +652,7 @@ func runCheck() int {
 			}
 		default:
 			fail++
-			okLine("target understood", false, "must start with win: or tcp:")
+			okLine("target understood", false, "must start with usbdev:, mac:, win: or tcp:")
 		}
 	}
 
@@ -629,16 +676,10 @@ func runAgent() error {
 	}
 	host, _ := os.Hostname()
 
-	a, err := newAPI()
-	if err != nil {
-		return err
-	}
-	storeID, err := a.storeID(cfg.Store)
-	if err != nil {
-		return err
-	}
-	// One printing agent per machine. A second one would collect the same
-	// jobs and print every ticket twice.
+	// Claimed before any network work, so a second copy stops immediately
+	// instead of waiting on the wire to find out it was never needed.
+	// One printing agent per machine: a second would collect the same jobs
+	// and print every ticket twice.
 	if !claimSoleAgent() {
 		fmt.Println()
 		fmt.Println("Another copy of the print agent is already running on this machine,")
@@ -650,6 +691,32 @@ func runAgent() error {
 	}
 	defer releaseSoleAgent()
 
+	// At boot the NIC is routinely not up yet. Returning here would end the
+	// process, and under Task Scheduler that is a wedge rather than a retry,
+	// so wait for the network rather than giving up on it.
+	var a *api
+	var storeID string
+	for attempt := 0; ; attempt++ {
+		var aerr error
+		if a, aerr = newAPI(); aerr == nil {
+			storeID, aerr = a.storeID(cfg.Store)
+		}
+		if aerr == nil {
+			break
+		}
+		if attempt == 0 || attempt%10 == 0 {
+			logf("Waiting for the network: %v", aerr)
+		}
+		// A wrong store name never comes right by waiting.
+		if strings.Contains(aerr.Error(), "no active store called") {
+			return aerr
+		}
+		wait := time.Duration(attempt+1) * 5 * time.Second
+		if wait > time.Minute {
+			wait = time.Minute
+		}
+		time.Sleep(wait)
+	}
 	logf("Store: %s", cfg.Store)
 
 	// Find the network printers before registering, so the first thing Admin
@@ -716,9 +783,12 @@ func runAgent() error {
 		}
 	}
 
-	// Now that every printer is registered the PIN has done its one job, so
-	// drop it rather than leave a credential in a file on a shop floor.
-	if registeredAny && cfg.ManagerPin != "" {
+	// Every printer is registered by this point, so the PIN has done its one
+	// job. Clearing it only when something registered on THIS run left it in
+	// the file for good on any till where setup was re-run after the fact -
+	// which is most of them.
+	_ = registeredAny
+	if cfg.ManagerPin != "" {
 		cfg.ManagerPin = ""
 		if err := cfg.save(); err != nil {
 			logf("warning: could not clear the PIN from the config: %v", err)
@@ -738,6 +808,11 @@ func runAgent() error {
 	// list in Admin honest.
 	nextSweep := time.Now().Add(2 * time.Minute)
 	lastOutputs := outputsKey(outputsHere())
+	// Advanced only once the poll carrying the list has actually returned.
+	// Advancing it beforehand meant a failed poll lost the report for good,
+	// and Admin's list of what a till can drive stayed stale indefinitely.
+	pendingOutputs := ""
+	nextOutputs := time.Now().Add(2 * time.Minute)
 	for {
 		if time.Now().After(nextSweep) {
 			discovered.set(DiscoverNetPrinters(400 * time.Millisecond))
@@ -747,12 +822,20 @@ func runAgent() error {
 		var loopErr error
 		// Only when the set has changed - every poll would be wasteful, and
 		// never would leave Admin offering printers that have gone.
-		outs := outputsHere()
-		report := []map[string]string(nil)
-		if k := outputsKey(outs); k != lastOutputs {
-			report = outs
-			lastOutputs = k
-			logf("What this machine can print to has changed; telling Admin.")
+		// Recomputed on the sweep interval, not the poll interval. A full
+		// SetupAPI walk plus a spooler enumeration every three seconds is
+		// 28,000 a day for a list that almost never changes - and it put the
+		// print loop at the mercy of the spooler, so a hung port monitor
+		// would stop printing with no error at all.
+		var report []map[string]string
+		if time.Now().After(nextOutputs) {
+			outs := outputsHere()
+			nextOutputs = time.Now().Add(2 * time.Minute)
+			if k := outputsKey(outs); k != lastOutputs {
+				report = outs
+				pendingOutputs = k
+				logf("What this machine can print to has changed; telling Admin.")
+			}
 		}
 		for i, p := range cfg.Printers {
 			paper := p.Paper
@@ -760,8 +843,11 @@ func runAgent() error {
 				paper = 80
 			}
 			var res struct {
-				Jobs   []job  `json:"jobs"`
-				Target string `json:"target"`
+				OK      *bool  `json:"ok"`
+				Error   string `json:"error"`
+				Message string `json:"message"`
+				Jobs    []job  `json:"jobs"`
+				Target  string `json:"target"`
 			}
 			poll := map[string]any{"sn": serials[i], "agent_version": version, "paper_mm": paper}
 			if report != nil && i == 0 {
@@ -769,6 +855,21 @@ func runAgent() error {
 			}
 			if err := a.call("local_print_jobs", poll, &res); err != nil {
 				loopErr = err
+				break
+			}
+			// admin-api answers HTTP 200 even when the print service behind it
+			// failed, flattening the body to {ok:false}. Without this the agent
+			// reads an outage as an empty queue and sits there printing
+			// nothing and saying nothing, indefinitely.
+			if res.OK != nil && !*res.OK {
+				why := res.Error
+				if why == "" {
+					why = res.Message
+				}
+				if why == "" {
+					why = "the print service rejected the poll"
+				}
+				loopErr = fmt.Errorf("%s: %s", p.Label, why)
 				break
 			}
 			// Admin decides where this printer sends its bytes. The choice
@@ -834,6 +935,10 @@ func runAgent() error {
 			}
 			time.Sleep(backoff)
 			continue
+		}
+		if pendingOutputs != "" {
+			lastOutputs = pendingOutputs
+			pendingOutputs = ""
 		}
 		backoff = 3 * time.Second
 		if did == 0 {
@@ -918,8 +1023,34 @@ func (p *printedJobs) mark(id string) {
 	}
 }
 
+// Running as a background task, every line below goes to a session-0 console
+// nobody will ever see. Without a file on disk none of this is diagnosable in
+// a shop, which makes every other fault invisible rather than merely obscure.
+var logFile *os.File
+
+func openLog() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	path := filepath.Join(filepath.Dir(exe), "chocoberry-print-agent.log")
+	// Keep one generation rather than growing without limit on a till nobody
+	// ever looks at.
+	if st, serr := os.Stat(path); serr == nil && st.Size() > 2<<20 {
+		_ = os.Rename(path, path+".old")
+	}
+	f, ferr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if ferr == nil {
+		logFile = f
+	}
+}
+
 func logf(format string, args ...any) {
-	fmt.Printf("[%s] %s\n", time.Now().Format("15:04:05"), fmt.Sprintf(format, args...))
+	line := fmt.Sprintf("[%s] %s", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
+	fmt.Println(line)
+	if logFile != nil {
+		_, _ = logFile.WriteString(line + "\n")
+	}
 }
 
 func main() {
@@ -930,9 +1061,24 @@ func main() {
 	// Not worth documenting for anyone else to type.
 	install := flag.Bool("install", false, "keep it running in the background from now on, starting at boot")
 	uninstall := flag.Bool("uninstall", false, "stop it running in the background")
+	// Set on the copy we launch elevated. isElevated cannot tell "not
+	// elevated" from "could not tell", so without a marker a misreport there
+	// would have the child elevate a grandchild, and so on, with a UAC prompt
+	// each time.
+	child := flag.Bool("elevated-child", false, "")
+	// Passed by the scheduled task. There is no one at that console, so
+	// nothing may ever wait for a keypress on it.
+	service := flag.Bool("service", false, "")
 	addQ := flag.String("addqueue", "", "")
 	addPort := flag.String("port", "", "")
 	flag.Parse()
+	if *child {
+		markElevatedChild()
+	}
+	if *service {
+		notInteractive = true
+	}
+	openLog()
 
 	var err error
 	switch {
@@ -961,7 +1107,7 @@ func main() {
 			fmt.Println("Removed. It will no longer start on its own.")
 		}
 	case *setup:
-		err = runSetup()
+		_, err = runSetup()
 	case !*check && !fileExists(configPath()):
 		// Double-clicking an exe cannot pass -setup, and telling someone to
 		// open a command prompt to type a flag gives back the problem this
@@ -969,7 +1115,13 @@ func main() {
 		// usefully be doing, so the first run sets itself up.
 		fmt.Println("First run - nothing is set up yet.")
 		fmt.Println()
-		if err = runSetup(); err == nil {
+		// runSetup reports whether it left the background task running. If it
+		// did, starting a foreground agent here would race it for the mutex -
+		// and whichever lost would exit cleanly, which Task Scheduler reads as
+		// a successful run, so the background task would not restart until the
+		// next reboot. A till that printed during setup and never again.
+		var background bool
+		if background, err = runSetup(); err == nil && !background {
 			fmt.Println()
 			err = runAgent()
 		}

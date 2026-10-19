@@ -64,6 +64,7 @@ func taskXML(exePath string) string {
   <Actions Context="Author">
     <Exec>
       <Command>` + xmlEscape(exePath) + `</Command>
+      <Arguments>-service</Arguments>
       <WorkingDirectory>` + xmlEscape(dir) + `</WorkingDirectory>
     </Exec>
   </Actions>
@@ -94,7 +95,7 @@ func installService() error {
 	}
 	if !isElevated() {
 		fmt.Println("Installing a background task needs administrator. Approve the Windows prompt.")
-		if eerr := elevateAndRun("-install"); eerr != nil {
+		if eerr := elevateAndRun("-elevated-child -install"); eerr != nil {
 			return eerr
 		}
 		if !taskInstalled() {
@@ -126,7 +127,7 @@ func installService() error {
 func uninstallService() error {
 	if !isElevated() {
 		fmt.Println("Removing the background task needs administrator. Approve the Windows prompt.")
-		return elevateAndRun("-uninstall")
+		return elevateAndRun("-elevated-child -uninstall")
 	}
 	out, err := runSchtasks("/Delete", "/TN", taskName, "/F")
 	if err != nil {

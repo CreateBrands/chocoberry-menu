@@ -131,7 +131,8 @@ take, and no amount of work on the cable will fix it.
   PowerShell agent, so a till that switches between the two keeps the same
   printer in Admin with its station, settings and history. A test covers that.
 - The anon key is read from the published web bundle rather than baked in, so
-  there is no credential in the binary and the agent survives a re-key.
+  there is no credential in the binary. It is read once at startup, so an
+  agent already running does **not** pick up a re-key until it is restarted.
 - A failed job is reported back with its reason, which appears on the order
   and in `print_jobs.error`. Three failures in a row pause that printer for
   ten minutes, as with every other transport.

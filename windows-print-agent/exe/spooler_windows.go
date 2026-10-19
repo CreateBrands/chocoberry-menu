@@ -63,7 +63,13 @@ func utf16PtrToString(p *uint16) string {
 	return syscall.UTF16ToString(unsafe.Slice(p, n))
 }
 
-func sendRaw(queue string, data []byte) error {
+// The deferred calls below used to discard their results. EndDocPrinter is
+// what commits a job to the queue, so a spooler restart or a full spool disk
+// could fail it while sendRaw still returned nil - the agent would log
+// "printed", mark the job sent, and the server discards the content. The slip
+// is then gone and unrecoverable. A named return lets the deferred calls
+// report it.
+func sendRaw(queue string, data []byte) (err error) {
 	name, err := syscall.UTF16PtrFromString(queue)
 	if err != nil {
 		return err
@@ -83,13 +89,21 @@ func sendRaw(queue string, data []byte) error {
 	if r == 0 {
 		return fmt.Errorf("the spooler refused the job for %q (%v)", queue, e)
 	}
-	defer procEndDocPrinter.Call(uintptr(h))
+	defer func() {
+		if r, _, e := procEndDocPrinter.Call(uintptr(h)); r == 0 && err == nil {
+			err = fmt.Errorf("the spooler did not commit the job to %q (%v)", queue, e)
+		}
+	}()
 
 	r, _, e = procStartPagePrint.Call(uintptr(h))
 	if r == 0 {
 		return fmt.Errorf("StartPagePrinter failed for %q (%v)", queue, e)
 	}
-	defer procEndPagePrinter.Call(uintptr(h))
+	defer func() {
+		if r, _, e := procEndPagePrinter.Call(uintptr(h)); r == 0 && err == nil {
+			err = fmt.Errorf("the spooler did not finish the page for %q (%v)", queue, e)
+		}
+	}()
 
 	if len(data) == 0 {
 		return nil

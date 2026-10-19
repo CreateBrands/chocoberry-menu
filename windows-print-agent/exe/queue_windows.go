@@ -18,6 +18,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"unsafe"
@@ -112,7 +113,16 @@ func usbPorts() []string {
 // isElevated reports whether this process is running as administrator. Needed
 // so the elevated copy of itself does not try to elevate again on the same
 // failure and spin.
+// Set when this process was started by elevateAndRun, so it never asks for
+// elevation again however isElevated answers.
+var isElevatedChild bool
+
+func markElevatedChild() { isElevatedChild = true }
+
 func isElevated() bool {
+	if isElevatedChild {
+		return true
+	}
 	var token syscall.Token
 	p, err := syscall.GetCurrentProcess()
 	if err != nil {
@@ -273,6 +283,13 @@ func addQueueWith(name, port, preferred string) error {
 			PrintProcessor: pProc, Datatype: pData, Comment: pComment,
 		}
 		h, _, e := procAddPrinter.Call(0, 2, uintptr(unsafe.Pointer(&pi)))
+		// The compiler's rule that keeps an object alive across
+		// uintptr(unsafe.Pointer(p)) covers the syscall.Syscall family, not
+		// arguments gathered into a variadic []uintptr. Nothing references pi
+		// while AddPrinterW runs, so without this a GC cycle could collect it
+		// mid-call. Latent rather than live - Go's collector does not move
+		// objects - but it costs nothing to close.
+		runtime.KeepAlive(&pi)
 		// Call always hands back a syscall.Errno, but asserting it blind would
 		// turn any surprise into a panic in front of a customer.
 		if en, ok := e.(syscall.Errno); ok {
@@ -406,7 +423,7 @@ func ensureQueue(name, port string) error {
 	}
 	fmt.Println()
 	fmt.Println("Creating a printer needs administrator. Approve the Windows prompt.")
-	if eerr := elevateAndRun(fmt.Sprintf(`-addqueue "%s" -port "%s"`, name, port)); eerr != nil {
+	if eerr := elevateAndRun(fmt.Sprintf(`-elevated-child -addqueue "%s" -port "%s"`, name, port)); eerr != nil {
 		return eerr
 	}
 	// Trust nothing: confirm the queue is really there before saying so.
