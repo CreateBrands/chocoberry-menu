@@ -38,6 +38,17 @@ To start with the machine, put a shortcut to the exe in `shell:startup`.
 SmartScreen says "Windows protected your PC" - choose **More info**, then
 **Run anyway**. Defender may also want a moment to scan it.
 
+## Where a printer sends its bytes is decided in Admin
+
+The agent can see what Admin cannot - the USB printers attached to that till,
+the Windows queues on it - and reports them every time it registers. Admin's
+printer settings then carry a **Prints via** dropdown listing exactly those.
+
+The choice rides along on the poll the agent already makes every few seconds,
+so swapping a till printer for the kitchen one, or moving to a different
+queue, takes effect at the store without anyone going there or restarting
+anything. Leave it unset and whatever is in the till's own config file stands.
+
 ## One till, every printer
 
 One copy on the till drives the lot - the printer on its cable and the kitchen

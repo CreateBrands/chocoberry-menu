@@ -1303,6 +1303,37 @@ function PrintersModal({ pin, locations, onClose }) {
                 </div>
                 </div>
 
+                {/* WHICH OUTPUT. The agent on a till can see what Admin
+                    cannot - the USB printers attached to it, the Windows
+                    queues on it - and reports them when it registers. Picking
+                    one here takes effect on its next poll, a few seconds
+                    later, so swapping a till printer for the kitchen one is a
+                    dropdown rather than a trip to the store. */}
+                {isLocal(p.sn) && Array.isArray(p.agent_outputs) && p.agent_outputs.length > 0 && (() => {
+                  const outs = p.agent_outputs;
+                  const cur = p.agent_target || "";
+                  const known = outs.some((o) => o && o.target === cur);
+                  return (
+                    <div>
+                      <div style={fieldLab}>Prints via</div>
+                      <select value={cur} onChange={(e) => updatePrinter(p, { agent_target: e.target.value || null })} disabled={busy} style={sel}>
+                        <option value="">Whatever the agent is set to on that till</option>
+                        {/* A printer that has since been unplugged would
+                            otherwise render as the blank first option, which
+                            reads as "not set" while it is still pointed at
+                            something that is gone. */}
+                        {cur && !known && <option value={cur}>{cur} — not attached right now</option>}
+                        {outs.map((o) => <option key={o.target} value={o.target}>{o.name}{o.kind === "queue" ? " (Windows queue)" : ""}</option>)}
+                      </select>
+                      <div style={{ fontSize: 11.5, color: cur && !known ? "#8a5a2c" : T.faint, marginTop: 5, lineHeight: 1.4 }}>
+                        {cur && !known
+                          ? "That output is not attached to the till at the moment, so nothing will print until it is back or another is chosen."
+                          : "What the agent on that till last reported it can drive. A change here reaches it within a few seconds."}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Where the orders come from, and how many copies. The source
                     select holds the longest text in the drawer and was
                     truncating to "Any source (tablets, tills, onli". */}

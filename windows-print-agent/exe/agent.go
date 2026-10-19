@@ -588,6 +588,9 @@ func runAgent() error {
 	pin := strings.TrimSpace(cfg.ManagerPin)
 	registeredAny := false
 
+	// What Admin currently has each printer pointed at, so a change is logged
+	// once rather than on every poll.
+	assigned := make([]string, len(cfg.Printers))
 	serials := make([]string, len(cfg.Printers))
 	for i, p := range cfg.Printers {
 		sn := serialOf(cfg, host, i)
@@ -607,11 +610,13 @@ func runAgent() error {
 			OK      bool   `json:"ok"`
 			Error   string `json:"error"`
 			Message string `json:"message"`
+			Target  string `json:"target"`
 		}
 		err := a.call("device_printer_register", map[string]any{
 			"location_id": storeID, "sn": sn, "label": p.Label,
 			"station": p.Station, "manager_pin": pin,
 			"model": p.Target, "paper_mm": paper,
+			"outputs": outputsHere(),
 		}, &res)
 		if err != nil {
 			return fmt.Errorf("could not register %s. Usually the manager PIN is wrong for this store. (%w)", p.Label, err)
@@ -620,6 +625,9 @@ func runAgent() error {
 			return fmt.Errorf("could not register %s: %s %s", p.Label, res.Message, res.Error)
 		}
 		logf("Registered %s as %s", p.Label, sn)
+		if res.Target != "" && res.Target != p.Target {
+			logf("Admin has this one pointed at %s", res.Target)
+		}
 		cfg.Registered = append(cfg.Registered, sn)
 		cfg.Printers[i].SN = sn
 		registeredAny = true
@@ -650,7 +658,8 @@ func runAgent() error {
 				paper = 80
 			}
 			var res struct {
-				Jobs []job `json:"jobs"`
+				Jobs   []job  `json:"jobs"`
+				Target string `json:"target"`
 			}
 			if err := a.call("local_print_jobs", map[string]any{
 				"sn": serials[i], "agent_version": version, "paper_mm": paper,
@@ -658,12 +667,28 @@ func runAgent() error {
 				loopErr = err
 				break
 			}
+			// Admin decides where this printer sends its bytes. The choice
+			// rides along on the poll the agent already makes, so a change
+			// reaches the till within a few seconds without anyone restarting
+			// anything or going to the store. An empty target means Admin has
+			// expressed no preference, and the config file stands.
+			out := p.Target
+			if res.Target != "" {
+				out = res.Target
+				if out != assigned[i] {
+					logf("%s: Admin pointed this at %s", p.Label, out)
+					assigned[i] = out
+				}
+			} else if assigned[i] != "" {
+				logf("%s: Admin cleared its choice, back to %s", p.Label, p.Target)
+				assigned[i] = ""
+			}
 			for _, j := range res.Jobs {
 				var failure string
 				data, derr := hex.DecodeString(strings.ReplaceAll(j.ContentHex, " ", ""))
 				if derr != nil {
 					failure = "bad job data: " + derr.Error()
-				} else if serr := sendTo(p.Target, data); serr != nil {
+				} else if serr := sendTo(out, data); serr != nil {
 					failure = serr.Error()
 				}
 				done := map[string]any{"id": j.ID, "sn": serials[i], "ok": failure == "", "error": nil}
@@ -696,6 +721,22 @@ func runAgent() error {
 			time.Sleep(400 * time.Millisecond)
 		}
 	}
+}
+
+// outputsHere is what this machine can actually print to, reported to the
+// server on every registration so that Admin - which cannot see a till's
+// cables - has something real to offer in a dropdown.
+func outputsHere() []map[string]string {
+	var out []map[string]string
+	usbs, _ := ListUSBPrinters()
+	for _, u := range usbs {
+		out = append(out, map[string]string{"kind": "usb", "name": u.Name, "target": "usbdev:" + u.Name})
+	}
+	queues, _ := listQueues()
+	for _, q := range queues {
+		out = append(out, map[string]string{"kind": "queue", "name": q, "target": "win:" + q})
+	}
+	return out
 }
 
 func logf(format string, args ...any) {

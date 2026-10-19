@@ -1199,7 +1199,12 @@ Deno.serve(async (req) => {
         if (!isLocalSn(sn)) return json({ error: "not a device printer" }, 400);
         const { data: jobs } = await supabase.from("print_jobs").select("id, order_id, slip, max_batch, content_hex, created_at").eq("printer_sn", sn).eq("status", "queued").order("created_at", { ascending: true }).limit(10);
         await supabase.from("printers").update({ online: true, last_online_at: new Date().toISOString(), ...(body.agent_version ? { notes: "agent " + String(body.agent_version).slice(0, 20) } : {}), ...(body.paper_mm ? { paper_mm: Number(body.paper_mm) } : {}) }).eq("sn", sn);
-        return json({ ok: true, jobs: jobs || [] });
+        // Which output Admin has it pointed at. Carried on the poll the agent
+        // already makes every few seconds, so changing it in Admin takes
+        // effect without anyone going to the till or restarting anything.
+        const { data: me } = await supabase.from("printers").select("agent_target").eq("sn", sn).maybeSingle();
+        const target = (me as { agent_target?: unknown } | null)?.agent_target ?? null;
+        return json({ ok: true, jobs: jobs || [], target });
       }
       case "local-job-done": {
         const { id, sn, ok: printed, error: err } = body;
