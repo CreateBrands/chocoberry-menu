@@ -300,8 +300,11 @@ func sendTo(target string, data []byte) error {
 		return sendTCP(target, data)
 	case strings.HasPrefix(target, "win:"):
 		return sendRaw(strings.TrimPrefix(target, "win:"), data)
+	case strings.HasPrefix(target, "usbdev:"):
+		// Straight at the printer, no queue in the way.
+		return sendUSB(strings.TrimPrefix(target, "usbdev:"), data)
 	default:
-		return errors.New("target must start with win: or tcp:")
+		return errors.New("target must start with usbdev:, win: or tcp:")
 	}
 }
 
@@ -375,10 +378,25 @@ func runSetup() error {
 	}
 	cfg.Store = chosen
 
-	queues, _ := listQueues()
+	// USB printers come first, and are offered by name rather than by queue,
+	// because this route needs nothing installed at all: no queue, no driver,
+	// no administrator. The spooler route below is the fallback now, not the
+	// other way round - on Windows 11 it cannot even be set up, since the
+	// Generic / Text Only driver is gone and the class drivers that replaced
+	// it refuse a RAW queue.
+	usbs, _ := ListUSBPrinters()
 	fmt.Println()
+	if len(usbs) > 0 {
+		fmt.Println("USB printers attached to this machine:")
+		for i, u := range usbs {
+			fmt.Printf("  %2d. %s\n", i+1, u.Name)
+		}
+		fmt.Println("       (these need no queue, no driver and no administrator)")
+		fmt.Println()
+	}
+	queues, _ := listQueues()
 	if len(queues) == 0 {
-		fmt.Println("Windows has no print queues on this machine.")
+		fmt.Println("Windows print queues on this machine: none")
 	} else {
 		fmt.Println("Windows print queues on this machine:")
 		for i, q := range queues {
@@ -392,13 +410,26 @@ func runSetup() error {
 	// Printer wizard for this is handing back the problem the exe exists to
 	// take away.
 	fmt.Println()
-	fmt.Println("  new.  create a queue for a receipt printer on a USB cable")
+	fmt.Println("  new.  create a Windows queue for a printer on a USB cable")
 	fmt.Println()
 	def := ""
 	if len(cfg.Printers) > 0 {
 		def = cfg.Printers[0].Target
 	}
-	target := ask("Which printer (number, 'new', queue name, or tcp:<ip>:9100)", def)
+	if def == "" && len(usbs) > 0 {
+		def = "u1"
+	}
+	prompt := "Which printer"
+	if len(usbs) > 0 {
+		prompt += " (u1, u2... for a USB printer above)"
+	}
+	target := ask(prompt+" (number for a queue, 'new', or tcp:<ip>:9100)", def)
+	if strings.HasPrefix(strings.ToLower(target), "u") {
+		var n int
+		if _, perr := fmt.Sscanf(strings.ToLower(target), "u%d", &n); perr == nil && n >= 1 && n <= len(usbs) {
+			target = "usbdev:" + usbs[n-1].Name
+		}
+	}
 	for i, q := range queues {
 		if fmt.Sprint(i+1) == target {
 			target = q
@@ -411,7 +442,7 @@ func runSetup() error {
 		}
 		target = made
 	}
-	if !strings.HasPrefix(target, "tcp:") && !strings.HasPrefix(target, "win:") {
+	if !strings.HasPrefix(target, "tcp:") && !strings.HasPrefix(target, "win:") && !strings.HasPrefix(target, "usbdev:") {
 		target = "win:" + target
 	}
 
@@ -514,6 +545,27 @@ func runCheck() int {
 		}
 
 		switch {
+		case strings.HasPrefix(p.Target, "usbdev:"):
+			want := strings.TrimPrefix(p.Target, "usbdev:")
+			attached, _ := ListUSBPrinters()
+			var names []string
+			hit := false
+			for _, u := range attached {
+				names = append(names, u.Name)
+				if strings.Contains(strings.ToLower(u.Name), strings.ToLower(want)) {
+					hit = true
+				}
+			}
+			if hit {
+				okLine("USB printer attached", true, want)
+			} else {
+				fail++
+				detail := "not attached. Attached now: " + strings.Join(names, ", ")
+				if len(attached) == 0 {
+					detail = "nothing is attached - check power, paper, the lid, and that the cable carries data"
+				}
+				okLine("USB printer attached", false, detail)
+			}
 		case strings.HasPrefix(p.Target, "win:"):
 			q := strings.TrimPrefix(p.Target, "win:")
 			has := false
