@@ -710,6 +710,34 @@ function PrintersModal({ pin, locations, onClose }) {
   // How the bytes actually reach this printer. It is the first thing worth
   // knowing when one stops working, and until now the only clue was the prefix
   // on a serial in 11px monospace.
+  // The source list arrived in whatever order the screens table returned, so
+  // Till 2 sat above Till 1 with a kiosk and two kitchen displays in between,
+  // and every entry ended in a bare "(3)" that reads as a count rather than
+  // the device key it is.
+  //
+  // It also offered the kitchen displays. A printer is tied to a source by
+  // matching the order's device_key, and a kitchen display never places an
+  // order — so choosing one means that printer prints nothing at all, with
+  // nothing on screen to say so. They stay listed, because a screen's kind
+  // can be mis-set and hiding one would be worse than warning about it, but
+  // they sit in their own group that says what they are.
+  const SOURCE_GROUPS = [
+    { key: "pos", label: "Tills and handhelds", match: (k) => /pos/.test(String(k.kind || "")) },
+    { key: "kiosk", label: "Kiosks", match: (k) => String(k.kind || "") === "kiosk" },
+    { key: "kds", label: "Kitchen screens — these never place orders", match: (k) => String(k.kind || "") === "kds" },
+    { key: "other", label: "Other screens", match: () => true },
+  ];
+  const sourceOptions = (locationId) => {
+    const mine = (screens || []).filter((k) => k.location_id === locationId);
+    const used = new Set();
+    return SOURCE_GROUPS.map((g) => {
+      const rows = mine.filter((k) => !used.has(k.screen_key) && g.match(k));
+      rows.forEach((k) => used.add(k.screen_key));
+      rows.sort((a, b) => String(a.label || a.screen_key).localeCompare(String(b.label || b.screen_key), undefined, { numeric: true, sensitivity: "base" }));
+      return { ...g, rows };
+    }).filter((g) => g.rows.length);
+  };
+
   const transport = (sn) => {
     const s = String(sn || "");
     if (s.startsWith("usb:")) return "Browser USB";
@@ -975,8 +1003,26 @@ function PrintersModal({ pin, locations, onClose }) {
                   <div style={fieldLab} title="Tie a printer to one till or handheld and it prints only the orders placed there. Reprints still reach it.">Prints orders from</div>
                   <select value={p.source_screen_key || ""} onChange={(e) => updatePrinter(p, { source_screen_key: e.target.value || null })} disabled={busy} style={sel}>
                     <option value="">Any source (tablets, tills, online)</option>
-                    {(screens || []).filter((k) => k.location_id === p.location_id).map((k) => <option key={k.screen_key} value={k.screen_key}>Only {k.label || ("Screen " + k.screen_key)} ({k.screen_key})</option>)}
+                    {/* A screen that has since been removed or renamed would
+                        otherwise leave this blank, reading as "any source"
+                        while the printer is still tied to something gone. */}
+                    {p.source_screen_key && !(screens || []).some((k) => k.screen_key === p.source_screen_key && k.location_id === p.location_id) &&
+                      <option value={p.source_screen_key}>Only {p.source_screen_key} — screen no longer listed</option>}
+                    {sourceOptions(p.location_id).map((g) => (
+                      <optgroup key={g.key} label={g.label}>
+                        {g.rows.map((k) => <option key={k.screen_key} value={k.screen_key}>Only {k.label || ("Screen " + k.screen_key)} · {k.screen_key}</option>)}
+                      </optgroup>
+                    ))}
                   </select>
+                  {/* Tying a printer to a screen that cannot place an order is
+                      the same dead end as leaving both slips off, and just as
+                      quiet, so it is said out loud rather than left to be
+                      discovered when nothing prints. */}
+                  {p.source_screen_key && (screens || []).some((k) => k.screen_key === p.source_screen_key && k.location_id === p.location_id && String(k.kind || "") === "kds") && (
+                    <div style={{ fontSize: 11.5, color: "#8a5a2c", marginTop: 5, lineHeight: 1.4 }}>
+                      That is a kitchen screen — it never places orders, so this printer will not print any.
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div style={fieldLab}>Kitchen ticket</div>
