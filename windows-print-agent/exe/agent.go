@@ -375,29 +375,41 @@ func runSetup() error {
 	}
 	cfg.Store = chosen
 
-	queues, qerr := listQueues()
+	queues, _ := listQueues()
 	fmt.Println()
-	if qerr != nil || len(queues) == 0 {
-		fmt.Println("No Windows print queues found. Plug the printer in and install it in")
-		fmt.Println("Settings > Printers and scanners with the Generic / Text Only driver,")
-		fmt.Println("then run setup again. You can also type a network printer below as")
-		fmt.Println("tcp:<ip>:9100, which needs nothing installed.")
+	if len(queues) == 0 {
+		fmt.Println("Windows has no print queues on this machine.")
 	} else {
 		fmt.Println("Windows print queues on this machine:")
 		for i, q := range queues {
 			fmt.Printf("  %2d. %s\n", i+1, q)
 		}
 	}
+	// Windows does not give a thermal printer a queue by itself: it turns up
+	// as a USB device with no driver and sits there. Without a queue the
+	// spooler has nothing to accept bytes for, which is the whole reason
+	// nothing has ever printed at Al Zahia. Sending someone to the Add
+	// Printer wizard for this is handing back the problem the exe exists to
+	// take away.
+	fmt.Println()
+	fmt.Println("  new.  create a queue for a receipt printer on a USB cable")
 	fmt.Println()
 	def := ""
 	if len(cfg.Printers) > 0 {
 		def = cfg.Printers[0].Target
 	}
-	target := ask("Which printer (number, queue name, or tcp:<ip>:9100)", def)
+	target := ask("Which printer (number, 'new', queue name, or tcp:<ip>:9100)", def)
 	for i, q := range queues {
 		if fmt.Sprint(i+1) == target {
 			target = q
 		}
+	}
+	if strings.EqualFold(target, "new") {
+		made, nerr := createQueueInteractive()
+		if nerr != nil {
+			return nerr
+		}
+		target = made
 	}
 	if !strings.HasPrefix(target, "tcp:") && !strings.HasPrefix(target, "win:") {
 		target = "win:" + target
@@ -514,8 +526,11 @@ func runCheck() int {
 				okLine("Windows queue '"+q+"' exists", true, "")
 			} else {
 				fail++
-				okLine("Windows queue '"+q+"' exists", false,
-					"not installed. Queues here: "+strings.Join(queues, ", "))
+				detail := "not installed - run -setup and choose 'new' to create it"
+				if ports := usbPorts(); len(ports) == 0 {
+					detail = "not installed, and Windows has no USB printer port either - it has not recognised the printer as a printer. Check power, paper, the lid, and that the cable carries data"
+				}
+				okLine("Windows queue '"+q+"' exists", false, detail)
 			}
 		case strings.HasPrefix(p.Target, "tcp:"):
 			addr := strings.TrimPrefix(p.Target, "tcp:")
@@ -675,10 +690,20 @@ func main() {
 	setup := flag.Bool("setup", false, "ask what store and which printer, and save it")
 	check := flag.Bool("check", false, "report every link in the chain and stop")
 	list := flag.Bool("list", false, "show the Windows print queues on this machine")
+	// Used by the elevated copy of itself, which does this one job and exits.
+	// Not worth documenting for anyone else to type.
+	addQ := flag.String("addqueue", "", "")
+	addPort := flag.String("port", "", "")
 	flag.Parse()
 
 	var err error
 	switch {
+	case *addQ != "":
+		if err = ensureQueue(*addQ, *addPort); err != nil {
+			fmt.Println("Could not create the queue:", err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	case *list:
 		var queues []string
 		queues, err = listQueues()
@@ -725,4 +750,34 @@ func main() {
 func fileExists(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && !st.IsDir()
+}
+
+// createQueueInteractive installs a Windows print queue for a receipt printer
+// on a cable, elevating once if it has to, and returns the queue name.
+func createQueueInteractive() (string, error) {
+	ports := usbPorts()
+	fmt.Println()
+	if len(ports) == 0 {
+		return "", errors.New(
+			"Windows has no USB printer port, which means it has not recognised the printer as a printer at all.\n" +
+				"  Check it is powered on with paper and the lid shut, and that the cable is a data cable\n" +
+				"  rather than charge-only. Unplug it, plug it back in, and run this again.")
+	}
+	fmt.Println("USB printer ports Windows can see:")
+	for i, p := range ports {
+		fmt.Printf("  %2d. %s\n", i+1, p)
+	}
+	fmt.Println()
+	port := ask("Which port is the receipt printer on", ports[0])
+	for i, p := range ports {
+		if fmt.Sprint(i+1) == port {
+			port = p
+		}
+	}
+	name := ask("Name for this queue in Windows", "Chocoberry Receipt")
+	if err := ensureQueue(name, port); err != nil {
+		return "", err
+	}
+	fmt.Printf("Created the Windows queue %q on %s, Generic / Text Only.\n", name, port)
+	return name, nil
 }

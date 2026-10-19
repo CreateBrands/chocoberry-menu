@@ -45,11 +45,20 @@ SmartScreen says "Windows protected your PC" - choose **More info**, then
 | `win:<queue name>` | A printer installed in Windows. Use the **Generic / Text Only** driver - it passes bytes through untouched, which is what ESC/POS needs. A vendor driver tries to render pages and prints gibberish. |
 | `tcp:<ip>:9100` | A network printer, spoken to directly. Nothing installed, and several systems can print to it at once. |
 
-Unlike the script, this does not create a Windows print queue for you - that
-needs administrator, and asking for it is the step that tends to go wrong
-unattended. Plug the printer in; Windows usually installs a queue by itself.
-If it does not, add it once in Settings > Printers and scanners, then run
-`-list` to see the name.
+Windows does **not** give a thermal printer a queue by itself. It appears as a
+USB device with no driver and sits there, and without a queue the spooler has
+nothing to accept bytes for - which is the whole reason a till can look
+perfectly healthy and never print.
+
+So setup offers `new`: it lists the USB printer ports Windows can see, creates
+the queue on the one you pick with the Generic / Text Only driver, and asks
+for administrator once on the way (a second copy of itself does only that, and
+the first waits for it). Nothing to do in Settings.
+
+If Windows has no USB printer port at all, it has not recognised the device as
+a printer - check power, paper, the lid being properly shut, and that the
+cable carries data rather than only charge. That last one looks identical to a
+good cable.
 
 ## When nothing prints
 
