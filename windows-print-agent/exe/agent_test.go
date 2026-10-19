@@ -103,3 +103,28 @@ func TestSendToRejectsUnknownTarget(t *testing.T) {
 		t.Fatal("usb: is not something this agent can drive, and must say so")
 	}
 }
+
+// A store runs one agent for every printer in it, so the serial must stay
+// pinned to the printer rather than to its position in the list. Deriving it
+// from the index meant removing the till printer silently re-pointed every
+// kitchen printer at the row above it in Admin.
+func TestSerialStaysWithThePrinter(t *testing.T) {
+	cfg := &config{Printers: []printerCfg{
+		{Label: "Till", SN: "agent:win-pos2-0"},
+		{Label: "Kitchen", SN: "agent:win-pos2-1"},
+		{Label: "Bar", SN: "agent:win-pos2-2"},
+	}}
+	// Drop the first; the other two must keep their own serials.
+	cfg.Printers = cfg.Printers[1:]
+	if got := serialOf(cfg, "pos2", 0); got != "agent:win-pos2-1" {
+		t.Errorf("Kitchen became %s", got)
+	}
+	if got := serialOf(cfg, "pos2", 1); got != "agent:win-pos2-2" {
+		t.Errorf("Bar became %s", got)
+	}
+	// An older config with no pinned serial still falls back to the index.
+	old := &config{Printers: []printerCfg{{Label: "Till"}}}
+	if got := serialOf(old, "pos2", 0); got != "agent:win-pos2-0" {
+		t.Errorf("fallback broke: %s", got)
+	}
+}

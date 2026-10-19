@@ -47,7 +47,12 @@ const (
 // ---------------------------------------------------------------- config
 
 type printerCfg struct {
-	Label   string `json:"label"`
+	Label string `json:"label"`
+	// Pinned once, rather than derived from the position in the list every
+	// time. Deriving it meant that removing one printer silently re-pointed
+	// every printer after it at a different row in Admin, taking its station,
+	// settings and history with it.
+	SN      string `json:"sn,omitempty"`
 	Station string `json:"station"`
 	Target  string `json:"target"` // "win:<queue>" or "tcp:<ip>:<port>"
 	Paper   int    `json:"paper"`
@@ -378,89 +383,31 @@ func runSetup() error {
 	}
 	cfg.Store = chosen
 
-	// USB printers come first, and are offered by name rather than by queue,
-	// because this route needs nothing installed at all: no queue, no driver,
-	// no administrator. The spooler route below is the fallback now, not the
-	// other way round - on Windows 11 it cannot even be set up, since the
-	// Generic / Text Only driver is gone and the class drivers that replaced
-	// it refuse a RAW queue.
-	usbs, _ := ListUSBPrinters()
-	fmt.Println()
-	if len(usbs) > 0 {
-		fmt.Println("USB printers attached to this machine:")
-		for i, u := range usbs {
-			fmt.Printf("  %2d. %s\n", i+1, u.Name)
-		}
-		fmt.Println("       (these need no queue, no driver and no administrator)")
+	// One agent drives every printer in the store - a till printer on the
+	// cable, kitchen printers over the network - which is the whole point of
+	// it running on the till rather than in a browser tab. Setup used to
+	// configure exactly one and overwrite whatever was there.
+	for {
 		fmt.Println()
-	}
-	queues, _ := listQueues()
-	if len(queues) == 0 {
-		fmt.Println("Windows print queues on this machine: none")
-	} else {
-		fmt.Println("Windows print queues on this machine:")
-		for i, q := range queues {
-			fmt.Printf("  %2d. %s\n", i+1, q)
+		if len(cfg.Printers) > 0 {
+			fmt.Println("Printers set up so far:")
+			for i, p := range cfg.Printers {
+				fmt.Printf("  %2d. %-22s %s\n", i+1, p.Label, p.Target)
+			}
+			fmt.Println()
+			if strings.ToLower(ask("Add another printer? (y/n)", "n")) != "y" {
+				break
+			}
 		}
-	}
-	// Windows does not give a thermal printer a queue by itself: it turns up
-	// as a USB device with no driver and sits there. Without a queue the
-	// spooler has nothing to accept bytes for, which is the whole reason
-	// nothing has ever printed at Al Zahia. Sending someone to the Add
-	// Printer wizard for this is handing back the problem the exe exists to
-	// take away.
-	fmt.Println()
-	fmt.Println("  new.  create a Windows queue for a printer on a USB cable")
-	fmt.Println()
-	def := ""
-	if len(cfg.Printers) > 0 {
-		def = cfg.Printers[0].Target
-	}
-	if def == "" && len(usbs) > 0 {
-		def = "u1"
-	}
-	prompt := "Which printer"
-	if len(usbs) > 0 {
-		prompt += " (u1, u2... for a USB printer above)"
-	}
-	target := ask(prompt+" (number for a queue, 'new', or tcp:<ip>:9100)", def)
-	if strings.HasPrefix(strings.ToLower(target), "u") {
-		var n int
-		if _, perr := fmt.Sscanf(strings.ToLower(target), "u%d", &n); perr == nil && n >= 1 && n <= len(usbs) {
-			target = "usbdev:" + usbs[n-1].Name
+		pc, perr := askPrinter(cfg, len(cfg.Printers))
+		if perr != nil {
+			return perr
 		}
-	}
-	for i, q := range queues {
-		if fmt.Sprint(i+1) == target {
-			target = q
-		}
-	}
-	if strings.EqualFold(target, "new") {
-		made, nerr := createQueueInteractive()
-		if nerr != nil {
-			return nerr
-		}
-		target = made
-	}
-	if !strings.HasPrefix(target, "tcp:") && !strings.HasPrefix(target, "win:") && !strings.HasPrefix(target, "usbdev:") {
-		target = "win:" + target
+		cfg.Printers = append(cfg.Printers, pc)
 	}
 
-	label := "Till printer"
-	station := "kitchen"
-	paper := 80
-	if len(cfg.Printers) > 0 {
-		label, station = cfg.Printers[0].Label, cfg.Printers[0].Station
-		if cfg.Printers[0].Paper > 0 {
-			paper = cfg.Printers[0].Paper
-		}
-	}
-	label = ask("What should it be called in Admin", label)
-	station = ask("Station (kitchen or counter)", station)
-	cfg.Printers = []printerCfg{{Label: label, Station: station, Target: target, Paper: paper}}
-
 	fmt.Println()
-	fmt.Println("The store manager PIN is needed once, to register this printer.")
+	fmt.Println("The store manager PIN is needed once, to register these printers.")
 	cfg.ManagerPin = ask("Manager PIN", "")
 
 	if err := cfg.save(); err != nil {
@@ -522,7 +469,7 @@ func runCheck() int {
 
 	queues, _ := listQueues()
 	for i, p := range cfg.Printers {
-		sn := serialFor(host, i)
+		sn := serialOf(cfg, host, i)
 		fmt.Printf("\n  %s  ->  %s  (%s)\n", p.Label, sn, p.Target)
 
 		var found *regPrinter
@@ -634,15 +581,22 @@ func runAgent() error {
 	}
 	logf("Store: %s", cfg.Store)
 
+	// Held for the whole pass. Clearing it from the config after the first
+	// registration - which is where it was being cleared - would have left
+	// printers two onwards with no PIN to register with, so a store with a
+	// till printer and three kitchen printers would set up exactly one.
+	pin := strings.TrimSpace(cfg.ManagerPin)
+	registeredAny := false
+
 	serials := make([]string, len(cfg.Printers))
 	for i, p := range cfg.Printers {
-		sn := serialFor(host, i)
+		sn := serialOf(cfg, host, i)
 		serials[i] = sn
 		if cfg.isRegistered(sn) {
 			logf("%s -> %s (%s)", p.Label, sn, p.Target)
 			continue
 		}
-		if strings.TrimSpace(cfg.ManagerPin) == "" {
+		if pin == "" {
 			return fmt.Errorf("%s is not registered yet, and there is no manager PIN in the config. Run with -setup", sn)
 		}
 		paper := p.Paper
@@ -656,7 +610,7 @@ func runAgent() error {
 		}
 		err := a.call("device_printer_register", map[string]any{
 			"location_id": storeID, "sn": sn, "label": p.Label,
-			"station": p.Station, "manager_pin": cfg.ManagerPin,
+			"station": p.Station, "manager_pin": pin,
 			"model": p.Target, "paper_mm": paper,
 		}, &res)
 		if err != nil {
@@ -667,11 +621,21 @@ func runAgent() error {
 		}
 		logf("Registered %s as %s", p.Label, sn)
 		cfg.Registered = append(cfg.Registered, sn)
-		// The PIN has done its one job. Drop it rather than leave a credential
-		// in a file on a shop floor.
-		cfg.ManagerPin = ""
+		cfg.Printers[i].SN = sn
+		registeredAny = true
 		if err := cfg.save(); err != nil {
 			logf("warning: could not save the config: %v", err)
+		}
+	}
+
+	// Now that every printer is registered the PIN has done its one job, so
+	// drop it rather than leave a credential in a file on a shop floor.
+	if registeredAny && cfg.ManagerPin != "" {
+		cfg.ManagerPin = ""
+		if err := cfg.save(); err != nil {
+			logf("warning: could not clear the PIN from the config: %v", err)
+		} else {
+			logf("Manager PIN removed from the config file - it is not needed again.")
 		}
 	}
 
@@ -833,4 +797,115 @@ func createQueueInteractive() (string, error) {
 	}
 	fmt.Printf("Created the Windows queue %q on %s, Generic / Text Only.\n", name, port)
 	return name, nil
+}
+
+// askPrinter collects one printer. The USB route is offered first because it
+// needs nothing installed at all - no queue, no driver, no administrator -
+// and on Windows 11 the spooler route often cannot be set up at all, the
+// Generic / Text Only driver having been dropped and the v4 class drivers
+// that replaced it refusing a RAW queue.
+func askPrinter(cfg *config, index int) (printerCfg, error) {
+	usbs, _ := ListUSBPrinters()
+	fmt.Println()
+	if len(usbs) > 0 {
+		fmt.Println("USB printers attached to this machine:")
+		for i, u := range usbs {
+			fmt.Printf("  %2d. %s\n", i+1, u.Name)
+		}
+		fmt.Println("       (these need no queue, no driver and no administrator)")
+		fmt.Println()
+	}
+	queues, _ := listQueues()
+	if len(queues) == 0 {
+		fmt.Println("Windows print queues on this machine: none")
+	} else {
+		fmt.Println("Windows print queues on this machine:")
+		for i, q := range queues {
+			fmt.Printf("  %2d. %s\n", i+1, q)
+		}
+	}
+	fmt.Println()
+	fmt.Println("  new.  create a Windows queue for a printer on a USB cable")
+	fmt.Println("  Or type a network printer as tcp:<ip>:9100 - kitchen printers on")
+	fmt.Println("  ethernet need nothing installed either.")
+	fmt.Println()
+
+	def := ""
+	if index == 0 && len(usbs) > 0 {
+		def = "u1"
+	}
+	prompt := "Which printer"
+	if len(usbs) > 0 {
+		prompt += " (u1, u2... for a USB printer above)"
+	}
+	target := ask(prompt+" (number for a queue, 'new', or tcp:<ip>:9100)", def)
+	if strings.HasPrefix(strings.ToLower(target), "u") {
+		var n int
+		if _, perr := fmt.Sscanf(strings.ToLower(target), "u%d", &n); perr == nil && n >= 1 && n <= len(usbs) {
+			target = "usbdev:" + usbs[n-1].Name
+		}
+	}
+	for i, q := range queues {
+		if fmt.Sprint(i+1) == target {
+			target = q
+		}
+	}
+	if strings.EqualFold(target, "new") {
+		made, nerr := createQueueInteractive()
+		if nerr != nil {
+			return printerCfg{}, nerr
+		}
+		target = made
+	}
+	if !strings.HasPrefix(target, "tcp:") && !strings.HasPrefix(target, "win:") && !strings.HasPrefix(target, "usbdev:") {
+		target = "win:" + target
+	}
+
+	// A network printer that cannot be reached is worth saying so about now,
+	// not when a customer is waiting for a ticket. Wifi that isolates clients
+	// from each other is the usual reason, and it looks exactly like a wrong
+	// address.
+	if strings.HasPrefix(target, "tcp:") {
+		if err := probeTCP(target); err != nil {
+			fmt.Println()
+			fmt.Println("  Warning:", err)
+			fmt.Println("  Saving it anyway - but it will not print until that is sorted.")
+		} else {
+			fmt.Println("  Reached it.")
+		}
+	}
+
+	defLabel := "Till printer"
+	if index > 0 {
+		defLabel = fmt.Sprintf("Kitchen printer %d", index)
+	}
+	label := ask("What should it be called in Admin", defLabel)
+	station := ask("Station (kitchen or counter)", "kitchen")
+
+	host, _ := os.Hostname()
+	return printerCfg{Label: label, Station: station, Target: target, Paper: 80,
+		SN: serialFor(host, index)}, nil
+}
+
+func probeTCP(target string) error {
+	addr := strings.TrimPrefix(target, "tcp:")
+	if !strings.Contains(addr, ":") {
+		addr += ":9100"
+	}
+	c, err := net.DialTimeout("tcp", addr, 4*time.Second)
+	if err != nil {
+		return fmt.Errorf("could not reach %s - wrong address, or the wifi blocks device to device traffic", addr)
+	}
+	c.Close()
+	return nil
+}
+
+// serialOf prefers the serial pinned in the config over one derived from the
+// printer's position, so the list can be reordered or trimmed without a
+// printer quietly becoming a different printer in Admin.
+func serialOf(cfg *config, host string, i int) string {
+	if cfg.Printers[i].SN != "" {
+		return cfg.Printers[i].SN
+	}
+	return serialFor(host, i)
 }

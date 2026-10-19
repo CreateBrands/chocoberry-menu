@@ -38,12 +38,23 @@ To start with the machine, put a shortcut to the exe in `shell:startup`.
 SmartScreen says "Windows protected your PC" - choose **More info**, then
 **Run anyway**. Defender may also want a moment to scan it.
 
+## One till, every printer
+
+One copy on the till drives the lot - the printer on its cable and the kitchen
+printers over the network - which is the point of it running on the till
+rather than in a browser tab. Setup keeps asking "add another printer?" until
+you say no, and the running agent polls for all of them.
+
+A store with a till printer and three kitchen printers needs one copy of this,
+not four, and nothing installed on any of the kitchen printers.
+
 ## What it drives
 
 | Target | Printer |
 | --- | --- |
+| `usbdev:<name>` | A printer on a USB cable, written to directly. No queue, no driver, no administrator - Windows binds usbprint.sys to it on plug-in and this writes through that. The first thing to try. |
 | `win:<queue name>` | A printer installed in Windows. Use the **Generic / Text Only** driver - it passes bytes through untouched, which is what ESC/POS needs. A vendor driver tries to render pages and prints gibberish. |
-| `tcp:<ip>:9100` | A network printer, spoken to directly. Nothing installed, and several systems can print to it at once. |
+| `tcp:<ip>:9100` | A network printer, spoken to directly. Nothing installed, and several systems can print to it at once. Setup tries the address as you enter it and says if it cannot be reached - wifi that isolates clients from each other looks exactly like a wrong address. |
 
 Windows does **not** give a thermal printer a queue by itself. It appears as a
 USB device with no driver and sits there, and without a queue the spooler has
