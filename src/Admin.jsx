@@ -578,6 +578,240 @@ function QrScanField({ onDetect, onClose }) {
   );
 }
 
+// DEVICES. Every KDS screen, till, handheld and kiosk is a licensed device:
+// created here with a one-time code, activated once on the hardware, revocable
+// at any time.
+//
+// This was one flat column of identical cards, each carrying an 88px tile, a
+// five-part status line and four equally-weighted buttons — two of which were
+// destructive. Eight devices of four different kinds read as eight of the same
+// thing, and the one that mattered (a kiosk offline for ten days) looked
+// exactly like the seven that were fine.
+function DevicesPanel({ loc, state, act, pin, setMsg }) {
+  const [open, setOpen] = useState({});
+  const [draftName, setDraftName] = useState({});
+
+  const devices = (state.kdsScreens || [])
+    .filter((k) => k.location_id === loc.id)
+    .sort((a, b) => String(a.label || a.screen_key).localeCompare(String(b.label || b.screen_key), undefined, { numeric: true, sensitivity: "base" }));
+
+  const ago = (iso) => { if (!iso) return "never"; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 2 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
+  const dur = (iso) => ago(iso).replace(/ ago$/, "");
+  const online = (k) => !!(k.last_seen_at && Date.now() - new Date(k.last_seen_at) < 3 * 60000);
+  const statusOf = (k) => k.status || (k.device_secret_hash ? "active" : "unassigned");
+  const nameOf = (k) => k.label || "Screen " + k.screen_key;
+
+  // The order devices are listed in is the order they matter: what takes money
+  // first, then what the kitchen reads, then the machines that run themselves.
+  const KINDS = [
+    { key: "pos", label: "Tills" },
+    { key: "kds+pos", label: "Kitchen + till" },
+    { key: "kds", label: "Kitchen screens" },
+    { key: "kiosk", label: "Self-service kiosks" },
+  ];
+  const KIND_OPTIONS = [["kds", "Kitchen screen"], ["pos", "Till"], ["kds+pos", "Kitchen + till"], ["kiosk", "Self-service kiosk"]];
+
+  // A device still holding an unused code is a job waiting to be done, not a
+  // device. It gets its own section at the top with the QR and the code large,
+  // because that is the only thing anyone opens this page to do with it.
+  const pending = devices.filter((k) => statusOf(k) === "unassigned");
+  const placed = devices.filter((k) => statusOf(k) !== "unassigned");
+  const groups = KINDS
+    .map((g) => ({ ...g, rows: placed.filter((k) => (k.kind || "kds") === g.key) }))
+    .filter((g) => g.rows.length);
+  const stray = placed.filter((k) => !KINDS.some((g) => g.key === (k.kind || "kds")));
+  if (stray.length) groups.push({ key: "other", label: "Other devices", rows: stray });
+
+  const offline = placed.filter((k) => statusOf(k) === "active" && !online(k)).length;
+  const revoked = placed.filter((k) => statusOf(k) === "revoked").length;
+
+  const commitName = async (k) => {
+    const v = draftName[k.screen_key];
+    setDraftName((d) => { const n = { ...d }; delete n[k.screen_key]; return n; });
+    if (v === undefined || String(v).trim() === String(k.label || "")) return;
+    await act("device_set_kind", { location_id: loc.id, screen_key: k.screen_key, label: String(v).trim() });
+  };
+
+  const lab = { fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", color: T.faint, marginBottom: 5, textTransform: "uppercase" };
+  const sel = { width: "100%", fontSize: 13, padding: "8px 9px", borderRadius: 9, border: "1px solid " + T.line, background: T.bg, color: T.ink };
+  const btn = { fontSize: 12.5, fontWeight: 600, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 11px", cursor: "pointer" };
+  const chip = (text, tip) => <span key={text} title={tip} style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#F1EFE8", color: "#5F5E5A", whiteSpace: "nowrap" }}>{text}</span>;
+
+  return (
+    <div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 9, flexWrap: "wrap", marginBottom: 5 }}>
+        <span style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase" }}>Devices</span>
+        <span style={{ fontSize: 12, color: T.faint }}>
+          {placed.length} activated{offline ? " · " + offline + " offline" : ""}{revoked ? " · " + revoked + " revoked" : ""}{pending.length ? " · " + pending.length + " waiting" : ""}
+        </span>
+      </div>
+      <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 12, lineHeight: 1.5 }}>
+        Create a device, then on that screen open <b>{window.location.origin}/activate</b> and enter its code, or scan its QR. A code works once. <b>Revoke</b> locks a device out and keeps its settings; <b>Replace</b> moves the licence to new hardware.
+      </div>
+
+      {/* WAITING TO BE ACTIVATED */}
+      {!!pending.length && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 9, padding: "0 2px 7px" }}>
+            <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14.5, color: "#A3651F" }}>Waiting to be activated</span>
+            <span style={{ fontSize: 12, color: T.faint }}>{pending.length} device{pending.length === 1 ? "" : "s"}</span>
+          </div>
+          {pending.map((k) => {
+            const actUrl = window.location.origin + "/activate?code=" + encodeURIComponent(k.licence_code || "");
+            const qr = "https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(actUrl);
+            return (
+              <div key={k.screen_key} style={{ display: "flex", alignItems: "center", gap: 14, padding: 14, border: "1px solid #EBD9B8", background: "#FBF2E2", borderRadius: 12, marginBottom: 8, flexWrap: "wrap" }}>
+                {k.licence_code && <img src={qr} alt="Activation QR" width={92} height={92} style={{ borderRadius: 8, background: "#fff", flexShrink: 0 }} />}
+                <div style={{ flex: "1 1 220px", minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, color: T.ink, fontSize: 14.5 }}>{nameOf(k)}</div>
+                  <div style={{ fontSize: 11.5, color: "#8a5a2c", margin: "2px 0 7px" }}>
+                    {(KIND_OPTIONS.find(([v]) => v === (k.kind || "kds")) || [, "Device"])[1]} · not activated yet
+                  </div>
+                  <div style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 800, color: T.ink, letterSpacing: ".1em", fontSize: 19, userSelect: "all" }}>{k.licence_code || "—"}</div>
+                </div>
+                <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+                  {k.licence_code && <button onClick={() => navigator.clipboard?.writeText(k.licence_code)} style={{ ...btn, color: T.accent }}>Copy code</button>}
+                  {k.licence_code && <button onClick={() => navigator.clipboard?.writeText(actUrl)} style={{ ...btn, color: T.accent }}>Copy link</button>}
+                  <button onClick={() => { if (window.confirm("Remove " + nameOf(k) + " entirely? Its code stops working.")) act("kds_screen_remove", { location_id: loc.id, screen_key: k.screen_key }); }} style={{ ...btn, color: T.danger }}>Remove</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* ACTIVATED, BY TYPE */}
+      {groups.map((g) => {
+        const off = g.rows.filter((k) => statusOf(k) === "active" && !online(k)).length;
+        return (
+          <div key={g.key} style={{ marginBottom: 16 }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 9, padding: "0 2px 7px", flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14.5, color: T.ink }}>{g.label}</span>
+              <span style={{ fontSize: 12, color: T.faint }}>{g.rows.length}</span>
+              {off > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: "#8a6a1c" }}>{off} offline</span>}
+            </div>
+            <div style={{ background: T.card, borderRadius: 14, border: "1px solid " + T.line, overflow: "hidden" }}>
+              {g.rows.map((k, idx) => {
+                const st = statusOf(k);
+                const up = online(k);
+                const dot = st === "revoked" ? T.danger : st === "active" ? (up ? "#2e8b4e" : "#d79b2c") : "#9a9381";
+                const limited = !!(k.routing && (k.routing.menus?.length || k.routing.categories?.length || k.routing.items?.length));
+                const printerName = (state.printers || []).find((p) => p.sn === k.printer_sn);
+                return (
+                  <div key={k.screen_key} style={{ borderTop: idx ? "1px solid " + T.line : "none", background: open[k.screen_key] ? "rgba(94,122,77,.035)" : "transparent" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 16px", flexWrap: "wrap", opacity: st === "revoked" ? .62 : 1 }}>
+                      <span style={{ flex: "0 0 auto", width: 9, height: 9, borderRadius: 5, background: dot }} />
+                      <div onClick={() => setOpen((o) => ({ ...o, [k.screen_key]: !o[k.screen_key] }))} title={"Device key " + k.screen_key}
+                        style={{ minWidth: 140, flex: "1 1 180px", cursor: "pointer" }}>
+                        <div style={{ fontWeight: 700, color: T.ink, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nameOf(k)}</div>
+                        <div style={{ fontSize: 11.5, color: T.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {st === "revoked"
+                            ? <span style={{ color: T.danger }}>Revoked {k.revoked_at ? ago(k.revoked_at) : ""} — locked out</span>
+                            : <>
+                                <span style={{ color: up ? "#2e8b4e" : "#8a6a1c", fontWeight: 700 }}>{up ? "Online" : "Offline"}</span>
+                                {" · "}{up ? "seen " + ago(k.last_seen_at) : "not seen for " + dur(k.last_seen_at)}
+                              </>}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                        {/* "pass", "coffee", "kitchen" appeared as bare words in
+                            a run of dots with nothing to say they were station
+                            names, and "filtered" said a menu was restricted
+                            without saying so. */}
+                        {k.station && chip(String(k.station).toUpperCase(), "This device's station")}
+                        {limited && chip("LIMITED MENU", "This device is set to show only some menus, categories or items")}
+                      </div>
+                      <div style={{ display: "flex", gap: 7, marginLeft: "auto", flex: "0 0 auto" }}>
+                        {st === "active" && <button onClick={() => act("device_reload", { location_id: loc.id, screen_key: k.screen_key })} title="The screen reloads on its next heartbeat, under a minute" style={{ ...btn, color: T.accent, fontSize: 13 }}>Reload</button>}
+                        <button onClick={() => setOpen((o) => ({ ...o, [k.screen_key]: !o[k.screen_key] }))}
+                          style={{ ...btn, background: open[k.screen_key] ? T.bg : "none" }}>{open[k.screen_key] ? "Done" : "Settings"}</button>
+                      </div>
+                    </div>
+
+                    {open[k.screen_key] && (
+                      <div style={{ display: "grid", gap: 12, background: T.bg, border: "1px solid " + T.line, borderRadius: 12, margin: "0 16px 14px", padding: 14 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+                          <div>
+                            <div style={lab}>Name</div>
+                            <input value={draftName[k.screen_key] ?? (k.label || "")} placeholder={"Screen " + k.screen_key}
+                              onChange={(e) => setDraftName((d) => ({ ...d, [k.screen_key]: e.target.value }))}
+                              onBlur={() => commitName(k)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
+                                if (e.key === "Escape") setDraftName((d) => { const n = { ...d }; delete n[k.screen_key]; return n; });
+                              }}
+                              style={{ ...sel, fontWeight: 600 }} />
+                          </div>
+                          <div>
+                            <div style={lab}>Type</div>
+                            <select value={k.kind || "kds"} onChange={(e) => act("device_set_kind", { location_id: loc.id, screen_key: k.screen_key, kind: e.target.value })} style={sel}>
+                              {KIND_OPTIONS.map(([v, t]) => <option key={v} value={v}>{t}</option>)}
+                            </select>
+                          </div>
+                          <div>
+                            <div style={lab}>Prints to</div>
+                            <select value={k.printer_sn || ""} onChange={(e) => act("set_kds_printer", { location_id: loc.id, screen_key: k.screen_key, label: k.label || null, printer_sn: e.target.value || null })} style={sel}>
+                              <option value="">All printers</option>
+                              {(state.printers || []).filter((p) => p.location_id === loc.id && p.active).map((p) => <option key={p.sn} value={p.sn}>Only {p.label || p.sn}</option>)}
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Provenance. Useful when something is wrong and noise
+                            every other minute of the year, so it reads as one
+                            quiet line rather than four facts in the status. */}
+                        <div style={{ fontSize: 11.5, color: T.faint, lineHeight: 1.5 }}>
+                          Device key <span style={{ fontFamily: "monospace", color: T.muted, userSelect: "all" }}>{k.screen_key}</span>
+                          {k.activated_at ? " · activated " + new Date(k.activated_at).toLocaleDateString("en-GB") : ""}
+                          {k.activated_by === "legacy" ? " (migrated)" : ""}
+                          {k.app_version ? " · app v" + k.app_version : ""}
+                          {k.fingerprint ? " · " + String(k.fingerprint).split(" | ")[0] : ""}
+                          {k.printer_sn && !printerName ? " · printer " + k.printer_sn + " is no longer registered" : ""}
+                        </div>
+
+                        {/* Revoke and Remove were sitting in the same row as
+                            Reload screen, at the same weight. They are kept
+                            apart now, below a rule, inside a drawer you have
+                            to open on purpose. */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", borderTop: "1px solid " + T.line, paddingTop: 11 }}>
+                          <button onClick={() => { if (window.confirm("Issue a new code for " + nameOf(k) + "? The current hardware is logged out; settings and history are kept.")) act("device_replace", { location_id: loc.id, screen_key: k.screen_key }); }} style={btn}>Replace / new code</button>
+                          {st === "active" && <button onClick={() => { if (window.confirm("Revoke " + nameOf(k) + "? It will lock within a minute. Its settings are kept.")) act("device_revoke", { location_id: loc.id, screen_key: k.screen_key }); }} style={{ ...btn, color: T.danger, border: "1px solid rgba(178,59,59,.3)" }}>Revoke</button>}
+                          <span style={{ flex: 1 }} />
+                          <button onClick={() => { if (window.confirm("Remove " + nameOf(k) + " entirely? Use Revoke if you may want it back.")) act("kds_screen_remove", { location_id: loc.id, screen_key: k.screen_key }); }} style={{ ...btn, color: T.danger, border: "1px solid rgba(178,59,59,.3)" }}>Remove</button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+
+      {!devices.length && <div style={{ fontSize: 12.5, color: T.muted, background: T.card, border: "1px solid " + T.line, borderRadius: 12, padding: 18, marginBottom: 12 }}>No devices yet. Add one below, then activate it on the screen itself.</div>}
+
+      {/* Adding a device and wiping the print queue are not the same kind of
+          act, and they used to sit in one row with the destructive one in the
+          middle because it carried marginLeft:auto. */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 6 }}>
+        <span style={{ fontSize: 11.5, color: T.faint, fontWeight: 600, marginRight: 2 }}>Add</span>
+        {KIND_OPTIONS.map(([v, t]) => (
+          <button key={v} onClick={() => act("device_create", { location_id: loc.id, kind: v })}
+            style={{ fontSize: 12.5, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ {t}</button>
+        ))}
+      </div>
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid " + T.line, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 11.5, color: T.faint, flex: 1, minWidth: 220, lineHeight: 1.45 }}>
+          Drops every pending job on this store's printers and marks open orders printed. For when a queue has backed up behind a dead printer.
+        </span>
+        <button onClick={async () => { if (!window.confirm("Clear " + loc.name + "'s print queue? Pending jobs on its printers are dropped and open orders stop being re-pushed.")) return; const r = await callAdmin(pin, "clear_print_queue", { location_id: loc.id }); setMsg(r && r.ok ? "Print queue cleared · " + (r.orders_marked || 0) + " orders marked printed" : "Could not clear the queue"); }}
+          style={{ fontSize: 12.5, color: T.danger, background: "none", border: "1px solid rgba(178,59,59,.3)", borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>Clear print queue</button>
+      </div>
+    </div>
+  );
+}
+
 function PrintersModal({ pin, locations, onClose }) {
   const [printers, setPrinters] = useState(null);
   const [msg, setMsg] = useState("");
@@ -2594,76 +2828,7 @@ export default function Admin() {
                       )}
 
                       {/* KITCHEN TAB */}
-                      {storeTab === "kitchen" && (() => {
-                        // DEVICES. Every KDS screen and till is a licensed
-                        // device: created here with a one-time code, activated
-                        // once on the hardware, revocable at any time.
-                        const devices = (state.kdsScreens || [])
-                          .filter((k) => k.location_id === loc.id)
-                          .sort((a, b) => String(a.screen_key).localeCompare(String(b.screen_key), undefined, { numeric: true }));
-                        const KIND = { kds: ["🍳", "Kitchen screen"], pos: ["🧾", "Till"], "kds+pos": ["🍳🧾", "Kitchen + till"], kiosk: ["🖥️", "Self-service kiosk"] };
-                        const ago = (iso) => { if (!iso) return "never"; const m = Math.round((Date.now() - new Date(iso)) / 60000); return m < 2 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago"; };
-                        const online = (k) => k.last_seen_at && Date.now() - new Date(k.last_seen_at) < 3 * 60000;
-                        return (
-                          <div>
-                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Devices · kitchen screens and tills</div>
-                            <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 11 }}>Create a device, then on that screen open <b>{window.location.origin}/activate</b> and enter its code (or scan the QR). A code works once. Revoke to lock a device out; Replace to move the licence to new hardware.</div>
-                            {devices.map((k) => {
-                              const [icon, kindLabel] = KIND[k.kind || "kds"] || KIND.kds;
-                              const st = k.status || (k.device_secret_hash ? "active" : "unassigned");
-                              const actUrl = window.location.origin + "/activate?code=" + encodeURIComponent(k.licence_code || "");
-                              const qr = "https://api.qrserver.com/v1/create-qr-code/?size=600x600&margin=8&data=" + encodeURIComponent(actUrl);
-                              const dot = st === "active" ? (online(k) ? "#2e8b4e" : "#d79b2c") : st === "revoked" ? "#b4462f" : "#9a9381";
-                              const routing = k.routing && (k.routing.menus?.length || k.routing.categories?.length || k.routing.items?.length);
-                              return (
-                                <div key={k.screen_key} style={{ display: "flex", alignItems: "flex-start", gap: 14, padding: 14, border: "1px solid " + T.line, borderRadius: 12, background: T.card, marginBottom: 10 }}>
-                                  {st === "unassigned" && k.licence_code
-                                    ? <img src={qr} alt="Activation QR" width={88} height={88} style={{ borderRadius: 8, background: "#fff", flexShrink: 0 }} />
-                                    : <div style={{ width: 88, height: 88, borderRadius: 12, background: T.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 30, flexShrink: 0 }}>{icon}</div>}
-                                  <div style={{ flex: 1, minWidth: 0 }}>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
-                                      <span style={{ width: 9, height: 9, borderRadius: "50%", background: dot, flexShrink: 0 }} />
-                                      <input defaultValue={k.label || ""} placeholder={"Screen " + k.screen_key} onBlur={(e) => { if ((e.target.value || "") !== (k.label || "")) act("device_set_kind", { location_id: loc.id, screen_key: k.screen_key, label: e.target.value }); }} style={{ fontSize: 13.5, fontWeight: 700, color: T.ink, border: "1px solid transparent", background: "transparent", borderRadius: 6, padding: "2px 6px", minWidth: 120 }} />
-                                      <select value={k.kind || "kds"} onChange={(e) => act("device_set_kind", { location_id: loc.id, screen_key: k.screen_key, kind: e.target.value })} style={{ fontSize: 11.5, fontWeight: 600, border: "1px solid " + T.line, borderRadius: 8, padding: "4px 8px", background: T.bg, color: T.ink }}>
-                                        <option value="kds">Kitchen screen</option><option value="pos">Till</option><option value="kds+pos">Kitchen + till</option><option value="kiosk">Self-service kiosk</option>
-                                      </select>
-                                      <span style={{ fontSize: 11, color: T.faint }}>· id {k.screen_key}{k.station ? " · " + k.station : ""}{routing ? " · filtered" : ""}</span>
-                                    </div>
-                                    <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 8 }}>
-                                      {st === "active" ? <><b style={{ color: online(k) ? "#2e8b4e" : "#8a6a1c" }}>{online(k) ? "Online" : "Offline"}</b> · last seen {ago(k.last_seen_at)} · activated {k.activated_at ? new Date(k.activated_at).toLocaleDateString("en-GB") : "—"}{k.activated_by === "legacy" ? " (migrated)" : ""}{k.app_version ? " · v" + k.app_version : ""}{k.fingerprint ? " · " + String(k.fingerprint).split(" | ")[0] : ""}</>
-                                        : st === "revoked" ? <b style={{ color: T.danger }}>Revoked {k.revoked_at ? ago(k.revoked_at) : ""} · the device is locked out</b>
-                                        : <span><b>Not activated yet</b> · code <span style={{ fontFamily: "ui-monospace, Menlo, monospace", fontWeight: 800, color: T.ink, letterSpacing: ".06em", fontSize: 13 }}>{k.licence_code || "—"}</span></span>}
-                                    </div>
-                                    <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 8 }}>
-                                      <span style={{ fontSize: 11.5, color: T.faint }}>Prints to</span>
-                                      <select value={k.printer_sn || ""} onChange={(e) => act("set_kds_printer", { location_id: loc.id, screen_key: k.screen_key, label: k.label || null, printer_sn: e.target.value || null })} style={{ fontSize: 11.5, fontWeight: 600, border: "1px solid " + T.line, borderRadius: 8, padding: "5px 8px", background: T.bg, color: T.ink }}>
-                                        <option value="">Every printer (none set)</option>
-                                        {(state.printers || []).filter((p) => p.location_id === loc.id && p.active).map((p) => <option key={p.sn} value={p.sn}>{p.label}</option>)}
-                                      </select>
-                                    </div>
-                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                      {st === "unassigned" && k.licence_code && <span onClick={() => navigator.clipboard?.writeText(k.licence_code)} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Copy code</span>}
-                                      {st === "unassigned" && k.licence_code && <span onClick={() => navigator.clipboard?.writeText(actUrl)} style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Copy activation link</span>}
-                                      {st === "active" && <span onClick={() => act("device_reload", { location_id: loc.id, screen_key: k.screen_key })} title="The screen reloads on its next heartbeat (under a minute)" style={{ fontSize: 11.5, color: T.accent, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Reload screen</span>}
-                                      {st === "active" && <span onClick={() => { if (window.confirm("Revoke " + (k.label || "device " + k.screen_key) + "? It will lock within a minute. Its settings are kept.")) act("device_revoke", { location_id: loc.id, screen_key: k.screen_key }); }} style={{ fontSize: 11.5, color: T.danger, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Revoke</span>}
-                                      {st !== "unassigned" && <span onClick={() => { if (window.confirm("Issue a new code for " + (k.label || "device " + k.screen_key) + "? The current hardware is logged out; settings and history are kept.")) act("device_replace", { location_id: loc.id, screen_key: k.screen_key }); }} style={{ fontSize: 11.5, color: T.muted, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line }}>Replace / new code</span>}
-                                      <span onClick={() => { if (window.confirm("Remove " + (k.label || "device " + k.screen_key) + " entirely? Use Revoke if you may want it back.")) act("kds_screen_remove", { location_id: loc.id, screen_key: k.screen_key }); }} style={{ fontSize: 11.5, color: T.danger, fontWeight: 600, cursor: "pointer", padding: "6px 11px", borderRadius: 8, background: T.bg, border: "1px solid " + T.line, marginLeft: "auto" }}>Remove</span>
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                            {!devices.length && <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 8 }}>No devices yet.</div>}
-                            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                              <button onClick={() => act("device_create", { location_id: loc.id, kind: "kds" })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kitchen screen</button>
-                              <button onClick={() => act("device_create", { location_id: loc.id, kind: "pos" })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Till</button>
-                              <button onClick={async () => { if (!window.confirm("Clear " + loc.name + "'s print queue? Pending jobs on its printers are dropped and open orders stop being re-pushed.")) return; const r = await callAdmin(pin, "clear_print_queue", { location_id: loc.id }); setMsg(r && r.ok ? "Print queue cleared · " + (r.orders_marked || 0) + " orders marked printed" : "Could not clear the queue"); }} style={{ fontSize: 12.5, color: T.danger, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px", marginLeft: "auto" }}>🧹 Clear print queue</button>
-                              <button onClick={() => act("device_create", { location_id: loc.id, kind: "kiosk" })} style={{ fontSize: 12.5, color: T.muted, background: T.card, border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kiosk</button>
-                              <button onClick={() => act("device_create", { location_id: loc.id, kind: "kds+pos" })} style={{ fontSize: 12.5, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 9, cursor: "pointer", fontWeight: 700, padding: "8px 12px" }}>+ Kitchen + till</button>
-                            </div>
-                          </div>
-                        );
-                      })()}
+                      {storeTab === "kitchen" && <DevicesPanel loc={loc} state={state} act={act} pin={pin} setMsg={setMsg} />}
 
                       {storeTab === "branding" && (() => {
                         // Per-store branding. Each field writes "<key>:<location_id>";
