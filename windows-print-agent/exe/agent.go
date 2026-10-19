@@ -636,6 +636,19 @@ func runAgent() error {
 	if err != nil {
 		return err
 	}
+	// One printing agent per machine. A second one would collect the same
+	// jobs and print every ticket twice.
+	if !claimSoleAgent() {
+		fmt.Println()
+		fmt.Println("Another copy of the print agent is already running on this machine,")
+		fmt.Println("most likely the background one. Two would print every ticket twice,")
+		fmt.Println("so this one is stopping.")
+		fmt.Println()
+		fmt.Println("To see what the running one is doing, use -check.")
+		return nil
+	}
+	defer releaseSoleAgent()
+
 	logf("Store: %s", cfg.Store)
 
 	// Find the network printers before registering, so the first thing Admin
