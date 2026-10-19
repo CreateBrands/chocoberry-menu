@@ -39,6 +39,9 @@
 param(
   # Do a single pass and stop, instead of running continuously. For testing.
   [switch]$Once,
+  # Walk the whole chain and report what works, without printing or
+  # registering anything. Run this first when a till prints nothing.
+  [switch]$Check,
   # Seconds between polls when there is nothing to print.
   [int]$IdleSeconds = 3
 )
@@ -65,6 +68,18 @@ $Printers = @(
 # -----------------------------------------------------------------------
 
 $ErrorActionPreference = "Stop"
+
+# Anything fatal used to print one red line into a window that closes a moment
+# later, which is indistinguishable from the agent having run fine. Hold the
+# window open and point at the check that explains it.
+trap {
+  Write-Host ""
+  Write-Host ("Stopped: " + $_.Exception.Message) -ForegroundColor Red
+  Write-Host "Run it again with -Check to see which part of the setup is at fault." -ForegroundColor Yellow
+  Write-Host ""
+  if ($Host.Name -eq "ConsoleHost") { Read-Host "Press Enter to close" | Out-Null }
+  exit 1
+}
 
 # Windows PowerShell 5.1 still negotiates TLS 1.0 by default on some builds,
 # which Supabase refuses. Without this the agent fails with a bare "could not
@@ -115,8 +130,136 @@ function Get-StoreId([string]$name) {
   $rows = Invoke-RestMethod -Uri "$Base/rest/v1/menu_locations?select=id,name&active=eq.true" `
     -Headers $headers -TimeoutSec 30
   $hit = @($rows | Where-Object { $_.name -eq $name })
-  if ($hit.Count -eq 0) { throw "No active store called '$name'. Check the spelling against Admin." }
+  if ($hit.Count -eq 0) {
+    # Saying only "check the spelling" leaves you guessing at the spelling of
+    # something you cannot see. The names are right here, so print them.
+    $near = @($rows | Where-Object { $_.name -like "*$name*" -or $name -like "*$($_.name)*" })
+    $msg = "No active store called '$name'."
+    if ($near.Count -gt 0) { $msg += " Did you mean '" + $near[0].name + "'?" }
+    $msg += " Active stores: " + (($rows | ForEach-Object { "'" + $_.name + "'" }) -join ", ")
+    throw $msg
+  }
   return $hit[0].id
+}
+
+# A till that prints nothing can be failing at any of six places, and until now
+# the only way to find out which was to run the agent and read whichever single
+# exception came out first - in a window that closes. This walks the whole
+# chain, keeps going after a failure, and reports all of it at once.
+function Test-Setup {
+  $fail = 0
+  function Line([string]$label, [bool]$ok, [string]$detail) {
+    $mark = "  ok  "; $col = "Green"
+    if (-not $ok) { $mark = " FAIL "; $col = "Red" }
+    Write-Host ("[{0}] {1} {2}" -f $mark, $label, $detail) -ForegroundColor $col
+  }
+
+  Write-Host ""
+  Write-Host "Chocoberry print agent - setup check" -ForegroundColor Cyan
+  Write-Host ("Machine: {0}   Store in this file: '{1}'" -f $env:COMPUTERNAME, $StoreName)
+  Write-Host ""
+
+  $key = $null
+  try { $key = Get-AnonKey; Line "web app reachable, key read" $true "" }
+  catch { $fail++; Line "web app reachable, key read" $false $_.Exception.Message }
+
+  $storeId = $null
+  if ($key) {
+    try { $storeId = Get-StoreId $StoreName; Line "store found in Admin" $true $storeId }
+    catch { $fail++; Line "store found in Admin" $false $_.Exception.Message }
+  } else {
+    $fail++; Line "store found in Admin" $false "skipped - no key"
+  }
+
+  $admin = $false
+  if (Test-IsAdmin) { $admin = $true; Line "running as administrator" $true "" }
+  else { Line "running as administrator" $true "no - fine unless a queue has to be created" }
+
+  if ([string]::IsNullOrWhiteSpace($ManagerPin)) {
+    Line "manager PIN present" $true "blank - fine once the printers are registered"
+  } else {
+    Line "manager PIN present" $true "set"
+  }
+
+  $state = Read-State
+  $registered = @()
+  if ($state -and $state.registered) { $registered = @($state.registered) }
+
+  # What the server believes, rather than what this file remembers. The two
+  # disagreeing is exactly the case worth catching: a serial in the local state
+  # file that Admin has never heard of means registration silently did not take.
+  $known = @()
+  if ($key -and $storeId) {
+    try {
+      $headers = @{ apikey = $key; Authorization = "Bearer $key" }
+      $rows = Invoke-RestMethod -Uri "$Base/rest/v1/printers?select=sn,label,active&location_id=eq.$storeId" -Headers $headers -TimeoutSec 30
+      $known = @($rows)
+      Line "printers registered at this store" $true ("" + $known.Count + " - " + (($known | ForEach-Object { $_.sn }) -join ", "))
+    } catch { $fail++; Line "printers registered at this store" $false $_.Exception.Message }
+  }
+
+  for ($i = 0; $i -lt $Printers.Count; $i++) {
+    $p  = $Printers[$i]
+    $sn = Get-Serial $i
+    Write-Host ""
+    Write-Host ("  " + $p.Label + "  ->  " + $sn + "  (" + $p.Target + ")") -ForegroundColor Cyan
+
+    $seen = @($known | Where-Object { $_.sn -eq $sn })
+    if ($seen.Count -gt 0) {
+      $act = "active"
+      if (-not $seen[0].active) { $act = "SWITCHED OFF in Admin - it will never be sent a job" }
+      Line "known to the server" $true $act
+    } else {
+      $fail++
+      $hint = "never registered"
+      if ($registered -contains $sn) { $hint = "this machine thinks it registered it, but the server has no such printer" }
+      Line "known to the server" $false $hint
+    }
+
+    if ($p.Target -like "win:*") {
+      $queue = $p.Target.Substring(4)
+      $q = $null
+      try { $q = Get-Printer -Name $queue -ErrorAction Stop } catch { }
+      if ($q) {
+        $extra = "driver '" + $q.DriverName + "' on " + $q.PortName
+        Line ("Windows queue '" + $queue + "' exists") $true $extra
+        if ($q.DriverName -notlike "*Text*" -and $q.DriverName -notlike "*Generic*") {
+          Write-Host "         note: a non Generic / Text Only driver will try to render pages and print gibberish" -ForegroundColor Yellow
+        }
+      } else {
+        $fail++
+        $why = "not installed"
+        if (-not $admin) { $why = "not installed - rerun as administrator and the agent will create it" }
+        Line ("Windows queue '" + $queue + "' exists") $false $why
+      }
+    } elseif ($p.Target -like "tcp:*") {
+      $bits = $p.Target.Substring(4).Split(":")
+      $ip = $bits[0]; $port = 9100
+      if ($bits.Count -gt 1) { $port = [int]$bits[1] }
+      $sock = New-Object Net.Sockets.TcpClient
+      try {
+        $iar = $sock.BeginConnect($ip, $port, $null, $null)
+        if ($iar.AsyncWaitHandle.WaitOne(3000) -and $sock.Connected) {
+          Line ("reaches " + $ip + ":" + $port) $true ""
+        } else {
+          $fail++
+          Line ("reaches " + $ip + ":" + $port) $false "no answer - wrong address, or the wifi blocks device to device traffic"
+        }
+      } catch { $fail++; Line ("reaches " + $ip + ":" + $port) $false $_.Exception.Message }
+      finally { $sock.Close() }
+    } else {
+      $fail++; Line "target understood" $false "must start with win: or tcp:"
+    }
+  }
+
+  Write-Host ""
+  if ($fail -eq 0) {
+    Write-Host "Everything checks out. Run without -Check to start printing." -ForegroundColor Green
+  } else {
+    Write-Host ("" + $fail + " problem(s) above. Fix the first FAIL and run the check again.") -ForegroundColor Red
+  }
+  Write-Host ""
+  return $fail
 }
 
 # Raw bytes to a Windows print queue. The spooler takes them verbatim with the
@@ -273,6 +416,15 @@ function Get-Serial([int]$index) {
 Write-Status "Chocoberry Print Agent $Version" "Cyan"
 
 if ($Printers.Count -eq 0) { throw "No printers configured. Edit the settings block." }
+
+# -Check reports and stops. It must not elevate, create anything or register
+# anything, because the whole point is to find out what the state is before
+# changing it.
+if ($Check) {
+  $problems = Test-Setup
+  if ($Host.Name -eq "ConsoleHost") { Read-Host "Press Enter to close" | Out-Null }
+  exit $problems
+}
 
 # Creating a print queue needs administrator. Rather than telling someone to
 # right-click the shortcut -- which is easy to forget and easy to get wrong --

@@ -26,6 +26,26 @@ from both systems rather than one locking the other out.
 One agent on one machine can drive any number of both, so a store with a till
 printer and three kitchen printers needs one copy of this, not four.
 
+## When a till prints nothing
+
+Run the check first. It walks the whole chain without changing anything and
+reports every step, rather than stopping at whichever error came first:
+
+```
+powershell -ExecutionPolicy Bypass -File ChocoberryPrintAgent.ps1 -Check
+```
+
+It tells you whether the web app is reachable and the key readable, whether
+the store name in the settings block matches a store in Admin (and lists the
+real names if it does not), what the **server** believes is registered for
+this store as against what this machine thinks it registered, whether the
+Windows queue exists and on what driver, and whether a network printer
+answers on its port. The window stays open at the end.
+
+The two disagreeing is the case worth catching: a serial in the local state
+file that Admin has never heard of means registration silently did not take,
+and no amount of fiddling with the cable will fix it.
+
 ## Install
 
 1. Open `ChocoberryPrintAgent.ps1` and edit the settings block: the store name
