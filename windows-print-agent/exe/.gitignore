@@ -1,0 +1,4 @@
+# Built artefact. 6MB of binary does not belong in the history - build.sh
+# reproduces it from these two source files in a couple of seconds.
+chocoberry-print-agent.exe
+chocoberry-agent.json
