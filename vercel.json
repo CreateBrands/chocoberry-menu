@@ -19,6 +19,19 @@
       ]
     },
     {
+      "source": "/apps/(.*).exe",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/vnd.microsoft.portable-executable"
+        },
+        {
+          "key": "Content-Disposition",
+          "value": "attachment"
+        }
+      ]
+    },
+    {
       "source": "/apps/(.*).apk",
       "headers": [
         {
