@@ -128,3 +128,53 @@ func TestSerialStaysWithThePrinter(t *testing.T) {
 		t.Errorf("fallback broke: %s", got)
 	}
 }
+
+// A discovered printer is known by its MAC, not its address. This is the
+// property that stops a DHCP reshuffle sending the kitchen's tickets to the
+// bar, so it is worth a test of its own.
+func TestNetPrinterIdentityIsTheMAC(t *testing.T) {
+	p := NetPrinter{IP: "10.0.0.50", MAC: "AA:BB:CC:DD:EE:FF"}
+	if p.Target() != "mac:AA:BB:CC:DD:EE:FF" {
+		t.Errorf("target should be the MAC, got %s", p.Target())
+	}
+	if !strings.Contains(p.Name(), "10.0.0.50") {
+		t.Errorf("the name should still show where it is: %s", p.Name())
+	}
+	// With no MAC readable, the address is better than refusing to list it.
+	q := NetPrinter{IP: "10.0.0.51"}
+	if q.Target() != "tcp:10.0.0.51:9100" {
+		t.Errorf("fallback target wrong: %s", q.Target())
+	}
+}
+
+func TestMACResolvesToWhereverItIsNow(t *testing.T) {
+	discovered.set([]NetPrinter{
+		{IP: "10.0.0.50", MAC: "AA:BB:CC:DD:EE:FF"},
+		{IP: "10.0.0.51", MAC: "11:22:33:44:55:66"},
+	})
+	got, err := addressFor("mac:AA:BB:CC:DD:EE:FF")
+	if err != nil || got != "10.0.0.50:9100" {
+		t.Fatalf("got %q, %v", got, err)
+	}
+	// The two printers swap addresses, as they would after a power cut.
+	discovered.set([]NetPrinter{
+		{IP: "10.0.0.51", MAC: "AA:BB:CC:DD:EE:FF"},
+		{IP: "10.0.0.50", MAC: "11:22:33:44:55:66"},
+	})
+	got, err = addressFor("mac:AA:BB:CC:DD:EE:FF")
+	if err != nil || got != "10.0.0.51:9100" {
+		t.Fatalf("followed the wrong printer: %q, %v", got, err)
+	}
+	// Gone entirely: an error, never the nearest other printer.
+	discovered.set([]NetPrinter{{IP: "10.0.0.50", MAC: "11:22:33:44:55:66"}})
+	if _, err = addressFor("mac:AA:BB:CC:DD:EE:FF"); err == nil {
+		t.Fatal("a missing printer must be an error, not a substitution")
+	}
+}
+
+func TestMatchIsCaseInsensitive(t *testing.T) {
+	discovered.set([]NetPrinter{{IP: "10.0.0.50", MAC: "aa:bb:cc:dd:ee:ff"}})
+	if _, err := addressFor("mac:AA:BB:CC:DD:EE:FF"); err != nil {
+		t.Fatalf("case should not matter: %v", err)
+	}
+}

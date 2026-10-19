@@ -38,6 +38,24 @@ To start with the machine, put a shortcut to the exe in `shell:startup`.
 SmartScreen says "Windows protected your PC" - choose **More info**, then
 **Run anyway**. Defender may also want a moment to scan it.
 
+## The kitchen printers find themselves
+
+Nobody types an IP address. The agent sweeps the till's own network for
+anything answering on port 9100 and reports what it finds, so Al Zahia's
+ethernet printers turn up in Admin's **Prints via** dropdown by themselves.
+
+Each discovered printer is identified by its **MAC address**, not its IP, and
+that distinction is the whole design. Printers take DHCP leases. If the
+kitchen printer and the bar printer come back from a power cut holding each
+other's addresses - routine - then a system that knows printers by address
+sends the kitchen's tickets to the bar and says nothing at all. Binding to the
+MAC means the agent follows the right printer to its new address, and a
+printer it cannot find is reported missing rather than quietly becoming a
+different one. There are tests for exactly that swap.
+
+The sweep repeats every couple of minutes, so a new lease, a new printer or an
+unplugged one all reach Admin on their own.
+
 ## Where a printer sends its bytes is decided in Admin
 
 The agent can see what Admin cannot - the USB printers attached to that till,
@@ -65,7 +83,8 @@ not four, and nothing installed on any of the kitchen printers.
 | --- | --- |
 | `usbdev:<name>` | A printer on a USB cable, written to directly. No queue, no driver, no administrator - Windows binds usbprint.sys to it on plug-in and this writes through that. The first thing to try. |
 | `win:<queue name>` | A printer installed in Windows. Use the **Generic / Text Only** driver - it passes bytes through untouched, which is what ESC/POS needs. A vendor driver tries to render pages and prints gibberish. |
-| `tcp:<ip>:9100` | A network printer, spoken to directly. Nothing installed, and several systems can print to it at once. Setup tries the address as you enter it and says if it cannot be reached - wifi that isolates clients from each other looks exactly like a wrong address. |
+| `mac:AA:BB:...` | A network printer found by the sweep, followed by its MAC address wherever DHCP puts it. The normal way to drive a kitchen printer. |
+| `tcp:<ip>:9100` | A network printer at a fixed address, when its MAC could not be read. Nothing installed, and several systems can print to it at once. Setup tries the address as you enter it and says if it cannot be reached - wifi that isolates clients from each other looks exactly like a wrong address. |
 
 Windows does **not** give a thermal printer a queue by itself. It appears as a
 USB device with no driver and sits there, and without a queue the spooler has

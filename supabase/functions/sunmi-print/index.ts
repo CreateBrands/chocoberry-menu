@@ -1199,6 +1199,30 @@ Deno.serve(async (req) => {
         if (!isLocalSn(sn)) return json({ error: "not a device printer" }, 400);
         const { data: jobs } = await supabase.from("print_jobs").select("id, order_id, slip, max_batch, content_hex, created_at").eq("printer_sn", sn).eq("status", "queued").order("created_at", { ascending: true }).limit(10);
         await supabase.from("printers").update({ online: true, last_online_at: new Date().toISOString(), ...(body.agent_version ? { notes: "agent " + String(body.agent_version).slice(0, 20) } : {}), ...(body.paper_mm ? { paper_mm: Number(body.paper_mm) } : {}) }).eq("sn", sn);
+        // The agent reports what this machine can drive - its USB printers,
+        // its Windows queues, and whatever answered the network sweep - when
+        // that set changes. It comes up the poll rather than through
+        // registration because registration needs a manager PIN, and the PIN
+        // is deliberately wiped from the till once it has been used.
+        if (Array.isArray((body as Record<string, unknown>).outputs)) {
+          const outs = ((body as Record<string, unknown>).outputs as unknown[])
+            .slice(0, 60)
+            .map((o) => {
+              const r = o as Record<string, unknown>;
+              return {
+                kind: String(r.kind ?? "").slice(0, 16),
+                name: String(r.name ?? "").slice(0, 120),
+                target: String(r.target ?? "").slice(0, 200),
+                ip: r.ip ? String(r.ip).slice(0, 45) : undefined,
+                mac: r.mac ? String(r.mac).slice(0, 23) : undefined,
+              };
+            })
+            .filter((o) => o.target);
+          try {
+            await supabase.from("printers").update({ agent_outputs: outs }).eq("sn", sn);
+          } catch { /* best effort: never let this cost a print job */ }
+        }
+
         // Which output Admin has it pointed at. Carried on the poll the agent
         // already makes every few seconds, so changing it in Admin takes
         // effect without anyone going to the till or restarting anything.

@@ -301,8 +301,15 @@ func sendTCP(target string, data []byte) error {
 
 func sendTo(target string, data []byte) error {
 	switch {
-	case strings.HasPrefix(target, "tcp:"):
-		return sendTCP(target, data)
+	case strings.HasPrefix(target, "tcp:"), strings.HasPrefix(target, "mac:"):
+		// A mac: target is resolved against the last sweep. Not finding it is
+		// an error, never a guess at the nearest printer - sending a kitchen
+		// ticket to the bar silently is worse than not printing it.
+		addr, err := addressFor(target)
+		if err != nil {
+			return err
+		}
+		return sendTCP("tcp:"+addr, data)
 	case strings.HasPrefix(target, "win:"):
 		return sendRaw(strings.TrimPrefix(target, "win:"), data)
 	case strings.HasPrefix(target, "usbdev:"):
@@ -467,6 +474,20 @@ func runCheck() int {
 			fmt.Sprintf("%d - %s", len(known), strings.Join(sns, ", ")))
 	}
 
+	fmt.Println()
+	fmt.Println("Sweeping the network for printers...")
+	discovered.set(DiscoverNetPrinters(400 * time.Millisecond))
+	found := discovered.all()
+	if len(found) == 0 {
+		okLine("network printers found", true, "none - normal if every printer is on a cable")
+	} else {
+		var names []string
+		for _, n := range found {
+			names = append(names, n.Name())
+		}
+		okLine("network printers found", true, strings.Join(names, "; "))
+	}
+
 	queues, _ := listQueues()
 	for i, p := range cfg.Printers {
 		sn := serialOf(cfg, host, i)
@@ -531,6 +552,14 @@ func runCheck() int {
 				}
 				okLine("Windows queue '"+q+"' exists", false, detail)
 			}
+		case strings.HasPrefix(p.Target, "mac:"):
+			addr, rerr := addressFor(p.Target)
+			if rerr != nil {
+				fail++
+				okLine("printer found on the network", false, rerr.Error())
+				break
+			}
+			okLine("printer found on the network", true, "at "+addr)
 		case strings.HasPrefix(p.Target, "tcp:"):
 			addr := strings.TrimPrefix(p.Target, "tcp:")
 			if !strings.Contains(addr, ":") {
@@ -580,6 +609,14 @@ func runAgent() error {
 		return err
 	}
 	logf("Store: %s", cfg.Store)
+
+	// Find the network printers before registering, so the first thing Admin
+	// hears about this till already includes them.
+	logf("Looking for printers on the network...")
+	discovered.set(DiscoverNetPrinters(400 * time.Millisecond))
+	for _, n := range discovered.all() {
+		logf("  found %s", n.Name())
+	}
 
 	// Held for the whole pass. Clearing it from the config after the first
 	// registration - which is where it was being cleared - would have left
@@ -649,9 +686,27 @@ func runAgent() error {
 
 	logf("Watching for jobs. Leave this window open.")
 	backoff := 3 * time.Second
+	// Re-sweep now and then: printers get new leases, get unplugged, get
+	// added. This is what keeps a mac: target resolvable and what keeps the
+	// list in Admin honest.
+	nextSweep := time.Now().Add(2 * time.Minute)
+	lastOutputs := outputsKey(outputsHere())
 	for {
+		if time.Now().After(nextSweep) {
+			discovered.set(DiscoverNetPrinters(400 * time.Millisecond))
+			nextSweep = time.Now().Add(2 * time.Minute)
+		}
 		did := 0
 		var loopErr error
+		// Only when the set has changed - every poll would be wasteful, and
+		// never would leave Admin offering printers that have gone.
+		outs := outputsHere()
+		report := []map[string]string(nil)
+		if k := outputsKey(outs); k != lastOutputs {
+			report = outs
+			lastOutputs = k
+			logf("What this machine can print to has changed; telling Admin.")
+		}
 		for i, p := range cfg.Printers {
 			paper := p.Paper
 			if paper == 0 {
@@ -661,9 +716,11 @@ func runAgent() error {
 				Jobs   []job  `json:"jobs"`
 				Target string `json:"target"`
 			}
-			if err := a.call("local_print_jobs", map[string]any{
-				"sn": serials[i], "agent_version": version, "paper_mm": paper,
-			}, &res); err != nil {
+			poll := map[string]any{"sn": serials[i], "agent_version": version, "paper_mm": paper}
+			if report != nil && i == 0 {
+				poll["outputs"] = report
+			}
+			if err := a.call("local_print_jobs", poll, &res); err != nil {
 				loopErr = err
 				break
 			}
@@ -736,7 +793,25 @@ func outputsHere() []map[string]string {
 	for _, q := range queues {
 		out = append(out, map[string]string{"kind": "queue", "name": q, "target": "win:" + q})
 	}
+	for _, n := range discovered.all() {
+		o := map[string]string{"kind": "net", "name": n.Name(), "target": n.Target(), "ip": n.IP}
+		if n.MAC != "" {
+			o["mac"] = n.MAC
+		}
+		out = append(out, o)
+	}
 	return out
+}
+
+// outputsKey is a cheap fingerprint of what this machine can drive, so the
+// list is only sent up when it actually changes rather than on every poll.
+func outputsKey(outs []map[string]string) string {
+	var b strings.Builder
+	for _, o := range outs {
+		b.WriteString(o["target"])
+		b.WriteByte('|')
+	}
+	return b.String()
 }
 
 func logf(format string, args ...any) {
