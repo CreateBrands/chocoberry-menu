@@ -599,6 +599,13 @@ function PrintersModal({ pin, locations, onClose }) {
     try { const r = await fetch(SUPABASE_URL + "/rest/v1/kds_screens?select=screen_key,label,location_id,kind", { headers: { apikey: SUPABASE_ANON_KEY, Authorization: "Bearer " + SUPABASE_ANON_KEY } }); if (r.ok) setScreens(await r.json()); } catch {}
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, []);
+  // Clicking the backdrop was the only way out. Esc is what anyone tries first
+  // on a dialog, and on the till there is no backdrop worth aiming at.
+  useEffect(() => {
+    const k = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", k);
+    return () => window.removeEventListener("keydown", k);
+  }, [onClose]);
 
   const locName = (id) => (locations.find((l) => l.id === id) || {}).name || "—";
   // store_id is a text column; derive a slug from the chosen location.
@@ -627,7 +634,16 @@ function PrintersModal({ pin, locations, onClose }) {
 
   const testPrint = async (p) => {
     setBusy(true); setMsg("");
-    try { await callAdmin(pin, "printer_test", { sn: p.sn }); setMsg("Test sent to " + (p.label || p.sn) + " — check the paper."); }
+    // A cloud printer is pushed to there and then; a local one has its slip
+    // put in the queue and waits for its agent to come and collect it. Calling
+    // both "sent" hides the failure that matters most — an agent that is not
+    // running at all, where the slip sits queued and nothing ever comes out.
+    try {
+      const r = await callAdmin(pin, "printer_test", { sn: p.sn });
+      setMsg(r && r.local
+        ? "Test queued for " + (p.label || p.sn) + " — it prints within a few seconds if the agent on that till is running."
+        : "Test sent to " + (p.label || p.sn) + " — check the paper.");
+    }
     catch (e) { setMsg("Test failed: " + e.message); }
     finally { setBusy(false); }
   };
@@ -682,10 +698,46 @@ function PrintersModal({ pin, locations, onClose }) {
   };
 
   const Dot = ({ online }) => (
-    <span title={online === true ? "Online" : online === false ? "Offline" : "Unknown"}
-      style={{ display: "inline-block", width: 10, height: 10, borderRadius: 5, marginRight: 8,
-        background: online === true ? "#3EA662" : online === false ? T.danger : "#C9C4B4" }} />
+    <span style={{ flex: "0 0 auto", display: "inline-block", width: 9, height: 9, borderRadius: 5,
+      background: online === true ? "#3EA662" : online === false ? T.danger : "#C9C4B4" }} />
   );
+
+  const agoText = (iso) => {
+    if (!iso) return "never";
+    const m = Math.round((Date.now() - new Date(iso)) / 60000);
+    return m < 2 ? "just now" : m < 60 ? m + " min ago" : m < 1440 ? Math.round(m / 60) + " h ago" : Math.round(m / 1440) + " d ago";
+  };
+  // How the bytes actually reach this printer. It is the first thing worth
+  // knowing when one stops working, and until now the only clue was the prefix
+  // on a serial in 11px monospace.
+  const transport = (sn) => {
+    const s = String(sn || "");
+    if (s.startsWith("usb:")) return "USB on the till";
+    if (s.startsWith("agent:win-")) return "Print agent · Windows";
+    if (s.startsWith("agent:")) return "Print agent";
+    return "Sunmi cloud";
+  };
+  // A local printer is judged on the heartbeat its agent stamps every poll; a
+  // cloud printer on what Sunmi says. Those are different questions and used
+  // to collapse into the same silent grey dot.
+  //
+  // The freshness is worked out here rather than trusted from the server, so
+  // this reads correctly against the old admin-api too: last_online_at comes
+  // back on the row either way, and a till whose agent died is the thing most
+  // worth seeing immediately.
+  const LOCAL_STALE_MS = 3 * 60 * 1000;
+  const isLocal = (sn) => /^(usb|agent):/.test(String(sn || ""));
+  const liveState = (p) => {
+    if (!isLocal(p.sn)) return { local: false, online: p.online ?? null };
+    const t = p.last_online_at ? Date.parse(p.last_online_at) : 0;
+    return { local: true, online: t > 0 && Date.now() - t < LOCAL_STALE_MS };
+  };
+  const statusText = (p) => {
+    const { local, online } = liveState(p);
+    if (local) return online ? "seen " + agoText(p.last_online_at)
+      : p.last_online_at ? "not seen since " + agoText(p.last_online_at) : "never checked in";
+    return online === true ? "online" : online === false ? "offline" : "status unknown";
+  };
 
   // Printers grouped by the store they serve, in the order the stores are
   // listed, with the unassigned ones last. A flat list mixed every café
@@ -699,7 +751,20 @@ function PrintersModal({ pin, locations, onClose }) {
       byLoc.get(key).push(p);
     }
     const out = [];
-    for (const l of locations) if (byLoc.has(l.id)) out.push({ id: l.id, name: l.name, printers: byLoc.get(l.id) });
+    const taken = new Set();
+    for (const l of locations) if (byLoc.has(l.id)) { out.push({ id: l.id, name: l.name, printers: byLoc.get(l.id) }); taken.add(l.id); }
+    // printer_list returns every printer in the estate, but `locations` is
+    // whatever this admin session is scoped to. Keying the groups off
+    // `locations` alone silently dropped any printer belonging to a store not
+    // in that list — the header counted seven and three appeared. Nothing is
+    // discarded now: a store we cannot name still gets a row, labelled with
+    // whatever the printer itself carries.
+    for (const [key, list] of byLoc) {
+      if (key === "" || taken.has(key)) continue;
+      const slug = String(list[0]?.store_id || "").replace(/-/g, " ").trim();
+      out.push({ id: key, unknown: true, printers: list,
+        name: slug ? slug.replace(/\b\w/g, (c) => c.toUpperCase()) : "Another store" });
+    }
     if (byLoc.has("")) out.push({ id: "", name: "Not assigned to a store", printers: byLoc.get("") });
     return out;
   })();
@@ -720,7 +785,7 @@ function PrintersModal({ pin, locations, onClose }) {
           Each printer decides for itself. <b>Kitchen ticket</b> is what to make, with no prices. <b>Full receipt</b> is every line with prices. Turn on both and that printer produces two slips. Printers are independent — two of them can print the same items.
         </div>
 
-        {msg && <div style={{ fontSize: 13, color: msg.startsWith("Test sent") ? T.accent : T.danger, marginBottom: 12 }}>{msg}</div>}
+        {msg && <div style={{ fontSize: 13, color: /^Test (sent|queued)/.test(msg) ? T.accent : T.danger, marginBottom: 12 }}>{msg}</div>}
 
         {/* WHICH STORE */}
         {printers && printers.length > 0 && (
@@ -744,17 +809,24 @@ function PrintersModal({ pin, locations, onClose }) {
 
         {shown.map((g) => {
           const live = g.printers.filter((x) => x.active).length;
+          // An ACTIVE printer reporting offline is the one worth surfacing: it
+          // is expected to take orders and is not answering.
+          const quiet = g.printers.filter((x) => x.active && liveState(x).online === false).length;
+          const note = !g.id
+            ? "A printer with no store never receives an order — the lookup matches on store first. Give it one below, or switch it off."
+            : g.unknown ? "This store is outside what this login can see, so the name comes from the printer's own store tag. Its settings are shown but changing the store here would move it." : "";
           return (
           <div key={g.id || "__none"} style={{ marginBottom: 16 }}>
-            <div style={{ display: "flex", alignItems: "baseline", gap: 9, padding: "0 2px 7px" }}>
-              <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14.5, color: g.id ? T.ink : "#A3651F" }}>{g.name}</span>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 9, padding: "0 2px 7px", flexWrap: "wrap" }}>
+              <span style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 14.5, color: note ? "#A3651F" : T.ink }}>{g.name}</span>
               <span style={{ fontSize: 12, color: T.faint }}>
                 {g.printers.length} printer{g.printers.length === 1 ? "" : "s"}{live < g.printers.length ? " · " + (g.printers.length - live) + " off" : ""}
               </span>
+              {quiet > 0 && <span style={{ fontSize: 11.5, fontWeight: 700, color: T.danger }}>{quiet} not answering</span>}
             </div>
-            {!g.id && (
+            {note && (
               <div style={{ fontSize: 12, color: "#8a5a2c", background: "#FBF2E2", border: "1px solid #EBD9B8", borderRadius: 10, padding: "9px 12px", marginBottom: 8, lineHeight: 1.45 }}>
-                A printer with no store never receives an order — the lookup matches on store first. Give it one below, or switch it off.
+                {note}
               </div>
             )}
             <div style={{ background: T.card, borderRadius: 14, border: "1px solid " + T.line, overflow: "hidden" }}>
@@ -775,27 +847,38 @@ function PrintersModal({ pin, locations, onClose }) {
             const autoReceipt = p.auto_receipt ?? auto;
             const fieldLab = { fontSize: 10.5, fontWeight: 700, letterSpacing: ".06em", color: T.faint, marginBottom: 5, textTransform: "uppercase" };
             const sel = { width: "100%", fontSize: 13, padding: "8px 9px", borderRadius: 9, border: "1px solid " + T.line, background: T.bg, color: T.ink };
+            const pill = (text, bg, fg) => <span key={text} style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: bg, color: fg, whiteSpace: "nowrap" }}>{text}</span>;
             return (
-            <div key={p.id} style={{ borderTop: idx ? "1px solid " + T.line : "none", opacity: p.active ? 1 : .55 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "13px 16px", flexWrap: "wrap" }}>
-                <Dot online={p.online} />
-                <div onClick={() => setOpen((o) => ({ ...o, [p.id]: !o[p.id] }))} title="Settings" style={{ minWidth: 0, cursor: "pointer" }}>
-                  <div style={{ fontWeight: 700, color: T.ink, fontSize: 14.5 }}>{p.label || "Printer"}</div>
-                  <div style={{ fontSize: 11, color: T.faint, fontFamily: "monospace" }}>{p.sn}</div>
+            <div key={p.id} style={{ borderTop: idx ? "1px solid " + T.line : "none", background: open[p.id] ? "rgba(94,122,77,.035)" : "transparent" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 16px", opacity: p.active ? 1 : .62 }}>
+                <Dot online={p.active ? liveState(p).online : null} />
+                <div onClick={() => setOpen((o) => ({ ...o, [p.id]: !o[p.id] }))} title={p.sn}
+                  style={{ minWidth: 0, flex: "1 1 170px", cursor: "pointer" }}>
+                  <div style={{ fontWeight: 700, color: T.ink, fontSize: 14.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.label || "Printer"}</div>
+                  {/* How it is wired, and whether it is actually there. The
+                      serial used to be the whole of this line and said neither;
+                      it sits in the drawer now, where it has room to be read in
+                      full instead of ellipsed to "agent:3046…". */}
+                  <div style={{ fontSize: 11.5, color: T.faint, marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {transport(p.sn)} · <span style={{ color: p.active && liveState(p).online === false ? T.danger : T.faint }}>{statusText(p)}</span>
+                  </div>
                 </div>
-                {ticket && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#FAEEDA", color: "#854F0B" }}>TICKET</span>}
-                {receipt && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#E1F5EE", color: "#0F6E56" }}>RECEIPT</span>}
-                {!ticket && !receipt && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#FCEBEB", color: "#A32D2D" }}>PRINTS NOTHING</span>}
-                {((ticket && !autoTicket) || (receipt && !autoReceipt)) && <span style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".04em", padding: "3px 9px", borderRadius: 20, background: "#F1EFE8", color: "#5F5E5A" }}>SOME MANUAL</span>}
-                <span style={{ flex: 1 }} />
-                <button disabled={busy} onClick={() => testPrint(p)} style={{ fontSize: 13, fontWeight: 600, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 13px", cursor: "pointer" }}>Test print</button>
-                <button onClick={() => toggleActive(p)} style={{ fontSize: 12.5, fontWeight: 700, border: "none", borderRadius: 9, padding: "8px 13px", cursor: "pointer", background: p.active ? "rgba(94,122,77,.14)" : "rgba(178,59,59,.12)", color: p.active ? T.accent : T.danger }}>{p.active ? "Active" : "Off"}</button>
-                <button onClick={() => setOpen((o) => ({ ...o, [p.id]: !o[p.id] }))}
-                  title={open[p.id] ? "Hide settings" : "Settings"}
-                  style={{ fontSize: 12.5, fontWeight: 600, color: T.muted, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 11px", cursor: "pointer" }}>
-                  {open[p.id] ? "Done" : "Settings"}
-                </button>
-                <button disabled={busy} onClick={() => removePrinter(p)} title="Remove printer" style={{ fontSize: 18, color: T.faint, background: "none", border: "none", cursor: "pointer", lineHeight: 1 }}>×</button>
+                <div style={{ display: "flex", gap: 5, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                  {/* "SOME MANUAL" sat on its own and never said which slip it
+                      meant. Hung on the slip it belongs to, it needs no decoding. */}
+                  {ticket && pill(autoTicket ? "TICKET" : "TICKET · MANUAL", "#FAEEDA", "#854F0B")}
+                  {receipt && pill(autoReceipt ? "RECEIPT" : "RECEIPT · MANUAL", "#E1F5EE", "#0F6E56")}
+                  {!ticket && !receipt && pill("PRINTS NOTHING", "#FCEBEB", "#A32D2D")}
+                </div>
+                <div style={{ display: "flex", gap: 7, marginLeft: "auto", flex: "0 0 auto" }}>
+                  <button disabled={busy} onClick={() => testPrint(p)} style={{ fontSize: 13, fontWeight: 600, color: T.accent, background: "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 13px", cursor: "pointer" }}>Test print</button>
+                  <button onClick={() => toggleActive(p)} title={p.active ? "Switch this printer off" : "Switch this printer back on"} style={{ fontSize: 12.5, fontWeight: 700, border: "none", borderRadius: 9, padding: "8px 13px", cursor: "pointer", background: p.active ? "rgba(94,122,77,.14)" : "rgba(178,59,59,.12)", color: p.active ? T.accent : T.danger }}>{p.active ? "Active" : "Off"}</button>
+                  <button onClick={() => setOpen((o) => ({ ...o, [p.id]: !o[p.id] }))}
+                    title={open[p.id] ? "Hide settings" : "Settings"}
+                    style={{ fontSize: 12.5, fontWeight: 600, color: T.muted, background: open[p.id] ? T.bg : "none", border: "1px solid " + T.line, borderRadius: 9, padding: "7px 11px", cursor: "pointer" }}>
+                    {open[p.id] ? "Done" : "Settings"}
+                  </button>
+                </div>
               </div>
 
               {/* Settings sit in a tinted drawer, inset from the row. Flat on
@@ -809,6 +892,12 @@ function PrintersModal({ pin, locations, onClose }) {
                   <div style={fieldLab}>Store</div>
                   <select value={p.location_id || ""} onChange={(e) => changeStore(p, e.target.value)} style={sel}>
                     <option value="">— unassigned —</option>
+                    {/* A printer can belong to a store this session cannot see.
+                        Without its own value in the list the select renders
+                        blank, which reads as unassigned — and the next change
+                        would move the printer somewhere it never belonged. */}
+                    {p.location_id && !locations.some((l) => l.id === p.location_id) &&
+                      <option value={p.location_id}>{locName(p.location_id) !== "—" ? locName(p.location_id) : "Its current store (outside your access)"}</option>}
                     {locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
@@ -866,6 +955,23 @@ function PrintersModal({ pin, locations, onClose }) {
                     <option value={3}>3 copies</option>
                     <option value={4}>4 copies</option>
                   </select>
+                </div>
+                {/* Remove used to be a bare × sitting against Settings on the
+                    row, one mis-tap from unregistering a working printer. It
+                    lives in here now, which you have to open on purpose. */}
+                <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", borderTop: "1px solid " + T.line, paddingTop: 11, marginTop: 2 }}>
+                  {/* The serial in full. It is what the agent config on the
+                      till has to match, so it needs to be readable and
+                      selectable, not ellipsed into a row. */}
+                  <span style={{ fontSize: 11.5, color: T.faint }}>
+                    Serial <span style={{ fontFamily: "monospace", color: T.muted, userSelect: "all" }}>{p.sn}</span>
+                    {p.last_online_at && <span> · last heard from {agoText(p.last_online_at)}</span>}
+                  </span>
+                  <span style={{ flex: 1 }} />
+                  <button disabled={busy} onClick={() => removePrinter(p)}
+                    style={{ fontSize: 12.5, fontWeight: 600, color: T.danger, background: "none", border: "1px solid rgba(178,59,59,.3)", borderRadius: 9, padding: "7px 12px", cursor: "pointer" }}>
+                    Remove this printer
+                  </button>
                 </div>
               </div>
               )}
