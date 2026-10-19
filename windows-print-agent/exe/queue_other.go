@@ -12,3 +12,5 @@ var errAdminNeeded = errors.New("administrator needed")
 func usbPorts() []string                  { return nil }
 func ensureQueue(name, port string) error { return errors.New("creating a queue needs Windows") }
 func removeQueue(name string) error       { return errors.New("removing a queue needs Windows") }
+
+func reportElevatedError(err error) {}

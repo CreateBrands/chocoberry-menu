@@ -31,9 +31,13 @@ var (
 	procCloseHandle = kernel32.NewProc("CloseHandle")
 	procExitCode    = kernel32.NewProc("GetExitCodeProcess")
 
-	procAddPrinter = winspool.NewProc("AddPrinterW")
-	procEnumPorts  = winspool.NewProc("EnumPortsW")
-	procDeletePrn  = winspool.NewProc("DeletePrinter")
+	procAddPrinter  = winspool.NewProc("AddPrinterW")
+	procEnumPorts   = winspool.NewProc("EnumPortsW")
+	procDeletePrn   = winspool.NewProc("DeletePrinter")
+	procEnumDrivers = winspool.NewProc("EnumPrinterDriversW")
+
+	advapi32         = syscall.NewLazyDLL("advapi32.dll")
+	procGetTokenInfo = advapi32.NewProc("GetTokenInformation")
 )
 
 const (
@@ -105,20 +109,85 @@ func usbPorts() []string {
 	return out
 }
 
+// isElevated reports whether this process is running as administrator. Needed
+// so the elevated copy of itself does not try to elevate again on the same
+// failure and spin.
+func isElevated() bool {
+	var token syscall.Token
+	p, err := syscall.GetCurrentProcess()
+	if err != nil {
+		return false
+	}
+	if err := syscall.OpenProcessToken(p, syscall.TOKEN_QUERY, &token); err != nil {
+		return false
+	}
+	defer token.Close()
+	const tokenElevation = 20
+	var elevated uint32
+	var size uint32
+	r, _, _ := procGetTokenInfo.Call(uintptr(token), tokenElevation,
+		uintptr(unsafe.Pointer(&elevated)), unsafe.Sizeof(elevated), uintptr(unsafe.Pointer(&size)))
+	return r != 0 && elevated != 0
+}
+
+type driverInfo1 struct{ Name *uint16 }
+
+// listDrivers names the printer drivers already on the machine. Used to check
+// a staging step really worked, and to say what IS available when the one we
+// want is not - the same reason the store lookup lists the store names rather
+// than telling someone to check their spelling.
+func listDrivers() []string {
+	var needed, returned uint32
+	procEnumDrivers.Call(0, 0, 1, 0, 0, uintptr(unsafe.Pointer(&needed)), uintptr(unsafe.Pointer(&returned)))
+	if needed == 0 {
+		return nil
+	}
+	buf := make([]byte, needed)
+	r, _, _ := procEnumDrivers.Call(0, 0, 1, uintptr(unsafe.Pointer(&buf[0])), uintptr(needed),
+		uintptr(unsafe.Pointer(&needed)), uintptr(unsafe.Pointer(&returned)))
+	if r == 0 {
+		return nil
+	}
+	info := unsafe.Slice((*driverInfo1)(unsafe.Pointer(&buf[0])), int(returned))
+	out := make([]string, 0, returned)
+	for i := range info {
+		out = append(out, utf16PtrToString(info[i].Name))
+	}
+	return out
+}
+
+func driverInstalled(name string) bool {
+	for _, d := range listDrivers() {
+		if strings.EqualFold(d, name) {
+			return true
+		}
+	}
+	return false
+}
+
 // stageGenericDriver asks Windows to add "Generic / Text Only" from its own
 // inbox INF. printui.dll is a Windows component, present everywhere and not
-// PowerShell, which is the point: this agent exists because PowerShell cannot
-// be relied on. Only reached when AddPrinter says the driver is missing,
-// which on a normal Windows install it is not.
+// PowerShell, which is the point: being unable to rely on PowerShell is why
+// this agent exists.
+//
+// rundll32 exits 0 whatever happens, so its exit code says nothing. The only
+// honest test is to look for the driver afterwards.
 func stageGenericDriver() error {
 	inf := filepath.Join(os.Getenv("WINDIR"), "inf", "ntprint.inf")
 	cmd := exec.Command("rundll32.exe", "printui.dll,PrintUIEntry",
 		"/ia", "/q", "/m", genericDriver, "/f", inf)
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("could not install the %s driver: %v %s", genericDriver, err, strings.TrimSpace(string(out)))
+	_ = cmd.Run()
+	if driverInstalled(genericDriver) {
+		return nil
 	}
-	return nil
+	have := listDrivers()
+	if len(have) > 8 {
+		have = have[:8]
+	}
+	return fmt.Errorf("Windows would not install the %q driver from %s.\n"+
+		"  Drivers already on this machine include: %s",
+		genericDriver, inf, strings.Join(have, ", "))
 }
 
 func addQueue(name, port string) error {
@@ -150,6 +219,14 @@ func addQueue(name, port string) error {
 
 	h, errno := try()
 	if h == 0 && errno == errUnknownPrinterDriver {
+		// Installing a driver needs administrator just as adding a printer
+		// does - and this error arrives FIRST, before access-denied ever
+		// does, so reacting only to access-denied meant the unelevated run
+		// tried to stage a driver, silently failed, and reported the original
+		// error. Ask for the rights before touching it.
+		if !isElevated() {
+			return errAdminNeeded
+		}
 		if derr := stageGenericDriver(); derr != nil {
 			return derr
 		}
@@ -160,7 +237,10 @@ func addQueue(name, port string) error {
 		case errPrinterAlreadyExists:
 			return nil // someone got there first; that is a success
 		case errAccessDenied:
-			return errAdminNeeded
+			if !isElevated() {
+				return errAdminNeeded
+			}
+			return fmt.Errorf("even as administrator Windows refused to create %q on %s", name, port)
 		default:
 			return fmt.Errorf("could not create the queue %q on %s (%v)", name, port, errno)
 		}
@@ -186,6 +266,17 @@ func removeQueue(name string) error {
 }
 
 var errAdminNeeded = errors.New("administrator needed")
+
+// The elevated copy runs hidden, so without this its reason for failing would
+// be lost to an exit code - which is exactly the kind of silent failure that
+// cost us the first attempt at this.
+func elevatedErrPath() string {
+	return filepath.Join(os.TempDir(), "chocoberry-addqueue.err")
+}
+
+func reportElevatedError(err error) {
+	_ = os.WriteFile(elevatedErrPath(), []byte(err.Error()), 0o600)
+}
 
 type shellExecuteInfo struct {
 	cbSize       uint32
@@ -229,6 +320,7 @@ func elevateAndRun(args string) error {
 	}
 	info.cbSize = uint32(unsafe.Sizeof(info))
 
+	_ = os.Remove(elevatedErrPath())
 	r, _, e := procShellExecEx.Call(uintptr(unsafe.Pointer(&info)))
 	if r == 0 {
 		// 1223 is ERROR_CANCELLED: the UAC prompt was dismissed.
@@ -245,6 +337,9 @@ func elevateAndRun(args string) error {
 	var code uint32
 	procExitCode.Call(info.hProcess, uintptr(unsafe.Pointer(&code)))
 	if code != 0 {
+		if b, rerr := os.ReadFile(elevatedErrPath()); rerr == nil && len(b) > 0 {
+			return errors.New(strings.TrimSpace(string(b)))
+		}
 		return fmt.Errorf("the elevated step failed (exit %d)", code)
 	}
 	return nil

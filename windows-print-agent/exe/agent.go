@@ -700,6 +700,7 @@ func main() {
 	switch {
 	case *addQ != "":
 		if err = ensureQueue(*addQ, *addPort); err != nil {
+			reportElevatedError(err)
 			fmt.Println("Could not create the queue:", err)
 			os.Exit(1)
 		}
