@@ -711,17 +711,35 @@ Deno.serve(async (req) => {
         const { data: printers, error } = await admin
           .from("printers").select("*").order("created_at", { ascending: true });
         if (error) throw error;
-        // Query Sunmi status for each printer in parallel (best-effort).
+        // Sunmi answers { code, data: { list: [ { sn, is_online } ] } }. This
+        // read looked for is_online one level too high, so the lookup returned
+        // undefined every time and every printer in Admin showed the grey
+        // "Unknown" dot — cloud ones included. printer-health has parsed the
+        // real shape correctly all along; this now matches it.
+        //
+        // A local agent is not in Sunmi at all, so asking is a wasted call that
+        // can only answer null. The agent stamps last_online_at on itself every
+        // poll, which is the same signal the KDS trusts to raise its silent-
+        // printer banner.
+        const LOCAL_STALE_MS = 3 * 60 * 1000;
+        const fresh = (ts: unknown) => {
+          const t = ts ? Date.parse(String(ts)) : 0;
+          return t > 0 && Date.now() - t < LOCAL_STALE_MS;
+        };
         const withStatus = await Promise.all((printers ?? []).map(async (p: any) => {
+          if (/^(usb|agent):/.test(String(p.sn || ""))) {
+            return { ...p, online: fresh(p.last_online_at), local: true };
+          }
           let online: boolean | null = null;
           try {
             const r = await callSunmi({ action: "status", sn: p.sn });
-            const d = r.body?.data ?? r.body;
-            const v = d?.is_online ?? d?.online ?? d?.status;
-            online = v === 1 || v === true || v === "online" ? true
-                   : v === 0 || v === false || v === "offline" ? false : null;
+            const list: any[] = r.body?.data?.list ?? [];
+            const row = list.find((x: any) => String(x?.sn ?? x?.msn ?? "") === String(p.sn)) ?? list[0];
+            const s = String(row?.is_online);
+            online = (s === "1" || s === "true") ? true
+                   : (s === "0" || s === "false") ? false : null;
           } catch { online = null; }
-          return { ...p, online };
+          return { ...p, online, local: false };
         }));
         return json({ ok: true, printers: withStatus });
       }
@@ -784,11 +802,28 @@ Deno.serve(async (req) => {
       case "printer_test": {
         const { sn } = data || {};
         if (!sn) return json({ error: "no sn" }, 400);
-        const r = await callSunmi({ action: "test", sn });
+        // Name the store on the slip. Five printers on a bench all print the
+        // same anonymous test page otherwise, and working out which one came
+        // out of which is the whole point of pressing the button.
+        const { data: pr } = await admin.from("printers").select("location_id").eq("sn", String(sn)).maybeSingle();
+        const locId = (pr as { location_id?: unknown } | null)?.location_id;
+        let store_name = "", brand_name = "Chocoberry";
+        if (locId) {
+          const [{ data: l }, { data: bn }] = await Promise.all([
+            admin.from("menu_locations").select("name").eq("id", String(locId)).maybeSingle(),
+            admin.from("menu_app_settings").select("value").eq("key", "brand_name:" + String(locId)).maybeSingle(),
+          ]);
+          store_name = String((l as { name?: unknown } | null)?.name ?? "");
+          brand_name = String((bn as { value?: unknown } | null)?.value ?? "Chocoberry");
+        }
+        const r = await callSunmi({ action: "test", sn, store_name, brand_name });
         if (!r.ok || (r.body?.code !== undefined && r.body.code !== 1 && r.body.code !== 0)) {
           return json({ error: r.body?.msg || ("test failed (HTTP " + r.status + ")") }, 400);
         }
-        return json({ ok: true });
+        // A local printer does not get the slip pushed to it; the job waits in
+        // the queue until its agent next polls. Saying "sent" there is a lie
+        // when the agent is not running, which is the exact case being chased.
+        return json({ ok: true, local: !!r.body?.local });
       }
 
       // ---- PRINTERS: live status for one ----
