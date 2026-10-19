@@ -66,6 +66,12 @@ type config struct {
 	// so a till is never left with a manager PIN sitting in a file beside it.
 	ManagerPin string   `json:"manager_pin,omitempty"`
 	Registered []string `json:"registered,omitempty"`
+	// Set while another POS is still live on these printers. The sweep opens
+	// a connection to every address on the subnet every couple of minutes,
+	// and a thermal printer takes one connection at a time - so a sweep
+	// landing while the other system is mid-ticket can have its ticket
+	// refused, during service, with nothing to say it was us.
+	NoScan bool `json:"no_network_scan,omitempty"`
 }
 
 func configPath() string {
@@ -449,6 +455,13 @@ func runSetup() (installedBackground bool, err error) {
 	}
 
 	fmt.Println()
+	fmt.Println("Is another till system (Petpooja) still live on these printers?")
+	fmt.Println("If so the network sweep is best left off: it opens a connection to")
+	fmt.Println("every address every couple of minutes, and a receipt printer takes")
+	fmt.Println("one at a time, so it can cost the other system a ticket mid-service.")
+	cfg.NoScan = strings.ToLower(ask("Another system still live? (y/n)", "n")) == "y"
+
+	fmt.Println()
 	fmt.Println("The store manager PIN is needed once, to register these printers.")
 	cfg.ManagerPin = ask("Manager PIN", "")
 
@@ -551,8 +564,12 @@ func runCheck() int {
 	}
 
 	fmt.Println()
-	fmt.Println("Sweeping the network for printers...")
-	discovered.set(DiscoverNetPrinters(400 * time.Millisecond))
+	if !scanningAllowed(cfg) {
+		okLine("network sweep", true, "off - set because another system is live on these printers")
+	} else {
+		fmt.Println("Sweeping the network for printers...")
+		discovered.set(DiscoverNetPrinters(400 * time.Millisecond))
+	}
 	found := discovered.all()
 	if len(found) == 0 {
 		okLine("network printers found", true, "none - normal if every printer is on a cable")
@@ -721,10 +738,14 @@ func runAgent() error {
 
 	// Find the network printers before registering, so the first thing Admin
 	// hears about this till already includes them.
-	logf("Looking for printers on the network...")
-	discovered.set(DiscoverNetPrinters(400 * time.Millisecond))
-	for _, n := range discovered.all() {
-		logf("  found %s", n.Name())
+	if scanningAllowed(cfg) {
+		logf("Looking for printers on the network...")
+		discovered.set(DiscoverNetPrinters(400 * time.Millisecond))
+		for _, n := range discovered.all() {
+			logf("  found %s", n.Name())
+		}
+	} else {
+		logf("Not sweeping the network - driving only what is on a cable.")
 	}
 
 	// Held for the whole pass. Clearing it from the config after the first
@@ -814,7 +835,7 @@ func runAgent() error {
 	pendingOutputs := ""
 	nextOutputs := time.Now().Add(2 * time.Minute)
 	for {
-		if time.Now().After(nextSweep) {
+		if scanningAllowed(cfg) && time.Now().After(nextSweep) {
 			discovered.set(DiscoverNetPrinters(400 * time.Millisecond))
 			nextSweep = time.Now().Add(2 * time.Minute)
 		}
@@ -1045,6 +1066,12 @@ func openLog() {
 	}
 }
 
+// forceNoScan is -no-scan on the command line; the config can say the same
+// thing permanently.
+var forceNoScan bool
+
+func scanningAllowed(cfg *config) bool { return !forceNoScan && !cfg.NoScan }
+
 func logf(format string, args ...any) {
 	line := fmt.Sprintf("[%s] %s", time.Now().Format("2006-01-02 15:04:05"), fmt.Sprintf(format, args...))
 	fmt.Println(line)
@@ -1069,6 +1096,7 @@ func main() {
 	// Passed by the scheduled task. There is no one at that console, so
 	// nothing may ever wait for a keypress on it.
 	service := flag.Bool("service", false, "")
+	noScan := flag.Bool("no-scan", false, "never sweep the network for printers; drive only what is on a cable")
 	addQ := flag.String("addqueue", "", "")
 	addPort := flag.String("port", "", "")
 	flag.Parse()
@@ -1077,6 +1105,9 @@ func main() {
 	}
 	if *service {
 		notInteractive = true
+	}
+	if *noScan {
+		forceNoScan = true
 	}
 	openLog()
 

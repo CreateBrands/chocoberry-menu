@@ -46,6 +46,22 @@ later. `-check` says which mode it is in.
 SmartScreen says "Windows protected your PC" - choose **More info**, then
 **Run anyway**. Defender may also want a moment to scan it.
 
+## Running alongside another till system
+
+While Petpooja or anything else is still live on the same printers, answer
+**yes** to "another system still live?" during setup, or pass `-no-scan`.
+That leaves the network completely alone and drives only what is on a cable.
+
+The reason is the sweep: it opens a connection to every address on the subnet
+every couple of minutes, and a receipt printer accepts one connection at a
+time. A sweep landing while the other system is mid-ticket can have that
+ticket refused - during service, with nothing anywhere to say it was us.
+
+The printer on the cable is a different matter and cannot be made safe by a
+setting. Two systems writing to one USB printer can interleave their bytes
+and ruin both slips, so do not send test prints while real orders are being
+served on that printer. Outside service hours it is fine.
+
 ## The kitchen printers find themselves
 
 Nobody types an IP address. The agent sweeps the till's own network for
