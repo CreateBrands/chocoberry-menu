@@ -35,6 +35,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -668,6 +669,7 @@ func runAgent() error {
 
 	// What Admin currently has each printer pointed at, so a change is logged
 	// once rather than on every poll.
+	printed := newPrintedJobs()
 	assigned := make([]string, len(cfg.Printers))
 	serials := make([]string, len(cfg.Printers))
 	for i, p := range cfg.Printers {
@@ -786,6 +788,18 @@ func runAgent() error {
 				assigned[i] = ""
 			}
 			for _, j := range res.Jobs {
+				// Already on paper, so the thing that failed last time was the
+				// report, not the printing. Retry the report; do not reprint.
+				if printed.seen(j.ID) {
+					if rerr := a.call("local_print_done", map[string]any{
+						"id": j.ID, "sn": serials[i], "ok": true, "error": nil,
+					}, nil); rerr == nil {
+						logf("%s: confirmed %s (it had already printed)", p.Label, j.Slip)
+						did++
+					}
+					continue
+				}
+
 				var failure string
 				data, derr := hex.DecodeString(strings.ReplaceAll(j.ContentHex, " ", ""))
 				if derr != nil {
@@ -799,9 +813,14 @@ func runAgent() error {
 					done["error"] = failure
 				} else {
 					logf("%s: printed %s", p.Label, j.Slip)
+					printed.mark(j.ID)
 					did++
 				}
-				_ = a.call("local_print_done", done, nil)
+				// This used to be discarded, which is how a printed ticket
+				// came back round and printed again in silence.
+				if rerr := a.call("local_print_done", done, nil); rerr != nil {
+					logf("%s: could not tell the server about %s (%v) - will retry, it will not print twice", p.Label, j.Slip, rerr)
+				}
 			}
 		}
 		if loopErr != nil {
@@ -857,6 +876,46 @@ func outputsKey(outs []map[string]string) string {
 		b.WriteByte('|')
 	}
 	return b.String()
+}
+
+// Jobs that are already on paper.
+//
+// The server hands out queued jobs without marking them claimed - a job only
+// leaves the queue when the agent reports it done. So a ticket that printed
+// fine, followed by a failed done-report (a wifi blip is enough), comes back
+// three seconds later and prints again. The customer gets two tickets and the
+// printer gets the blame.
+//
+// Remembering what has actually reached paper closes that: the job is not
+// printed twice, and the report is retried until it lands. Memory only, so a
+// restart between printing and reporting can still duplicate one job - that
+// needs the server to claim jobs on handout, and is a far smaller window than
+// every network blip.
+type printedJobs struct {
+	mu sync.Mutex
+	at map[string]time.Time
+}
+
+func newPrintedJobs() *printedJobs { return &printedJobs{at: map[string]time.Time{}} }
+
+func (p *printedJobs) seen(id string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.at[id]
+	return ok
+}
+
+func (p *printedJobs) mark(id string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.at[id] = time.Now()
+	// Bounded: a job the server still has queued after ten minutes is not one
+	// this agent is about to be handed again.
+	for k, t := range p.at {
+		if time.Since(t) > 10*time.Minute {
+			delete(p.at, k)
+		}
+	}
 }
 
 func logf(format string, args ...any) {

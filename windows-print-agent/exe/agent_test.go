@@ -4,10 +4,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 // The serial must match the PowerShell agent byte for byte, or a till that
@@ -176,5 +179,76 @@ func TestMatchIsCaseInsensitive(t *testing.T) {
 	discovered.set([]NetPrinter{{IP: "10.0.0.50", MAC: "aa:bb:cc:dd:ee:ff"}})
 	if _, err := addressFor("mac:AA:BB:CC:DD:EE:FF"); err != nil {
 		t.Fatalf("case should not matter: %v", err)
+	}
+}
+
+// The sweep writes the cache from one goroutine while printing reads it from
+// another. The earlier tests only ever touched it from one, so the mutex was
+// never actually under test. Run with -race.
+func TestCacheIsSafeUnderConcurrency(t *testing.T) {
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	// Writers: a sweep finishing, repeatedly.
+	for w := 0; w < 4; w++ {
+		wg.Add(1)
+		go func(w int) {
+			defer wg.Done()
+			for i := 0; ; i++ {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				discovered.set([]NetPrinter{
+					{IP: fmt.Sprintf("10.0.%d.%d", w, i%250+1), MAC: "AA:BB:CC:DD:EE:FF"},
+					{IP: "10.0.99.9", MAC: "11:22:33:44:55:66"},
+				})
+			}
+		}(w)
+	}
+	// Readers: jobs resolving a MAC to an address.
+	for r := 0; r < 8; r++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				_, _ = addressFor("mac:AA:BB:CC:DD:EE:FF")
+				_ = discovered.all()
+			}
+		}()
+	}
+	time.Sleep(150 * time.Millisecond)
+	close(stop)
+	wg.Wait()
+}
+
+// A ticket that printed, where the done-report then failed, must not print
+// again when the server hands the same job back. This is the difference
+// between a wifi blip and a customer holding two tickets.
+func TestAPrintedJobIsNotPrintedTwice(t *testing.T) {
+	p := newPrintedJobs()
+	if p.seen("job-1") {
+		t.Fatal("nothing has printed yet")
+	}
+	p.mark("job-1")
+	if !p.seen("job-1") {
+		t.Fatal("a printed job must be remembered until the server is told")
+	}
+	if p.seen("job-2") {
+		t.Fatal("a different job must not be suppressed")
+	}
+	// Old entries are dropped, so a long shift does not grow this forever.
+	p.mu.Lock()
+	p.at["ancient"] = time.Now().Add(-11 * time.Minute)
+	p.mu.Unlock()
+	p.mark("job-3")
+	if p.seen("ancient") {
+		t.Fatal("entries older than the window should be pruned")
 	}
 }
