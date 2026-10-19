@@ -954,6 +954,21 @@ Deno.serve(async (req) => {
           "test" + Date.now(),
           receipt.toHex(),
         );
+        // Record it. The backoff above says in as many words that "the first
+        // success - a manual test print, which never checks this - clears it
+        // on its own", and the pause is derived from the last three outcomes
+        // in print_jobs. This path never wrote one, so for a cloud printer
+        // that promise was simply untrue: the slip came out, the streak stood,
+        // and every order after it was flagged as not printed while the
+        // printer was demonstrably working. The agent path enqueues a job and
+        // has always cleared properly; only the cloud one was silent.
+        await logJob({
+          printer_sn: String(body.sn),
+          status: ok(res) ? "sent" : "failed",
+          slip: "test",
+          response: res,
+          error: ok(res) ? null : (res.msg ?? "test push failed"),
+        });
         return json(res, ok(res) ? 200 : 502);
       }
       case "print-order": {
