@@ -31,8 +31,16 @@ is not left sitting on a shop floor.
 | `-check` | report every link in the chain and stop, changing nothing |
 | `-setup` | ask the questions again |
 | `-list` | show the Windows print queues on this machine |
+| `-install` | run in the background from now on, starting at boot |
+| `-uninstall` | stop running in the background |
 
-To start with the machine, put a shortcut to the exe in `shell:startup`.
+At the end of setup it offers to run in the background, and you should say
+yes. A till that only prints while a console window happens to be open is not
+a till that prints: staff close windows, machines reboot, and nobody signs in
+at 7am to start a printer. Saying yes registers it as a scheduled task that
+starts **at boot, as SYSTEM, with no window and no sign-in needed**, and that
+Windows restarts if it stops. `-install` and `-uninstall` do the same thing
+later. `-check` says which mode it is in.
 
 **Windows will warn you the first time.** The exe is not code-signed, so
 SmartScreen says "Windows protected your PC" - choose **More info**, then

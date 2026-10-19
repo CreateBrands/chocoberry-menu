@@ -422,6 +422,28 @@ func runSetup() error {
 	}
 	fmt.Println()
 	fmt.Printf("Saved to %s\n", configPath())
+
+	// The console window is the weak point of the whole arrangement: a till
+	// only prints while it happens to be open, and nobody signs in at 7am to
+	// reopen it. Offering this here, rather than in a README nobody reads, is
+	// the difference between a till that prints and one that printed once.
+	if !taskInstalled() {
+		fmt.Println()
+		fmt.Println("This window has to stay open for the printer to work.")
+		fmt.Println("It can run in the background instead - starting with the machine,")
+		fmt.Println("with no window to close, and restarting itself if it stops.")
+		if strings.ToLower(ask("Set that up now? (y/n)", "y")) == "y" {
+			if ierr := installService(); ierr != nil {
+				fmt.Println("  Could not set that up:", ierr)
+				fmt.Println("  Carrying on in this window - it will print while it is open.")
+			} else {
+				fmt.Println()
+				fmt.Println("Done. It is running in the background and will start with the machine.")
+				fmt.Println("You can close this window.")
+				return nil
+			}
+		}
+	}
 	fmt.Println("Now run the agent with no options to register and start printing.")
 	return nil
 }
@@ -440,6 +462,12 @@ func runCheck() int {
 	}
 	fmt.Printf("Machine: %s   Store in the config: '%s'\n\n", host, cfg.Store)
 	okLine("config file", true, configPath())
+
+	if taskInstalled() {
+		okLine("runs in the background", true, "starts with the machine")
+	} else {
+		okLine("runs in the background", true, "no - only prints while a window is open. -install fixes that")
+	}
 
 	a, err := newAPI()
 	if err != nil {
@@ -684,7 +712,11 @@ func runAgent() error {
 		}
 	}
 
-	logf("Watching for jobs. Leave this window open.")
+	if taskInstalled() {
+		logf("Watching for jobs. Running in the background - this window can be closed.")
+	} else {
+		logf("Watching for jobs. Leave this window open, or run -install to stop needing to.")
+	}
 	backoff := 3 * time.Second
 	// Re-sweep now and then: printers get new leases, get unplugged, get
 	// added. This is what keeps a mac: target resolvable and what keeps the
@@ -824,6 +856,8 @@ func main() {
 	list := flag.Bool("list", false, "show the Windows print queues on this machine")
 	// Used by the elevated copy of itself, which does this one job and exits.
 	// Not worth documenting for anyone else to type.
+	install := flag.Bool("install", false, "keep it running in the background from now on, starting at boot")
+	uninstall := flag.Bool("uninstall", false, "stop it running in the background")
 	addQ := flag.String("addqueue", "", "")
 	addPort := flag.String("port", "", "")
 	flag.Parse()
@@ -847,6 +881,12 @@ func main() {
 			for _, q := range queues {
 				fmt.Println(q)
 			}
+		}
+	case *install:
+		err = installService()
+	case *uninstall:
+		if err = uninstallService(); err == nil {
+			fmt.Println("Removed. It will no longer start on its own.")
 		}
 	case *setup:
 		err = runSetup()
