@@ -190,13 +190,77 @@ func stageGenericDriver() error {
 		genericDriver, inf, strings.Join(have, ", "))
 }
 
+// Windows 11 has dropped most legacy inbox print drivers, so "Generic / Text
+// Only" is simply not there on a modern machine and ntprint.inf will not
+// produce it. That matters far less than it looks: jobs go out with the RAW
+// datatype, which hands the bytes to the port untouched and never asks the
+// driver to render anything. The driver only has to exist so the queue can.
+//
+// So: use Generic / Text Only when it is there, stage it when that is
+// possible, and otherwise take the best class driver already installed and
+// say which. Refusing to continue over a driver whose rendering we never use
+// would be precious.
+var driverPreference = []string{
+	genericDriver,
+	"Generic / Text Only (v4)",
+	"Universal Print Class Driver",
+	"Microsoft IPP Class Driver",
+	"Microsoft Virtual Print Class Driver",
+}
+
+func pickDriver(preferred string) (string, error) {
+	if preferred != "" {
+		if driverInstalled(preferred) {
+			return preferred, nil
+		}
+		return "", fmt.Errorf("no printer driver called %q on this machine. Installed: %s",
+			preferred, strings.Join(listDrivers(), ", "))
+	}
+	if driverInstalled(genericDriver) {
+		return genericDriver, nil
+	}
+	if isElevated() {
+		if err := stageGenericDriver(); err == nil {
+			return genericDriver, nil
+		}
+	}
+	for _, cand := range driverPreference {
+		if driverInstalled(cand) {
+			return cand, nil
+		}
+	}
+	all := listDrivers()
+	if len(all) == 0 {
+		return "", errors.New("this machine has no printer drivers at all")
+	}
+	return all[0], nil
+}
+
 func addQueue(name, port string) error {
+	return addQueueWith(name, port, "")
+}
+
+func addQueueWith(name, port, preferred string) error {
 	pName, err := syscall.UTF16PtrFromString(name)
 	if err != nil {
 		return err
 	}
 	pPort, _ := syscall.UTF16PtrFromString(port)
-	pDriver, _ := syscall.UTF16PtrFromString(genericDriver)
+	if !isElevated() {
+		// Both adding a printer and staging a driver need administrator, and
+		// the driver error arrives first, so decide up front rather than
+		// reacting to whichever refusal happens to come back.
+		return errAdminNeeded
+	}
+	driver, derr := pickDriver(preferred)
+	if derr != nil {
+		return derr
+	}
+	if driver != genericDriver {
+		fmt.Printf("  %s is not on this machine; using %q instead.\n", genericDriver, driver)
+		fmt.Println("  Jobs go out as RAW, so the driver never renders anything.")
+	}
+	pDriver, _ := syscall.UTF16PtrFromString(driver)
 	// WinPrint with the RAW datatype: the spooler hands the bytes over
 	// untouched, which is the only thing ESC/POS can survive.
 	pProc, _ := syscall.UTF16PtrFromString("WinPrint")
@@ -219,18 +283,7 @@ func addQueue(name, port string) error {
 
 	h, errno := try()
 	if h == 0 && errno == errUnknownPrinterDriver {
-		// Installing a driver needs administrator just as adding a printer
-		// does - and this error arrives FIRST, before access-denied ever
-		// does, so reacting only to access-denied meant the unelevated run
-		// tried to stage a driver, silently failed, and reported the original
-		// error. Ask for the rights before touching it.
-		if !isElevated() {
-			return errAdminNeeded
-		}
-		if derr := stageGenericDriver(); derr != nil {
-			return derr
-		}
-		h, errno = try()
+		return fmt.Errorf("Windows rejected the driver %q even though it is installed", driver)
 	}
 	if h == 0 {
 		switch errno {
