@@ -35,7 +35,7 @@ Deno.serve(async (req) => {
     "day_summary",
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag", "clear_print_flags", "clear_print_queue",
-    "local_print_jobs", "local_print_done", "usb_printer_register", "usb_printer_release", "usb_printer_test", "device_printer_register", "kiosk_slip",
+    "local_print_jobs", "local_print_done", "print_events", "usb_printer_register", "usb_printer_release", "usb_printer_test", "device_printer_register", "kiosk_slip",
     "set_kds_target", "print_kitchen_summary",
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
@@ -1905,6 +1905,63 @@ Deno.serve(async (req) => {
       }
 
       // ---- DEVICE (USB) PRINTERS ----
+      // ---- What actually happened at the printers, for the KDS banner ----
+      // The banner could say three orders did not print and nothing about
+      // which printer or why, so the only way to find out was to ask someone
+      // who could read a database. Every job already records its outcome and
+      // its error; none of it was ever shown.
+      case "print_events": {
+        const { location_id, limit } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const { data: prs } = await admin.from("printers")
+          .select("sn, label, station, active, online, last_online_at")
+          .eq("location_id", location_id);
+        const printers = (prs ?? []) as Array<Record<string, unknown>>;
+        const sns = printers.map((p) => String(p.sn));
+        if (!sns.length) return json({ ok: true, printers: [], events: [] });
+
+        const { data: jobs } = await admin.from("print_jobs")
+          .select("id, order_id, printer_sn, slip, status, error, created_at")
+          .in("printer_sn", sns)
+          .order("created_at", { ascending: false })
+          .limit(Math.min(Number(limit) || 60, 200));
+        const rows = (jobs ?? []) as Array<Record<string, unknown>>;
+
+        // Order numbers, so an event reads as "#112" rather than a uuid.
+        const ids = [...new Set(rows.map((r) => String(r.order_id ?? "")).filter(Boolean))];
+        const numbers: Record<string, unknown> = {};
+        if (ids.length) {
+          const { data: ords } = await admin.from("menu_orders")
+            .select("id, order_no, created_at, print_failed, print_error")
+            .in("id", ids);
+          for (const o of (ords ?? []) as Array<Record<string, unknown>>) numbers[String(o.id)] = o;
+        }
+
+        // The pause is derived from the last three outcomes rather than
+        // stored, so it is computed the same way here as where it is applied -
+        // one definition, not two that can drift.
+        const paused: Record<string, boolean> = {};
+        for (const sn of sns) {
+          const last = rows.filter((r) => String(r.printer_sn) === sn && ["sent", "failed"].includes(String(r.status))).slice(0, 3);
+          paused[sn] = last.length === 3 && last.every((r) => String(r.status) === "failed")
+            && (Date.now() - Date.parse(String(last[0].created_at))) < 10 * 60 * 1000;
+        }
+
+        return json({
+          ok: true,
+          printers: printers.map((p) => ({ ...p, paused: paused[String(p.sn)] === true })),
+          events: rows.map((r) => {
+            const o = numbers[String(r.order_id ?? "")] as Record<string, unknown> | undefined;
+            return {
+              id: r.id, printer_sn: r.printer_sn, slip: r.slip, status: r.status,
+              error: r.error, created_at: r.created_at,
+              order_no: o?.order_no ?? null,
+              order_at: o?.created_at ?? null,
+            };
+          }),
+        });
+      }
+
       case "local_print_jobs": {
         const { sn } = data || {};
         const r = await callSunmi({ action: "local-jobs", sn });

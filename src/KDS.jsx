@@ -655,6 +655,26 @@ export default function KDS({ surface = "kds" }) {
   // hours that way. The agent stamps last_online_at every poll (every 3s), so
   // silence is unambiguous.
   const [silentPrinters, setSilentPrinters] = useState([]);
+  // What actually happened at the printers. The banner used to say three
+  // orders did not print and nothing about which printer or why, so the only
+  // way to find out was to ask someone who could read a database - while the
+  // outcome and the error of every job had been recorded all along.
+  const [printLog, setPrintLog] = useState(null);
+  const [printLogBusy, setPrintLogBusy] = useState(false);
+  async function openPrintLog() {
+    setPrintLogBusy(true);
+    setPrintLog({ loading: true });
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pos: true, device: deviceToken(), action: "print_events", data: { location_id: loc } }),
+      });
+      const j = await r.json().catch(() => ({}));
+      setPrintLog(j && j.ok ? j : { error: (j && (j.error || j.message)) || "Could not load the printing history" });
+    } catch (e) {
+      setPrintLog({ error: String(e) });
+    } finally { setPrintLogBusy(false); }
+  }
   useEffect(() => {
     if (!loc) return;
     let alive = true;
@@ -885,7 +905,8 @@ export default function KDS({ surface = "kds" }) {
         <div style={{ animation: "kfailflash 1.1s ease-in-out infinite", color: "#fff", padding: "10px 18px", display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 19, boxShadow: "0 4px 14px rgba(0,0,0,.25)", flexWrap: "wrap" }}>
           <span style={{ fontSize: F(20) }}>{WARN}</span>
           <div style={{ flex: 1, minWidth: 260 }}>
-            <div style={{ fontWeight: 900, fontSize: F(15), letterSpacing: ".02em" }}>
+            <div onClick={openPrintLog} title="See which printer failed and what it said"
+              style={{ fontWeight: 900, fontSize: F(15), letterSpacing: ".02em", cursor: "pointer", textDecoration: "underline", textDecorationThickness: 2, textUnderlineOffset: 3 }}>
               {failedOrders.length === 1 ? "ORDER #" + failedOrders[0].order_no + " DID NOT PRINT" : failedOrders.length + " ORDERS DID NOT PRINT" + " · #" + failedOrders.slice(0, 6).map((o) => o.order_no).join(" #")}
             </div>
             <div style={{ fontWeight: 600, fontSize: F(13), opacity: .95, marginTop: 2 }}>
@@ -893,9 +914,78 @@ export default function KDS({ surface = "kds" }) {
             </div>
           </div>
           <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
+            <span onClick={openPrintLog} className="kbtn" title="Which printer failed, when, and what it said" style={{ cursor: "pointer", background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: F(13) }}>{printLogBusy ? "Opening…" : "What failed?"}</span>
             <span onClick={() => retryPrint(failedOrders)} className="kbtn" style={{ cursor: "pointer", background: "#fff", color: "#991b1b", borderRadius: 9, padding: "8px 14px", fontWeight: 900, fontSize: F(13) }}>{retryingPrint ? "Retrying…" : "⟳ Retry " + (failedOrders.length === 1 ? "print" : "all")}</span>
             <span onClick={() => dismissPrint(failedOrders)} className="kbtn" style={{ cursor: "pointer", background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: F(13) }}>Dismiss</span>
             <span onClick={clearPrintQueue} className="kbtn" title="Wipe the printers' pending jobs and stop re-pushing today's open orders" style={{ cursor: "pointer", background: "rgba(255,255,255,.18)", border: "1px solid rgba(255,255,255,.55)", borderRadius: 9, padding: "8px 14px", fontWeight: 800, fontSize: F(13) }}>{clearingQueue ? "Clearing…" : "🧹 Clear queue"}</span>
+          </div>
+        </div>
+      )}
+
+      {/* WHAT FAILED. Printer first, because "which one do I go and look at"
+          is the only question anyone is asking when this is open, and then
+          what each one has actually been doing. */}
+      {printLog && (
+        <div onClick={() => setPrintLog(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(10,12,10,.6)", zIndex: 60, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "32px 16px", overflowY: "auto" }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "#fff", color: "#1d2117", borderRadius: 16, width: "100%", maxWidth: 760, padding: "22px 22px 26px", boxShadow: "0 30px 70px -25px rgba(0,0,0,.6)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+              <div style={{ fontWeight: 900, fontSize: F(19) }}>What the printers did</div>
+              <span style={{ flex: 1 }} />
+              <span onClick={() => setPrintLog(null)} style={{ cursor: "pointer", fontSize: F(20), color: "#6b7280", padding: "0 6px" }}>×</span>
+            </div>
+
+            {printLog.loading && <div style={{ fontSize: F(14), color: "#6b7280" }}>Loading…</div>}
+            {printLog.error && <div style={{ fontSize: F(14), color: "#b91c1c" }}>{printLog.error}</div>}
+
+            {printLog.printers && printLog.printers.map((pr) => {
+              const evs = (printLog.events || []).filter((e) => e.printer_sn === pr.sn).slice(0, 12);
+              const lastFail = evs.find((e) => e.status === "failed");
+              const tone = pr.paused ? "#b91c1c" : !pr.active ? "#6b7280" : lastFail ? "#a16207" : "#15803d";
+              return (
+                <div key={pr.sn} style={{ border: "1px solid #e5e7eb", borderRadius: 12, marginBottom: 12, overflow: "hidden" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "11px 14px", background: "#f9fafb", flexWrap: "wrap" }}>
+                    <span style={{ width: 9, height: 9, borderRadius: 5, background: tone, flex: "0 0 auto" }} />
+                    <span style={{ fontWeight: 800, fontSize: F(15) }}>{pr.label || pr.sn}</span>
+                    <span style={{ fontSize: F(12), color: "#6b7280" }}>{pr.station || ""}</span>
+                    <span style={{ flex: 1 }} />
+                    <span style={{ fontWeight: 800, fontSize: F(12.5), color: tone }}>
+                      {pr.paused ? "HELD — three failures in a row" : !pr.active ? "SWITCHED OFF" : lastFail ? "had a failure" : "working"}
+                    </span>
+                  </div>
+                  {pr.paused && (
+                    <div style={{ fontSize: F(12.5), background: "#fef2f2", color: "#991b1b", padding: "9px 14px", lineHeight: 1.45 }}>
+                      Nothing is being sent to this one for ten minutes. A successful test print from Admin releases it straight away.
+                    </div>
+                  )}
+                  {evs.length === 0
+                    ? <div style={{ fontSize: F(13), color: "#6b7280", padding: "11px 14px" }}>Nothing printed to this one recently.</div>
+                    : evs.map((e) => (
+                      <div key={e.id} style={{ display: "flex", gap: 10, alignItems: "baseline", padding: "8px 14px", borderTop: "1px solid #f3f4f6", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: F(12), color: "#6b7280", fontVariantNumeric: "tabular-nums", minWidth: 62 }}>
+                          {e.created_at ? new Date(e.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : ""}
+                        </span>
+                        <span style={{ fontWeight: 800, fontSize: F(13), minWidth: 56 }}>{e.order_no ? "#" + e.order_no : "—"}</span>
+                        <span style={{ fontSize: F(12.5), color: "#6b7280", minWidth: 58 }}>{e.slip || ""}</span>
+                        <span style={{ fontWeight: 800, fontSize: F(12.5),
+                          color: e.status === "sent" ? "#15803d" : e.status === "failed" ? "#b91c1c" : "#a16207" }}>
+                          {e.status === "sent" ? "printed" : e.status === "pending" ? "waiting on the printer" : e.status}
+                        </span>
+                        {e.error && <span style={{ fontSize: F(12), color: "#b91c1c", flex: 1, minWidth: 180 }}>{e.error}</span>}
+                      </div>
+                    ))}
+                </div>
+              );
+            })}
+
+            {printLog.printers && printLog.printers.length === 0 && (
+              <div style={{ fontSize: F(14), color: "#6b7280" }}>This store has no printers registered.</div>
+            )}
+
+            <div style={{ fontSize: F(12), color: "#6b7280", marginTop: 6, lineHeight: 1.5 }}>
+              <b>waiting on the printer</b> means the job reached the printer's own queue and has not been confirmed yet — it usually prints. Only <b>failed</b> means it did not get there.
+            </div>
           </div>
         </div>
       )}
