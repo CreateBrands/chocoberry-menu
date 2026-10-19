@@ -592,6 +592,10 @@ function PrintersModal({ pin, locations, onClose }) {
   // settings at once.
   const [storeFilter, setStoreFilter] = useState("");
   const [open, setOpen] = useState({});
+  // Renaming is held locally while it is being typed. Every other control
+  // writes straight through and reloads the list, which would yank the field
+  // out from under the keyboard on each keystroke.
+  const [draftName, setDraftName] = useState({});
   const load = async () => {
     setMsg("");
     try { const res = await callAdmin(pin, "printer_list", {}); setPrinters(res.printers || []); }
@@ -602,7 +606,14 @@ function PrintersModal({ pin, locations, onClose }) {
   // Clicking the backdrop was the only way out. Esc is what anyone tries first
   // on a dialog, and on the till there is no backdrop worth aiming at.
   useEffect(() => {
-    const k = (e) => { if (e.key === "Escape") onClose(); };
+    // Escape inside the name field means "undo what I just typed", not "throw
+    // the whole dialog away". This listener is on the window, so a React
+    // stopPropagation in the field would not have held it back.
+    const k = (e) => {
+      if (e.key !== "Escape") return;
+      if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+      onClose();
+    };
     window.addEventListener("keydown", k);
     return () => window.removeEventListener("keydown", k);
   }, [onClose]);
@@ -665,6 +676,15 @@ function PrintersModal({ pin, locations, onClose }) {
     setBusy(true);
     try { await callAdmin(pin, "printer_update", { id: p.id, fields: { location_id, store_id: slugFor(loc) } }); await load(); }
     catch (e) { setMsg(e.message); } finally { setBusy(false); }
+  };
+  // Printers were named once, when they were added, and never again — so a
+  // store with three of them ends up with three rows called "Till printer".
+  const commitName = async (p) => {
+    const v = draftName[p.id];
+    setDraftName((d) => { const n = { ...d }; delete n[p.id]; return n; });
+    const next = String(v ?? "").trim();
+    if (v === undefined || next === String(p.label || "")) return;
+    await updatePrinter(p, { label: next || null });
   };
   const changeStation = async (p, station) => {
     setBusy(true);
@@ -967,10 +987,18 @@ function PrintersModal({ pin, locations, onClose }) {
 
               {/* Settings sit in a tinted drawer, inset from the row. Flat on
                   the card they ran straight into the next printer and it was
-                  not obvious which one you were editing. 200px columns rather
-                  than 150 so five fields land 3 + 2 instead of 4 + 1 orphan. */}
+                  not obvious which one you were editing.
+                  One auto-fit grid for all of it does not work, because the
+                  fields disagree about how much room they need: three short
+                  selects fit happily at 150px, while the two slip switches are
+                  a toggle plus a 118px button and are cramped under 230. A
+                  single minmax has to pick one number, and whichever it picks
+                  the other half is wrong — at 200 it silently dropped to two
+                  columns and orphaned a field on every other row. So the
+                  drawer is three stacked zones, each sized for what is in it,
+                  and each still collapsing to one column on a narrow screen. */}
               {open[p.id] && (
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12,
+              <div style={{ display: "grid", gap: 12,
                 background: T.bg, border: "1px solid " + T.line, borderRadius: 12, margin: "0 16px 14px", padding: 14 }}>
                 {/* Hard-won, and nowhere in the product until now: a browser
                     cannot hold a USB printer on Windows. usbprint.sys claims
@@ -983,6 +1011,20 @@ function PrintersModal({ pin, locations, onClose }) {
                     This printer is driven by the till's browser, which only works on an <b>Android</b> till. On a Windows till the printing subsystem owns the cable the moment the printer is plugged in, so the browser can never open it and the slips queue up unprinted. Use the print agent on that till instead.
                   </div>
                 )}
+                {/* What it is: three short fields, three across. */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 }}>
+                <div>
+                  <div style={fieldLab}>Name</div>
+                  <input value={draftName[p.id] ?? (p.label || "")} disabled={busy}
+                    placeholder="Printer"
+                    onChange={(e) => setDraftName((d) => ({ ...d, [p.id]: e.target.value }))}
+                    onBlur={() => commitName(p)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); e.currentTarget.blur(); }
+                      if (e.key === "Escape") { setDraftName((d) => { const n = { ...d }; delete n[p.id]; return n; }); e.stopPropagation(); }
+                    }}
+                    style={{ ...sel, fontWeight: 600 }} />
+                </div>
                 <div>
                   <div style={fieldLab}>Store</div>
                   <select value={p.location_id || ""} onChange={(e) => changeStore(p, e.target.value)} style={sel}>
@@ -997,12 +1039,26 @@ function PrintersModal({ pin, locations, onClose }) {
                   </select>
                 </div>
                 <div>
-                  {/* The long explanation used to sit under every printer, five
-                      times over. It is the same sentence each time, so it lives
-                      in the hint once and on hover here. */}
-                  <div style={fieldLab} title="Tie a printer to one till or handheld and it prints only the orders placed there. Reprints still reach it.">Prints orders from</div>
+                  {/* Station was set once when the printer was added and could
+                      never be changed again; changeStation has been sitting
+                      here unused the whole time. It decides which printer a
+                      targeted print lands on. */}
+                  <div style={fieldLab}>Station</div>
+                  <select value={p.station || "kitchen"} onChange={(e) => changeStation(p, e.target.value)} disabled={busy} style={sel}>
+                    <option value="kitchen">Kitchen (food)</option>
+                    <option value="counter">Counter / bar (drinks)</option>
+                  </select>
+                </div>
+                </div>
+
+                {/* Where the orders come from, and how many copies. The source
+                    select holds the longest text in the drawer and was
+                    truncating to "Any source (tablets, tills, onli". */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, alignItems: "start" }}>
+                <div>
+                  <div style={fieldLab}>Prints orders from</div>
                   <select value={p.source_screen_key || ""} onChange={(e) => updatePrinter(p, { source_screen_key: e.target.value || null })} disabled={busy} style={sel}>
-                    <option value="">Any source (tablets, tills, online)</option>
+                    <option value="">Any source</option>
                     {/* A screen that has since been removed or renamed would
                         otherwise leave this blank, reading as "any source"
                         while the printer is still tied to something gone. */}
@@ -1014,16 +1070,40 @@ function PrintersModal({ pin, locations, onClose }) {
                       </optgroup>
                     ))}
                   </select>
-                  {/* Tying a printer to a screen that cannot place an order is
+                  {/* This explanation lived in a title attribute, which does
+                      not exist on a touchscreen — on the till it was simply
+                      gone. It is visible again now that the drawer opens one
+                      printer at a time instead of all five at once, which is
+                      why it had to be hidden in the first place.
+                      Tying a printer to a screen that cannot place an order is
                       the same dead end as leaving both slips off, and just as
-                      quiet, so it is said out loud rather than left to be
-                      discovered when nothing prints. */}
-                  {p.source_screen_key && (screens || []).some((k) => k.screen_key === p.source_screen_key && k.location_id === p.location_id && String(k.kind || "") === "kds") && (
+                      quiet, so that case replaces the hint rather than
+                      stacking a second line under it. */}
+                  {p.source_screen_key && (screens || []).some((k) => k.screen_key === p.source_screen_key && k.location_id === p.location_id && String(k.kind || "") === "kds") ? (
                     <div style={{ fontSize: 11.5, color: "#8a5a2c", marginTop: 5, lineHeight: 1.4 }}>
                       That is a kitchen screen — it never places orders, so this printer will not print any.
                     </div>
+                  ) : (
+                    <div style={{ fontSize: 11.5, color: T.faint, marginTop: 5, lineHeight: 1.4 }}>
+                      Tie a printer to one till or handheld and it prints only the orders placed there. Reprints still reach it.
+                    </div>
                   )}
                 </div>
+                <div>
+                  <div style={fieldLab}>Copies</div>
+                  <select value={p.copies || 1} onChange={(e) => changeCopies(p, e.target.value)} style={sel}>
+                    <option value={1}>1 copy</option>
+                    <option value={2}>2 copies</option>
+                    <option value={3}>3 copies</option>
+                    <option value={4}>4 copies</option>
+                  </select>
+                </div>
+                </div>
+
+                {/* What comes out. These two are the pair you reason about
+                    together, so they stay side by side, and each needs room
+                    for a toggle plus the when-it-prints button. */}
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
                 <div>
                   <div style={fieldLab}>Kitchen ticket</div>
                   <div style={{ display: "flex", gap: 6 }}>
@@ -1064,19 +1144,12 @@ function PrintersModal({ pin, locations, onClose }) {
                     )}
                   </div>
                 </div>
-                <div>
-                  <div style={fieldLab}>Copies</div>
-                  <select value={p.copies || 1} onChange={(e) => changeCopies(p, e.target.value)} style={sel}>
-                    <option value={1}>1 copy</option>
-                    <option value={2}>2 copies</option>
-                    <option value={3}>3 copies</option>
-                    <option value={4}>4 copies</option>
-                  </select>
                 </div>
+
                 {/* Remove used to be a bare × sitting against Settings on the
                     row, one mis-tap from unregistering a working printer. It
                     lives in here now, which you have to open on purpose. */}
-                <div style={{ gridColumn: "1 / -1", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", borderTop: "1px solid " + T.line, paddingTop: 11, marginTop: 2 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", borderTop: "1px solid " + T.line, paddingTop: 11, marginTop: 2 }}>
                   {/* The serial in full. It is what the agent config on the
                       till has to match, so it needs to be readable and
                       selectable, not ellipsed into a row. */}
