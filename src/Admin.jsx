@@ -696,7 +696,8 @@ function DevicesPanel({ loc, state, act, pin, setMsg }) {
                 const up = online(k);
                 const dot = st === "revoked" ? T.danger : st === "active" ? (up ? "#2e8b4e" : "#d79b2c") : "#9a9381";
                 const limited = !!(k.routing && (k.routing.menus?.length || k.routing.categories?.length || k.routing.items?.length));
-                const printerName = (state.printers || []).find((p) => p.sn === k.printer_sn);
+                const printerRow = k.printer_sn ? (state.printers || []).find((p) => p.sn === k.printer_sn) : null;
+                const printerHere = !!printerRow && printerRow.location_id === loc.id && printerRow.active;
                 return (
                   <div key={k.screen_key} style={{ borderTop: idx ? "1px solid " + T.line : "none", background: open[k.screen_key] ? "rgba(94,122,77,.035)" : "transparent" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 11, padding: "12px 16px", flexWrap: "wrap", opacity: st === "revoked" ? .62 : 1 }}>
@@ -750,10 +751,28 @@ function DevicesPanel({ loc, state, act, pin, setMsg }) {
                           </div>
                           <div>
                             <div style={lab}>Prints to</div>
+                            {/* A select whose value matches none of its options
+                                renders the FIRST option, so a device tied to a
+                                printer that has been removed, switched off or
+                                moved read as "All printers" while still routing
+                                at something that is not there. Till 1 is tied to
+                                usb:pos-1, which no longer exists, and the
+                                control was reporting it as fine. */}
                             <select value={k.printer_sn || ""} onChange={(e) => act("set_kds_printer", { location_id: loc.id, screen_key: k.screen_key, label: k.label || null, printer_sn: e.target.value || null })} style={sel}>
                               <option value="">All printers</option>
+                              {k.printer_sn && !printerHere && (
+                                <option value={k.printer_sn}>
+                                  Only {printerRow ? (printerRow.label || k.printer_sn) + (printerRow.active ? " — at another store" : " — switched off") : k.printer_sn + " — not registered"}
+                                </option>
+                              )}
                               {(state.printers || []).filter((p) => p.location_id === loc.id && p.active).map((p) => <option key={p.sn} value={p.sn}>Only {p.label || p.sn}</option>)}
                             </select>
+                            {k.printer_sn && !printerHere && (
+                              <div style={{ fontSize: 11.5, color: "#8a5a2c", marginTop: 5, lineHeight: 1.4 }}>
+                                {printerRow ? (printerRow.active ? "That printer belongs to another store, so nothing from here reaches it." : "That printer is switched off, so nothing prints until it is turned back on.")
+                                  : "No printer with that serial is registered any more — anything this device sends has nowhere to go. Pick one, or set it back to all printers."}
+                              </div>
+                            )}
                           </div>
                         </div>
 
@@ -766,7 +785,6 @@ function DevicesPanel({ loc, state, act, pin, setMsg }) {
                           {k.activated_by === "legacy" ? " (migrated)" : ""}
                           {k.app_version ? " · app v" + k.app_version : ""}
                           {k.fingerprint ? " · " + String(k.fingerprint).split(" | ")[0] : ""}
-                          {k.printer_sn && !printerName ? " · printer " + k.printer_sn + " is no longer registered" : ""}
                         </div>
 
                         {/* Revoke and Remove were sitting in the same row as
@@ -2219,6 +2237,9 @@ export default function Admin() {
   const [storeTab, setStoreTab] = useState("tablets");
   const [storeQuery, setStoreQuery] = useState(""); // active tab in the expanded store
   const [storePins, setStorePins] = useState([]);      // master-only: per-store manager PINs
+  // Which store's manager PIN is currently uncovered. Resets on every reload,
+  // so a PIN revealed once does not stay on screen for the rest of the session.
+  const [showPin, setShowPin] = useState({});
   const loadStorePins = async () => { try { const r = await callAdmin(pin, "store_pin_list", {}); setStorePins(r.pins || []); } catch { /* ignore */ } };
   useEffect(() => { if (showStores && state?.scope !== "store") loadStorePins(); /* eslint-disable-next-line */ }, [showStores]);
   const [modOpen, setModOpen] = useState({});
@@ -2996,7 +3017,20 @@ export default function Admin() {
                             <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                               {existing
                                 ? <>
-                                    <span style={{ fontSize: 13, fontWeight: 700, color: T.ink, background: "#eef3ea", border: "1px solid #d9e6d2", borderRadius: 8, padding: "7px 12px", letterSpacing: "2px" }}>PIN: {existing.pin}</span>
+                                    {/* The PIN was printed in the clear, always.
+                                        This page gets opened on a shop floor,
+                                        shared on a call and photographed for a
+                                        support thread, and the credential that
+                                        unlocks a whole store's admin went with
+                                        it every time. It is covered unless
+                                        someone asks to see it. */}
+                                    <span onClick={() => setShowPin((s) => ({ ...s, [loc.id]: !s[loc.id] }))}
+                                      title={showPin[loc.id] ? "Hide the PIN" : "Show the PIN"}
+                                      style={{ fontSize: 13, fontWeight: 700, color: T.ink, background: "#eef3ea", border: "1px solid #d9e6d2", borderRadius: 8, padding: "7px 12px", letterSpacing: "2px", cursor: "pointer", userSelect: showPin[loc.id] ? "all" : "none" }}>
+                                      PIN: {showPin[loc.id] ? existing.pin : "•".repeat(String(existing.pin || "").length || 6)}
+                                    </span>
+                                    <span onClick={() => setShowPin((s) => ({ ...s, [loc.id]: !s[loc.id] }))} style={{ fontSize: 12, color: T.muted, fontWeight: 600, cursor: "pointer" }}>{showPin[loc.id] ? "Hide" : "Show"}</span>
+                                    <span onClick={() => navigator.clipboard?.writeText(String(existing.pin || ""))} title="Copy without showing it" style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Copy</span>
                                     <span onClick={async () => { const p = window.prompt("New PIN for " + loc.name + " (numbers/letters):"); if (p) { await callAdmin(pin, "store_pin_set", { location_id: loc.id, pin: p.trim(), label: loc.name + " manager" }); loadStorePins(); } }} style={{ fontSize: 12, color: T.accent, fontWeight: 600, cursor: "pointer" }}>Change</span>
                                     <span onClick={async () => { if (window.confirm("Remove manager access for " + loc.name + "? Their PIN will stop working.")) { await callAdmin(pin, "store_pin_delete", { location_id: loc.id }); loadStorePins(); } }} style={{ fontSize: 12, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Remove</span>
                                   </>
