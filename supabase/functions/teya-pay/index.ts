@@ -262,6 +262,11 @@ Deno.serve(async (req) => {
         const { data: creds } = await admin.from("teya_credentials").select("store_id, store_name, client_id, client_secret, scopes");
         const out: any[] = [];
         for (const c of (creds || []) as any[]) {
+          // Which credential this is, enough to tell two apart without
+          // putting one in a log. Teya ask, reasonably, whether the POSLink
+          // and ecommerce credentials have been kept separate; this answers
+          // it from the running system instead of from memory.
+          const idTail = String(c.client_id || "").slice(-6);
           const t = await teya(c, "GET", "/poslink/v1/stores/" + encodeURIComponent(c.store_id) + "/terminals").catch((e) => ({ error: String(e.message) }));
           const tl = Array.isArray(t) ? t : (t?.terminals || t?.items || []);
           // GET /poslink/v1/stores takes the same scopes as the terminals call
@@ -301,6 +306,7 @@ Deno.serve(async (req) => {
             }
           } catch (e) { claims = { error: String((e as Error).message || e) }; }
           out.push({
+            client_id_ends: idTail,
             store_id: c.store_id, store_name: c.store_name,
             scopes_on_record: c.scopes || null,
             terminals_call: t?.error ? { error: t.error } : { ok: true, count: tl.length },
@@ -320,7 +326,23 @@ Deno.serve(async (req) => {
           try { await tokenFor(c); results.push({ store: c.store_name || c.store_id, ok: true }); }
           catch (e) { results.push({ store: c.store_name || c.store_id, ok: false, error: String((e as Error).message) }); }
         }
-        return json({ ok: results.length > 0 && results.every((r) => r.ok), env: ENV, stores: results, note: results.length ? undefined : "no rows in teya_credentials — run scripts/teya-register.mjs" });
+        // Whether the POSLink credentials and the ecommerce one are actually
+        // distinct. Teya ask this and it is a fair question; answering it from
+        // the running system beats answering it from memory. A boolean only -
+        // this action takes no auth, so it never carries a client_id.
+        const checkoutId = Deno.env.get("TEYA_CHECKOUT_CLIENT_ID") || "";
+        const poslinkIds = new Set(((creds || []) as any[]).map((c) => String(c.client_id || "")));
+        return json({
+          ok: results.length > 0 && results.every((r) => r.ok),
+          env: ENV,
+          stores: results,
+          credentials: {
+            poslink_count: poslinkIds.size,
+            ecommerce_configured: !!checkoutId,
+            kept_separate: !!checkoutId && !poslinkIds.has(checkoutId),
+          },
+          note: results.length ? undefined : "no rows in teya_credentials — run scripts/teya-register.mjs",
+        });
       }
 
       default: return json({ error: "unknown action" }, 400);
