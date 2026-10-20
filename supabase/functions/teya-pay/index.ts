@@ -312,12 +312,14 @@ Deno.serve(async (req) => {
           const idTail = String(c.client_id || "").slice(-6);
           const t = await teya(c, "GET", "/poslink/v1/stores/" + encodeURIComponent(c.store_id) + "/terminals").catch((e) => ({ error: String(e.message) }));
           const tl = Array.isArray(t) ? t : (t?.terminals || t?.items || []);
-          // GET /poslink/v1/stores takes the same scopes as the terminals call
-          // (stores/id/terminals, or the deprecated default_access). Calling
-          // both with the same machine token separates the two explanations
-          // for a 403 on terminals: if this one 403s too, the token is not
-          // carrying the scope; if it answers, the scope is fine and the
-          // refusal is about this store, which is Teya's end.
+          // EXPECTED TO FAIL, and not a fault. The /poslink/v1/stores* family
+          // is administration and needs a USER token (device-code sign-in, see
+          // scripts/teya-setup.mjs). A machine token is not a user, so Teya
+          // answers 401 here and 403 on terminals however the scopes are set —
+          // confirmed by requesting stores/id/terminals explicitly and having
+          // it granted, with the 403 unchanged. Read these two as "machine
+          // token, as designed", not as a permissions problem; the call below
+          // is the one that says whether anything is actually wrong.
           const s = await teya(c, "GET", "/poslink/v1/stores").catch((e) => ({ error: String(e.message) }));
           // The decisive one. GET /poslink/v2/payment-requests needs the
           // payment_requests scope, which this credential holds, and it names
