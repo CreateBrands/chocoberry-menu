@@ -385,7 +385,7 @@ export default function KDS({ surface = "kds" }) {
 
   const load = useCallback(async () => {
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,kds_started_at,kds_bumped_at,served_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,amount_paid,kds_started_at,kds_bumped_at,served_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
         // 'hold' = placed on the kiosk, waiting for the customer to pay at the
         // till. The kitchen sees it coming but must not start it; it becomes a
         // normal ticket the moment payment flips it to 'placed'.
@@ -643,7 +643,16 @@ export default function KDS({ surface = "kds" }) {
     // bumped before the new round arrived — i.e. the earlier rounds were served.
     return (o.round_restarted || earlierDone) ? o.items_added_at : o.created_at;
   };
-  let active = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled").map(filterStation).filter(Boolean);
+  // A till "Pay" puts the order on hold while the card or cash is taken, so
+  // the kitchen sees it coming. One still on hold with nothing paid after 15
+  // minutes was abandoned at the till (closed to add a discount, then rung
+  // again) and only looks like a duplicate here. Kiosk holds are left alone:
+  // the customer may still be walking to the counter.
+  const staleTillHold = (o) => o.status === "hold"
+    && ["POS", "phone", "web"].includes(String(o.tablet_no || ""))
+    && !o.paid_method && !(Number(o.amount_paid || 0) > 0)
+    && (Date.now() - new Date(o.created_at).getTime()) > 15 * 60000;
+  let active = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled" && !staleTillHold(o)).map(filterStation).filter(Boolean);
   active.sort((a, b) => (rushIds.has(b.id) ? 1 : 0) - (rushIds.has(a.id) ? 1 : 0) || new Date(clockStart(a)) - new Date(clockStart(b)));
   // Orders that failed to print — shown as an un-ignorable banner across the KDS.
   const failedOrders = orders.filter((o) => !myBumps.has(o.id) && o.status !== "cancelled" && o.print_failed);

@@ -189,6 +189,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const [orderKind, setOrderKind] = useState("takeaway"); // takeaway | dinein | phone | web
   const [orderNote, setOrderNote] = useState(""); // order-level instructions
   const [payNowOrder, setPayNowOrder] = useState(null); // locally-built order for instant panel
+  // The basket as it was when "Pay" was pressed. Pay creates the order on
+  // hold and empties the basket; if the pay screen is then closed without
+  // any money taken, this goes back into the basket and the hold is
+  // cancelled, instead of leaving an invisible unpaid order on the KDS.
+  const payDraft = useRef(null);
   const [now, setNow] = useState(Date.now());
   const [posPin, setPosPin] = useState(""); // PIN captured once for order actions
   const [feedbackFor, setFeedbackFor] = useState(null); // order → FOH feedback sheet
@@ -881,6 +886,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             modifiers_snapshot: (l.mods || []).map((m) => m.name),
           })),
         };
+        payDraft.current = (thenPay && resp.order_id)
+          ? { orderId: resp.order_id, orderNo: resp.order_no, ticket, table, orderNote, orderKind }
+          : null;
         // Clear the cart; the order now lives in the strip.
         setTicket([]); setTable(null); setOrderNote(""); setPlaced(null); setPayMethod(null); setPayPin("");
         if (thenPay && resp.order_id) {
@@ -891,6 +899,22 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         loadOrders(); // refresh the strip in the background
       }
     } catch (e) { setMsg(e.message || "Send failed"); } finally { setSending(false); }
+  }
+  // Undo a Pay that was closed before any money was taken: cancel the hold on
+  // the server first, and only then put the items back. If the server refuses
+  // (a card is still on the machine, a tender landed) the basket stays empty,
+  // so the same order can't be rung up a second time.
+  async function abandonHold(draft) {
+    const res = await ordActionJson("abandon_hold", { order_id: draft.orderId });
+    if (!res.ok) {
+      setMsg(res.message || ("Order #" + draft.orderNo + " is still waiting for payment — open it from the orders list."));
+      return;
+    }
+    setTicket((cur) => [...draft.ticket, ...cur]);
+    setTable((cur) => cur || draft.table);
+    setOrderNote((cur) => cur || draft.orderNote);
+    setOrderKind(draft.orderKind);
+    setMsg("Payment not taken — the order is back in the basket.");
   }
   async function takePayment() {
     if (!placed || !payMethod || !payPin) { setMsg("Choose method + PIN"); return; }
@@ -1291,7 +1315,18 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               now={now}
               busy={ordersBusy}
               initialMode={selPayNow ? "method" : "detail"}
-              onClose={() => { setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null); }}
+              onClose={() => {
+                const draft = payDraft.current;
+                const closing = (payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : null;
+                setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null);
+                // Closed the pay screen of an order this till just put on hold,
+                // with nothing taken: undo the Pay rather than strand the order.
+                if (draft && closing && draft.orderId === closing.id
+                    && Number(closing.amount_paid || 0) === 0 && !closing.paid_method) {
+                  payDraft.current = null;
+                  abandonHold(draft);
+                }
+              }}
               onTakePayment={async (o, method, amount, extra) => {
                 // Split payments came through here unwrapped, so a split that
                 // settled the bill neither confirmed nor closed the panel.

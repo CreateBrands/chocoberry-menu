@@ -47,7 +47,7 @@ Deno.serve(async (req) => {
     "kds_screen_self", "menu_catalog", "printers_list",
     "service_log_add", "service_log_delete", "mark_served",
     "device_activate", "device_heartbeat", "device_claim_legacy", "manager_pin_check",
-    "open_drawer", "void_order",
+    "open_drawer", "void_order", "abandon_hold",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   // Device enforcement: when the caller sends a device token it must be active,
@@ -431,7 +431,7 @@ Deno.serve(async (req) => {
     return d;
   }
   // Till-only actions. Screen setup (kds_screen_self), targets and kitchen prints are KDS actions and stay allowed for kitchen licences.
-  const POS_ONLY = new Set(["mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue"]);
+  const POS_ONLY = new Set(["abandon_hold", "mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue"]);
   // Kitchen speed for the closing report, same definition as the KDS Performance tab:
   // completion = latest bump within 30 min of the first bump (later bumps are housekeeping).
   async function kitchenStats(location_id: string, from: string, to: string, targetMin: number) {
@@ -1503,6 +1503,56 @@ Deno.serve(async (req) => {
           } catch (e) { console.error("drawer kick failed", e); }
         }
         return json({ ok: true, paid: paidNow, remaining: Math.max(0, remaining), fully_paid: fullyPaid, is_split: isSplit, methods: [...distinctMethods], drawer });
+      }
+
+      // ---- TILL: abandon a pay-first order that was never paid ----
+      // "Pay" creates the order on hold before any money is taken. When the
+      // cashier closes the pay screen instead (to add a discount, change an
+      // item), the till puts the items back in the basket and calls this to
+      // cancel the empty shell. Without it the hold sat on the KDS as
+      // "waiting for payment" for the rest of the day, invisible on the till,
+      // and looked like a duplicate once the order was rung again (London
+      // Road #82/#83, 22 Oct).
+      //
+      // No PIN, because nothing has happened yet: it never reached the
+      // kitchen and no money was taken. Everything else is refused, so this
+      // can't be used as a PIN-free void: a placed order, a kiosk order, any
+      // tender recorded, or a card request open or completed on the terminal.
+      case "abandon_hold": {
+        const { order_id } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const { data: ord } = await admin.from("menu_orders")
+          .select("id, order_no, location_id, status, tablet_no, amount_paid, paid_method").eq("id", order_id).maybeSingle();
+        if (!ord) return json({ error: "order not found" }, 404);
+        if (ord.status === "cancelled") return json({ ok: true, already: true });
+        if (ord.status !== "hold") return json({ error: "not_hold", message: "This order has already gone to the kitchen — void it instead." }, 409);
+        if (!["POS", "phone", "web"].includes(String(ord.tablet_no || ""))) {
+          return json({ error: "not_till_order", message: "Only orders started on this till can be cancelled here." }, 409);
+        }
+        if (callerDevice && deviceTok && deviceTok.location_id && ord.location_id && deviceTok.location_id !== ord.location_id) {
+          return json({ error: "wrong_store" }, 403);
+        }
+        if (Number(ord.amount_paid || 0) > 0 || ord.paid_method) {
+          return json({ error: "already_paid", message: "Money has been taken on this order — finish or refund it." }, 409);
+        }
+        const { data: tenders } = await admin.from("order_payments").select("id").eq("order_id", order_id).limit(1);
+        if (tenders && tenders.length) {
+          return json({ error: "already_paid", message: "A payment is recorded on this order — finish or refund it." }, 409);
+        }
+        const { data: cards } = await admin.from("teya_payment_requests").select("status")
+          .eq("order_id", order_id).in("status", ["NEW", "IN_PROGRESS", "CANCELLING", "SUCCESSFUL"]).limit(1);
+        if (cards && cards.length) {
+          return json({ error: "card_in_progress", message: "A card payment is still on the machine for #" + (ord.order_no ?? "") + ". Finish or cancel it there first." }, 409);
+        }
+        // Conditional on still being an unpaid hold, so a payment landing in
+        // the same instant wins over the cancel.
+        const { data: upd, error } = await admin.from("menu_orders").update({
+          status: "cancelled", cancelled_at: new Date().toISOString(),
+          cancel_reason: "Pay screen closed before payment — items returned to basket",
+        }).eq("id", order_id).eq("status", "hold").is("paid_method", null).select("id");
+        if (error) throw error;
+        if (!upd || !upd.length) return json({ error: "changed", message: "The order changed while cancelling — check it on the till." }, 409);
+        return json({ ok: true, order_no: ord.order_no });
       }
 
       // ---- TILL: void a whole order ----
