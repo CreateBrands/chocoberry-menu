@@ -11,6 +11,13 @@ const cors = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
+// What a regional login (region_pins) may reach, as id sets.
+type Fence = {
+  brands: Set<string>; primaryBrand: string; timezone: string | null;
+  locs: Set<string>; menus: Set<string>; cats: Set<string>; items: Set<string>;
+  groups: Set<string>; options: Set<string>; bands: Set<string>; bandByName: Map<string, string>;
+  printerIds: Set<string>; printerSns: Set<string>;
+};
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
@@ -82,9 +89,184 @@ Deno.serve(async (req) => {
       const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", pinStr).eq("active", true).maybeSingle();
       if (sp && sp.location_id === location_id) return { ok: true, name: "Store manager" };
     }
+    if (location_id && await regionCoversLocation(pinStr, location_id)) return { ok: true, name: "Regional manager" };
     const r = await staffForPin(pinStr, location_id);
     if (r && r.ok && /manager|supervisor|owner|director|head/i.test(String(r.role || ""))) return { ok: true, name: r.name };
     return { ok: false, reason: r && r.ok ? "not_manager" : "unknown" };
+  }
+
+  // ── Regional PIN (region_pins) ──────────────────────────────────────────
+  // A regional login is a master login fenced to a set of brands. For the UAE
+  // that is the Chocoberry UAE brand, which owns both UAE stores, their menus,
+  // modifier groups and bands. Nothing on a UK brand is reachable from it.
+  async function regionForPin(pinIn: unknown): Promise<{ brand_ids: string[]; label: string | null } | null> {
+    const pinStr = String(pinIn || "").trim();
+    if (pinStr.length < 4) return null;
+    const { data: rp, error } = await admin.from("region_pins")
+      .select("brand_ids, label").eq("pin", pinStr).eq("active", true).maybeSingle();
+    if (error || !rp) return null; // table missing or no match → not a regional PIN
+    const ids = (Array.isArray(rp.brand_ids) ? rp.brand_ids : []).map(String).filter(Boolean);
+    return ids.length ? { brand_ids: ids, label: rp.label || null } : null;
+  }
+  async function regionCoversLocation(pinStr: string, location_id: string) {
+    const rp = await regionForPin(pinStr);
+    if (!rp) return false;
+    const { data: l } = await admin.from("menu_locations").select("brand_id").eq("id", location_id).maybeSingle();
+    return !!(l?.brand_id && rp.brand_ids.includes(String(l.brand_id)));
+  }
+
+  // Everything a regional login may touch, as id sets. Built strictly from
+  // brand_id — a row with no brand belongs to the default (UK) brand, so it is
+  // outside every fence.
+  async function allRows(table: string, cols: string) {
+    const out: any[] = [];
+    for (let from = 0; ; from += 1000) {
+      const { data: rows, error } = await admin.from(table).select(cols).range(from, from + 999);
+      if (error) throw error;
+      out.push(...(rows || []));
+      if (!rows || rows.length < 1000) break;
+    }
+    return out;
+  }
+  async function loadFence(brandIds: string[]): Promise<Fence> {
+    const [locs, menus, groups, bands, cats, items, options, printers] = await Promise.all([
+      admin.from("menu_locations").select("id, timezone").in("brand_id", brandIds),
+      admin.from("menu_menus").select("id").in("brand_id", brandIds),
+      admin.from("menu_modifier_groups").select("id").in("brand_id", brandIds),
+      admin.from("menu_price_bands").select("id, name").in("brand_id", brandIds),
+      allRows("menu_categories", "id, menu_id, brand_id"),
+      allRows("menu_items", "id, category_id"),
+      allRows("menu_modifiers", "id, group_id"),
+      allRows("printers", "id, sn, location_id"),
+    ]);
+    const s = (rows: any[] | null | undefined) => new Set((rows || []).map((r: any) => String(r.id)));
+    const F: Fence = {
+      brands: new Set(brandIds),
+      primaryBrand: brandIds[0],
+      timezone: ((locs.data || []).find((l: any) => l.timezone) as any)?.timezone || null,
+      locs: s(locs.data), menus: s(menus.data), groups: s(groups.data), bands: s(bands.data),
+      bandByName: new Map((bands.data || []).map((b: any) => [String(b.name).toLowerCase(), String(b.id)])),
+      cats: new Set(), items: new Set(), options: new Set(), printerIds: new Set(), printerSns: new Set(),
+    };
+    for (const c of cats) if ((c.menu_id && F.menus.has(String(c.menu_id))) || (!c.menu_id && c.brand_id && F.brands.has(String(c.brand_id)))) F.cats.add(String(c.id));
+    for (const i of items) if (F.cats.has(String(i.category_id))) F.items.add(String(i.id));
+    for (const o of options) if (F.groups.has(String(o.group_id))) F.options.add(String(o.id));
+    for (const p of printers) if (p.location_id && F.locs.has(String(p.location_id))) { F.printerIds.add(String(p.id)); F.printerSns.add(String(p.sn)); }
+    return F;
+  }
+
+  // Returns a refusal message, or null when the call stays inside the fence.
+  // Anything not listed here is refused: a new admin action is closed to the
+  // regional login until someone decides it belongs there.
+  async function regionGuard(act: string, d: any, F: Fence, isPosAction: boolean): Promise<string | null> {
+    d = d || {};
+    const OUT = "forbidden: outside your region";
+    const has = (set: Set<string>, id: unknown) => id !== null && id !== undefined && id !== "" && set.has(String(id));
+    const opt = (set: Set<string>, id: unknown) => id === null || id === undefined || id === "" || set.has(String(id));
+    const all = (set: Set<string>, ids: unknown) => Array.isArray(ids) && ids.every((x) => has(set, x));
+    const allOrEmpty = (set: Set<string>, ids: unknown) => ids == null || (Array.isArray(ids) && ids.every((x) => has(set, x)));
+    const forceBrand = () => { if (!has(F.brands, d.brand_id)) d.brand_id = F.primaryBrand; };
+    const tableLoc = async (id: unknown) => {
+      const { data: row } = await admin.from("menu_tables").select("location_id").eq("id", String(id || "")).maybeSingle();
+      return has(F.locs, row?.location_id);
+    };
+    const ok = (cond: boolean) => (cond ? null : OUT);
+    switch (act) {
+      // Reads — filtered to the fence inside each handler.
+      case "load": case "printer_list": case "store_pin_list": case "merges_list":
+        return null;
+
+      // Master menu (the brand's own items, sections, menus)
+      case "update_item": return ok(has(F.items, d.id) && (!d.fields || !("category_id" in d.fields) || has(F.cats, d.fields.category_id)));
+      case "create_item": return ok(has(F.cats, d.category_id));
+      case "delete_item": return ok(has(F.items, d.id));
+      case "create_category":
+        if (d.menu_id) return ok(has(F.menus, d.menu_id));
+        forceBrand(); return null;
+      case "update_category": case "delete_category": return ok(has(F.cats, d.id));
+      case "create_menu": forceBrand(); return null;
+      case "update_menu": case "delete_menu": return ok(has(F.menus, d.id));
+      case "reorder": {
+        const set = d.table === "menu_menus" ? F.menus : d.table === "menu_categories" ? F.cats : d.table === "menu_items" ? F.items : null;
+        return ok(!!set && all(set, d.ids));
+      }
+
+      // Modifiers
+      case "create_mod_group": forceBrand(); return null;
+      case "update_mod_group": case "delete_mod_group": return ok(has(F.groups, d.id));
+      case "create_mod_option": return ok(has(F.groups, d.group_id));
+      case "update_mod_option": case "delete_mod_option": return ok(has(F.options, d.id));
+      case "set_item_mod_groups": return ok(has(F.items, d.item_id) && allOrEmpty(F.groups, d.group_ids));
+
+      // Per-store prices and availability
+      case "set_override": case "set_item_86": return ok(has(F.locs, d.location_id) && has(F.items, d.item_id));
+      case "set_mod_override": return ok(has(F.locs, d.location_id) && has(F.options, d.option_id));
+      case "bulk_set_availability": return ok(all(F.locs, d.location_ids) && all(F.items, d.item_ids));
+      case "bulk_set_prices": return ok(all(d.scope === "band" ? F.bands : F.locs, d.target_ids) && all(F.items, d.item_ids));
+
+      // Bands
+      case "create_band": {
+        const src = String(d.copy_from || "").toLowerCase();
+        return ok(!!src && F.bandByName.has(src));
+      }
+      case "band_create": forceBrand(); return null;
+      case "update_band": case "delete_band": return ok(has(F.bands, d.id));
+      case "set_band_price": case "set_band_item": return ok(has(F.bands, d.band_id) && has(F.items, d.item_id));
+      case "set_band_option_price": return ok(has(F.bands, d.band_id) && has(F.options, d.option_id));
+      case "set_band_menu": return ok(has(F.bands, d.band_id) && has(F.menus, d.menu_id));
+      case "set_store_band": case "set_menu_band": return ok(has(F.locs, d.location_id) && opt(F.bands, d.band_id));
+
+      // Stores
+      case "create_store": forceBrand(); return null;
+      case "update_store": {
+        const src = (d.fields && typeof d.fields === "object") ? d.fields : d;
+        return ok(has(F.locs, d.id) && (!("brand_id" in src) || has(F.brands, src.brand_id)));
+      }
+      case "delete_store": return ok(has(F.locs, d.id));
+      case "store_pin_set": case "store_pin_delete": case "set_store_menus":
+        if (act === "set_store_menus" && !allOrEmpty(F.menus, d.menu_ids)) return OUT;
+        return ok(has(F.locs, d.location_id));
+      case "set_setting": {
+        // Only per-store keys ("<name>:<location id>") for their own stores.
+        // Plain keys (theme, hero_slides, ordering_enabled…) are chain-wide.
+        const m = /:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(String(d.key || ""));
+        return m && F.locs.has(m[1]) ? null : "forbidden: regional logins can only change their own stores' settings";
+      }
+
+      // Printers
+      case "printer_add": return ok(has(F.locs, d.location_id));
+      case "printer_update": return ok(has(F.printerIds, d.id) && (!d.fields || !("location_id" in d.fields) || has(F.locs, d.fields.location_id)));
+      case "printer_remove": return ok(has(F.printerIds, d.id));
+      case "printer_test": case "printer_status": return ok(has(F.printerSns, d.sn));
+      case "set_printer_categories": return ok(has(F.printerSns, d.printer_sn) && allOrEmpty(F.cats, d.category_ids));
+      case "set_printer_item": return ok(has(F.printerSns, d.printer_sn) && has(F.items, d.item_id));
+
+      // Screens, devices, tables, till
+      case "set_kds_printer": case "kds_screen_add": case "kds_screen_remove": case "set_accepting_orders":
+      case "device_create": case "device_revoke": case "device_replace": case "device_set_kind": case "device_reload": case "device_events":
+      case "create_token": case "create_table": case "close_day":
+        return ok(has(F.locs, d.location_id));
+      case "release_token": case "delete_token": case "update_table": case "delete_table":
+        return ok(await tableLoc(d.id));
+      case "reprint_closure": return null; // checked in the handler against the closure's store
+
+      // POS category merges
+      case "merge_save": {
+        if (!opt(F.menus, d.menu_id) || !all(F.cats, d.category_ids)) return OUT;
+        if (d.id) {
+          const { data: row } = await admin.from("pos_category_merges").select("category_ids").eq("id", d.id).maybeSingle();
+          if (!row || !all(F.cats, row.category_ids)) return OUT;
+        }
+        return null;
+      }
+      case "merge_delete": {
+        const { data: row } = await admin.from("pos_category_merges").select("category_ids").eq("id", d.id).maybeSingle();
+        return ok(!!row && all(F.cats, row.category_ids));
+      }
+    }
+    // Till/KDS actions sent without the pos flag: allowed only at their stores.
+    if (isPosAction) return ok(!("location_id" in d) || has(F.locs, d.location_id));
+    return "forbidden for a regional login";
   }
   if (action === "staff_lookup") {
     const r = await staffForPin(data?.pin, data?.location_id);
@@ -102,17 +284,36 @@ Deno.serve(async (req) => {
   //   store   → a row in store_pins; can ONLY touch its own location_id.
   // Isolation is enforced here on the server so a store manager can never
   // reach another store's data, regardless of what the browser sends.
-  let scope: "master" | "store" | null = null;
+  //   region  → a row in region_pins; full admin, but ONLY over the brands it
+  //             names (e.g. Chocoberry UAE) — their stores, menus, modifiers,
+  //             bands, printers, devices and per-store settings. Never the UK.
+  let scope: "master" | "store" | "region" | null = null;
   let scopeLocationId: string | null = null;
+  let scopeLabel: string | null = null;
+  let fence: Fence | null = null;
   if (pin && pin === ADMIN_PIN) {
     scope = "master";
   } else if (pin) {
     const { data: sp } = await admin.from("store_pins")
       .select("location_id, active").eq("pin", pin).eq("active", true).maybeSingle();
     if (sp?.location_id) { scope = "store"; scopeLocationId = sp.location_id as string; }
+    if (!scope) {
+      const rp = await regionForPin(pin);
+      if (rp) {
+        try { fence = await loadFence(rp.brand_ids); }
+        catch (e) { return json({ error: "could not load region: " + String((e as any)?.message ?? e) }, 500); }
+        scope = "region"; scopeLabel = rp.label;
+      }
+    }
   }
-  if (staffCloser) { scope = "store"; scopeLocationId = data.location_id; }
+  if (staffCloser) { scope = "store"; scopeLocationId = data.location_id; fence = null; }
   if (!isPosCall && !scope) return json({ error: "unauthorized" }, 401);
+
+  // For a region scope: every id the call touches must sit inside the fence.
+  if (scope === "region" && fence && !isPosCall) {
+    const refusal = await regionGuard(action, data, fence, POS_ACTIONS.has(action));
+    if (refusal) return json({ error: refusal }, 403);
+  }
 
   // Actions a store-scoped manager is allowed to use (their own store only).
   // Anything not in this set is master-only (e.g. editing the shared master
@@ -430,6 +631,41 @@ Deno.serve(async (req) => {
         // are read-only for them (enforced by STORE_ALLOWED above).
         const only = (arr: any[] | null | undefined) =>
           scope === "store" ? (arr ?? []).filter((x: any) => x.location_id === scopeLocationId) : (arr ?? []);
+        const brandsAll = (await admin.from("menu_brands").select("*").order("name")).data ?? [];
+        // Regional login: hand back only what sits inside its fence, so the UK
+        // menu, stores and devices never reach the browser at all.
+        if (scope === "region" && fence) {
+          const F = fence;
+          const by = (arr: any[] | null | undefined, set: Set<string>, key: string) => (arr ?? []).filter((x: any) => set.has(String(x[key])));
+          const uuidTail = /:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
+          return json({
+            ok: true, scope, scopeLocationId: null, scopeLabel,
+            brands: brandsAll.filter((b: any) => F.brands.has(String(b.id))),
+            menus: by(menus.data, F.menus, "id"),
+            categories: by(cats.data, F.cats, "id"),
+            items: by(items.data, F.items, "id"),
+            locations: by(locs.data, F.locs, "id"),
+            overrides: by(overrides.data, F.locs, "location_id"),
+            // Chain-wide keys stay visible (they are the inherited defaults);
+            // another store's per-store keys do not.
+            settings: (settings.data ?? []).filter((s: any) => { const m = uuidTail.exec(String(s.key)); return !m || F.locs.has(m[1]); }),
+            modifierGroups: by(modGroups.data, F.groups, "id"),
+            modifierOptions: by(modOptions.data, F.options, "id"),
+            itemModifiers: by(itemMods.data, F.items, "item_id"),
+            tables: by(tables.data, F.locs, "location_id"),
+            locationMenus: by(locMenus.data, F.locs, "location_id"),
+            kdsScreens: by(kdsScreens.data, F.locs, "location_id"),
+            bandItems: by(bandItems.data, F.bands, "band_id"),
+            bandMenus: by(bandMenus.data, F.bands, "band_id"),
+            printerCategories: by(printerCats.data, F.printerSns, "printer_sn"),
+            printerItems: by(printerItems.data, F.printerSns, "printer_sn"),
+            printers: by(printers.data, F.locs, "location_id"),
+            modifierOverrides: by(modOverrides.data, F.locs, "location_id"),
+            priceBands: by(bands.data, F.bands, "id"),
+            bandPrices: by(bandPrices.data, F.bands, "band_id"),
+            bandOptionPrices: by(bandOptPrices.data, F.bands, "band_id"),
+          });
+        }
         return json({
           ok: true,
           scope,
@@ -455,7 +691,7 @@ Deno.serve(async (req) => {
           printers: only(printers.data),
           modifierOverrides: only(modOverrides.data),
           priceBands: bands.data ?? [],
-          brands: (await admin.from("menu_brands").select("*").order("name")).data ?? [],
+          brands: brandsAll,
           bandPrices: bandPrices.data ?? [],
           bandOptionPrices: bandOptPrices.data ?? [],
         });
@@ -578,6 +814,11 @@ Deno.serve(async (req) => {
           new_name: name, copy_from: copy_from ?? "Master",
         });
         if (error) throw error;
+        // clone_price_band leaves brand_id empty; a regional band must carry
+        // the region's brand or it would fall outside the fence that made it.
+        if (scope === "region" && fence && row) {
+          await admin.from("menu_price_bands").update({ brand_id: fence.primaryBrand }).eq("id", row);
+        }
         return json({ ok: true, id: row });
       }
 
@@ -708,9 +949,13 @@ Deno.serve(async (req) => {
 
       // ---- PRINTERS: list, with live online/offline from Sunmi ----
       case "printer_list": {
-        const { data: printers, error } = await admin
+        const { data: printersAll, error } = await admin
           .from("printers").select("*").order("created_at", { ascending: true });
         if (error) throw error;
+        const F = fence;
+        const printers = scope === "region" && F
+          ? (printersAll ?? []).filter((p: any) => p.location_id && F.locs.has(String(p.location_id)))
+          : printersAll;
         // Sunmi answers { code, data: { list: [ { sn, is_online } ] } }. This
         // read looked for is_online one level too high, so the lookup returned
         // undefined every time and every printer in Admin showed the grey
@@ -1808,6 +2053,7 @@ Deno.serve(async (req) => {
         const { location_id, manager_pin } = data || {};
         if (!location_id || !manager_pin) return json({ ok: false }, 400);
         if (String(manager_pin) === String(ADMIN_PIN)) return json({ ok: true, scope: "master" });
+        if (await regionCoversLocation(String(manager_pin), String(location_id))) return json({ ok: true, scope: "region" });
         const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
         return json({ ok: !!(sp && sp.location_id === location_id), scope: "store" });
       }
@@ -2168,7 +2414,7 @@ Deno.serve(async (req) => {
       // ---- TILL: close the day — snapshot totals, then archive open orders ----
       case "close_day": {
         const { location_id, cash_counted = null, float_amount = null, note = null, mode } = data || {};
-        const closed_by = staffCloser ? staffCloser.name : (data?.closed_by || (scope === "master" ? "Admin" : "Manager"));
+        const closed_by = staffCloser ? staffCloser.name : (data?.closed_by || (scope === "master" ? "Admin" : scope === "region" ? (scopeLabel || "Regional manager") : "Manager"));
         if (!location_id) return json({ error: "location_id required" }, 400);
         const { ids, summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
         if (!ids.length) return json({ error: "nothing_to_close", message: "No orders to close for that period." }, 409);
@@ -2225,6 +2471,7 @@ Deno.serve(async (req) => {
         const { data: c } = await admin.from("till_closures").select("id, location_id, closed_at, report").eq("id", closure_id).maybeSingle();
         if (!c) return json({ error: "closure not found" }, 404);
         if (scope === "store" && c.location_id !== scopeLocationId) return json({ error: "forbidden" }, 403);
+        if (scope === "region" && fence && !fence.locs.has(String(c.location_id))) return json({ error: "forbidden: outside your region" }, 403);
         const { data: loc } = await admin.from("menu_locations").select("name").eq("id", c.location_id).single();
         const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id: c.location_id, summary: { ...(c.report || {}), reprint: true, closed_at: c.closed_at } });
         return json({ ok: pr.ok });
@@ -2352,8 +2599,10 @@ Deno.serve(async (req) => {
       case "create_store": {
         const { name, slug, brand_id } = data || {};
         if (!name) return json({ error: "name required" }, 400);
+        const storeRow: Record<string, unknown> = { name, slug: slug ?? null, brand_id: brand_id ?? null, active: true };
+        if (scope === "region" && fence?.timezone) storeRow.timezone = fence.timezone;
         const { data: row, error } = await admin.from("menu_locations")
-          .insert({ name, slug: slug ?? null, brand_id: brand_id ?? null, active: true })
+          .insert(storeRow)
           .select("id").single();
         if (error) throw error;
         return json({ ok: true, id: row.id });
@@ -2363,7 +2612,11 @@ Deno.serve(async (req) => {
         if (!id) return json({ error: "no id" }, 400);
         const allowed = ["name", "slug", "active", "brand_id"];
         const patch: any = {};
-        for (const k of allowed) if (k in (fields || {})) patch[k] = fields[k];
+        // The Stores screen renames with a flat { id, name }; reading only
+        // `fields` made that rename save nothing.
+        const src: any = (fields && typeof fields === "object") ? fields : (data || {});
+        for (const k of allowed) if (k in src) patch[k] = src[k];
+        if (!Object.keys(patch).length) return json({ error: "nothing to update" }, 400);
         const { error } = await admin.from("menu_locations").update(patch).eq("id", id);
         if (error) throw error;
         return json({ ok: true });
@@ -2381,12 +2634,14 @@ Deno.serve(async (req) => {
         const { data: rows, error } = await admin.from("store_pins")
           .select("id, location_id, pin, label, active, created_at").order("created_at");
         if (error) throw error;
-        return json({ ok: true, pins: rows ?? [] });
+        const F = fence;
+        return json({ ok: true, pins: scope === "region" && F ? (rows ?? []).filter((r: any) => F.locs.has(String(r.location_id))) : (rows ?? []) });
       }
       case "store_pin_set": {
         const { location_id, pin: newPin, label } = data || {};
         if (!location_id || !newPin) return json({ error: "location_id and pin required" }, 400);
         if (String(newPin) === String(ADMIN_PIN)) return json({ error: "cannot reuse the master PIN" }, 400);
+        if (await regionForPin(newPin)) return json({ error: "that PIN is already a regional login — pick another" }, 400);
         // One PIN per store: replace any existing pin for this location.
         await admin.from("store_pins").delete().eq("location_id", location_id);
         const { error } = await admin.from("store_pins")
@@ -2495,7 +2750,11 @@ Deno.serve(async (req) => {
           .select("id, menu_id, new_name, category_ids, sort_order")
           .order("sort_order", { ascending: true });
         if (error) throw error;
-        return json({ merges: rows || [] });
+        const F = fence;
+        const list = scope === "region" && F
+          ? (rows || []).filter((r: any) => Array.isArray(r.category_ids) && r.category_ids.every((c: any) => F.cats.has(String(c))))
+          : (rows || []);
+        return json({ merges: list });
       }
       case "merge_save": {
         const { id, menu_id, new_name, category_ids, sort_order } = data || {};

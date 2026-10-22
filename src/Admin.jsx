@@ -2203,10 +2203,12 @@ export default function Admin() {
   const [brandId, setBrandId] = useState(() => { try { return localStorage.getItem("admin_brand") || ""; } catch { return ""; } });
   const brands = (rawState && rawState.brands) || [];
   const defaultBrandId = (brands.find((b) => /chocoberry/i.test(b.name || "")) || brands[0] || {}).id || null;
-  const activeBrandId = brandId || defaultBrandId;
+  // A brand remembered from an earlier (master) session on this machine may not
+  // be in this login's list — a regional login would then filter to nothing.
+  const activeBrandId = (brandId && brands.some((b) => b.id === brandId)) ? brandId : defaultBrandId;
   useEffect(() => { try { if (brandId) localStorage.setItem("admin_brand", brandId); } catch {} }, [brandId]);
   const state = useMemo(() => {
-    if (!rawState || !activeBrandId || brands.length < 2) return rawState;
+    if (!rawState || !activeBrandId || (brands.length < 2 && rawState.scope !== "region")) return rawState;
     const bOf = (x) => (x && x.brand_id) || defaultBrandId;
     const menus = (rawState.menus || []).filter((m) => bOf(m) === activeBrandId);
     const menuIds = new Set(menus.map((m) => m.id));
@@ -2281,7 +2283,7 @@ export default function Admin() {
   // simply absent from state. `brands` was missed when brand scoping landed,
   // which left brands.length at 0: no brand switcher, and no filtering, so
   // every brand's menus sat in one list.
-  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, brands: res.brands || [], menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [], kdsScreens: res.kdsScreens || [], printers: res.printers || [], bandItems: res.bandItems || [], bandMenus: res.bandMenus || [], printerCategories: res.printerCategories || [], printerItems: res.printerItems || [] });
+  const apply = (res) => setState({ scope: res.scope || "master", scopeLocationId: res.scopeLocationId || null, scopeLabel: res.scopeLabel || null, brands: res.brands || [], menus: res.menus || [], categories: res.categories || [], items: res.items || [], settings: res.settings || [], modifierGroups: res.modifierGroups || [], modifierOptions: res.modifierOptions || [], itemModifiers: res.itemModifiers || [], locations: res.locations || [], overrides: res.overrides || [], modifierOverrides: res.modifierOverrides || [], priceBands: res.priceBands || [], bandPrices: res.bandPrices || [], bandOptionPrices: res.bandOptionPrices || [], tables: res.tables || [], locationMenus: res.locationMenus || [], kdsScreens: res.kdsScreens || [], printers: res.printers || [], bandItems: res.bandItems || [], bandMenus: res.bandMenus || [], printerCategories: res.printerCategories || [], printerItems: res.printerItems || [] });
   const reload = async () => { const res = await callAdmin(pin, "load", {}); apply(res); };
   const act = async (action, body_) => { setMsg(""); try { await callAdmin(pin, action, body_); await reload(); } catch (e) { setMsg(e.message); } };
   // Optimistic availability toggle: flip the switch in the UI instantly, then
@@ -2329,6 +2331,12 @@ export default function Admin() {
         {(() => {
           const isStore = state.scope === "store";
           const storeName = isStore ? ((state.locations || [])[0] || {}).name : null;
+          if (state.scope === "region") return (
+            <div style={{ fontSize: 12, color: T.muted, padding: "0 10px 14px", lineHeight: 1.4 }}>
+              <span style={{ fontWeight: 700, color: T.accent }}>{state.scopeLabel || "Regional access"}</span><br />
+              {(state.locations || []).length} store{(state.locations || []).length === 1 ? "" : "s"}: {(state.locations || []).map((l) => l.name).join(", ")}
+            </div>
+          );
           return isStore ? (
             <div style={{ fontSize: 12, color: T.muted, padding: "0 10px 14px", lineHeight: 1.4 }}>
               <span style={{ fontWeight: 700, color: T.accent }}>{storeName}</span><br />Store manager access
@@ -2349,7 +2357,11 @@ export default function Admin() {
           ["routing", "Printing", "🖨", true],
           ["printers", "Printers", "🖨", false],
           ["settings", "Settings", "⚙", true],
-        ].filter(([, , , masterOnly]) => state.scope !== "store" || !masterOnly).map(([key, label, icon]) => {
+        ].filter(([key, , , masterOnly]) => {
+          if (state.scope === "store") return !masterOnly;
+          if (state.scope === "region") return !["appearance", "welcome", "hero", "settings"].includes(key);
+          return true;
+        }).map(([key, label, icon]) => {
           const active = nav === key;
           return (
             <div key={key} onClick={() => {
