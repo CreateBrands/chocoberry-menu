@@ -2251,6 +2251,9 @@ export default function Admin() {
   const [heroKey, setHeroKey] = useState("hero_slides");
   const [showMods, setShowMods] = useState(false);
   const [nav, setNav] = useState("menus");
+  // Menus page store filter: "" = every store, "none" = carried nowhere, else a location id.
+  const [menuStore, setMenuStore] = useState(() => { try { return localStorage.getItem("admin_menu_store") || ""; } catch { return ""; } });
+  useEffect(() => { try { localStorage.setItem("admin_menu_store", menuStore); } catch {} }, [menuStore]);
   const [showStores, setShowStores] = useState(false);
   // Device health is live: refresh kds_screens every 30s while the stores view is open.
   useEffect(() => {
@@ -2435,9 +2438,32 @@ export default function Admin() {
           const band = l.menu_band_id || l.price_band_id;
           return !!band && bMenus.some((x) => x.band_id === band && x.menu_id === menuId);
         }).map((l) => l.name);
+        // Store filter. A remembered store that is not in this login (or this
+        // brand) is ignored rather than showing an empty page.
+        const pick = (menuStore === "none" || allLocs.some((l) => l.id === menuStore)) ? menuStore : "";
+        const pickName = (allLocs.find((l) => l.id === pick) || {}).name;
+        const shown = menus.filter((m) => {
+          if (!pick) return true;
+          const who = carriers(m.id);
+          return pick === "none" ? who.length === 0 : who.includes(pickName);
+        });
+        const orphanCount = menus.filter((m) => carriers(m.id).length === 0).length;
+        const chip = (val, label, count) => (
+          <span key={val || "all"} onClick={() => setMenuStore(val)} style={{ cursor: "pointer", padding: "7px 12px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, whiteSpace: "nowrap", background: pick === val ? T.ink : T.card, color: pick === val ? T.card : T.muted, border: "1px solid " + (pick === val ? T.ink : T.line) }}>
+            {label} <span style={{ opacity: .6, fontWeight: 600 }}>{count}</span>
+          </span>
+        );
         return (
+          <>
+          {allLocs.length > 1 && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+              {chip("", "All stores", menus.length)}
+              {allLocs.map((l) => chip(l.id, l.name, menus.filter((m) => carriers(m.id).includes(l.name)).length))}
+              {orphanCount > 0 && chip("none", "Not on any store", orphanCount)}
+            </div>
+          )}
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 12 }}>
-            {menus.map((m) => {
+            {shown.map((m) => {
             const who = carriers(m.id);
             return (
               <Card key={m.id} drag={menuDrag(m.id)} img={m.img} title={m.name}
@@ -2471,6 +2497,10 @@ export default function Admin() {
             );})}
             <AddCard label="Add menu" onClick={() => { const n = window.prompt("Menu name?"); if (n) act("create_menu", { brand_id: activeBrandId, name: n }); }} />
           </div>
+          {pick && pick !== "none" && (
+            <div style={{ fontSize: 12, color: T.faint, marginTop: 12 }}>A new menu is not on any store until it is added to that store's menus (Stores) or its band (Band menus).</div>
+          )}
+          </>
         );})()}
 
         {level === "sections" && menu && (
