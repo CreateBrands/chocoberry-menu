@@ -103,11 +103,26 @@ function rsaPublicKey(pem: string) {
   }
   return rsaKey;
 }
+// Compare without leaking the answer through how long it takes.
+function timingSafeEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
 async function webhookAuthorised(raw: string, sig: string): Promise<boolean> {
   const secret = Deno.env.get("TEYA_CHECKOUT_WEBHOOK_SECRET");
   const pem = Deno.env.get("TEYA_CHECKOUT_WEBHOOK_PUBKEY");
-  if (!secret && !pem) return true;
-  if (secret && sig && sig === secret) return true;
+  // Fail CLOSED. This endpoint is deployed --no-verify-jwt, and a webhook is
+  // believed: it books money and releases held kiosk orders to the kitchen.
+  // Accepting unsigned posts when no secret happens to be configured means a
+  // guessable URL can invent a payment. If this ever starts rejecting
+  // everything, the secret is missing, not Teya.
+  if (!secret && !pem) {
+    console.error("webhook rejected — neither TEYA_CHECKOUT_WEBHOOK_SECRET nor TEYA_CHECKOUT_WEBHOOK_PUBKEY is set");
+    return false;
+  }
+  if (secret && sig && timingSafeEqual(sig, secret)) return true;
   if (pem && sig) {
     try {
       if (await crypto.subtle.verify("RSASSA-PKCS1-v1_5", await rsaPublicKey(pem), b64bytes(sig), new TextEncoder().encode(raw))) return true;
@@ -119,12 +134,25 @@ async function webhookAuthorised(raw: string, sig: string): Promise<boolean> {
 }
 
 // ---- booking the tender, shared by status and webhook ----
-async function bookPayment(order_id: string, amountMinor: number, ref: string, method = "card") {
+async function bookPayment(order_id: string, amountMinor: number, ref: string | string[], method = "card") {
   const amount = Math.round(Number(amountMinor)) / 100;
-  // Idempotent: one row per Teya reference.
-  const { data: seen } = await admin.from("order_payments").select("id").eq("order_id", order_id).ilike("note", "%" + ref + "%").maybeSingle();
-  if (seen) return { ok: true, already: true };
-  const { error } = await admin.from("order_payments").insert({ order_id, method, amount, kind: "payment", note: ("Teya online · " + ref).slice(0, 120) });
+  const refs = (Array.isArray(ref) ? ref : [ref]).map((r) => String(r ?? "").trim()).filter(Boolean);
+  // Without an identifier there is no way to be idempotent, and the old code
+  // used the literal "webhook" — so two genuinely different payments on one
+  // order both got that note and the second was silently swallowed as a
+  // duplicate. Refuse instead, loudly, and let Teya retry.
+  if (!refs.length) throw new Error("bookPayment: no Teya reference on this payment, refusing to book");
+  // Idempotent per reference. Two faults before this: maybeSingle() errors when
+  // the filter matches more than one row and only `data` was destructured, so
+  // once an order had two matching rows the guard stopped firing for good; and
+  // ilike "%ref%" treats % and _ inside a reference as wildcards. Match the
+  // exact note, and check every id this payment is known by — the webhook
+  // arrives with a transaction id and the kiosk poll with a payment-link id,
+  // so matching on one ref let the same payment book twice.
+  const notes = refs.map((r) => ("Teya online · " + r).slice(0, 120));
+  const { data: seen } = await admin.from("order_payments").select("id").eq("order_id", order_id).in("note", notes).limit(1);
+  if (seen && seen.length) return { ok: true, already: true };
+  const { error } = await admin.from("order_payments").insert({ order_id, method, amount, kind: "payment", note: notes[0] });
   if (error) throw error;
   const { data: pays } = await admin.from("order_payments").select("amount, kind").eq("order_id", order_id);
   const paid = Math.round((pays || []).filter((p: any) => p.kind !== "refund").reduce((s: number, p: any) => s + Number(p.amount || 0), 0) * 100) / 100;
@@ -166,28 +194,61 @@ Deno.serve(async (req) => {
     try {
       const type = String(body.type || body.event || "");
       const d = body.data || body.payload || body;
-      const ref = String(d.transaction_id || d.id || d.session_id || d.payment_link_id || "");
+      // Every id this payment might be known by. The booking guard checks all
+      // of them, because the webhook and the kiosk poll see different ones.
+      const refs = [d.transaction_id, d.id, d.session_id, d.payment_link_id].map((r: unknown) => String(r ?? "").trim()).filter(Boolean);
+      const ref = refs[0] || "";
       const minor = Number(d.amount?.value ?? d.amount ?? 0);
       // metadata.order_id is our uuid; merchant_reference is the order NUMBER,
       // so resolve that to an id rather than passing it straight to the insert.
       const isUuid = (s: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
       let orderId = String(d.metadata?.order_id || "");
       if (!isUuid(orderId)) {
+        // order_no is a per-day, per-location counter that resets to 1 each
+        // morning, and this lookup knows neither the day nor the location. It
+        // used to take the most recent order with that number ANYWHERE in the
+        // estate and pay it off — a stranger's order marked paid and released
+        // to their kitchen. Narrow it to today, require the outstanding balance
+        // to match what Teya says was paid, and refuse when that leaves more
+        // than one candidate.
         const no = Number(d.merchant_reference ?? d.metadata?.order_no ?? NaN);
         orderId = "";
-        if (Number.isFinite(no)) {
-          const { data: byNo } = await admin.from("menu_orders").select("id")
-            .eq("order_no", no).order("created_at", { ascending: false }).limit(1).maybeSingle();
-          if (byNo?.id) orderId = String(byNo.id);
+        if (Number.isFinite(no) && minor > 0) {
+          const since = new Date(Date.now() - 12 * 3600_000).toISOString();
+          const { data: cands } = await admin.from("menu_orders")
+            .select("id, total, discount_amount, amount_paid")
+            .eq("order_no", no).gte("created_at", since).limit(10);
+          const want = Math.round(minor) / 100;
+          const fits = (cands || []).filter((o: any) =>
+            Math.abs((Number(o.total || 0) - Number(o.discount_amount || 0) - Number(o.amount_paid || 0)) - want) < 0.005);
+          if (fits.length === 1) orderId = String(fits[0].id);
+          else console.error("webhook merchant_reference " + no + " matched " + fits.length + " orders for " + want + " — not booking");
         }
       }
       await admin.from("teya_checkout_events").insert({ event_type: type || "unknown", reference: ref || null, order_id: orderId || null, payload: body }).then(() => {}, () => {});
-      if (/succeed|captur|paid/i.test(type) && orderId && minor > 0) {
-        const r = await bookPayment(orderId, minor, ref || "webhook");
+      // The old test was /succeed|captur|paid/ against the whole event name,
+      // which books "payment.refund.succeeded.v1" as an incoming payment —
+      // a £20 refund ADDING £20 to the day's takings — and treats
+      // "payment.capture.failed.v1" as money received. Rule the negatives out
+      // first, then look for a success.
+      const refundish = /refund|revers|chargeback|void/i.test(type);
+      const failed = /fail|declin|cancel|expire|error|reject|unauthor/i.test(type);
+      const success = !refundish && !failed && /succeed|success|captur|paid|complet|approv/i.test(type);
+      if (success && orderId && minor > 0) {
+        const r = await bookPayment(orderId, minor, refs);
         return json({ ...r, ok: true });
       }
+      // Refunds are booked by the refund action, which knows the order and the
+      // cap. Recording one here as well would double it.
+      if (refundish) return json({ ok: true, ignored: type, note: "refund event logged, not booked" });
       return json({ ok: true, ignored: type });
-    } catch (e) { console.error("webhook", e); return json({ ok: false, error: String((e as Error).message || e) }, 200); }
+    } catch (e) {
+      // Answering 200 told Teya the event was handled, so it never retried —
+      // a transient database error meant the customer had paid and the order
+      // stayed unpaid for good. Let it fail so the delivery is retried.
+      console.error("webhook", e);
+      return json({ ok: false, error: String((e as Error).message || e) }, 500);
+    }
   }
 
   let payload: any = null;
@@ -301,24 +362,75 @@ Deno.serve(async (req) => {
         if (!payment_link_id) return json({ error: "payment_link_id required" }, 400);
         const res = await teya("GET", "/v1/payment-links/" + encodeURIComponent(payment_link_id));
         const status = String(res.status || "").toUpperCase();
-        await admin.from("teya_checkout_sessions").update({ status: status || null })
+        // A refund needs Teya's transaction id, and nothing kept one anywhere
+        // — not the session row, not the payment note — so no online payment
+        // could be refunded through this function at all. Keep it the moment
+        // it appears.
+        const txn = String(res.transaction_id || res.transaction?.id || res.payment?.transaction_id || "").trim() || null;
+        await admin.from("teya_checkout_sessions").update({ status: status || null, ...(txn ? { transaction_id: txn } : {}) })
           .eq("session_id", payment_link_id).then(() => {}, () => {});
-        if (status !== "COMPLETED") return json({ ok: true, paid: false, status });
+        if (status !== "COMPLETED") return json({ ok: true, paid: false, status, transaction_id: txn });
         const orderId = String(res.metadata?.order_id || "");
         const minor = Number(res.amount?.value || 0);
-        if (!orderId || minor <= 0) return json({ ok: true, paid: true, status, booked: false });
-        const booked = await bookPayment(orderId, minor, String(payment_link_id));
-        return json({ ...booked, ok: true, paid: true, status });
+        if (!orderId || minor <= 0) return json({ ok: true, paid: true, status, booked: false, transaction_id: txn });
+        const booked = await bookPayment(orderId, minor, [String(payment_link_id), txn || ""].filter(Boolean));
+        return json({ ...booked, ok: true, paid: true, status, transaction_id: txn });
       }
 
       // ---------- refund an online payment ----------
       case "refund": {
+        // This moves real money out of the merchant account and was callable
+        // by anyone: the function is deployed --no-verify-jwt and nothing
+        // checked the caller, so a transaction id was the only thing standing
+        // between a stranger and your float. Gate it like teya-pay's admin
+        // action, and like admin-api's own refund, which needs a manager PIN.
+        const ADMIN_PIN = Deno.env.get("ADMIN_PIN");
+        const srv = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+        const diag = Deno.env.get("DIAG_TOKEN");
+        const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+        const pin = String((data || {}).manager_pin || "").trim();
+        const allowed = (!!ADMIN_PIN && !!pin && timingSafeEqual(pin, ADMIN_PIN)) ||
+          (!!srv && !!bearer && timingSafeEqual(bearer, srv)) ||
+          (!!diag && !!bearer && timingSafeEqual(bearer, diag));
+        if (!allowed) return json({ error: "unauthorized", message: "A manager PIN is needed to refund." }, 401);
+
         const { transaction_id, amount, order_id, reason } = data || {};
         if (!transaction_id || !(Number(amount) > 0)) return json({ error: "transaction_id and amount required" }, 400);
+
+        // Cap it against what the order actually took, net of refunds already
+        // given. Nothing checked this before, so an online refund could exceed
+        // the payment it was refunding.
+        if (order_id) {
+          const { data: rows } = await admin.from("order_payments").select("amount, kind").eq("order_id", order_id);
+          const paid = (rows || []).filter((r: any) => r.kind !== "refund").reduce((s: number, r: any) => s + Number(r.amount || 0), 0);
+          const given = (rows || []).filter((r: any) => r.kind === "refund").reduce((s: number, r: any) => s + Math.abs(Number(r.amount || 0)), 0);
+          const refundable = Math.round((paid - given) * 100) / 100;
+          if (Number(amount) > refundable + 0.001) {
+            return json({ error: "too_much", message: "Only " + refundable.toFixed(2) + " can still be refunded on this order.", refundable }, 409);
+          }
+        }
+
         const minor = Math.round(Number(amount) * 100);
         const res = await teya("POST", "/v3/refunds", { transaction_id, amount: { currency: "GBP", value: minor }, ...(reason ? { reason: String(reason).slice(0, 100) } : {}) }, "rfd-" + transaction_id + "-" + minor);
         if (order_id) {
-          await admin.from("order_payments").insert({ order_id, method: "card", amount: -(minor / 100), kind: "refund", note: ("Teya online refund · " + (res.refund_id || transaction_id)).slice(0, 120) }).then(() => {}, () => {});
+          // The idempotency key is deterministic, so a retried call gets Teya's
+          // cached success — one refund there, but the old code inserted a
+          // second negative row here every time. Write the row once.
+          const note = ("Teya online refund · " + (res.refund_id || transaction_id)).slice(0, 120);
+          const { data: dup } = await admin.from("order_payments").select("id").eq("order_id", order_id).eq("note", note).limit(1);
+          if (!dup || !dup.length) {
+            await admin.from("order_payments").insert({ order_id, method: "card", amount: -(minor / 100), kind: "refund", note }).then(() => {}, () => {});
+          }
+          // The till works out what is refundable as amount_paid - refund_total.
+          // An online refund that never touched refund_total left the order
+          // looking fully refundable, so a manager could hand the same money
+          // over again out of the drawer.
+          const { data: after } = await admin.from("order_payments").select("amount, kind").eq("order_id", order_id);
+          const givenNow = (after || []).filter((r: any) => r.kind === "refund").reduce((s: number, r: any) => s + Math.abs(Number(r.amount || 0)), 0);
+          await admin.from("menu_orders").update({
+            refund_total: Math.round(givenNow * 100) / 100,
+            ...(reason ? { refund_reason: String(reason).slice(0, 200) } : {}),
+          }).eq("id", order_id).then(() => {}, () => {});
         }
         return json({ ok: true, refund: res });
       }

@@ -139,10 +139,18 @@ Deno.serve(async (req) => {
       case "start": {
         const { order_id, amount, tablet_no = null, note = null } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
-        const { data: ord } = await admin.from("menu_orders").select("id, order_no, total, amount_paid, status, location_id, created_at").eq("id", order_id).single();
+        const { data: ord } = await admin.from("menu_orders").select("id, order_no, total, discount_amount, amount_paid, paid_method, status, location_id, created_at").eq("id", order_id).single();
         if (!ord) return json({ error: "order not found" }, 404);
         if (ord.status === "cancelled") return json({ error: "cancelled", message: "This order was cancelled." }, 409);
-        const remaining = money(money(ord.total) - money(ord.amount_paid));
+        // An order closed by another tender — or comped to zero by a discount —
+        // must not reach the terminal. apply_discount closes a 100% comp with
+        // paid_method set and amount_paid still 0, so the balance test alone
+        // would push the full undiscounted price to the machine.
+        if (ord.paid_method) return json({ error: "already_paid", message: "This order is already paid." }, 409);
+        // Discounts live in discount_amount and leave total untouched. Every
+        // other money path subtracts it; this one did not, so a discounted
+        // order could be charged the discount a second time.
+        const remaining = money(money(ord.total) - money((ord as any).discount_amount) - money(ord.amount_paid));
         if (remaining <= 0) return json({ error: "already_paid", message: "This order is already fully paid." }, 409);
         const amt = Math.min(money(amount) > 0 ? money(amount) : remaining, remaining);
         // Terminal for this till: exact tablet match first, then the store default (tablet_no null).
@@ -191,10 +199,23 @@ Deno.serve(async (req) => {
         if (status !== "SUCCESSFUL") return json({ ok: true, status, reason });
 
         // ---- record the tender (mirror of admin-api take_payment) ----
-        const { data: ord } = await admin.from("menu_orders").select("id, total, amount_paid, status").eq("id", row.order_id).single();
+        const { data: ord } = await admin.from("menu_orders").select("id, total, discount_amount, amount_paid, status").eq("id", row.order_id).single();
         if (!ord) return json({ error: "order not found" }, 404);
-        const total = money(ord.total), already = money(ord.amount_paid);
+        const total = money(money(ord.total) - money((ord as any).discount_amount)), already = money(ord.amount_paid);
         const applied = Math.min(money(row.amount), money(total - already));
+        // Teya captured the card but the balance has gone since we asked for it
+        // — another tender landed in between. Booking nothing here while still
+        // stamping recorded_at would retire the request and lose the money with
+        // no trace. Leave it unrecorded so it shows up in the standing check
+        // (select * from teya_payment_requests where recorded_at is null) and
+        // say plainly what happened.
+        if (applied <= 0) {
+          await admin.from("teya_payment_requests").update({ status, status_reason: "CAPTURED_NOT_APPLIED", updated_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
+          return json({
+            ok: false, status, recorded: false, unapplied: true, captured: money(row.amount),
+            message: "The card was charged " + money(row.amount).toFixed(2) + " but this order is already settled. Refund the card or check the order before taking payment again.",
+          }, 409);
+        }
         if (applied > 0) {
           const { error: pErr } = await admin.from("order_payments").insert({
             order_id: row.order_id, method: "card", amount: applied,
@@ -202,15 +223,20 @@ Deno.serve(async (req) => {
           });
           if (pErr && !/duplicate|unique/i.test(pErr.message || "")) throw pErr;
         }
-        const { data: pays } = await admin.from("order_payments").select("amount, method").eq("order_id", row.order_id);
-        const paidNow = money((pays ?? []).reduce((s: number, r: any) => s + Number(r.amount || 0), 0));
+        // Refund rows must not count towards what has been paid. admin-api and
+        // teya-checkout both exclude them; this path did not, so an order with
+        // a prior refund reported a different amount_paid depending on which
+        // code wrote it last, and a payment plus a refund looked like a split.
+        const { data: allRows } = await admin.from("order_payments").select("amount, method, kind").eq("order_id", row.order_id);
+        const pays = (allRows ?? []).filter((r: any) => r.kind !== "refund");
+        const paidNow = money(pays.reduce((s: number, r: any) => s + Number(r.amount || 0), 0));
         const remaining = money(total - paidNow);
         const fullyPaid = remaining <= 0.001;
-        const isSplit = (pays ?? []).length > 1;
+        const isSplit = pays.length > 1;
         let primary = "card";
-        if (fullyPaid && (pays ?? []).length) {
+        if (fullyPaid && pays.length) {
           const by: Record<string, number> = {};
-          for (const r of pays!) by[r.method] = (by[r.method] || 0) + Number(r.amount || 0);
+          for (const r of pays) by[r.method] = (by[r.method] || 0) + Number(r.amount || 0);
           primary = Object.entries(by).sort((a, b) => b[1] - a[1])[0][0];
         }
         const patch: Record<string, unknown> = { amount_paid: paidNow, is_split: isSplit };

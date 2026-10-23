@@ -400,8 +400,22 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     fetch(SUPABASE_URL + "/rest/v1/teya_terminals?select=id,label,tablet_no&active=eq.true&location_id=eq." + loc, { headers: H })
       .then((r) => r.ok ? r.json() : []).then((rows) => setTeyaTerminal((rows || []).length ? rows : null)).catch(() => setTeyaTerminal(null));
   }, [loc]); // eslint-disable-line
-  const [teyaWait, setTeyaWait] = useState(null); // { amount, label, prId, status, reason }
+  const [teyaWait, setTeyaWait] = useState(null); // { amount, label, prId, status, reason, note }
   const teyaCancelRef = useRef(false);
+  // Card failures used to go only to `msg`, which renders inside the cart panel
+  // — and payment is taken from the orders strip, so every Teya error landed
+  // where nobody was looking. A dead Card button was actually a 400 from Teya
+  // that nobody could see. This toast sits above everything, so it is visible
+  // wherever the member of staff happens to be.
+  const [teyaErr, setTeyaErr] = useState("");
+  const teyaErrTimer = useRef(null);
+  function teyaSay(text) {
+    setMsg(text);
+    setTeyaErr(text);
+    if (teyaErrTimer.current) clearTimeout(teyaErrTimer.current);
+    teyaErrTimer.current = setTimeout(() => setTeyaErr(""), 9000);
+  }
+  useEffect(() => () => { if (teyaErrTimer.current) clearTimeout(teyaErrTimer.current); }, []);
   async function teyaCall(action, dataObj) {
     const r = await fetch(SUPABASE_URL + "/functions/v1/teya-pay", { method: "POST", headers: H, body: JSON.stringify({ action, data: dataObj }) });
     const j = await r.json().catch(() => ({}));
@@ -412,9 +426,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     teyaCancelRef.current = false;
     let prId = null;
     try {
-      const start = await teyaCall("start", { order_id: o.id, amount, tablet_no: null, note: extra.note || null });
+      // Pass the till that rang the order up, so a store with one machine per
+      // till reaches the right one. teya-pay falls back to the store default
+      // when there is no exact match, which is the single-terminal case.
+      const start = await teyaCall("start", { order_id: o.id, amount, tablet_no: o.tablet_no ?? null, note: extra.note || null });
       if (!start.httpOk || !start.payment_request_id) {
-        setMsg(start.message || "Could not reach the card machine — take the card manually or try again.");
+        teyaSay(start.message || "Could not reach the card machine — take the card manually or try again.");
         return { ok: false, teya_error: true };
       }
       prId = start.payment_request_id;
@@ -422,7 +439,17 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       // Poll until a terminal state. Each status call waits up to ~8s on Teya's
       // event stream, so this is cheap on the network.
       for (let i = 0; i < 200; i++) {
-        if (teyaCancelRef.current) { await teyaCall("cancel", { payment_request_id: prId }); setTeyaWait(null); return { ok: false, cancelled: true }; }
+        if (teyaCancelRef.current) {
+          const c = await teyaCall("cancel", { payment_request_id: prId });
+          // Teya answers 406 "cannot be cancelled" once the customer has begun
+          // paying. Closing the overlay on that would stop the poll while the
+          // payment runs to completion — card charged, tender never booked,
+          // and nothing reconciles it afterwards. So only stop when the cancel
+          // is actually accepted; otherwise carry on waiting for the machine.
+          if (c.httpOk && c.ok !== false) { setTeyaWait(null); return { ok: false, cancelled: true }; }
+          teyaCancelRef.current = false;
+          setTeyaWait((w) => w && { ...w, note: "Too late to cancel — the customer is paying. Wait for the machine." });
+        }
         const st = await teyaCall("status", { payment_request_id: prId });
         const status = String(st.status || "").toUpperCase();
         setTeyaWait((w) => w && { ...w, status, reason: st.reason || null });
@@ -430,15 +457,15 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         if (status === "FAILED" || status === "CANCELLED") {
           setTeyaWait(null);
           const why = st.reason ? String(st.reason).replace(/_/g, " ").toLowerCase() : null;
-          setMsg(status === "FAILED" ? ("Card payment failed" + (why ? " — " + why : "") + ". Try again or take another method.") : "Card payment cancelled on the machine.");
+          teyaSay(status === "FAILED" ? ("Card payment failed" + (why ? " — " + why : "") + ". Try again or take another method.") : "Card payment cancelled on the machine.");
           return { ok: false, [status.toLowerCase()]: true };
         }
         await new Promise((res) => setTimeout(res, status === "IN_PROGRESS" ? 800 : 1500));
       }
-      setTeyaWait(null); setMsg("The card machine did not respond — check it is online, then try again.");
+      setTeyaWait(null); teyaSay("The card machine did not respond — check it is online, then try again.");
       return { ok: false, timeout: true };
     } catch {
-      setTeyaWait(null); setMsg("Lost contact with the card machine — check the order before taking payment again.");
+      setTeyaWait(null); teyaSay("Lost contact with the card machine — check the order before taking payment again.");
       return { ok: false };
     } finally { setOrdersBusy(false); }
   }
@@ -1089,10 +1116,18 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <div style={{ fontSize: 15, color: "#4b5543", minHeight: 22 }}>
               {teyaWait.status === "IN_PROGRESS" ? "Customer is paying…" : teyaWait.status === "CANCELLING" ? "Cancelling…" : "Ask the customer to tap or insert their card"}
             </div>
+            {teyaWait.note && <div style={{ fontSize: 14, color: "#9a3412", fontWeight: 700, marginTop: 8, lineHeight: 1.4 }}>{teyaWait.note}</div>}
             <div style={{ margin: "18px auto 22px", width: 54, height: 54, borderRadius: "50%", border: "5px solid #e6ecdd", borderTopColor: "#5E7A4D", animation: "teyaspin 1s linear infinite" }} />
             <div onClick={() => { teyaCancelRef.current = true; setTeyaWait((w) => w && { ...w, status: "CANCELLING" }); }} style={{ display: "inline-block", padding: "12px 26px", borderRadius: 12, background: "#f3f4ef", color: "#9a3412", fontWeight: 700, fontSize: 15, cursor: "pointer" }}>Cancel</div>
             <style>{"@keyframes teyaspin{to{transform:rotate(360deg)}}"}</style>
           </div>
+        </div>
+      )}
+      {/* Card errors, above everything — see the note by teyaErr. */}
+      {teyaErr && (
+        <div onClick={() => setTeyaErr("")}
+          style={{ position: "fixed", top: 16, left: "50%", transform: "translateX(-50%)", zIndex: 1300, maxWidth: "92vw", padding: "14px 20px", borderRadius: 14, background: "#7f1d1d", color: "#fff", fontSize: 15.5, fontWeight: 700, lineHeight: 1.4, textAlign: "center", boxShadow: "0 14px 40px rgba(0,0,0,.35)", cursor: "pointer" }}>
+          {teyaErr}
         </div>
       )}
       {feedbackFor && <ServiceFeedback order={feedbackFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="pos" onClose={() => setFeedbackFor(null)} onSaved={(j) => setMsg("Feedback logged for #" + feedbackFor.order_no + (j && j.logged_by ? " as " + j.logged_by : ""))} />}
