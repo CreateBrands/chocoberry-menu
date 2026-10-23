@@ -366,8 +366,17 @@ Deno.serve(async (req) => {
         // — not the session row, not the payment note — so no online payment
         // could be refunded through this function at all. Keep it the moment
         // it appears.
-        const txn = String(res.transaction_id || res.transaction?.id || res.payment?.transaction_id || "").trim() || null;
-        await admin.from("teya_checkout_sessions").update({ status: status || null, ...(txn ? { transaction_id: txn } : {}) })
+        // Teya puts it in different places depending on the shape of the
+        // reply, and a refund is impossible without it, so cast a wide net —
+        // and keep the whole reply either way, because guessing field names
+        // from the outside is how we got here.
+        const txn = String(
+          res.transaction_id || res.transaction?.id || res.payment?.transaction_id ||
+          res.payment?.id || res.payments?.[0]?.transaction_id || res.payments?.[0]?.id ||
+          res.transactions?.[0]?.transaction_id || res.transactions?.[0]?.id ||
+          res.last_payment?.transaction_id || res.checkout?.transaction_id || "",
+        ).trim() || null;
+        await admin.from("teya_checkout_sessions").update({ status: status || null, raw: res, ...(txn ? { transaction_id: txn } : {}) })
           .eq("session_id", payment_link_id).then(() => {}, () => {});
         if (status !== "COMPLETED") return json({ ok: true, paid: false, status, transaction_id: txn });
         const orderId = String(res.metadata?.order_id || "");
