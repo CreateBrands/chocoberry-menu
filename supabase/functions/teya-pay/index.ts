@@ -109,6 +109,23 @@ async function snapshot(c: Cred, paymentRequestId: string, timeoutMs = 8000): Pr
 
 const money = (n: unknown) => Math.round(Number(n || 0) * 100) / 100;
 
+// Teya rejects basket_transaction_id unless it is a UUIDv7 ("must be a UUIDv7,
+// got version 4"). Our order ids come from gen_random_uuid(), which is v4, so
+// every payment request was refused at that field. Derive a v7 instead: the
+// order's creation time supplies the 48-bit timestamp, the order id supplies
+// the random half, and the version and variant nibbles are set as the spec
+// requires. Deterministic, so every payment request for one order — including
+// each half of a split bill — carries the same basket id, which is what a
+// "basket" is meant to mean. No new column, and no state to keep in step.
+function basketIdFor(orderId: string, createdAt?: string | null): string {
+  const ms = Date.parse(String(createdAt || "")) || Date.now();
+  const ts = Math.max(0, ms).toString(16).padStart(12, "0").slice(-12);
+  const h = String(orderId).replace(/-/g, "").padEnd(32, "0").toLowerCase();
+  const variant = "89ab"[parseInt(h[3], 16) & 3];          // variant must be 10xx
+  return ts.slice(0, 8) + "-" + ts.slice(8, 12) + "-7" + h.slice(0, 3) +
+    "-" + variant + h.slice(4, 7) + "-" + h.slice(7, 19);  // version 7
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -122,7 +139,7 @@ Deno.serve(async (req) => {
       case "start": {
         const { order_id, amount, tablet_no = null, note = null } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
-        const { data: ord } = await admin.from("menu_orders").select("id, order_no, total, amount_paid, status, location_id").eq("id", order_id).single();
+        const { data: ord } = await admin.from("menu_orders").select("id, order_no, total, amount_paid, status, location_id, created_at").eq("id", order_id).single();
         if (!ord) return json({ error: "order not found" }, 404);
         if (ord.status === "cancelled") return json({ error: "cancelled", message: "This order was cancelled." }, 409);
         const remaining = money(money(ord.total) - money(ord.amount_paid));
@@ -146,7 +163,7 @@ Deno.serve(async (req) => {
           transaction_type: "SALE",
           merchant_reference: ("CB-" + ord.order_no + "-" + idem.slice(0, 8)).slice(0, 60),
           epos_instance_id: tablet_no != null ? "tablet-" + tablet_no : undefined,
-          basket_transaction_id: String(ord.id),
+          basket_transaction_id: basketIdFor(String(ord.id), (ord as any).created_at),
           payment_method: "CARD",
         }, idem);
         const prId = res?.payment_request_id || res?.id;
