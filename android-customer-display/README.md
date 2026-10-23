@@ -3,9 +3,13 @@
 Shows the store's posters on the customer-facing screen of a dual-screen till
 (Sunmi D3 Pro, T2…). Without it Android mirrors the till onto the rear screen.
 
-How it works: a foreground service opens an Android `Presentation` on the
-secondary display and loads `https://chocoberry-menu.vercel.app/display?loc=<store>`
-in a WebView. The page rotates the posters set in Admin → store → Branding →
+How it works: a foreground service puts a WebView on the secondary display
+showing `https://chocoberry-menu.vercel.app/display?loc=<store>`. Route 1 is an
+overlay window added straight to that display (on Android 11+ via a window
+context of the overlay type; an Android `Presentation` does NOT work here —
+the D3 Pro (rear screen "Sunmi USBDisplay") throws IllegalArgumentException
+because a Presentation insists on its own window type). Route 2, if the
+device refuses that, launches DisplayActivity onto the rear screen. The page rotates the posters set in Admin → store → Branding →
 Customer display (`display_slides:<location_id>`; falls back to the store's
 kiosk slides, then the menu's hero slides). The page caches the last good set,
 so a dropped connection never blanks the screen. Starts on boot, survives the
