@@ -3,6 +3,7 @@ import { ingredientsFromDescription } from "./ingredients.js";
 import { OrdersList, OrderDetailPanel } from "./OrdersStrip.jsx";
 import ServiceFeedback from "./ServiceFeedback.jsx";
 import { deviceToken } from "./device.js";
+import { sendCustomerScreen, orderForScreen } from "./customerScreen.js";
 import CartLine from "./CartLine.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
 // store this till is serving — see src/money.js. A store with no currency
@@ -506,6 +507,49 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const t = setTimeout(() => setPaidBanner(null), 4000);
     return () => clearTimeout(t);
   }, [paidBanner]);
+  // ---- Customer-facing screen (rear screen of the till) ----
+  // Mirrors the payment, not the till: the order and balance once Pay is
+  // pressed, the card prompt while the machine waits, the change for cash,
+  // then a thank-you. Posters the rest of the time. See customerScreen.js.
+  const [panelView, setPanelView] = useState(null);   // { orderId, mode, tendered } from the open order panel
+  const [screenThanks, setScreenThanks] = useState(null);
+  useEffect(() => {
+    if (!screenThanks) return;
+    const t = setTimeout(() => setScreenThanks(null), 8000);
+    return () => clearTimeout(t);
+  }, [screenThanks]);
+  const thankCustomer = (o, method, amount, extra) => {
+    const r2 = (n) => Math.round(Number(n || 0) * 100) / 100;
+    const total = r2(Number(o.total || 0) - Number(o.discount_amount || 0));
+    const change = method === "cash" && extra && extra.tendered != null ? Math.max(0, r2(Number(extra.tendered) - Number(amount != null ? amount : total))) : 0;
+    setScreenThanks({ total: gbp(total), method: method === "cash" ? "cash" : "card", change: change > 0.004 ? gbp(change) : "" });
+  };
+  const PAY_MODES = ["method", "cash", "splitAmt", "splitEven", "splitItem"];
+  const screenOrder = panelView && selOrderId === panelView.orderId
+    ? ((payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : (orders || []).find((x) => x.id === selOrderId))
+    : null;
+  let screenState = { view: "idle" };
+  if (screenThanks) screenState = { view: "paid", ...screenThanks };
+  else if (teyaWait) screenState = { view: "card", amount: gbp(Number(teyaWait.amount || 0)), status: teyaWait.status || "NEW", order: screenOrder ? orderForScreen(screenOrder, gbp) : null };
+  else if (screenOrder && PAY_MODES.includes(panelView.mode)) {
+    const ord = orderForScreen(screenOrder, gbp);
+    const tendered = panelView.mode === "cash" && panelView.tendered != null ? Number(panelView.tendered) : null;
+    screenState = { view: "order", stage: panelView.mode, order: ord,
+      tendered: tendered != null ? gbp(tendered) : "",
+      change: tendered != null && tendered > ord.dueValue ? gbp(Math.round((tendered - ord.dueValue) * 100) / 100) : "" };
+  }
+  const screenKey = JSON.stringify(screenState);
+  const screenLast = useRef("");
+  useEffect(() => {
+    if (!loc) return;
+    // First idle after a payment goes out once; anything else is repeated
+    // every few seconds so the screen can tell a live till from a gone one.
+    if (screenKey !== screenLast.current) { screenLast.current = screenKey; sendCustomerScreen(loc, screenState); }
+    if (screenState.view === "idle") return;
+    const t = setInterval(() => sendCustomerScreen(loc, screenState), 4000);
+    return () => clearInterval(t);
+  }, [screenKey, loc]); // eslint-disable-line
+
   const [printingId, setPrintingId] = useState(null);
   const [printedAt, setPrintedAt] = useState({});   // order id -> ms of last OK
   const PRINT_COOLDOWN_MS = 8000;
@@ -1350,6 +1394,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               now={now}
               busy={ordersBusy}
               initialMode={selPayNow ? "method" : "detail"}
+              onCustomerView={setPanelView}
               onClose={() => {
                 const draft = payDraft.current;
                 const closing = (payNowOrder && payNowOrder.id === selOrderId) ? payNowOrder : null;
@@ -1376,6 +1421,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     : p);
                 }
                 if (res && res.ok && res.fully_paid) {
+                  thankCustomer(o, method, amount, extra);
                   setPaidBanner({ label: o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no), total: o.total, method });
                   try { if (navigator.vibrate) navigator.vibrate([12, 40, 12]); } catch { /* no haptics */ }
                   setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null);
@@ -1385,6 +1431,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               onPay={async (o, m) => {
                 const res = await ordPay(o, m);
                 if (res && res.ok && res.fully_paid) {
+                  thankCustomer(o, m, null, null);
                   setPaidBanner({ label: o.menu_tables?.label || (o.tablet_no ? "T" + o.tablet_no : "#" + o.order_no), total: o.total, method: m });
                   try { if (navigator.vibrate) navigator.vibrate([12, 40, 12]); } catch { /* no haptics */ }
                   setSelOrderId(null); setSelPayNow(false); setPayNowOrder(null);

@@ -3045,7 +3045,7 @@ export default function Admin() {
                               return (
                                 <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid " + T.line }}>
                                   <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Customer display · this store only</div>
-                                  <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 12, lineHeight: 1.5 }}>Posters on the screen facing the customer at the till. Needs the <b>Customer Display</b> app on the till (Device apps page). Landscape images fill the screen; posters of any other shape are shown whole. With no posters set it shows the kiosk slides, then the menu's hero slides.</div>
+                                  <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 12, lineHeight: 1.5 }}>Posters on the screen facing the customer at the till. Needs the <b>Customer Display</b> app on the till (Device apps page). Landscape images fill the screen; posters of any other shape are shown whole. With no posters set it shows the kiosk slides, then the menu's hero slides. While a till takes payment the screen shows the order, the amount, the card prompt and the change, then returns to posters.</div>
                                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
                                     {posters.slice(0, 8).map((s, i) => <div key={i} style={{ width: 112, height: 70, borderRadius: 8, border: "1px solid " + T.line, background: "#111 center/cover url(" + JSON.stringify(s.image_url) + ")" }} />)}
                                     {!posters.length && <div style={{ fontSize: 12.5, color: T.muted }}>No posters yet.</div>}
@@ -3053,6 +3053,7 @@ export default function Admin() {
                                   <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
                                     <button onClick={() => { setHeroKey(K("display_slides")); setHeroDraft(posters); setShowHero(true); }} style={{ border: "1px solid " + T.line, background: T.card, color: T.ink, borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Edit posters…</button>
                                     <a href={"/display?loc=" + loc.id} target="_blank" rel="noreferrer" style={{ border: "1px solid " + T.line, background: T.card, color: T.ink, borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>Preview ↗</a>
+                                    <a href={"/display?loc=" + loc.id + "&demo=card"} target="_blank" rel="noreferrer" title="What the customer sees while paying (sample order)" style={{ border: "1px solid " + T.line, background: T.card, color: T.ink, borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>Payment screen ↗</a>
                                     <div style={{ width: 200 }}><Field k="display_slide_seconds" label="Seconds per poster" placeholder="8" /></div>
                                   </div>
                                 </div>

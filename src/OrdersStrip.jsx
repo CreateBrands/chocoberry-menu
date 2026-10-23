@@ -160,7 +160,7 @@ export function OrdersList({ orders = [], now = Date.now(), selId, onSelect }) {
 }
 
 // ═══ ORDER DETAIL PANEL (right, shared with cart) ═══
-export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onItemDiscount, onRemoveItemDiscount, onRefund, onPrintRefund, onSetTable, onVoidOrder, tables = [], printingId = null }) {
+export function OrderDetailPanel({ order, now = Date.now(), busy = false, initialMode = "detail", onClose, onTakePayment, onPay, onUnpaid, onAddItems, onRemoveItem, onSetQty, onSetType, onVoidFired, onReprint, onFeedback, onDiscount, onRemoveDiscount, onItemDiscount, onRemoveItemDiscount, onRefund, onPrintRefund, onSetTable, onVoidOrder, onCustomerView, tables = [], printingId = null }) {
   // modes: detail | method | cash | splitAmt | splitEven | splitItem | edit | voidReason | voidOrder
   const [mode, setMode] = useState(initialMode);
   const [cashGiven, setCashGiven] = useState(null);
@@ -194,6 +194,12 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
   const [rfd, setRfd] = useState(null);   // { amount, method, reason, pin }
   const [sheetErr, setSheetErr] = useState("");
   const [sheetBusy, setSheetBusy] = useState(false);
+  // Tell the till which step this panel is on, so the customer-facing screen
+  // can follow along (order and balance while choosing, change while counting
+  // cash). Keyed on what the customer would see change.
+  const cvKey = o ? [o.id, mode, cashGiven, o.amount_paid, o.total, o.discount_amount, (o.menu_order_items || []).length].join("|") : "";
+  useEffect(() => { if (onCustomerView) onCustomerView(o ? { orderId: o.id, mode, tendered: cashGiven } : null); }, [cvKey]); // eslint-disable-line
+  useEffect(() => () => { if (onCustomerView) onCustomerView(null); }, []); // eslint-disable-line
   if (!o) return null;
   const its = o.menu_order_items || [];
   const gross = Math.round(Number(o.total || 0) * 100) / 100;

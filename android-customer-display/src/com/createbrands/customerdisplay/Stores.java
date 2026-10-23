@@ -51,4 +51,21 @@ public class Stores {
         for (int i = 0; i < arr.length(); i++) { JSONObject o = arr.getJSONObject(i); out.add(new String[]{ o.getString("id"), o.getString("name") }); }
         return out;
     }
+    /** The tills at a store (kds_screens licences that can take payment): { key, label }. */
+    public static List<String[]> tills(Prefs prefs, String loc) throws Exception {
+        String k = key(prefs);
+        HttpURLConnection c = (HttpURLConnection) new URL(BASE + "/rest/v1/kds_screens?select=screen_key,label,kind,status&location_id=eq." + loc + "&order=label").openConnection();
+        c.setConnectTimeout(10000); c.setReadTimeout(25000);
+        c.setRequestProperty("apikey", k); c.setRequestProperty("Authorization", "Bearer " + k);
+        JSONArray arr = new JSONArray(read(c.getInputStream()));
+        List<String[]> out = new ArrayList<>();
+        for (int i = 0; i < arr.length(); i++) {
+            JSONObject o = arr.getJSONObject(i);
+            String kind = o.optString("kind", ""), status = o.optString("status", "");
+            if (!kind.contains("pos") || "revoked".equals(status)) continue;
+            String label = o.optString("label", ""); if (label.isEmpty() || "null".equals(label)) label = o.getString("screen_key");
+            out.add(new String[]{ o.getString("screen_key"), label });
+        }
+        return out;
+    }
 }

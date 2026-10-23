@@ -29,7 +29,7 @@ public class DisplayActivity extends Activity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON | WindowManager.LayoutParams.FLAG_FULLSCREEN);
         final Prefs p = new Prefs(this);
         if (p.locationId() == null) { finish(); return; }
-        web = Web.make(this, Web.url(p.locationId()), p.storeName(), new Web.Status() { public void set(String s) { DisplayService.report(DisplayActivity.this, s); } });
+        web = Web.make(this, Web.url(p.locationId(), p.till()), p.storeName(), new Web.Status() { public void set(String s) { DisplayService.report(DisplayActivity.this, s); } });
         setContentView(web);
         IntentFilter f = new IntentFilter(ACTION_CLOSE); f.addAction(DisplayService.ACTION_RELOAD);
         registerReceiver(rx, f);

@@ -22,7 +22,8 @@ import java.util.List;
 public class MainActivity extends Activity {
     private Prefs prefs; private final Handler ui = new Handler(Looper.getMainLooper());
     private List<String[]> stores = new ArrayList<>();
-    private TextView status, screens, permText; private Spinner store; private Button allow, toggle, reload;
+    private TextView status, screens, permText; private Spinner store, tillSpin;
+    private List<String[]> tills = new ArrayList<>(); private boolean loadingTills = true; private Button allow, toggle, reload;
     private boolean loadingStores = true;
     private final BroadcastReceiver statusRx = new BroadcastReceiver() { @Override public void onReceive(Context c, Intent i) { status.setText(i.getStringExtra("status")); } };
 
@@ -49,6 +50,24 @@ public class MainActivity extends Activity {
                 String[] s = stores.get(pos);
                 if (s[0].equals(prefs.locationId())) return;
                 prefs.store(s[0], s[1]);
+                DisplayService.start(MainActivity.this);
+                loadTills();
+            }
+            public void onNothingSelected(AdapterView<?> p) {}
+        });
+
+        // Which till this screen faces, so at a store with two tills each
+        // customer sees only their own payment.
+        col.addView(text("Which till is this screen on?", 13, "#5F6B63"), margins(14, dp));
+        tillSpin = new Spinner(this); col.addView(tillSpin, new LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (int) (52 * dp)));
+        tillSpin.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onItemSelected(AdapterView<?> p, View v, int pos, long id) {
+                if (loadingTills) return;
+                String key = pos <= 0 || pos > tills.size() ? null : tills.get(pos - 1)[0];
+                String label = key == null ? "" : tills.get(pos - 1)[1];
+                String cur = prefs.till();
+                if (key == null ? cur == null : key.equals(cur)) return;
+                prefs.till(key, label);
                 DisplayService.start(MainActivity.this);
             }
             public void onNothingSelected(AdapterView<?> p) {}
@@ -97,6 +116,30 @@ public class MainActivity extends Activity {
                 // Nothing chosen yet: take the first store so it starts showing straight away.
                 if (cur == null && !stores.isEmpty()) { prefs.store(stores.get(0)[0], stores.get(0)[1]); DisplayService.start(MainActivity.this); }
                 ui.post(new Runnable() { public void run() { loadingStores = false; } });
+                loadTills();
+            }});
+        }}).start();
+    }
+
+    private void loadTills() {
+        final String loc = prefs.locationId(); if (loc == null) return;
+        loadingTills = true;
+        new Thread(new Runnable() { public void run() {
+            List<String[]> got = new ArrayList<>();
+            try { got = Stores.tills(prefs, loc); } catch (Exception ignored) {}
+            final List<String[]> fin = got;
+            ui.post(new Runnable() { public void run() {
+                if (!loc.equals(prefs.locationId())) return;
+                tills = fin;
+                List<String> names = new ArrayList<>(); names.add("Any till at this store");
+                for (String[] t : tills) names.add(t[1]);
+                tillSpin.setAdapter(new ArrayAdapter<>(MainActivity.this, android.R.layout.simple_spinner_dropdown_item, names));
+                String cur = prefs.till(); int sel = 0;
+                if (cur != null) for (int i = 0; i < tills.size(); i++) if (tills.get(i)[0].equals(cur)) sel = i + 1;
+                // Only one till at the store: that is this one.
+                if (cur == null && tills.size() == 1) { sel = 1; prefs.till(tills.get(0)[0], tills.get(0)[1]); DisplayService.start(MainActivity.this); }
+                tillSpin.setSelection(sel);
+                ui.post(new Runnable() { public void run() { loadingTills = false; } });
             }});
         }}).start();
     }

@@ -14,7 +14,11 @@ public class Web {
     public interface Status { void set(String s); }
     private static final long RETRY_MS = 20000;
 
-    public static String url(String loc) { return Stores.WEB + "/display?loc=" + loc + "&src=app"; }
+    public static String url(String loc, String till) {
+        String u = Stores.WEB + "/display?loc=" + loc + "&src=app";
+        if (till != null && !till.isEmpty()) { try { u += "&till=" + java.net.URLEncoder.encode(till, "UTF-8"); } catch (Exception ignored) {} }
+        return u;
+    }
 
     public static WebView make(Context ctx, final String url, final String storeName, final Status status) {
         final WebView w = new WebView(ctx);

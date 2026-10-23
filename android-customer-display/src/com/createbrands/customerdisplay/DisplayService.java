@@ -78,9 +78,10 @@ public class DisplayService extends Service {
         if (Build.VERSION.SDK_INT >= 23 && !Settings.canDrawOverlays(this)) { dismiss(); status("Needs permission — open Customer Display and tap Allow"); return; }
         Display d = pick();
         if (d == null) { dismiss(); status("No customer screen found on this device"); return; }
-        if ((web != null || activityMode) && shownOn == d.getDisplayId() && loc.equals(shownLoc)) return;
+        String key = loc + "|" + (p.till() == null ? "" : p.till());   // a new till pairing reloads the page
+        if ((web != null || activityMode) && shownOn == d.getDisplayId() && key.equals(shownLoc)) return;
         dismiss();
-        show(d, loc, p.storeName());
+        show(d, key, p.storeName());
     }
 
     /** The rear screen: Android lists it as a presentation display; otherwise any screen that isn't the main one. */
@@ -93,7 +94,7 @@ public class DisplayService extends Service {
 
     private void show(Display d, String loc, String storeName) {
         String why1;
-        try { showOverlay(d, loc, storeName); shownOn = d.getDisplayId(); shownLoc = loc; return; }
+        try { showOverlay(d, storeName); shownOn = d.getDisplayId(); shownLoc = loc; return; }
         catch (Throwable e) { why1 = describe(e); dismissOverlay(); }
         String why2;
         try { showActivity(d); activityMode = true; shownOn = d.getDisplayId(); shownLoc = loc; status("Loading posters (screen mode) · " + storeName); return; }
@@ -102,7 +103,8 @@ public class DisplayService extends Service {
     }
 
     /** Route 1: an overlay window on the rear screen. */
-    private void showOverlay(Display d, String loc, String storeName) throws Exception {
+    private void showOverlay(Display d, String storeName) throws Exception {
+        Prefs p = new Prefs(this);
         Context dc = createDisplayContext(d);
         Context wc = dc;
         if (Build.VERSION.SDK_INT >= 30) {
@@ -118,7 +120,7 @@ public class DisplayService extends Service {
                         | WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
                 PixelFormat.OPAQUE);
         lp.gravity = Gravity.TOP | Gravity.START;
-        WebView w = Web.make(wc, Web.url(loc), storeName, new Web.Status() { public void set(String s) { status(s); } });
+        WebView w = Web.make(wc, Web.url(p.locationId(), p.till()), storeName, new Web.Status() { public void set(String s) { status(s); } });
         web = w; shownWm = wm;
         wm.addView(w, lp);
         status("Loading posters · " + (storeName == null ? "" : storeName));
