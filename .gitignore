@@ -16,3 +16,10 @@ android-print-agent/classes.dex
 android-print-agent/unaligned.apk
 android-print-agent/aligned.apk
 teya-credentials*.sql
+android-customer-display/CustomerDisplay.apk
+android-customer-display/CustomerDisplay.apk.idsig
+android-customer-display/gen/
+android-customer-display/obj/
+android-customer-display/classes.dex
+android-customer-display/unaligned.apk
+android-customer-display/aligned.apk

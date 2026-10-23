@@ -54,7 +54,8 @@ function compressImage(file, maxDim = 1600, quality = 0.82) {
 
 // Upload a file to the public menu-images bucket, return its public URL.
 async function uploadImage(file, prefix = "img") {
-  const blob = await compressImage(file);
+  // Customer-display posters can fill a 1920px-wide screen; everything else stays at 1600.
+  const blob = await compressImage(file, String(prefix).startsWith("display") ? 1920 : 1600);
   const name = `${prefix}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
   const res = await fetch(`${SUPABASE_URL}/storage/v1/object/menu-images/${name}`, {
     method: "POST",
@@ -2662,10 +2663,10 @@ export default function Admin() {
         <div onClick={() => setShowHero(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
           <div onClick={(e) => e.stopPropagation()} style={{ width: 520, maxWidth: "94vw", background: T.bg, borderRadius: 16, padding: 24, maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{heroKey.startsWith("kiosk_slides") ? "Kiosk Slides" : "Hero Slides"}</div>
+              <div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{heroKey.startsWith("display_slides") ? "Customer display posters" : heroKey.startsWith("kiosk_slides") ? "Kiosk Slides" : "Hero Slides"}</div>
               <span onClick={() => setShowHero(false)} style={{ fontSize: 22, color: T.muted, cursor: "pointer" }}>×</span>
             </div>
-            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>{heroKey.startsWith("kiosk_slides") ? "The full-height carousel on the kiosk welcome screen, for this store only. Portrait photos work best. The backdrop colour tints the whole screen behind the photo." : "The rotating banner at the top of the menu. Upload a photo for each slide; add or remove slides as needed."}</div>
+            <div style={{ fontSize: 13, color: T.muted, marginBottom: 16 }}>{heroKey.startsWith("display_slides") ? "Shown one after another on the screen facing the customer at this store's tills. Upload landscape images (16:10 or 16:9) to fill the screen; a poster of any other shape is shown whole. Title and subtitle are optional — leave them empty for a designed poster that already has its text." : heroKey.startsWith("kiosk_slides") ? "The full-height carousel on the kiosk welcome screen, for this store only. Portrait photos work best. The backdrop colour tints the whole screen behind the photo." : "The rotating banner at the top of the menu. Upload a photo for each slide; add or remove slides as needed."}</div>
 
             {heroDraft.map((sl, idx) => (
               <div key={idx} style={{ border: "1px solid " + T.line, borderRadius: 12, padding: 14, marginBottom: 14 }}>
@@ -2673,8 +2674,8 @@ export default function Admin() {
                   <div style={{ fontSize: 13, fontWeight: 700, color: T.muted }}>Slide {idx + 1}</div>
                   <span onClick={() => setHeroDraft(heroDraft.filter((_, i) => i !== idx))} style={{ fontSize: 13, color: "#b4462f", fontWeight: 600, cursor: "pointer" }}>Delete</span>
                 </div>
-                <ImageUpload value={sl.image_url || ""} prefix="hero" height={120} onChange={(url) => setHeroDraft(heroDraft.map((x, i) => i === idx ? { ...x, image_url: url } : x))} />
-                {[["tag", "Tag (small pill)", "NEW THIS WEEK"], ["title", "Title", "Blueberry Marble Matcha"], ["sub", "Subtitle", "Fresh. Layered. Unexpected."], ["parts", "Kiosk chips (comma separated)", "Blueberry cold foam, Ceremonial matcha, Over ice"]].map(([k, label, ph]) => (
+                <ImageUpload value={sl.image_url || ""} prefix={heroKey.startsWith("display_slides") ? "display" : "hero"} height={120} onChange={(url) => setHeroDraft(heroDraft.map((x, i) => i === idx ? { ...x, image_url: url } : x))} />
+                {[["tag", "Tag (small pill)", "NEW THIS WEEK"], ["title", "Title", "Blueberry Marble Matcha"], ["sub", "Subtitle", "Fresh. Layered. Unexpected."], ["parts", "Kiosk chips (comma separated)", "Blueberry cold foam, Ceremonial matcha, Over ice"]].filter(([k]) => !(k === "parts" && heroKey.startsWith("display_slides"))).map(([k, label, ph]) => (
                   <div key={k} style={{ marginTop: 10 }}>
                     <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: T.muted, marginBottom: 4 }}>{label.toUpperCase()}</div>
                     <input value={typeof sl[k] === "string" ? sl[k] : Array.isArray(sl[k]) ? sl[k].join(", ") : ""} placeholder={ph} onChange={(e) => setHeroDraft(heroDraft.map((x, i) => i === idx ? { ...x, [k]: e.target.value } : x))}
@@ -2683,7 +2684,7 @@ export default function Admin() {
                 ))}
                 {/* The kiosk takes the whole screen's colour from the slide, so each
                     photo can sit on cream, deep green or tan. */}
-                <div style={{ marginTop: 12 }}>
+                {!heroKey.startsWith("display_slides") && <div style={{ marginTop: 12 }}>
                   <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".06em", color: T.muted, marginBottom: 4 }}>KIOSK BACKDROP</div>
                   <div style={{ display: "flex", gap: 6 }}>
                     {[["cream", "Cream", "#F2E4D7"], ["green", "Deep green", "#3E6F47"], ["tan", "Tan", "#D5B582"]].map(([v, l, sw]) => {
@@ -2696,13 +2697,13 @@ export default function Admin() {
                       );
                     })}
                   </div>
-                </div>
+                </div>}
               </div>
             ))}
 
-            <button onClick={() => setHeroDraft([...heroDraft, { image_url: "", tag: "", title: "", sub: "" }])} style={{ width: "100%", border: "1px dashed " + T.line, background: "transparent", color: T.muted, borderRadius: 10, padding: "12px 0", fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 14 }}>+ Add slide</button>
+            <button onClick={() => setHeroDraft([...heroDraft, { image_url: "", tag: "", title: "", sub: "" }])} style={{ width: "100%", border: "1px dashed " + T.line, background: "transparent", color: T.muted, borderRadius: 10, padding: "12px 0", fontSize: 14, fontWeight: 600, cursor: "pointer", marginBottom: 14 }}>{heroKey.startsWith("display_slides") ? "+ Add poster" : "+ Add slide"}</button>
 
-            <button onClick={async () => { await act("set_setting", { key: heroKey, value: JSON.stringify(heroDraft) }); setShowHero(false); }} style={{ width: "100%", border: "none", background: T.accent || "#5E7A4D", color: "#fff", borderRadius: 10, padding: "13px 0", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>Save slides</button>
+            <button onClick={async () => { await act("set_setting", { key: heroKey, value: JSON.stringify(heroDraft) }); setShowHero(false); }} style={{ width: "100%", border: "none", background: T.accent || "#5E7A4D", color: "#fff", borderRadius: 10, padding: "13px 0", fontSize: 15, fontWeight: 700, cursor: "pointer" }}>{heroKey.startsWith("display_slides") ? "Save posters" : "Save slides"}</button>
           </div>
         </div>
       )}
@@ -3034,6 +3035,29 @@ export default function Admin() {
                                 </div>
                               </div>
                             </div>
+
+                            {/* The till's rear screen, facing the customer. Shown by
+                                the Customer Display app on the till (/display). */}
+                            {(() => {
+                              let posters = [];
+                              try { const v = g("display_slides"); posters = v ? (typeof v === "string" ? JSON.parse(v) : v) : []; } catch { posters = []; }
+                              posters = (Array.isArray(posters) ? posters : []).filter((s) => s && s.image_url);
+                              return (
+                                <div style={{ marginTop: 18, paddingTop: 16, borderTop: "1px solid " + T.line }}>
+                                  <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>Customer display · this store only</div>
+                                  <div style={{ fontSize: 11.5, color: T.faint, marginBottom: 12, lineHeight: 1.5 }}>Posters on the screen facing the customer at the till. Needs the <b>Customer Display</b> app on the till (Device apps page). Landscape images fill the screen; posters of any other shape are shown whole. With no posters set it shows the kiosk slides, then the menu's hero slides.</div>
+                                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+                                    {posters.slice(0, 8).map((s, i) => <div key={i} style={{ width: 112, height: 70, borderRadius: 8, border: "1px solid " + T.line, background: "#111 center/cover url(" + JSON.stringify(s.image_url) + ")" }} />)}
+                                    {!posters.length && <div style={{ fontSize: 12.5, color: T.muted }}>No posters yet.</div>}
+                                  </div>
+                                  <div style={{ display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" }}>
+                                    <button onClick={() => { setHeroKey(K("display_slides")); setHeroDraft(posters); setShowHero(true); }} style={{ border: "1px solid " + T.line, background: T.card, color: T.ink, borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Edit posters…</button>
+                                    <a href={"/display?loc=" + loc.id} target="_blank" rel="noreferrer" style={{ border: "1px solid " + T.line, background: T.card, color: T.ink, borderRadius: 9, padding: "9px 14px", fontSize: 12.5, fontWeight: 700, textDecoration: "none" }}>Preview ↗</a>
+                                    <div style={{ width: 200 }}><Field k="display_slide_seconds" label="Seconds per poster" placeholder="8" /></div>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         );
                       })()}
