@@ -137,8 +137,15 @@ Deno.serve(async (req) => {
     switch (action) {
       // ---- POS: push the balance to the card machine ----
       case "start": {
-        const { order_id, amount, tablet_no = null, note = null } = data || {};
+        const { order_id, amount, tablet_no: tabletRaw = null, note = null } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
+        // menu_orders.tablet_no holds a device LABEL ("TPOS2", "KIOSK1"), while
+        // both Teya tables type tablet_no as int. Passing the label straight
+        // into the insert below failed silently, so the request existed at Teya
+        // and nowhere here — the till could neither poll it nor book it, and
+        // the customer could still pay. Match on the label, store a number.
+        const tabletLabel = tabletRaw == null || String(tabletRaw).trim() === "" ? null : String(tabletRaw).trim();
+        const tabletNum = tabletLabel !== null && /^\d+$/.test(tabletLabel) ? Number(tabletLabel) : null;
         const { data: ord } = await admin.from("menu_orders").select("id, order_no, total, discount_amount, amount_paid, paid_method, status, location_id, created_at").eq("id", order_id).single();
         if (!ord) return json({ error: "order not found" }, 404);
         if (ord.status === "cancelled") return json({ error: "cancelled", message: "This order was cancelled." }, 409);
@@ -156,7 +163,7 @@ Deno.serve(async (req) => {
         // Terminal for this till: exact tablet match first, then the store default (tablet_no null).
         const { data: terms } = await admin.from("teya_terminals").select("id, store_id, terminal_id, tablet_no, label")
           .eq("location_id", ord.location_id).eq("active", true);
-        const term = (terms || []).find((x: any) => tablet_no != null && String(x.tablet_no) === String(tablet_no))
+        const term = (terms || []).find((x: any) => tabletLabel != null && String(x.tablet_no) === tabletLabel)
           || (terms || []).find((x: any) => x.tablet_no == null) || (terms || [])[0];
         if (!term) return json({ error: "no_terminal", message: "No Teya card machine is set up for this store." }, 404);
         // Reuse an in-flight request for this order instead of double-charging.
@@ -170,16 +177,26 @@ Deno.serve(async (req) => {
           requested_amount: { amount: Math.round(amt * 100), currency: "GBP" },
           transaction_type: "SALE",
           merchant_reference: ("CB-" + ord.order_no + "-" + idem.slice(0, 8)).slice(0, 60),
-          epos_instance_id: tablet_no != null ? "tablet-" + tablet_no : undefined,
+          epos_instance_id: tabletLabel != null ? "tablet-" + tabletLabel : undefined,
           basket_transaction_id: basketIdFor(String(ord.id), (ord as any).created_at),
           payment_method: "CARD",
         }, idem);
         const prId = res?.payment_request_id || res?.id;
         if (!prId) throw new Error("teya: no payment_request_id in response");
-        await admin.from("teya_payment_requests").insert({
+        // If we cannot record it, we cannot poll it or book it — and the
+        // terminal would sit prompting for a payment nothing will ever
+        // collect. This insert used to be fire-and-forget, so a rejected row
+        // left exactly that situation with the till none the wiser. Pull the
+        // request back at Teya and tell the caller it failed.
+        const { error: insErr } = await admin.from("teya_payment_requests").insert({
           payment_request_id: prId, order_id, terminal_id: term.terminal_id, store_id: term.store_id, amount: amt,
-          status: res.status || "NEW", tablet_no, note, raw: res,
+          status: res.status || "NEW", tablet_no: tabletNum, note, raw: res,
         });
+        if (insErr) {
+          try { await teya(cred, "PATCH", "/poslink/v2/payment-requests/" + encodeURIComponent(String(prId)), { status: "CANCELLING" }, crypto.randomUUID()); } catch { /* best effort */ }
+          console.error("teya start: could not record payment request " + prId + " — " + insErr.message);
+          return json({ error: "not_recorded", message: "Could not start the card payment — try again." }, 500);
+        }
         return json({ ok: true, payment_request_id: prId, status: res.status || "NEW", amount: amt, terminal: term.label || null });
       }
 
