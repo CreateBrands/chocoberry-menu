@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import MenuOverview from "./MenuOverview";
+import MusicManager from "./MusicManager.jsx";
 import { openTableStickerSheet } from "./tableStickers";
 import PricingManager from "./PricingManager";
 // Currency follows the store being served — see src/money.js.
@@ -2268,6 +2269,7 @@ export default function Admin() {
   }, [showStores]); // eslint-disable-line
   const [showPrinters, setShowPrinters] = useState(false);
   const [showOverview, setShowOverview] = useState(false);
+  const [showMusic, setShowMusic] = useState(false);
   const [showPricing, setShowPricing] = useState(false);
   const [storeView, setStoreView] = useState(null); // store id for price editor
   const [openStore, setOpenStore] = useState(null);  // which store row is expanded (one at a time)
@@ -2360,10 +2362,11 @@ export default function Admin() {
           ["bandmenus", "Band menus", "🎚", true],
           ["routing", "Printing", "🖨", true],
           ["printers", "Printers", "🖨", false],
+          ["music", "Music", "🎵", true],
           ["settings", "Settings", "⚙", true],
         ].filter(([key, , , masterOnly]) => {
           if (state.scope === "store") return !masterOnly;
-          if (state.scope === "region") return !["appearance", "welcome", "hero", "settings"].includes(key);
+          if (state.scope === "region") return !["appearance", "welcome", "hero", "settings", "music"].includes(key);
           return true;
         }).map(([key, label, icon]) => {
           const active = nav === key;
@@ -2396,6 +2399,7 @@ export default function Admin() {
               if (key === "stores") setShowStores(true);
               if (key === "printers") setShowPrinters(true);
               if (key === "overview") setShowOverview(true);
+              if (key === "music") setShowMusic(true);
               if (key === "pricing") setShowPricing(true);
               if (key === "settings") setShowAppearance(true);
             }} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", borderRadius: 8, marginBottom: 2, cursor: "pointer", fontSize: 14, fontWeight: active ? 700 : 500, background: active ? T.accentSoft || "#EFEAD9" : "transparent", color: active ? T.accent : T.muted }}>
@@ -2589,6 +2593,7 @@ export default function Admin() {
 
       {editItem && <ItemEditor pin={pin} item={editItem} groups={state.modifierGroups || []} itemGroupIds={(state.itemModifiers || []).filter((im) => im.item_id === editItem.id).map((im) => im.group_id)} onClose={() => setEditItem(null)} onSaved={() => { setEditItem(null); reload(); }} />}
       {showPrinters && <PrintersModal pin={pin} locations={state.locations} onClose={() => setShowPrinters(false)} />}
+      {showMusic && <MusicManager state={state} T={T} act={act} getSetting={getSetting} onClose={() => setShowMusic(false)} />}
       {showOverview && <MenuOverview state={state} T={T} act={act} onEditItem={setEditItem} onClose={() => setShowOverview(false)} />}
       {showAppearance && (
         <div onClick={() => setShowAppearance(false)} style={{ position: "fixed", inset: 0, background: "rgba(30,36,20,.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 50 }}>
