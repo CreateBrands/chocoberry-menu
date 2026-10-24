@@ -740,16 +740,41 @@ async function printOrder(
 
       // Push the ticket. Retry the PUSH a couple of times on transient API
       // errors (Sunmi's own cloud queue then durably holds it for the printer).
+      //
+      // DUPLICATES ARE NOT FAILURES. The trade_no is fixed per order/printer,
+      // so when the sweep re-sends a ticket that was pushed earlier but had not
+      // confirmed yet, Sunmi answers 10071705 "order has been push" - it already
+      // holds that ticket. That used to be logged as a failure (after two more
+      // rejected retries), and three of them put the kitchen printer on HOLD
+      // for ten minutes, blocking real new tickets (#145/#146, 24 Oct). Now a
+      // duplicate stops the retries and we ask Sunmi whether it printed.
+      const isDup = (r: any) => String(r?.code) === "10071705" || /has been push/i.test(String(r?.msg ?? ""));
       let res = await sunmi.pushContent(sn, tradeNo, contentHex);
       let attempts = 1;
       let usedTrade = tradeNo;
-      while (!ok(res) && attempts < 3) {
+      let dupOf: string | null = isDup(res) ? tradeNo : null;
+      while (!ok(res) && !dupOf && attempts < 3) {
         await new Promise((r) => setTimeout(r, 800 * attempts));
         usedTrade = tradeNo + "r" + attempts;
         res = await sunmi.pushContent(sn, usedTrade, contentHex);
         attempts++;
+        if (isDup(res)) dupOf = usedTrade;
       }
-      const pushed = ok(res);
+      let pushed = ok(res);
+      let dupPrinted = false;
+      if (dupOf) {
+        let isPrint: unknown = null;
+        try { const st = await sunmi.printStatus(dupOf); isPrint = (st as any)?.data?.is_print; } catch { /* unknown: treat as still queued */ }
+        if (isPrint === 2) {
+          // Sunmi dropped the earlier one (queue cleared): send it again under a fresh reference.
+          usedTrade = (base + Date.now().toString(36) + sn.slice(-4)).slice(0, 32);
+          res = await sunmi.pushContent(sn, usedTrade, contentHex);
+          pushed = ok(res);
+          dupOf = null;
+        } else {
+          usedTrade = dupOf; pushed = true; dupPrinted = isPrint === 1;
+        }
+      }
 
       // CONFIRM ACTUAL PRINTING. Sunmi tracks whether the printer really printed
       // a ticket (is_print: 0 no, 1 yes, 2 deleted) — so we poll printStatus
@@ -757,8 +782,9 @@ async function printOrder(
       // that a successful push alone can't see. A healthy printer confirms within
       // 1-3s; if it doesn't confirm in our window we treat it as not-yet-printed
       // (flagged), since Sunmi's queue may still deliver later but staff should check.
-      let confirmed = false;
-      if (pushed) {
+      // A duplicate was checked once above; it is not polled again here.
+      let confirmed = dupPrinted;
+      if (pushed && !dupOf) {
         // Poll a little longer/gentler (5 x 1.5s ~= 7.5s) so a printer that's
         // slow during a rush or waking from sleep still confirms in-window.
         for (let poll = 0; poll < 5 && !confirmed; poll++) {
@@ -770,6 +796,24 @@ async function printOrder(
             if (isPrint === 2) break; // deleted/cancelled — stop polling
           } catch { /* keep polling */ }
         }
+      }
+      // Still sitting unprinted in Sunmi's queue long after it was first sent:
+      // tell the staff (order flag + reason) without logging a failure, so a
+      // slow ticket never puts the whole printer on hold.
+      if (dupOf && !confirmed) {
+        try {
+          const { data: first } = await supabase.from("print_jobs").select("created_at")
+            .eq("order_id", orderId).eq("printer_sn", sn).eq("slip", slip)
+            .order("created_at", { ascending: true }).limit(1);
+          const since = first && first.length ? Date.parse((first[0] as any).created_at) : NaN;
+          if (isFinite(since) && Date.now() - since > 5 * 60000) {
+            const mins = Math.round((Date.now() - since) / 60000);
+            await supabase.from("menu_orders").update({
+              print_failed: true,
+              print_error: "Sent to " + station + " " + mins + " min ago and not printed yet — check that printer (paper, cover, power)",
+            }).eq("id", orderId);
+          }
+        } catch { /* best effort */ }
       }
       // Three-way outcome, not two:
       //   - confirmed print  -> "sent"    (done)
@@ -788,7 +832,7 @@ async function printOrder(
         slip,
         response: res,
         error: success ? null
-          : pending ? "pushed to Sunmi queue; awaiting printer confirmation"
+          : pending ? (dupOf ? "already in Sunmi's queue; not printed yet" : "pushed to Sunmi queue; awaiting printer confirmation")
           : (res.msg ?? "unknown Sunmi error") + " (push failed after " + attempts + " attempts)",
       });
       results.push({ printer: sn, station, copy: copy + 1, printed: success, pending, pushed, confirmed, attempts, sunmi: res });
