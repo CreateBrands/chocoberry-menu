@@ -1307,7 +1307,17 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
     if (!pin) return;
     setChecking(true); setPinErr("");
     try {
-      // 1) manager / master PIN → full drawer
+      // 1) employee punch-in PIN for this store → staff drawer (orders, reprints, table); no till controls.
+      //    Tried first so an everyday staff login is never counted as a wrong
+      //    manager PIN by the lockout (PIN LOCKOUT 2026-10-24).
+      if (locationId) {
+        const r2 = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "staff_lookup", data: { pin, location_id: locationId } }) });
+        const j = await r2.json().catch(() => ({}));
+        if (j && j.ok) { setUnlocked(true); setStaffName(j.name || "Team member"); if (!items) loadItems(); sessionPinRef.current = ""; staffPinRef.current = pin; setPin(""); loadAllOrders(); return; }
+        if (r2.status === 429) { setPinErr(j.message || "Too many wrong PINs — try again in a few minutes."); return; }
+        if (j && j.reason === "not_this_store") { setPinErr("That PIN belongs to a team member at another store."); return; }
+      }
+      // 2) manager / master PIN → full drawer
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin, action: "load", data: {} }) });
       if (r.ok) {
         setUnlocked(true); setStaffName(null); if (!items) loadItems();
@@ -1315,13 +1325,7 @@ function Drawer({ orders = [], onClose, locationId, onAddItems }) {
         loadAllOrders(); loadAccepting(); loadPrinters();
         return;
       }
-      // 2) employee punch-in PIN for this store → staff drawer (orders, reprints, table); no till controls
-      if (locationId) {
-        const r2 = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, action: "staff_lookup", data: { pin, location_id: locationId } }) });
-        const j = await r2.json().catch(() => ({}));
-        if (j && j.ok) { setUnlocked(true); setStaffName(j.name || "Team member"); if (!items) loadItems(); sessionPinRef.current = ""; staffPinRef.current = pin; setPin(""); loadAllOrders(); return; }
-        if (j && j.reason === "not_this_store") { setPinErr("That PIN belongs to a team member at another store."); return; }
-      }
+      if (r.status === 429) { const jj = await r.json().catch(() => ({})); setPinErr(jj.message || "Too many wrong PINs — try again in a few minutes."); return; }
       throw new Error("bad");
     } catch {
       setPinErr("Wrong PIN.");

@@ -179,13 +179,16 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
 
   // ---- 8. Cash drawer ----
   parts.push(bar("CASH DRAWER"));
-  if (s.float_amount != null) parts.push(line("Opening float", n2(s.float_amount)));
+  if (s.float_amount != null) parts.push(line("Opening float" + (s.float_changed ? " (changed)" : ""), n2(s.float_amount)));
+  if (s.float_changed && s.float_known != null) parts.push(line("  System float was", n2(s.float_known)));
   parts.push(line("+ Cash taken", n2(s.cash)));
   if (Number(s.cash_dropped) > 0) parts.push(line("− Dropped to safe", n2(s.cash_dropped)));
   const counted = s.cash_counted;
   if (counted != null) {
     parts.push(totalRow("= Expected", n2(s.cash_expected)));
     parts.push(line("Counted", n2(counted), { bold: true }));
+    // CASH CONTROLS: counting again until it balances is visible on paper.
+    if (Number(s.recounts) > 0 && s.first_count != null) parts.push(line("First count (" + (Number(s.recounts) + 1) + " counts)", n2(s.first_count)));
     const v = Number(s.cash_variance) || 0;
     const verdict = v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT";
     // The result is what a manager looks for first: large, in a heavy box.
@@ -281,6 +284,7 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
   if (s.mode === "trading_day" && s.cutoff) parts.push(meta("Trading day ends", fmtDate(s.cutoff, m.timeZone, "full")));
   if (isZ && s.closed_at) parts.push(meta("Closed", fmtDate(s.closed_at, m.timeZone, "full")));
   if (s.closed_by) parts.push(meta("Closed by", String(s.closed_by).slice(0, 30)));
+  if (s.approved_by) parts.push(meta("Approved by", String(s.approved_by).slice(0, 30)));
   parts.push(meta("Printed", fmtDate(m.printedAt.toISOString(), m.timeZone, "full")));
   if (m.kind !== "x") {
     const sign = (who: string) => col({ flex: 1, marginRight: fs(16) },
@@ -345,6 +349,7 @@ export function shiftSlipTree(r: any, m: ZMeta, dots = 576): Node {
   parts.push(row("Counted in drawer", n2(r.counted_raw)));
   if (Number(r.cash_since_end)) parts.push(row("− Next shift's cash", n2(r.cash_since_end)));
   parts.push(row("Counted for this shift", n2(r.counted), { bold: true }));
+  if (Number(r.recounts) > 0 && r.first_count != null) parts.push(row("First count (" + (Number(r.recounts) + 1) + " counts)", n2(r.first_count)));
   parts.push(el({ border: "4px solid #000", justifyContent: "space-between", alignItems: "center", padding: `${fs(8)}px ${fs(12)}px`, marginTop: fs(8) },
     txt(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", { fontSize: fs(30), fontWeight: 700, letterSpacing: 2 }),
     txt((v > 0 ? "+" : "") + n2(v) + (v !== 0 && Number(r.expected) > 0 ? "  (" + (v > 0 ? "+" : "-") + pct(Math.abs(v), r.expected) + ")" : ""), { fontSize: fs(30), fontWeight: 700 })));
@@ -354,6 +359,6 @@ export function shiftSlipTree(r: any, m: ZMeta, dots = 576): Node {
   if (r.note) { parts.push(bar("NOTE")); parts.push(txt(String(r.note), { fontSize: body, lineHeight: 1.35 })); }
   const sign = (who: string) => col({ flex: 1, marginRight: fs(16) }, el({ height: fs(54), borderBottom: "2px solid #000" }), txt(who, { fontSize: fs(15), fontWeight: 700, marginTop: fs(4) }));
   parts.push(el({ marginTop: fs(16) }, sign("OUTGOING"), sign("INCOMING / MANAGER")));
-  parts.push(col({ alignItems: "center", marginTop: fs(12) }, txt("Counted " + fmtDate(r.counted_at, m.timeZone, "full"), { fontSize: fs(15) })));
+  parts.push(col({ alignItems: "center", marginTop: fs(12) }, txt("Counted " + fmtDate(r.counted_at, m.timeZone, "full") + (r.confirmed_by ? " · " + String(r.confirmed_by).split(" ")[0] : ""), { fontSize: fs(15) })));
   return col({ width: dots, padding: `${fs(6)}px ${fs(6)}px ${fs(20)}px`, background: "#fff", color: "#000", fontFamily: "Inter", fontSize: body }, ...parts);
 }

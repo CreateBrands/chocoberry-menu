@@ -6,6 +6,7 @@ import { deviceToken } from "./device.js";
 import { sendCustomerScreen, orderForScreen } from "./customerScreen.js";
 import CartLine from "./CartLine.jsx";
 import ShiftSheet, { ShiftButton } from "./ShiftSheet.jsx";
+import ManagerPin from "./ManagerPin.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
 // store this till is serving — see src/money.js. A store with no currency
 // setting is GBP, which is exactly what every till did before.
@@ -288,6 +289,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // PIN-gated, and the server logs who opened it against the device. An
   // unlogged drawer button is how cash leaves without a trace.
   const [drawerAsk, setDrawerAsk] = useState(null); // null | { pin, busy, err }
+  // A manager PIN for: undoing a payment, printing an X read (ManagerPin sheet).
+  const [mgrAsk, setMgrAsk] = useState(null); // null | { kind: "unpaid", order } | { kind: "xread" }
   // ---- Shifts: handover between the people on this till ----
   // shift_status is blind (no expected cash). Refreshed every minute and after
   // each step; a store without the till_shifts table gets enabled:false and
@@ -360,7 +363,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   }
   async function openCloseTill() {
     closeTillCache.current = {};   // fresh figures each time the sheet opens
-    setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "" });
+    setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "", preview: null, floatEdit: false, mgrPin: "", pinFor: "staff" });
     let sm = await loadCloseTillSummary("trading_day");
     let mode = "trading_day";
     // Nothing before the cutoff (or we're before 4am) → close everything up to now.
@@ -369,7 +372,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     // With shifts, the day's float is the one the first shift opened with.
     const prevFloat = sm && sm.first_float != null ? String(Number(sm.first_float).toFixed(2))
       : sm && sm.previous && sm.previous.float_amount != null ? String(Number(sm.previous.float_amount).toFixed(2)) : "";
-    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, float: c.float || prevFloat, err: sm ? "" : (closeTillErr.current || "Could not load today's totals") });
+    setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, floatKnown: prevFloat, float: c.float || prevFloat, err: sm ? "" : (closeTillErr.current || "Could not load today's totals") });
   }
   // Look the PIN up as it's typed so the sheet can greet the closer by name.
   const staffLookupTimer = useRef(null);
@@ -382,17 +385,31 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     }, 350);
   }
   // ZREPORT 2026-10-24 — print an X read (no close, no reset, no Z number).
-  async function printXRead() {
-    const c = closeTill; if (!c || c.xPrinting) return;
+  // CASH CONTROLS: it prints the cash taken so far, so it needs a manager PIN.
+  function printXRead() { if (closeTill && !closeTill.xPrinting) setMgrAsk({ kind: "xread" }); }
+  async function doPrintXRead(manager_pin) {
+    const c = closeTill; if (!c) return "Open Close till first.";
     setCloseTill((x) => x && { ...x, xPrinting: true, xPrinted: null });
-    const r = await ordActionJson("print_x_read", { location_id: loc, mode: c.mode, float_amount: c.float === "" ? null : Number(c.float) });
+    const r = await ordActionJson("print_x_read", { location_id: loc, mode: c.mode, manager_pin, float_amount: c.floatEdit && c.float !== "" ? Number(c.float) : (c.floatKnown !== "" && c.floatKnown != null ? Number(c.floatKnown) : null) });
     setCloseTill((x) => x && { ...x, xPrinting: false, xPrinted: !!(r && r.ok) });
+    if (r && (r.error === "manager_required" || r.error === "bad_pin" || r.error === "pin_locked")) return r.message || "That PIN can't print the X read.";
+    return null;
+  }
+  // Blind close: the till only shows what the drawer should hold once the
+  // count is in. Every check is logged on the server and printed on the Z.
+  async function checkCloseCount(countedVal) {
+    const c = closeTill; if (!c || countedVal == null) return;
+    const key = countedVal + "|" + (c.floatEdit ? c.float : "") + "|" + c.mode;
+    setCloseTill((x) => x && { ...x, busy: true, err: "" });
+    const r = await ordActionJson("close_preview", { location_id: loc, mode: c.mode, cash_counted: countedVal, float_amount: c.floatEdit && c.float !== "" ? Number(c.float) : null });
+    if (r && r.ok && r.preview) setCloseTill((x) => x && { ...x, busy: false, preview: { ...r.preview, key }, checks: (x.checks || 0) + 1 });
+    else setCloseTill((x) => x && { ...x, busy: false, err: (r && (r.message || r.error)) || "Couldn't check the count." });
   }
   async function reprintClosure() {
     const c = closeTill; if (!c || !c.result || !c.result.closure_id) return;
     setCloseTill((x) => x && { ...x, reprinting: true });
     try {
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, device: deviceToken(), action: "reprint_closure", data: { closure_id: c.result.closure_id } }) });
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, device: deviceToken(), action: "reprint_closure", data: { closure_id: c.result.closure_id, location_id: loc, staff_pin: c.pin } }) });
       const j = await r.json().catch(() => ({}));
       setCloseTill((x) => x && { ...x, reprinting: false, reprinted: !!j.ok });
     } catch { setCloseTill((x) => x && { ...x, reprinting: false, reprinted: false }); }
@@ -413,9 +430,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const c = { ...closeTill, ...overrides };
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, device: deviceToken(), action: "close_day", data: {
-        location_id: loc, mode: c.mode, staff_pin: c.pin, cash_counted: c.counted === "" ? null : Number(c.counted), float_amount: c.float === "" ? null : Number(c.float), note: c.note.trim() || null,
+        location_id: loc, mode: c.mode, staff_pin: c.pin, cash_counted: c.counted === "" ? null : Number(c.counted),
+        float_amount: c.floatEdit && c.float !== "" ? Number(c.float) : null, note: c.note.trim() || null, manager_pin: c.mgrPin || null,
       } }) });
       const j = await r.json().catch(() => ({}));
+      if (j && j.error === "manager_required") setCloseTill((x) => x && { ...x, pinFor: "manager", mgrPin: "", mgrForced: true });
       if (!r.ok) throw new Error(j.error === "unauthorized" ? "PIN not recognised" : (j.message || j.error || "Close failed"));
       setCloseTill((x) => x && { ...x, busy: false, step: "done", result: j });
       await loadOrders();
@@ -518,7 +537,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   const ordPay = (o, method) => (method === "card" && teyaTerminal)
     ? teyaTakeCard(o, Number(o.total || 0))
     : ordActionJson("take_payment", { order_id: o.id, method, amount: Number(o.total || 0) });
-  const ordUnpaid = (o) => ordAction("mark_unpaid", { order_id: o.id });
+  // CASH CONTROLS 2026-10-24 — undoing a payment needs a manager PIN and a reason.
+  const ordUnpaid = (o) => setMgrAsk({ kind: "unpaid", order: o });
   const ordRemoveItem = (o, iid) => ordAction("remove_order_item", { order_id: o.id, order_item_id: iid });
   const ordSetQty = (o, iid, qty) => ordAction("set_order_item_qty", { order_id: o.id, order_item_id: iid, qty });
   const ordSetType = (o, order_type) => ordAction("set_order_type", { order_id: o.id, order_type });
@@ -1675,6 +1695,23 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         </div>
       </div>
 
+      {mgrAsk && mgrAsk.kind === "unpaid" && (
+        <ManagerPin title={"Undo payment on #" + mgrAsk.order.order_no}
+          sub="The payment stays on record with a matching reversal. Only for a payment taken in this shift — otherwise refund it."
+          reasons={["Wrong payment type", "Paid twice", "Customer changed mind", "Rung up by mistake"]}
+          confirmLabel="Undo payment"
+          onClose={() => setMgrAsk(null)}
+          onSubmit={async (manager_pin, reason) => {
+            const r = await ordActionJson("mark_unpaid", { order_id: mgrAsk.order.id, manager_pin, reason });
+            if (r && r.ok) { setMsg("Payment undone on #" + mgrAsk.order.order_no); return null; }
+            return (r && (r.message || r.error)) || "Couldn't undo the payment.";
+          }} />
+      )}
+      {mgrAsk && mgrAsk.kind === "xread" && (
+        <ManagerPin title="Print X read" sub="The X read shows the cash taken so far, so it needs a manager."
+          confirmLabel="Print" onClose={() => setMgrAsk(null)} onSubmit={(p) => doPrintXRead(p)} />
+      )}
+
       {shiftOpen && shift && (
         <ShiftSheet loc={loc} status={shift} act={ordActionJson} onClose={() => setShiftOpen(false)} onChanged={loadShift} />
       )}
@@ -1689,11 +1726,16 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const denomsTouched = Object.values(closeTill.denoms || {}).some((v) => v !== "" && v != null);
         const countedVal = closeTill.countMode === "denoms" ? (denomsTouched ? denomTotal : null) : (closeTill.counted === "" ? null : Number(closeTill.counted));
         const sm = closeTill.summary;
-        const flt = closeTill.float === "" ? 0 : Number(closeTill.float);
+        // The day's float as the till knows it (the server has the final say in close_preview).
+        const knownFloatStr = closeTill.floatKnown != null ? closeTill.floatKnown : "";
+        const flt = closeTill.floatEdit ? (closeTill.float === "" ? 0 : Number(closeTill.float)) : Number(knownFloatStr || 0);
         // Cash dropped to the safe at shift handovers has left the drawer.
         const dropped = sm ? Number(sm.cash_dropped || 0) : 0;
-        const expected = sm ? Math.round(((flt || 0) + Number(sm.cash || 0) - dropped) * 100) / 100 : 0;
-        const variance = countedVal == null ? null : Math.round((countedVal - expected) * 100) / 100;
+        // Blind: figures come from the server's check of THIS count (pv), never before it.
+        const pvKey = countedVal + "|" + (closeTill.floatEdit ? closeTill.float : "") + "|" + closeTill.mode;
+        const pv = closeTill.preview && closeTill.preview.key === pvKey ? closeTill.preview : null;
+        const expected = pv ? Number(pv.expected) : null;
+        const variance = pv ? Number(pv.variance) : null;
         const VARIANCE_NOTE_FROM = varianceNoteFrom(); // beyond this a note is required
         const C = { ink: "#22271f", muted: "#6b7a60", line: "#e6e8e1", soft: "#f6f7f3", brand: "#5E7A4D", good: "#166534", bad: "#b91c1c", over: "#1d4ed8", warn: "#9a3412" };
         const F = "'Poppins',sans-serif";
@@ -1726,7 +1768,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const stages = ["Review", "Cash", "Sign off"];
         const stage = closeTill.step === "done" ? 3 : closeTill.stage;
         const canLeaveCash = true;
-        const varianceNeedsNote = variance != null && Math.abs(variance) >= VARIANCE_NOTE_FROM && !closeTill.note.trim();
+        const varianceNeedsNote = !!(pv && pv.note_needed) && !closeTill.note.trim();
         const closer = closeTill.staff && closeTill.staff.name ? closeTill.staff.name : null;
         const signoffOk = closeTill.pin.length >= 4 && !varianceNeedsNote;
         const Btn = ({ children, onClick, primary, disabled, grow }) => (
@@ -1787,11 +1829,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr 1fr", gap: 10, marginTop: 14 }}>
                       <div style={{ background: C.ink, color: "#fff", borderRadius: 16, padding: "14px 16px" }}>
                         <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", opacity: .65 }}>TOTAL TAKEN</div>
-                        <div style={{ fontSize: 30, fontWeight: 800, marginTop: 2, fontFamily: F, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums" }}>{gbp(sm.total)}</div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6 }}>
+                        <div style={{ fontSize: pv ? 30 : 17, fontWeight: 800, marginTop: 2, fontFamily: F, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums" }}>{pv ? gbp(sm.total) : "After the cash count"}</div>
+                        {pv && <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6 }}>
                           {sm.previous && <span style={{ fontSize: 11.5, opacity: .85 }}>{(() => { const x = delta(sm.total, sm.previous.total); return (x.d >= 0 ? "▲ " : "▼ ") + gbp(Math.abs(x.d)) + " vs last close"; })()}</span>}
                           {sm.last_week && <span style={{ fontSize: 11.5, opacity: .85 }}>{(() => { const x = delta(sm.total, sm.last_week.total); return (x.d >= 0 ? "▲ " : "▼ ") + gbp(Math.abs(x.d)) + (x.pct != null ? " (" + Math.abs(x.pct) + "%)" : "") + " vs last " + new Date(sm.last_week.closed_at).toLocaleDateString("en-GB", { weekday: "short" }); })()}</span>}
-                        </div>
+                        </div>}
                       </div>
                       {[
                         ["Orders", String(sm.order_count), sm.cancelled_count ? sm.cancelled_count + " cancelled" : (sm.last_week ? "last wk " + sm.last_week.orders : null)],
@@ -1823,13 +1865,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
                       <div>
                         <Section title="TENDERS">
-                          <Line l="Cash" sub={sm.tenders?.cash ? sm.tenders.cash + " payments" : ""} v={gbp(sm.cash)} />
+                          <Line l="Cash" sub={sm.tenders?.cash ? sm.tenders.cash + " payments" : ""} v={pv ? gbp(sm.cash) : "after the count"} />
                           <Line l="Card" sub={sm.tenders?.card ? sm.tenders.card + " payments" : ""} v={gbp(sm.card)} />
                           {sm.other > 0 && <Line l="Other" sub={sm.tenders?.other ? sm.tenders.other + " payments" : ""} v={gbp(sm.other)} />}
                           {sm.discount_total > 0 && <Line l="Discounts given" v={"−" + gbp(sm.discount_total)} color={C.muted} />}
                           {sm.refund_total > 0 && <Line l={"Refunds (" + (sm.refund_count || 0) + ")"} v={"−" + gbp(sm.refund_total)} color="#b4462f" />}
                           {sm.cancelled_total > 0 && <Line l={"Cancelled (" + sm.cancelled_count + ")"} v={gbp(sm.cancelled_total)} color={C.muted} />}
-                          <Line l="Total taken" v={gbp(sm.total)} strong />
+                          <Line l="Total taken" v={pv ? gbp(sm.total) : "after the count"} strong />
                         </Section>
                         <Section title="ORDERS BY TYPE">
                           {(() => { const e = Object.entries(sm.by_type || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; return e.map(([k, v]) => <Bar key={k} label={typeLabel[k] || k} value={v.amount} max={max} right={v.count + " · " + gbp(v.amount)} />); })()}
@@ -1880,21 +1922,40 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1.25fr", gap: 24, marginTop: 14 }}>
                     <div>
                       <Section title="DRAWER" style={{ marginTop: 4 }}>
-                        <label style={{ fontSize: 12.5, color: C.muted }}>Float left in drawer for tomorrow
-                          <input inputMode="decimal" readOnly onFocus={(e) => e.target.blur()} onClick={() => setPadFor({ kind: "float" })} value={closeTill.float} placeholder="100.00" style={input({ marginTop: 5, cursor: "pointer", borderColor: padFor && padFor.kind === "float" ? C.brand : C.line })} />
-                        </label>
-                        <div style={{ marginTop: 14, background: C.soft, borderRadius: 14, padding: "10px 14px" }}>
-                          <Line l="Cash taken today" v={gbp(sm.cash)} />
-                          <Line l="+ Float" v={gbp(flt)} />
-                          {dropped > 0 && <Line l="− Dropped to safe" sub={(sm.shifts || []).length + " shifts"} v={gbp(dropped)} />}
-                          <Line l="Expected in drawer" v={gbp(expected)} strong />
-                          <Line l="Counted" v={countedVal == null ? "—" : gbp(countedVal)} />
+                        {/* CASH CONTROLS 2026-10-24: the float is the one the day started on.
+                            Changing it needs a note and a manager PIN at sign-off. */}
+                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", background: C.soft, borderRadius: 12, padding: "10px 14px" }}>
+                          <span style={{ fontSize: 13.5, color: C.muted }}>Float at the start of the day</span>
+                          <b style={{ fontFamily: F, fontSize: 17 }}>{knownFloatStr === "" ? "—" : gbp(Number(knownFloatStr))}</b>
                         </div>
-                        <div style={{ marginTop: 12, borderRadius: 16, padding: "16px 18px", textAlign: "center", background: variance == null ? C.soft : variance === 0 ? "#eef7ea" : variance > 0 ? "#eaf0fb" : "#fdeeee", transition: "background .25s" }}>
-                          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".08em", color: variance == null ? C.muted : variance === 0 ? C.good : variance > 0 ? C.over : C.bad }}>{variance == null ? "VARIANCE" : variance === 0 ? "DRAWER BALANCED" : variance > 0 ? "OVER" : "SHORT"}</div>
-                          <div style={{ fontSize: 34, fontWeight: 800, fontFamily: F, letterSpacing: "-.03em", marginTop: 2, color: variance == null ? "#aab1a4" : variance === 0 ? C.good : variance > 0 ? C.over : C.bad, fontVariantNumeric: "tabular-nums" }}>{variance == null ? "—" : (variance < 0 ? "−" : variance > 0 ? "+" : "") + gbp(Math.abs(variance))}</div>
-                          {variance != null && Math.abs(variance) >= VARIANCE_NOTE_FROM && <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>A note explaining this is required at sign-off.</div>}
-                        </div>
+                        {!closeTill.floatEdit ? (
+                          <div onClick={() => { setCloseTill((c) => ({ ...c, floatEdit: true })); setPadFor({ kind: "float" }); }} style={{ fontSize: 12.5, color: C.brand, fontWeight: 700, marginTop: 6, cursor: "pointer" }}>The float was different</div>
+                        ) : (
+                          <label style={{ display: "block", fontSize: 12.5, color: C.warn, marginTop: 8 }}>Actual float (needs a note and a manager PIN)
+                            <input inputMode="decimal" readOnly onFocus={(e) => e.target.blur()} onClick={() => setPadFor({ kind: "float" })} value={closeTill.float} placeholder="150.00" style={input({ marginTop: 5, cursor: "pointer", borderColor: padFor && padFor.kind === "float" ? C.brand : C.warn })} />
+                            <span onClick={(e) => { e.preventDefault(); setPadFor(null); setCloseTill((c) => ({ ...c, floatEdit: false, float: c.floatKnown || "" })); }} style={{ display: "inline-block", marginTop: 6, color: C.muted, fontWeight: 700, cursor: "pointer" }}>Use the float above</span>
+                          </label>
+                        )}
+                        {!pv ? (
+                          <div style={{ marginTop: 14, background: C.soft, borderRadius: 14, padding: "14px 16px", fontSize: 13.5, color: C.muted, lineHeight: 1.5 }}>
+                            Count <b style={{ color: C.ink }}>everything</b> in the drawer, then tap <b style={{ color: C.ink }}>Check count</b>. The till shows what it expected only after you've counted.
+                            {closeTill.err && <div style={{ marginTop: 6, color: C.bad, fontWeight: 700 }}>{closeTill.err}</div>}
+                            {closeTill.checks > 0 && <div style={{ marginTop: 6, color: C.warn }}>Changed the count — check it again. Every count is printed on the Z report.</div>}
+                          </div>
+                        ) : (<>
+                          <div style={{ marginTop: 14, background: C.soft, borderRadius: 14, padding: "10px 14px" }}>
+                            <Line l="Cash taken today" v={gbp(pv.cash)} />
+                            <Line l="+ Float" v={gbp(pv.float_used)} />
+                            {Number(pv.cash_dropped) > 0 && <Line l="− Dropped to safe" sub={(sm.shifts || []).length + " shifts"} v={gbp(pv.cash_dropped)} />}
+                            <Line l="Expected in drawer" v={gbp(expected)} strong />
+                            <Line l="Counted" v={gbp(countedVal)} />
+                          </div>
+                          <div style={{ marginTop: 12, borderRadius: 16, padding: "16px 18px", textAlign: "center", background: variance === 0 ? "#eef7ea" : variance > 0 ? "#eaf0fb" : "#fdeeee" }}>
+                            <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".08em", color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad }}>{variance === 0 ? "DRAWER BALANCED" : variance > 0 ? "OVER" : "SHORT"}</div>
+                            <div style={{ fontSize: 34, fontWeight: 800, fontFamily: F, letterSpacing: "-.03em", marginTop: 2, color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad, fontVariantNumeric: "tabular-nums" }}>{(variance < 0 ? "−" : variance > 0 ? "+" : "") + gbp(Math.abs(variance))}</div>
+                            {pv.manager_needed && <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{pv.float_changed ? "The float changed" : "Out by " + gbp(pv.limit) + " or more"} — a note and a manager PIN are needed at sign-off.</div>}
+                          </div>
+                        </>)}
                       </Section>
                     </div>
                     <div>
@@ -1937,6 +1998,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                           <Line l="Orders archived" v={String(sm.order_count + (sm.cancelled_count || 0))} />
                           <Line l="Total taken" v={gbp(sm.total)} strong />
                           <Line l="Cash" v={gbp(sm.cash)} /><Line l="Card" v={gbp(sm.card)} />
+                          {pv && pv.float_changed && <Line l="Float (changed)" sub={"was " + gbp(pv.float_known)} v={gbp(pv.float_used)} color={C.warn} />}
                           {sm.unpaid_count > 0 && <Line l={"Archived unpaid (" + sm.unpaid_count + ")"} v={gbp(sm.unpaid_total)} color={C.warn} />}
                           <Line l="Cash counted" v={countedVal == null ? "not counted" : gbp(countedVal)} color={countedVal == null ? C.warn : undefined} />
                           {variance != null && <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", fontSize: 16, fontWeight: 800, color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad }}><span>{variance === 0 ? "Drawer balanced" : variance > 0 ? "Over" : "Short"}</span><span style={{ fontFamily: F }}>{(variance < 0 ? "−" : "") + gbp(Math.abs(variance))}</span></div>}
@@ -1970,7 +2032,23 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                       </Section>
                     </div>
                     <div>
-                      <Section title="YOUR STAFF PIN" style={{ marginTop: 4 }}>
+                      <Section title={pv && (pv.manager_needed || closeTill.mgrForced) ? "PINS" : "YOUR STAFF PIN"} style={{ marginTop: 4 }} right={pv && (pv.manager_needed || closeTill.mgrForced) ? (
+                        <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 9, padding: 3 }}>
+                          {[["staff", "Your PIN"], ["manager", "Manager PIN"]].map(([m, l]) => <div key={m} onClick={() => setCloseTill((c) => ({ ...c, pinFor: m }))} style={{ padding: "5px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", background: (closeTill.pinFor || "staff") === m ? "#fff" : "transparent" }}>{l}{m === "manager" && closeTill.mgrPin.length >= 4 ? " ✓" : ""}</div>)}
+                        </div>) : null}>
+                        {pv && (pv.manager_needed || closeTill.mgrForced) && (closeTill.pinFor || "staff") === "manager" ? (<>
+                          <div style={{ textAlign: "center", minHeight: 24, marginBottom: 6, fontSize: 13.5, fontWeight: 700, color: C.muted }}>A manager approves this close (not needed if you're the manager)</div>
+                          <div style={{ display: "flex", justifyContent: "center", gap: 10, margin: "6px 0 14px" }}>
+                            {[0, 1, 2, 3].map((i) => <span key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < closeTill.mgrPin.length ? C.ink : C.line }} />)}
+                          </div>
+                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
+                            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "C"].map((k) => (
+                              <div key={k} onClick={() => setCloseTill((c) => ({ ...c, err: "", mgrPin: k === "C" ? "" : k === "⌫" ? c.mgrPin.slice(0, -1) : (c.mgrPin + k).slice(0, 8) }))}
+                                style={{ textAlign: "center", padding: "15px 0", borderRadius: 13, background: k === "C" || k === "⌫" ? C.soft : "#fff", border: "1.5px solid " + C.line, fontSize: 21, fontWeight: 700, fontFamily: F, cursor: "pointer", userSelect: "none", color: k === "C" ? C.bad : C.ink }}>{k}</div>
+                            ))}
+                          </div>
+                          {closeTill.err && <div style={{ marginTop: 12, textAlign: "center", color: C.bad, fontWeight: 700, fontSize: 14 }}>{closeTill.err}</div>}
+                        </>) : (<>
                         <div style={{ textAlign: "center", minHeight: 24, marginBottom: 6, fontSize: 14.5, fontWeight: 700, color: closer ? C.good : closeTill.staff?.unknown ? C.warn : C.muted }}>
                           {closer ? "✓ " + closer : closeTill.staff?.unknown ? (closeTill.staff.reason === "not_this_store" ? "That PIN isn't assigned to this store" : "PIN not recognised — a manager PIN also works") : closeTill.pin.length >= 4 ? "Checking…" : "Enter the PIN you use for the staff app"}
                         </div>
@@ -1984,6 +2062,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                           ))}
                         </div>
                         {closeTill.err && <div style={{ marginTop: 12, textAlign: "center", color: C.bad, fontWeight: 700, fontSize: 14 }}>{closeTill.err}</div>}
+                        </>)}
                       </Section>
                     </div>
                   </div>
@@ -2101,7 +2180,11 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 })()}
                 {closeTill.step === "summary" && stage === 1 && (<>
                   <Btn onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 0 })); }}>← Back</Btn>
-                  <Btn primary grow={2} onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 2, err: "" })); }}>{countedVal == null ? "Skip count →" : "Next: sign off →"}</Btn>
+                  {pv ? (
+                    <Btn primary grow={2} onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 2, err: "" })); }}>Next: sign off →</Btn>
+                  ) : (
+                    <Btn primary grow={2} disabled={closeTill.busy || countedVal == null || (closeTill.floatEdit && closeTill.float === "")} onClick={() => { setPadFor(null); checkCloseCount(countedVal); }}>{closeTill.busy ? "Checking…" : countedVal == null ? "Count the drawer" : "Check count"}</Btn>
+                  )}
                 </>)}
                 {closeTill.step === "summary" && stage === 2 && (<>
                   <Btn onClick={() => { if (closeTill.busy) return; setNoteKb(false); setCloseTill((c) => ({ ...c, stage: 1, err: "" })); }}>← Back</Btn>

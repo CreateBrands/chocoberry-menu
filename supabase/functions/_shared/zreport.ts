@@ -89,6 +89,7 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
   if (s.mode === "trading_day" && s.cutoff) lr("Day ends", fmtDate(s.cutoff, m.timeZone));
   if (isZ && s.closed_at) lr("Closed", fmtDate(s.closed_at, m.timeZone));
   if (s.closed_by) lr("Closed by", String(s.closed_by).slice(0, 30));
+  if (s.approved_by) lr("Approved by", String(s.approved_by).slice(0, 30));
   lr("Printed", fmtDate(m.printedAt.toISOString(), m.timeZone));
   div();
 
@@ -164,12 +165,14 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
   // ---- Cash drawer ----
   sec("CASH DRAWER");
   const counted = s.cash_counted;
-  if (s.float_amount != null) lr("  Opening float", num(s.float_amount));
+  if (s.float_amount != null) lr("  Opening float" + (s.float_changed ? " (changed)" : ""), num(s.float_amount));
+  if (s.float_changed && s.float_known != null) lr("    System float was", num(s.float_known));
   lr("  + Cash taken (after cash refunds)", num(s.cash));
   if (Number(s.cash_dropped) > 0) lr("  - Dropped to safe", num(s.cash_dropped));
   if (counted != null) {
     lr("  = Expected in drawer", num(s.cash_expected));
     lr("  Counted", num(counted));
+    if (Number(s.recounts) > 0 && s.first_count != null) lr("  First count (" + (Number(s.recounts) + 1) + " counts)", num(s.first_count));
     const v = Number(s.cash_variance) || 0;
     r.bold(true); lr(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", num(v)); r.bold(false);
   } else if (m.kind === "x") {
@@ -245,6 +248,7 @@ export function buildShiftSlip(r: any, m: ZMeta): Receipt {
   lr("Counted in drawer", num(r.counted_raw));
   if (Number(r.cash_since_end)) lr("- Next shift's cash", num(r.cash_since_end));
   lr("Counted for this shift", num(r.counted));
+  if (Number(r.recounts) > 0 && r.first_count != null) lr("First count (" + (Number(r.recounts) + 1) + " counts)", num(r.first_count));
   const v = Number(r.variance) || 0;
   rc.bold(true); lr(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", num(v)); rc.bold(false);
   rc.line("-".repeat(W));

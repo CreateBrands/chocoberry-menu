@@ -21,7 +21,59 @@ type Fence = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
+// ── PIN LOCKOUT (2026-10-24) ─────────────────────────────────────────────
+// Wrong PINs are counted per licensed till, or — for anything without a
+// verified licence — per network address AND per store. Too many in ten
+// minutes locks that till / address / store's unlicensed screens for five.
+// A right PIN clears the till's own count. Name look-ups made while a PIN is
+// being typed have a separate, wider allowance. Needs db/till_controls.sql;
+// without the table nothing is ever locked.
+// Each PIN string a request tries is judged on its own: one right PIN in a
+// request never excuses a wrong one sent alongside it.
+type PinCtx = { tried: Set<string>; okPins: Set<string>; keys: string[]; resetKeys: string[] };
+const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+const PIN_WINDOW_MS = 10 * 60000, PIN_LOCK_MS = 5 * 60000;
+function pinLimit(key: string) {
+  const look = key.startsWith("lk:"), k = key.replace(/^lk:/, "");
+  if (k.startsWith("dev:")) return look ? 30 : 5;
+  if (k.startsWith("ip:")) return look ? 30 : 10;
+  if (k.startsWith("loc:")) return look ? 100 : 40;   // every unlicensed screen at one store
+  return look ? 1000 : 300;                            // all: every unlicensed caller, everywhere
+}
+async function pinLockedMs(keys: string[]) {
+  try {
+    const { data, error } = await svc.from("pin_attempts").select("key, locked_until").in("key", keys);
+    if (error) return 0;
+    let ms = 0;
+    for (const r of data || []) { const left = r.locked_until ? Date.parse(r.locked_until) - Date.now() : 0; if (left > ms) ms = left; }
+    return ms;
+  } catch { return 0; }
+}
+// One atomic increment per counter (db function pin_fail), so a burst of
+// parallel guesses can't slip past the limit.
+async function pinRecord(ctx: PinCtx) {
+  const failed = [...ctx.tried].filter((p) => !ctx.okPins.has(p));
+  if (failed.length) {
+    for (const key of ctx.keys) {
+      for (let i = 0; i < failed.length; i++) {
+        await svc.rpc("pin_fail", { p_key: key, p_limit: pinLimit(key), p_window_s: PIN_WINDOW_MS / 1000, p_lock_s: PIN_LOCK_MS / 1000 });
+      }
+    }
+    return;
+  }
+  if (ctx.okPins.size && ctx.resetKeys.length) await svc.from("pin_attempts").delete().in("key", ctx.resetKeys);
+}
+
 Deno.serve(async (req) => {
+  const pinCtx: PinCtx = { tried: new Set(), okPins: new Set(), keys: [], resetKeys: [] };
+  let res: Response;
+  try { res = await handle(req, pinCtx); }
+  catch (e) { res = json({ error: String((e as any)?.message ?? e) }, 500); }
+  if (pinCtx.tried.size && pinCtx.keys.length) { try { await pinRecord(pinCtx); } catch { /* best effort */ } }
+  return res;
+});
+
+async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
 
@@ -49,6 +101,7 @@ Deno.serve(async (req) => {
     "device_activate", "device_heartbeat", "device_claim_legacy", "manager_pin_check",
     "open_drawer", "void_order", "abandon_hold",
     "shift_status", "shift_start", "shift_end", "shift_resume", "shift_count",
+    "close_preview", "kds_order_patch", "kds_item_patch",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   // Device enforcement: when the caller sends a device token it must be active,
@@ -69,6 +122,7 @@ Deno.serve(async (req) => {
   async function staffForPin(pinIn: unknown, location_id: string | null) {
     const pinStr = String(pinIn || "").trim();
     if (pinStr.length < 4 || !location_id) return null;
+    pinCtx.tried.add(pinStr);
     const { data: locRow } = await admin.from("menu_locations").select("store_id, name").eq("id", location_id).maybeSingle();
     const storeId = locRow?.store_id || null;
     const { data: rows } = await admin.from("ops_team").select("*").eq("pin", pinStr).limit(5);
@@ -78,6 +132,7 @@ Deno.serve(async (req) => {
     const m = inStore[0] || null;
     if (!m) return { ok: false, reason: "not_this_store" };
     const name = m.name || [m.first_name, m.last_name].filter(Boolean).join(" ") || m.full_name || m.email || "Team member";
+    pinCtx.okPins.add(pinStr);
     return { ok: true, id: m.id, name: String(name).trim(), role: m.role || null };
   }
   // Manager authority for sensitive till actions (refunds, big discounts): the master PIN,
@@ -85,12 +140,13 @@ Deno.serve(async (req) => {
   async function managerForPin(pinIn: unknown, location_id: string | null): Promise<{ ok: boolean; name?: string; reason?: string }> {
     const pinStr = String(pinIn || "").trim();
     if (pinStr.length < 4) return { ok: false, reason: "pin_required" };
-    if (pinStr === String(ADMIN_PIN)) return { ok: true, name: "Master" };
+    pinCtx.tried.add(pinStr);
+    if (pinStr === String(ADMIN_PIN)) { pinCtx.okPins.add(pinStr); return { ok: true, name: "Master" }; }
     if (location_id) {
       const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", pinStr).eq("active", true).maybeSingle();
-      if (sp && sp.location_id === location_id) return { ok: true, name: "Store manager" };
+      if (sp && sp.location_id === location_id) { pinCtx.okPins.add(pinStr); return { ok: true, name: "Store manager" }; }
     }
-    if (location_id && await regionCoversLocation(pinStr, location_id)) return { ok: true, name: "Regional manager" };
+    if (location_id && await regionCoversLocation(pinStr, location_id)) { pinCtx.okPins.add(pinStr); return { ok: true, name: "Regional manager" }; }
     const r = await staffForPin(pinStr, location_id);
     if (r && r.ok && /manager|supervisor|owner|director|head/i.test(String(r.role || ""))) return { ok: true, name: r.name };
     return { ok: false, reason: r && r.ok ? "not_manager" : "unknown" };
@@ -269,15 +325,46 @@ Deno.serve(async (req) => {
     if (isPosAction) return ok(!("location_id" in d) || has(F.locs, d.location_id));
     return "forbidden for a regional login";
   }
+  // Declared here, outside the try block below, so the lockout can use them too.
+  async function sha256(s: string) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join(""); }
+  // Verify a device token {key, secret} against the row; returns the row or null.
+  async function verifyDevice(location_id: string, key: string, secret: string) {
+    if (!location_id || !key || !secret) return null;
+    const { data: d } = await admin.from("kds_screens").select("screen_key, kind, status, device_secret_hash, label").eq("location_id", location_id).eq("screen_key", String(key)).maybeSingle();
+    if (!d || d.status !== "active" || !d.device_secret_hash) return null;
+    if ((await sha256(secret)) !== d.device_secret_hash) return null;
+    return d;
+  }
+  // PIN LOCKOUT: which counters this call is charged to (see the top of the file).
+  {
+    const dt = (payload as any)?.device;
+    const verified = dt && dt.key && dt.secret && dt.location_id ? await verifyDevice(String(dt.location_id), String(dt.key), String(dt.secret)) : null;
+    // The address the platform saw (the LAST forwarded hop is added by the
+    // edge, the first can be typed by the caller).
+    const xff = (req.headers.get("x-forwarded-for") || "").split(",").map((x) => x.trim()).filter(Boolean);
+    const ip = req.headers.get("cf-connecting-ip") || req.headers.get("x-real-ip") || xff[xff.length - 1] || "";
+    const look = action === "staff_lookup" ? "lk:" : "";
+    const locId = data && data.location_id ? String(data.location_id) : "";
+    pinCtx.keys = verified ? [look + "dev:" + dt.location_id + ":" + dt.key]
+      : [...(ip ? [look + "ip:" + ip] : []), ...(locId ? [look + "loc:" + locId] : []), look + "all"];
+    // A right PIN clears this till's / this address's own counters (both kinds).
+    pinCtx.resetKeys = verified ? ["dev:" + dt.location_id + ":" + dt.key, "lk:dev:" + dt.location_id + ":" + dt.key]
+      : ip ? ["ip:" + ip, "lk:ip:" + ip] : [];
+    const given = [pin, data?.pin, data?.staff_pin, data?.manager_pin].some((p) => String(p || "").trim().length >= 4);
+    if (given) {
+      const ms = await pinLockedMs(pinCtx.keys);
+      if (ms > 0) return json({ error: "pin_locked", message: "Too many wrong PINs. Try again in " + Math.max(1, Math.ceil(ms / 60000)) + " min." }, 429);
+    }
+  }
   if (action === "staff_lookup") {
     const r = await staffForPin(data?.pin, data?.location_id);
     if (!r) return json({ ok: false, reason: "unknown" });
     return json(r.ok ? { ok: true, name: r.name } : { ok: false, reason: r.reason });
   }
-  let staffCloser: { id: string; name: string } | null = null;
-  if (action === "close_day" && data?.staff_pin && !(pin && pin === ADMIN_PIN)) {
+  let staffCloser: { id: string; name: string; role: string | null } | null = null;
+  if ((action === "close_day" || action === "reprint_closure") && data?.staff_pin && !(pin && pin === ADMIN_PIN)) {
     const r = await staffForPin(data.staff_pin, data.location_id);
-    if (r && r.ok) staffCloser = { id: r.id, name: r.name };
+    if (r && r.ok) staffCloser = { id: r.id, name: r.name, role: (r as any).role || null };
   }
 
   // ── Resolve the PIN to a SCOPE ──────────────────────────────────────────
@@ -292,6 +379,7 @@ Deno.serve(async (req) => {
   let scopeLocationId: string | null = null;
   let scopeLabel: string | null = null;
   let fence: Fence | null = null;
+  if (pin && String(pin).trim().length >= 4) pinCtx.tried.add(String(pin).trim());
   if (pin && pin === ADMIN_PIN) {
     scope = "master";
   } else if (pin) {
@@ -307,6 +395,7 @@ Deno.serve(async (req) => {
       }
     }
   }
+  if (scope) pinCtx.okPins.add(String(pin).trim());
   if (staffCloser) { scope = "store"; scopeLocationId = data.location_id; fence = null; }
   if (!isPosCall && !scope) return json({ error: "unauthorized" }, 401);
 
@@ -419,20 +508,22 @@ Deno.serve(async (req) => {
     return new Date(wall - tzOffsetMinutes(wall, zone) * 60000).toISOString();
   }
   // ---- Device licences ----
-  async function sha256(s: string) { const b = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)); return Array.from(new Uint8Array(b)).map((x) => x.toString(16).padStart(2, "0")).join(""); }
   const randCode = (n: number) => { const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; const r = crypto.getRandomValues(new Uint8Array(n)); return Array.from(r).map((x) => A[x % A.length]).join(""); };
   const randSecret = () => { const r = crypto.getRandomValues(new Uint8Array(24)); return Array.from(r).map((x) => x.toString(16).padStart(2, "0")).join(""); };
   async function storeCode(location_id: string) { const { data: l } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle(); const n = String(l?.name || "ST").replace(/[^A-Za-z]/g, "").toUpperCase(); return (n.slice(0, 2) || "ST"); }
-  // Verify a device token {key, secret} against the row; returns the row or null.
-  async function verifyDevice(location_id: string, key: string, secret: string) {
-    if (!location_id || !key || !secret) return null;
-    const { data: d } = await admin.from("kds_screens").select("screen_key, kind, status, device_secret_hash, label").eq("location_id", location_id).eq("screen_key", String(key)).maybeSingle();
-    if (!d || d.status !== "active" || !d.device_secret_hash) return null;
-    if ((await sha256(secret)) !== d.device_secret_hash) return null;
-    return d;
-  }
   // Till-only actions. Screen setup (kds_screen_self), targets and kitchen prints are KDS actions and stay allowed for kitchen licences.
-  const POS_ONLY = new Set(["shift_start", "shift_end", "shift_resume", "shift_count", "abandon_hold", "mark_paid", "mark_unpaid", "close_day", "day_summary", "print_x_read", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue"]);
+  const POS_ONLY = new Set(["shift_start", "shift_end", "shift_resume", "shift_count", "abandon_hold", "mark_paid", "mark_unpaid", "close_day", "day_summary", "print_x_read", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue",
+    "take_payment", "refund_payment", "print_refund_receipt", "open_drawer", "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "order_payments_list", "shift_status", "close_preview"]);
+  // CASH CONTROLS 2026-10-24 — money and drawer actions only from a licensed
+  // till. Every till and KDS has had a licence since the device rollout; the
+  // tablet and the kiosk never call these.
+  const TILL_DEVICE_REQUIRED = new Set(["take_payment", "mark_paid", "mark_unpaid", "refund_payment", "print_refund_receipt", "order_payments_list",
+    "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "abandon_hold",
+    "day_summary", "print_x_read", "open_drawer", "shift_status", "shift_start", "shift_end", "shift_resume", "shift_count", "close_preview", "kds_order_patch", "kds_item_patch"]);
+  // Actions that name an order: a till may only touch its own store's orders.
+  const ORDER_ACTIONS = new Set(["take_payment", "mark_paid", "mark_unpaid", "refund_payment", "print_refund_receipt", "order_payments_list",
+    "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "abandon_hold", "void_order", "void_fired_item",
+    "remove_order_item", "set_order_item_qty", "set_order_type", "set_order_table", "mark_served", "kds_order_patch", "kds_item_patch"]);
   // Kitchen speed for the closing report, same definition as the KDS Performance tab:
   // completion = latest bump within 30 min of the first bump (later bumps are housekeeping).
   async function kitchenStats(location_id: string, from: string, to: string, targetMin: number) {
@@ -493,6 +584,8 @@ Deno.serve(async (req) => {
       if (payErr) throw payErr;
       for (const p of pays || []) {
         const m = p.method === "cash" || p.method === "card" ? p.method : "other";
+        // An undone payment (mark_unpaid): the reversal cancels the original tender.
+        if ((p as any).kind === "reversal") { byMethod[m].amount += Number(p.amount || 0); byMethod[m].count = Math.max(0, byMethod[m].count - 1); paidByOrder[p.order_id] = (paidByOrder[p.order_id] || 0) + Number(p.amount || 0); continue; }
         if ((p as any).kind === "refund" || Number(p.amount || 0) < 0) { const a = Math.abs(Number(p.amount || 0)); refundTotal += a; refundCount++; byMethod[m].amount -= a; continue; }
         byMethod[m].amount += Number(p.amount || 0); byMethod[m].count++;
         paidByOrder[p.order_id] = (paidByOrder[p.order_id] || 0) + Number(p.amount || 0);
@@ -662,6 +755,7 @@ Deno.serve(async (req) => {
       if (devKey ? !(k === devKey || (k == null && includeNull)) : false) continue;
       const amt = Number(p.amount || 0);
       const m = p.method === "cash" || p.method === "card" ? p.method : "other";
+      if (p.kind === "reversal") { (out as any)[m] += amt; out.tenders = Math.max(0, out.tenders - 1); continue; }
       if (p.kind === "refund" || amt < 0) { out.refunds += Math.abs(amt); (out as any)[m] -= Math.abs(amt); continue; }
       (out as any)[m] += amt; out.tenders++; orders.add(p.order_id);
     }
@@ -690,6 +784,32 @@ Deno.serve(async (req) => {
   // so a shift belongs to the store, not to a till. Any till in the store can
   // start, end or count it, and all of the store's payments count towards it.
   // (devKey is kept in the signatures for a future multi-drawer store.)
+  // Over/short at or beyond this needs a note (and, at close, a manager): £5, or 20 in an AED store.
+  async function varianceLimit(location_id: string): Promise<number> {
+    const { data: cur } = await admin.from("menu_app_settings").select("value").eq("key", "currency:" + location_id).maybeSingle();
+    return String(cur?.value || "").toUpperCase() === "AED" ? 20 : 5;
+  }
+  const isManagerRole = (role: unknown) => /manager|supervisor|owner|director|head/i.test(String(role || ""));
+  // CASH CONTROLS 2026-10-24 — the till close's cash figures, worked out on the
+  // server. The float is the one the system knows the day started on (the first
+  // shift's, else the last close's, else the store float); a different figure
+  // typed at the till is only used with a manager's approval and a note.
+  async function closeFigures(location_id: string, mode: string, cash_counted: unknown, float_amount: unknown) {
+    const { ids, summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
+    const sm: any = summary;
+    const counted = cash_counted == null || cash_counted === "" ? null : round2(Number(cash_counted));
+    const dropped = round2(Number(sm.cash_dropped || 0));
+    const knownFloat = sm.first_float != null ? round2(Number(sm.first_float))
+      : sm.previous && sm.previous.float_amount != null ? round2(Number(sm.previous.float_amount)) : await storeFloat(location_id);
+    const asked = float_amount == null || float_amount === "" ? null : round2(Number(float_amount));
+    const floatChanged = asked != null && Math.abs(asked - knownFloat) >= 0.01;
+    const flt = floatChanged ? (asked as number) : knownFloat;
+    const expected = counted == null ? null : round2(flt + Number(sm.cash || 0) - dropped);
+    const variance = counted == null ? null : round2((counted as number) - (expected as number));
+    const limit = await varianceLimit(location_id);
+    const outBy = variance != null && Math.abs(variance) >= limit;
+    return { ids, summary, counted, dropped, knownFloat, floatChanged, flt, expected, variance, limit, outBy };
+  }
   async function liveShift(location_id: string, _devKey: string | null) {
     const { data, error } = await admin.from("till_shifts").select("*").eq("location_id", location_id)
       .in("status", ["open", "counting"]).order("opened_at", { ascending: false }).limit(1);
@@ -705,13 +825,17 @@ Deno.serve(async (req) => {
   // Who is doing this: a team member's own PIN, or a manager/master PIN.
   async function shiftActor(pinIn: unknown, location_id: string) {
     const st = await staffForPin(pinIn, location_id);
-    if (st && st.ok) return { ok: true, name: st.name, id: st.id };
+    if (st && st.ok) return { ok: true, name: st.name, id: st.id, manager: isManagerRole((st as any).role) };
     const mg = await managerForPin(pinIn, location_id);
-    if (mg.ok) return { ok: true, name: mg.name || "Manager", id: null };
-    return { ok: false, name: "", id: null };
+    if (mg.ok) return { ok: true, name: mg.name || "Manager", id: null, manager: true };
+    return { ok: false, name: "", id: null, manager: false };
   }
 
-    if (isPosCall && deviceTok && deviceTok.key && deviceTok.secret && deviceTok.location_id && !["device_activate", "device_claim_legacy", "device_heartbeat"].includes(action)) {
+    if (isPosCall && TILL_DEVICE_REQUIRED.has(action) && !(deviceTok && deviceTok.key && deviceTok.secret && deviceTok.location_id)) {
+      return json({ error: "device_required", message: "Only a licensed till can do this. Activate this screen in Admin → Store → Devices." }, 403);
+    }
+    const tillAuthAction = action === "close_day" || action === "reprint_closure";
+    if ((isPosCall || tillAuthAction) && deviceTok && deviceTok.key && deviceTok.secret && deviceTok.location_id && !["device_activate", "device_claim_legacy", "device_heartbeat"].includes(action)) {
       callerDevice = await verifyDevice(deviceTok.location_id, deviceTok.key, deviceTok.secret);
       if (!callerDevice) return json({ error: "device_not_active", message: "This device's licence is not active. Ask a manager." }, 403);
       if (callerDevice.kind === "kds" && POS_ONLY.has(action)) {
@@ -722,9 +846,18 @@ Deno.serve(async (req) => {
     // A till only closes, X-reads and reprints for its OWN store. The device
     // token names the store the till is licensed to; a mismatch means a till
     // at one store asking for another's report, which would also print there.
-    const tillStore = deviceTok && deviceTok.location_id ? String(deviceTok.location_id) : null;
-    if (tillStore && ["close_day", "print_x_read"].includes(action) && data && data.location_id && String(data.location_id) !== tillStore) {
-      return json({ error: "wrong_store", message: "This till belongs to a different store, so it can't close or print this store's report." }, 403);
+    // Only trust the store a VERIFIED licence names (an unverified token could claim any store).
+    const tillStore = callerDevice && deviceTok && deviceTok.location_id ? String(deviceTok.location_id) : null;
+    // A team member's own PIN closes the till only on that store's licensed till
+    // (managers can still close from Admin with the store PIN).
+    if (staffCloser && !callerDevice) return json({ error: "device_required", message: "Close the till from the store's till." }, 403);
+    if (tillStore && data && data.location_id && String(data.location_id) !== tillStore
+        && !["device_activate", "device_claim_legacy", "device_heartbeat"].includes(action)) {
+      return json({ error: "wrong_store", message: "This till belongs to a different store." }, 403);
+    }
+    if (tillStore && isPosCall && ORDER_ACTIONS.has(action) && data && data.order_id) {
+      const { data: oRow } = await admin.from("menu_orders").select("location_id").eq("id", String(data.order_id)).maybeSingle();
+      if (oRow && String(oRow.location_id) !== tillStore) return json({ error: "wrong_store", message: "That order belongs to a different store." }, 403);
     }
     switch (action) {
       // ---- READ: everything the admin UI needs in one call ----
@@ -1558,10 +1691,44 @@ Deno.serve(async (req) => {
 
       // ---- TILL: mark an order UNPAID again (undo) ----
       case "mark_unpaid": {
-        const { order_id } = data || {};
+        // CASH CONTROLS 2026-10-24. Undoing a payment used to need no PIN and
+        // DELETED the order's payment rows: cash could be taken, the order
+        // marked unpaid and emptied, and the drawer, shift and Z all still
+        // balanced. Now: a manager PIN and a reason, the original payments are
+        // kept and matched by reversal rows (so the record shows both), and
+        // only for a payment taken in the shift still running.
+        const { order_id, manager_pin, reason } = data || {};
         if (!order_id) return json({ error: "order_id required" }, 400);
-        // Clear payment state AND any recorded tenders (so a re-payment starts clean).
-        await admin.from("order_payments").delete().eq("order_id", order_id);
+        const { data: uo } = await admin.from("menu_orders").select("id, order_no, location_id, closed_at, refund_total").eq("id", order_id).maybeSingle();
+        if (!uo) return json({ error: "order not found" }, 404);
+        if (!reason || String(reason).trim().length < 2) return json({ error: "reason_required", message: "Say why the payment is being undone." }, 400);
+        const umgr = await managerForPin(manager_pin, uo.location_id);
+        if (!umgr.ok) return json({ error: umgr.reason === "not_manager" ? "manager_required" : "bad_pin", message: umgr.reason === "not_manager" ? "Undoing a payment needs a manager PIN." : "PIN not recognised." }, 403);
+        if (uo.closed_at) return json({ error: "day_closed", message: "That order is in a closed day. Refund it instead." }, 409);
+        if (Number(uo.refund_total || 0) > 0) return json({ error: "refunded", message: "This order has a refund on it, so the payment can't be undone." }, 409);
+        const { data: upays, error: upErr } = await admin.from("order_payments").select("method, amount, kind, created_at").eq("order_id", order_id);
+        if (upErr) throw upErr;
+        // A payment from a shift that has already been counted stays where it is.
+        try {
+          const firstPay = (upays || []).filter((x: any) => x.kind !== "refund" && x.kind !== "reversal").map((x: any) => x.created_at).filter(Boolean).sort()[0];
+          const counted = await lastClosedShift(String(uo.location_id), null);
+          if (firstPay && counted && counted.ended_at && firstPay < counted.ended_at && !counted.closure_id) {
+            return json({ error: "shift_counted", message: "That payment was taken in a shift that's already been counted. Refund it instead." }, 409);
+          }
+        } catch { /* shifts not set up */ }
+        const net: Record<string, number> = {};
+        for (const x of upays || []) { if (x.kind === "refund") continue; net[x.method] = (net[x.method] || 0) + Number(x.amount || 0); }
+        const by = umgr.name || "manager";
+        const why = String(reason).trim().slice(0, 80);
+        for (const [method, amt] of Object.entries(net)) {
+          const a2 = round2(amt);
+          if (Math.abs(a2) < 0.005) continue;
+          const { error: rErr } = await payInsert({ order_id, method, amount: -a2, kind: "reversal", note: ("UNDO: " + why + " · by " + by).slice(0, 120) });
+          if (rErr) throw rErr;
+        }
+        try {
+          await admin.from("device_events").insert({ location_id: uo.location_id, screen_key: deviceTok && deviceTok.key ? String(deviceTok.key) : "till", event: "payment_undone", detail: { order_id, order_no: uo.order_no, by, reason: why, amounts: net } });
+        } catch { /* log is best effort */ }
         const { error } = await admin.from("menu_orders").update({
           paid_method: null, paid_amount: null, amount_paid: 0, is_split: false,
           discount_type: null, discount_value: null, paid_at: null,
@@ -1599,8 +1766,10 @@ Deno.serve(async (req) => {
         });
         if (pErr) throw pErr;
         // Recompute running paid from the ledger (authoritative).
-        const { data: paysAll } = await admin.from("order_payments").select("amount, method, kind").eq("order_id", order_id);
-        const pays = (paysAll ?? []).filter((r: any) => r.kind !== "refund");
+        const { data: paysAll } = await admin.from("order_payments").select("amount, method, kind, created_at").eq("order_id", order_id);
+        // Only the tenders since the last undo count towards split/primary.
+        const lastUndo = (paysAll ?? []).filter((r: any) => r.kind === "reversal").map((r: any) => r.created_at).sort().pop() || "";
+        const pays = (paysAll ?? []).filter((r: any) => r.kind !== "refund" && r.kind !== "reversal" && (!lastUndo || r.created_at > lastUndo));
         const paidNow = Math.round((pays ?? []).reduce((s, r) => s + Number(r.amount || 0), 0) * 100) / 100;
         const remaining = Math.round((total - paidNow) * 100) / 100;
         const fullyPaid = remaining <= 0.001;
@@ -2154,17 +2323,23 @@ Deno.serve(async (req) => {
 
       // ---- SHIFTS: "End my shift" pressed by mistake, before counting ----
       case "shift_resume": {
-        const { location_id } = data || {};
+        const { location_id, pin: rpin } = data || {};
         const devKey: string | null = null;   // one drawer per store
         const sh = await liveShift(location_id, devKey);
         if (!sh || sh.status !== "counting") return json({ error: "no_shift" }, 409);
+        // CASH CONTROLS: only the person who ended the shift (or a manager) takes it back.
+        const rw = await shiftActor(rpin, String(location_id));
+        if (!rw.ok) return json({ error: "bad_pin", message: "Enter your PIN." }, 403);
+        if (sh.ended_by_member && rw.id && !rw.manager && String(rw.id) !== String(sh.ended_by_member)) {
+          return json({ error: "not_your_shift", message: "Only " + String(sh.ended_by || "the person who ended it").split(" ")[0] + " or a manager can do that." }, 403);
+        }
         await admin.from("till_shifts").update({ status: "open", ended_at: null, ended_by: null, ended_by_member: null }).eq("id", sh.id).eq("status", "counting");
         return json({ ok: true });
       }
 
       // ---- SHIFTS: blind count. preview first (confirm=false), then save ----
       case "shift_count": {
-        const { location_id, counted_raw, denoms, note, confirm } = data || {};
+        const { location_id, counted_raw, denoms, note, confirm, pin: cpin } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
         if (counted_raw == null || !isFinite(Number(counted_raw))) return json({ error: "count_required" }, 400);
         const devKey: string | null = null;   // one drawer per store
@@ -2180,10 +2355,23 @@ Deno.serve(async (req) => {
         const target = await storeFloat(location_id);
         const drop = Math.max(0, round2(counted - target));
         const floatLeft = round2(counted - drop);
-        const { data: cur } = await admin.from("menu_app_settings").select("value").eq("key", "currency:" + location_id).maybeSingle();
-        const noteFrom = String(cur?.value || "").toUpperCase() === "AED" ? 20 : 5;
+        const noteFrom = await varianceLimit(String(location_id));
         const preview = { counted_raw: raw, cash_since_end: since.cash, counted, expected, variance, drop, float_left: floatLeft, float_target: target, note_needed: Math.abs(variance) >= noteFrom };
-        if (!confirm) return json({ ok: true, preview });
+        // CASH CONTROLS 2026-10-24: every count is kept on the shift, so counting
+        // again until it balances shows on the slip.
+        const attempts: any[] = Array.isArray(sh.count_attempts) ? sh.count_attempts : [];
+        if (!confirm) {
+          const next = [...attempts, { counted_raw: raw, variance, at: now }].slice(-20);
+          const { error: aErr } = await admin.from("till_shifts").update({ count_attempts: next }).eq("id", sh.id);
+          if (aErr && !/count_attempts/.test(String(aErr.message || ""))) throw aErr;
+          return json({ ok: true, preview: { ...preview, attempt: next.length } });
+        }
+        // Confirmed by the person who ended the shift, or a manager.
+        const cw = await shiftActor(cpin, String(location_id));
+        if (!cw.ok) return json({ error: "bad_pin", message: "Enter your PIN to confirm." }, 403);
+        if (sh.ended_by_member && cw.id && !cw.manager && String(cw.id) !== String(sh.ended_by_member)) {
+          return json({ error: "not_your_shift", message: "Only " + String(sh.ended_by || "the person who ended it").split(" ")[0] + " or a manager can confirm this count." }, 403);
+        }
         if (preview.note_needed && !String(note || "").trim()) return json({ error: "note_required", message: "Say what happened — the drawer is out by more than " + noteFrom + ".", preview }, 400);
         const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle();
         const report = {
@@ -2191,6 +2379,8 @@ Deno.serve(async (req) => {
           opened_by: sh.opened_by, ended_by: sh.ended_by, opening_float: Number(sh.opening_float || 0),
           taken: money.taken, cash: money.cash, card: money.card, other: money.other, refunds: money.refunds, orders: money.orders, tenders: money.tenders,
           ...preview, note: note ? String(note).slice(0, 300) : null,
+          confirmed_by: cw.name, recounts: Math.max(0, attempts.length - 1),
+          first_count: attempts.length > 1 ? Number(attempts[0].counted_raw) : null,
         };
         const { error } = await admin.from("till_shifts").update({
           status: "closed", counted_at: now, counted_raw: raw, cash_since_end: since.cash, counted, expected_cash: expected, variance,
@@ -2221,10 +2411,12 @@ Deno.serve(async (req) => {
         if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
         // Screen setup is manager-only: the store's manager PIN (store_pins) or the master PIN.
         if (!manager_pin) return json({ ok: false, error: "pin_required", message: "Manager PIN required" }, 401);
+        pinCtx.tried.add(String(manager_pin).trim());
         if (String(manager_pin) !== String(ADMIN_PIN)) {
           const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
           if (!sp || sp.location_id !== location_id) return json({ ok: false, error: "bad_pin", message: "That PIN isn't a manager PIN for this store" }, 403);
         }
+        pinCtx.okPins.add(String(manager_pin).trim());
         const clean = (arr: unknown) => Array.isArray(arr) ? arr.map((x) => String(x)).filter(Boolean).slice(0, 500) : [];
         const r = routing && typeof routing === "object" ? { menus: clean((routing as any).menus), categories: clean((routing as any).categories), items: clean((routing as any).items) } : null;
         const row: Record<string, unknown> = { location_id, screen_key: String(screen_key), updated_at: new Date().toISOString() };
@@ -2351,9 +2543,12 @@ Deno.serve(async (req) => {
       case "manager_pin_check": {
         const { location_id, manager_pin } = data || {};
         if (!location_id || !manager_pin) return json({ ok: false }, 400);
-        if (String(manager_pin) === String(ADMIN_PIN)) return json({ ok: true, scope: "master" });
-        if (await regionCoversLocation(String(manager_pin), String(location_id))) return json({ ok: true, scope: "region" });
+        // PIN LOCKOUT: this answers yes/no for a manager PIN, so it counts like any other PIN check.
+        pinCtx.tried.add(String(manager_pin).trim());
+        if (String(manager_pin) === String(ADMIN_PIN)) { pinCtx.okPins.add(String(manager_pin).trim()); return json({ ok: true, scope: "master" }); }
+        if (await regionCoversLocation(String(manager_pin), String(location_id))) { pinCtx.okPins.add(String(manager_pin).trim()); return json({ ok: true, scope: "region" }); }
         const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
+        if (sp && sp.location_id === location_id) pinCtx.okPins.add(String(manager_pin).trim());
         return json({ ok: !!(sp && sp.location_id === location_id), scope: "store" });
       }
       case "device_create": {
@@ -2527,10 +2722,12 @@ Deno.serve(async (req) => {
         const { location_id, screen_key, manager_pin } = data || {};
         if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
         if (!manager_pin) return json({ ok: false, error: "pin_required", message: "Manager PIN required" }, 401);
+        pinCtx.tried.add(String(manager_pin).trim());
         if (String(manager_pin) !== String(ADMIN_PIN)) {
           const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
           if (!sp || sp.location_id !== location_id) return json({ ok: false, error: "bad_pin", message: "That PIN isn't a manager PIN for this store" }, 403);
         }
+        pinCtx.okPins.add(String(manager_pin).trim());
         const rsn = "usb:" + String(screen_key);
         const { error: upErr } = await admin.from("printers")
           .update({ active: false, online: false }).eq("sn", rsn).eq("location_id", location_id);
@@ -2547,10 +2744,12 @@ Deno.serve(async (req) => {
         const { location_id, screen_key, label, station, manager_pin, vendor_id, product_id, product_name } = data || {};
         if (!location_id || !screen_key) return json({ error: "location_id and screen_key required" }, 400);
         if (!manager_pin) return json({ ok: false, error: "pin_required", message: "Manager PIN required" }, 401);
+        pinCtx.tried.add(String(manager_pin).trim());
         if (String(manager_pin) !== String(ADMIN_PIN)) {
           const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
           if (!sp || sp.location_id !== location_id) return json({ ok: false, error: "bad_pin", message: "That PIN isn't a manager PIN for this store" }, 403);
         }
+        pinCtx.okPins.add(String(manager_pin).trim());
         const sn = "usb:" + String(screen_key);
         // store_id is a NOT NULL text column (a slug of the store name, as the admin derives it).
         const { data: locRow } = await admin.from("menu_locations").select("name, slug").eq("id", location_id).maybeSingle();
@@ -2566,10 +2765,12 @@ Deno.serve(async (req) => {
         const { location_id, sn, label, station, manager_pin, model, paper_mm, outputs } = data || {};
         if (!location_id || !sn || !/^agent:/.test(String(sn))) return json({ error: "location_id and agent sn required" }, 400);
         if (!manager_pin) return json({ ok: false, error: "pin_required", message: "Manager PIN required" }, 401);
+        pinCtx.tried.add(String(manager_pin).trim());
         if (String(manager_pin) !== String(ADMIN_PIN)) {
           const { data: sp } = await admin.from("store_pins").select("location_id").eq("pin", String(manager_pin)).eq("active", true).maybeSingle();
           if (!sp || sp.location_id !== location_id) return json({ ok: false, error: "bad_pin", message: "That PIN isn't a manager PIN for this store" }, 403);
         }
+        pinCtx.okPins.add(String(manager_pin).trim());
         const { data: locRow } = await admin.from("menu_locations").select("name, slug").eq("id", location_id).maybeSingle();
         const storeId = (locRow?.slug as string) || String(locRow?.name || "store").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
         // What the agent can see and Admin cannot: the USB printers attached
@@ -2711,12 +2912,72 @@ Deno.serve(async (req) => {
       }
 
       // ---- TILL: close the day — snapshot totals, then archive open orders ----
+      // ---- KDS: start a ticket / tick a line (ORDERS LOCKDOWN 2026-10-24) ----
+      // The KDS used to PATCH menu_orders / menu_order_items straight from the
+      // browser with the public key, which let anyone change any order. Now
+      // only these two fields, only from a licensed screen at the order's store.
+      case "kds_order_patch": {
+        const { order_id } = data || {};
+        if (!order_id) return json({ error: "order_id required" }, 400);
+        const { error } = await admin.from("menu_orders").update({ status: "preparing", kds_started_at: new Date().toISOString() })
+          .eq("id", String(order_id)).in("status", ["placed", "preparing"]);
+        if (error) throw error;
+        return json({ ok: true });
+      }
+      case "kds_item_patch": {
+        const { order_id, item_id, item_status } = data || {};
+        if (!order_id || !item_id) return json({ error: "order_id and item_id required" }, 400);
+        if (!["ready", "preparing"].includes(String(item_status))) return json({ error: "bad item_status" }, 400);
+        const { error } = await admin.from("menu_order_items").update({ item_status: String(item_status) })
+          .eq("id", String(item_id)).eq("order_id", String(order_id)).or("item_status.is.null,item_status.neq.voided");
+        if (error) throw error;
+        return json({ ok: true });
+      }
+
+      // ---- TILL: check the close's count before signing off (blind until now) ----
+      case "close_preview": {
+        const { location_id, cash_counted = null, float_amount = null, mode } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        if (cash_counted == null || cash_counted === "" || !isFinite(Number(cash_counted))) return json({ error: "count_required", message: "Count the drawer first." }, 400);
+        const f = await closeFigures(String(location_id), String(mode || "all"), cash_counted, float_amount);
+        // Every count is kept: a recount until it balances shows on the Z.
+        try { await admin.from("device_events").insert({ location_id, screen_key: deviceTok && deviceTok.key ? String(deviceTok.key) : "till", event: "close_count", detail: { counted: f.counted, expected: f.expected, variance: f.variance, float: f.flt } }); } catch { /* best effort */ }
+        return json({ ok: true, preview: {
+          cash: Number((f.summary as any).cash || 0), total: Number((f.summary as any).total || 0),
+          counted: f.counted, expected: f.expected, variance: f.variance, float_used: f.flt, float_known: f.knownFloat,
+          float_changed: f.floatChanged, cash_dropped: f.dropped, limit: f.limit,
+          note_needed: f.outBy || f.floatChanged, manager_needed: f.outBy || f.floatChanged,
+        } });
+      }
+
       case "close_day": {
         const { location_id, cash_counted = null, float_amount = null, note = null, mode } = data || {};
         const closed_by = staffCloser ? staffCloser.name : (data?.closed_by || (scope === "master" ? "Admin" : scope === "region" ? (scopeLabel || "Regional manager") : "Manager"));
         if (!location_id) return json({ error: "location_id required" }, 400);
-        const { ids, summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
+        const fig = await closeFigures(String(location_id), String(mode || "all"), cash_counted, float_amount);
+        const { ids, summary } = fig;
         if (!ids.length) return json({ error: "nothing_to_close", message: "No orders to close for that period." }, 409);
+        // CASH CONTROLS 2026-10-24 — who may close, and on what terms.
+        const closerIsManager = !staffCloser || isManagerRole(staffCloser.role);
+        if (fig.counted == null && !closerIsManager) return json({ error: "count_required", message: "Count the drawer before closing." }, 400);
+        if ((fig.outBy || fig.floatChanged) && !String(note || "").trim()) {
+          return json({ error: "note_required", message: fig.floatChanged ? "Say why the float is different." : "The drawer is out by " + fig.limit + " or more — say what happened." }, 400);
+        }
+        let approvedBy: string | null = null;
+        if ((fig.outBy || fig.floatChanged) && !closerIsManager) {
+          const mg = await managerForPin(data?.manager_pin, String(location_id));
+          if (!mg.ok) return json({ error: "manager_required", message: fig.floatChanged ? "Changing the float needs a manager PIN." : "A drawer this far out needs a manager PIN." }, 403);
+          approvedBy = mg.name || "Manager";
+        }
+        // Every count taken at this close (close_preview logs them).
+        let countAttempts: any[] = [];
+        try {
+          const since = (summary as any).previous?.closed_at || (summary as any).oldest || new Date(Date.now() - 24 * 3600000).toISOString();
+          const { data: ev } = await admin.from("device_events").select("detail, created_at").eq("location_id", location_id).eq("event", "close_count").gt("created_at", since).order("created_at", { ascending: true }).limit(50);
+          countAttempts = (ev || []).map((e: any) => ({ counted: e.detail?.counted ?? null, variance: e.detail?.variance ?? null, at: e.created_at }));
+        } catch { countAttempts = []; }
+        const controls = { float_known: fig.knownFloat, float_changed: fig.floatChanged, approved_by: approvedBy, count_attempts: countAttempts,
+          first_count: countAttempts.length > 1 ? countAttempts[0].counted : null, recounts: Math.max(0, countAttempts.length - 1) };
         // Kitchen speed for the period being closed.
         const { data: tgtRow } = await admin.from("menu_app_settings").select("value").eq("key", "kds_target_minutes:" + location_id).maybeSingle();
         const targetMin = Number(tgtRow?.value) > 0 ? Number(tgtRow!.value) : 12;
@@ -2725,13 +2986,8 @@ Deno.serve(async (req) => {
         const kitchen = await kitchenStats(location_id, kFrom, kTo, targetMin);
         (summary as any).kitchen = kitchen;
         const now = new Date().toISOString();
-        const counted = cash_counted == null ? null : round2(cash_counted);
-        const flt = float_amount == null ? null : round2(float_amount);
-        // Expected drawer = float left in at the start + cash taken today.
-        // SHIFTS: cash dropped to the safe at handovers is no longer in the drawer.
-        const dropped = round2(Number((summary as any).cash_dropped || 0));
-        const expected = counted == null ? null : round2((flt || 0) + summary.cash - dropped);
-        const variance = counted == null ? null : round2(counted - (expected as number));
+        // Expected drawer = the day's float + cash taken − cash dropped to the safe (closeFigures).
+        const { counted, flt, dropped, expected, variance } = fig;
         // ZREPORT 2026-10-24 — the next Z number for this store and the running
         // grand total. If db/z_report.sql hasn't been run the columns don't
         // exist; the close still goes through, just without them.
@@ -2761,7 +3017,7 @@ Deno.serve(async (req) => {
           closed_by: closed_by ? String(closed_by).slice(0, 80) : null, note: note ? String(note).slice(0, 300) : null,
           other_total: summary.other, cancelled_count: summary.cancelled_count,
           period_end: mode === "trading_day" ? summary.cutoff : now,
-          report: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, cash_dropped: dropped, closed_by, note },
+          report: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, cash_dropped: dropped, closed_by, note, ...controls },
           closed_by_member_id: staffCloser ? staffCloser.id : null,
         };
         if (zNumber != null) Object.assign(closureRow, { z_number: zNumber, gt_before: gtBefore, gt_after: gtAfter });
@@ -2796,7 +3052,7 @@ Deno.serve(async (req) => {
           const pr = await callSunmi({
             action: "print-summary", store_name: loc?.name || "", location_id,
             device_key: deviceTok?.key ? String(deviceTok.key) : null,
-            summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, cash_dropped: dropped, closed_by, note },
+            summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, cash_dropped: dropped, closed_by, note, ...controls },
           });
           // ZREPORT: print-summary answers 200 with ok:false when there's no
           // printer or every push failed — that is not "printed".
@@ -2810,6 +3066,10 @@ Deno.serve(async (req) => {
       case "print_x_read": {
         const { location_id, mode, float_amount = null } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
+        // CASH CONTROLS: the X read prints the cash taken so far, which would
+        // tell whoever counts the drawer what it should hold. Managers only.
+        const xm = await managerForPin(data?.manager_pin, String(location_id));
+        if (!xm.ok) return json({ error: xm.reason === "not_manager" ? "manager_required" : "bad_pin", message: "The X read needs a manager PIN." }, 403);
         const { summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
         const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).single();
         const flt = float_amount == null || float_amount === "" ? null : round2(Number(float_amount));
@@ -3143,4 +3403,4 @@ Deno.serve(async (req) => {
   } catch (e) {
     return json({ error: String((e as any)?.message ?? e) }, 500);
   }
-});
+}

@@ -428,14 +428,20 @@ export default function KDS({ surface = "kds" }) {
     return () => { clearInterval(t); document.removeEventListener("visibilitychange", vis); };
   }, [load]);
 
+  // ORDERS LOCKDOWN 2026-10-24 — ticket start and line ticks go through
+  // admin-api (licensed screen, this store's orders, two fields only) rather
+  // than writing menu_orders / menu_order_items with the public key.
+  const kdsCall = (action, data) => fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action, data }) });
   async function patchOrder(id, body) {
     setOrders((prev) => prev.map((o) => o.id === id ? { ...o, ...body } : o));
-    try { await fetch(SUPABASE_URL + "/rest/v1/menu_orders?id=eq." + id, { method: "PATCH", headers: { ...H, Prefer: "return=minimal" }, body: JSON.stringify(body) }); } catch {}
+    try { await kdsCall("kds_order_patch", { order_id: id }); } catch {}
     load();
   }
   async function patchItem(id, body) {
+    const owner = orders.find((o) => (o.menu_order_items || []).some((it) => it.id === id));
+    const orderId = owner ? owner.id : null;
     setOrders((prev) => prev.map((o) => ({ ...o, menu_order_items: o.menu_order_items.map((it) => it.id === id ? { ...it, ...body } : it) })));
-    try { await fetch(SUPABASE_URL + "/rest/v1/menu_order_items?id=eq." + id, { method: "PATCH", headers: { ...H, Prefer: "return=minimal" }, body: JSON.stringify(body) }); } catch {}
+    try { await kdsCall("kds_item_patch", { order_id: orderId, item_id: id, item_status: body.item_status }); } catch {}
   }
 
   // Take payment on an order — PIN is verified at this moment (viewing is open,

@@ -57,6 +57,19 @@ function Btn({ children, onClick, primary, disabled, danger }) {
   );
 }
 
+// Tap-to-add reasons: the till has no keyboard.
+function NoteChips({ value, onChange, options }) {
+  const has = (o) => (value || "").toLowerCase().includes(o.toLowerCase());
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+      {options.map((o) => (
+        <span key={o} onClick={() => onChange(has(o) ? value.split(", ").filter((x) => x.toLowerCase() !== o.toLowerCase()).join(", ") : (value ? value + ", " : "") + o)}
+          style={{ padding: "7px 11px", borderRadius: 999, fontSize: 12.5, fontWeight: 700, cursor: "pointer", userSelect: "none", background: has(o) ? C.ink : C.soft, color: has(o) ? "#fff" : C.ink, border: "1px solid " + (has(o) ? C.ink : C.line) }}>{o}</span>
+      ))}
+    </div>
+  );
+}
+
 export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
   const sh = status && status.shift;
   const startStep = !sh ? "start" : sh.status === "counting" ? "count" : "running";
@@ -81,7 +94,7 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
 
   // Follow the server's state (another till or a refresh), but never yank the
   // result or the "put £X in the safe" screen away while someone reads it.
-  useEffect(() => { setStep((cur) => (cur === "result" || cur === "done" ? cur : startStep)); }, [startStep]);
+  useEffect(() => { setStep((cur) => (cur === "result" || cur === "done" || cur === "resume" ? cur : startStep)); }, [startStep]);
 
   const denomTotal = r2(DENOMS.reduce((t, d) => t + d * (Number(denoms[d]) || 0), 0));
   const denomsTouched = Object.values(denoms).some((v) => v !== "" && v != null);
@@ -104,13 +117,15 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
     const res = await run("shift_end", { pin });
     if (res) { setPin(""); setStep("count"); onChanged(); }
   };
-  const resume = async () => { const res = await run("shift_resume", {}); if (res) { onChanged(); onClose(); } };
+  // CASH CONTROLS 2026-10-24: taking the shift back and confirming the count
+  // both need the PIN of the person who ended it (or a manager's).
+  const resume = async () => { const res = await run("shift_resume", { pin }); if (res) { setPin(""); onChanged(); onClose(); } };
   const doPreview = async () => {
     const res = await run("shift_count", { counted_raw: counted, denoms: countMode === "denoms" ? denoms : null, confirm: false });
-    if (res) { setPreview(res.preview); setStep("result"); }
+    if (res) { setPreview(res.preview); setPin(""); setStep("result"); }
   };
   const confirm = async () => {
-    const res = await run("shift_count", { counted_raw: counted, denoms: countMode === "denoms" ? denoms : null, note, confirm: true });
+    const res = await run("shift_count", { counted_raw: counted, denoms: countMode === "denoms" ? denoms : null, note, pin, confirm: true });
     if (res) { setDone(res); setStep("done"); onChanged(); }
   };
 
@@ -153,7 +168,8 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
             <div style={{ marginTop: 10, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <div>
                 <div style={{ fontSize: 28, fontWeight: 800, fontFamily: F, borderBottom: "2px solid " + C.ink, minHeight: 40 }}>{floatVal ? money(Number(floatVal)) : "—"}</div>
-                <input value={floatNote} onChange={(e) => setFloatNote(e.target.value)} placeholder="What's different? (required)" style={{ marginTop: 10, width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 10, border: "1.5px solid " + C.line, fontSize: 14 }} />
+                <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".06em", color: floatNote ? C.muted : C.bad, margin: "10px 0 6px" }}>WHAT'S DIFFERENT? (REQUIRED)</div>
+                <NoteChips value={floatNote} onChange={setFloatNote} options={["Short in the drawer", "Extra in the drawer", "Topped up from safe", "Coins missing", "Notes missing"]} />
               </div>
               <Pad value={floatVal} onChange={setFloatVal} decimal />
             </div>
@@ -216,8 +232,19 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
           </div>
         )}
         <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-          <Btn onClick={resume}>Not yet — keep my shift</Btn>
+          <Btn onClick={() => { setPin(""); setStep("resume"); }}>Not yet — keep my shift</Btn>
           <Btn primary disabled={busy || counted == null} onClick={doPreview}>{busy ? "Checking…" : "Done counting"}</Btn>
+        </div>
+      </>
+    );
+  } else if (step === "resume") {
+    content = (
+      <>
+        <Title t="Keep your shift?" sub="Selling carries on as your shift, as if you hadn't ended it." />
+        <PinBlock label="YOUR PIN" />
+        <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
+          <Btn onClick={() => { setPin(""); setStep("count"); }}>Back to counting</Btn>
+          <Btn primary disabled={busy || pin.length < 4} onClick={resume}>{busy ? "…" : "Keep my shift"}</Btn>
         </div>
       </>
     );
@@ -245,12 +272,17 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
             <div style={{ fontSize: 28, fontWeight: 800, fontFamily: F }}>{money(preview.float_left)}</div>
           </div>
         </div>
+        {preview.attempt > 1 && <div style={{ fontSize: 12.5, color: C.bad, fontWeight: 700, marginBottom: 8 }}>Count {preview.attempt} — the first count is printed on the slip too.</div>}
         {preview.note_needed && (
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="The drawer is out — say what happened (required)" rows={2} style={{ width: "100%", boxSizing: "border-box", padding: "10px 12px", borderRadius: 12, border: "1.5px solid " + (note.trim() ? C.line : C.bad), fontSize: 14.5, fontFamily: "inherit" }} />
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".08em", color: note ? C.muted : C.bad, marginBottom: 6 }}>WHAT HAPPENED? (REQUIRED)</div>
+            <NoteChips value={note} onChange={setNote} options={["Wrong change given", "Cash refund", "Petty cash taken", "Float was short", "Miscount", "Don't know"]} />
+          </div>
         )}
+        <PinBlock label="YOUR PIN TO CONFIRM" />
         <div style={{ display: "flex", gap: 10, marginTop: 14 }}>
           <Btn onClick={() => { setPreview(null); setStep("count"); }}>Recount</Btn>
-          <Btn primary disabled={busy || (preview.note_needed && !note.trim())} onClick={confirm}>{busy ? "Saving…" : "Confirm & print"}</Btn>
+          <Btn primary disabled={busy || pin.length < 4 || (preview.note_needed && !note.trim())} onClick={confirm}>{busy ? "Saving…" : "Confirm & print"}</Btn>
         </div>
       </>
     );
