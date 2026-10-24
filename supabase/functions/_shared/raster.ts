@@ -247,7 +247,10 @@ export async function buildOrderRasterHex(o: ReceiptOrder): Promise<string> {
 // (between lines, never through text), so each part is about the size of an
 // ordinary order ticket. The first part initialises the printer, the last
 // feeds and cuts. Join them for a printer that takes one big job.
-export async function renderTreeToRasterParts(tree: unknown, paperDots = W, maxRows = 900, maxHeight = 6000): Promise<string[]> {
+// threshold: grey level (0-255) below which a pixel prints black. The order
+// receipt uses 160; the Z report passes a higher value so the anti-aliased
+// edges of thin text print solid instead of breaking up and looking blurred.
+export async function renderTreeToRasterParts(tree: unknown, paperDots = W, maxRows = 900, maxHeight = 6000, threshold = 160): Promise<string[]> {
   const { inter400, inter700 } = await loadAssets();
   const svg = await satori(tree as never, {
     width: paperDots,
@@ -260,7 +263,7 @@ export async function renderTreeToRasterParts(tree: unknown, paperDots = W, maxR
   const rendered = new Resvg(svg, { fitTo: { mode: "width", value: paperDots }, background: "white" }).render();
   const { width, height } = rendered;
   const px = rendered.pixels;
-  const dark = (x: number, y: number) => px[(y * width + x) * 4] < 160;
+  const dark = (x: number, y: number) => px[(y * width + x) * 4] < threshold;
   const blankRow = new Uint8Array(height);
   let last = 0;
   for (let y = 0; y < height; y++) {

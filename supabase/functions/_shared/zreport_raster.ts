@@ -73,10 +73,13 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
   // ---- building blocks ----
   const rule = (w = 2, my = 8) => el({ height: 0, borderTop: `${w}px solid #000`, width: "100%", margin: `${fs(my)}px 0` });
   const dotted = () => el({ height: 0, borderTop: "2px dashed #000", width: "100%", margin: `${fs(6)}px 0` });
+  // Section heading: bold title over a heavy rule. No black fills anywhere on
+  // this slip - solid black overheats a thermal head, smearing the text
+  // around it and slowing the print (24 Oct, first real Z came out blurred).
   const bar = (title: string, right = "") =>
-    el({ background: "#000", color: "#fff", justifyContent: "space-between", alignItems: "center", padding: `${fs(5)}px ${fs(12)}px`, marginTop: fs(18), marginBottom: fs(6) },
-      txt(title, { fontSize: fs(20), fontWeight: 700, letterSpacing: 2 }),
-      txt(right, { fontSize: fs(16), fontWeight: 700, letterSpacing: 1 }));
+    el({ justifyContent: "space-between", alignItems: "flex-end", borderBottom: "4px solid #000", paddingBottom: fs(4), marginTop: fs(22), marginBottom: fs(6) },
+      txt(title, { fontSize: fs(23), fontWeight: 700, letterSpacing: 1 }),
+      txt(right, { fontSize: fs(16), fontWeight: 700 }));
   // label ......... value   (optional count column)
   // label | count | % | amount — count and % columns only where asked for.
   const CW = fs(64), PW = fs(76), VW = fs(150);
@@ -88,7 +91,7 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
       o.showPct ? txt(o.pct ?? "", { width: PW, justifyContent: "flex-end" }) : txt(""),
       txt(value, { width: VW, justifyContent: "flex-end" }));
   const head = (cols: string[], showCount = true, showPct = false) =>
-    el({ justifyContent: "space-between", fontSize: fs(15), fontWeight: 700, letterSpacing: 1, paddingBottom: fs(2) },
+    el({ justifyContent: "space-between", fontSize: fs(16), fontWeight: 700, paddingBottom: fs(2) },
       txt(cols[0], { flex: 1 }),
       showCount ? txt(cols[1], { width: CW, justifyContent: "flex-end" }) : txt(""),
       showPct ? txt("%", { width: PW, justifyContent: "flex-end" }) : txt(""),
@@ -110,9 +113,9 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
   // ---- 2. Title banner ----
   const title = m.kind === "x" ? "X READ" : m.kind === "reprint" ? "Z REPORT · REPRINT" : "Z REPORT";
   const subtitle = m.kind === "x" ? "Figures so far · nothing is reset" : m.kind === "reprint" ? "Copy of the original · not a new close" : "End of day · till closed";
-  parts.push(col({ background: "#000", color: "#fff", alignItems: "center", padding: `${fs(10)}px 0`, marginTop: fs(14) },
-    txt(title, { fontSize: fs(32), fontWeight: 700, letterSpacing: 4 }),
-    txt(subtitle, { fontSize: fs(17), marginTop: fs(2) })));
+  parts.push(col({ border: "4px solid #000", alignItems: "center", padding: `${fs(8)}px 0`, marginTop: fs(14) },
+    txt(title, { fontSize: fs(34), fontWeight: 700, letterSpacing: 3 }),
+    txt(subtitle, { fontSize: fs(18), fontWeight: 700, marginTop: fs(2) })));
 
   // ---- 3. Z number + trading day ----
   parts.push(el({ justifyContent: "space-between", alignItems: "flex-end", marginTop: fs(12) },
@@ -127,7 +130,7 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
   const stat = (label: string, value: string, last = false) =>
     col({ flex: 1, alignItems: "center", borderRight: last ? "0px solid #000" : "2px solid #000", padding: `${fs(4)}px 0` },
       txt(value, { fontSize: fs(26), fontWeight: 700 }),
-      txt(label, { fontSize: fs(14), fontWeight: 700, letterSpacing: 1 }));
+      txt(label, { fontSize: fs(16), fontWeight: 700 }));
   parts.push(col({ border: "3px solid #000", marginTop: fs(14) },
     col({ alignItems: "center", padding: `${fs(10)}px 0 ${fs(8)}px` },
       txt("NET SALES", { fontSize: fs(16), fontWeight: 700, letterSpacing: 3 }),
@@ -184,8 +187,8 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
     parts.push(line("Counted", n2(counted), { bold: true }));
     const v = Number(s.cash_variance) || 0;
     const verdict = v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT";
-    // The result is what a manager looks for first: solid black, full width.
-    parts.push(el({ background: "#000", color: "#fff", justifyContent: "space-between", alignItems: "center", padding: `${fs(8)}px ${fs(12)}px`, marginTop: fs(8) },
+    // The result is what a manager looks for first: large, in a heavy box.
+    parts.push(el({ border: "4px solid #000", justifyContent: "space-between", alignItems: "center", padding: `${fs(8)}px ${fs(12)}px`, marginTop: fs(8) },
       txt(verdict, { fontSize: fs(30), fontWeight: 700, letterSpacing: 3 }),
       txt((v > 0 ? "+" : "") + n2(v) + (v !== 0 && Number(s.cash_expected) > 0 ? "  (" + (v > 0 ? "+" : "-") + pct(Math.abs(v), s.cash_expected) + ")" : ""), { fontSize: fs(30), fontWeight: 700 })));
   } else if (m.kind === "x") {

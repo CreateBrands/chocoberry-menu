@@ -1168,7 +1168,7 @@ Deno.serve(async (req) => {
         const rasterFor = async (paperMm: unknown): Promise<string[] | null> => {
           const dots = Number(paperMm) > 0 && Number(paperMm) <= 60 ? 384 : 576;
           if (!rasterByDots.has(dots)) {
-            try { rasterByDots.set(dots, await renderTreeToRasterParts(zReportTree(s, zMeta, dots), dots)); }
+            try { rasterByDots.set(dots, await renderTreeToRasterParts(zReportTree(s, zMeta, dots), dots, 900, 6000, 200)); }
             catch (e) { console.error("z raster failed, printing text:", e); rasterByDots.set(dots, null); }
           }
           return rasterByDots.get(dots) ?? null;
