@@ -25,7 +25,8 @@ import {
   type ReceiptItem,
 } from "../_shared/escpos.ts";
 import { buildZReport } from "../_shared/zreport.ts";
-import { buildOrderRasterHex } from "../_shared/raster.ts";
+import { buildOrderRasterHex, renderTreeToRasterParts } from "../_shared/raster.ts";
+import { zReportTree } from "../_shared/zreport_raster.ts";
 
 // "raster" = Uber-style image tickets (real typography); anything else = text
 const RECEIPT_MODE = Deno.env.get("RECEIPT_MODE") ?? "text";
@@ -1155,13 +1156,25 @@ Deno.serve(async (req) => {
         const vatRaw = st("vat_rate");
         const vatRate = vatRaw === "" ? (currency === "AED" ? 5 : 20) : Number(vatRaw);
         const kind = s.kind === "x" ? "x" : s.reprint ? "reprint" : "z";
-        const hex = buildZReport(s, {
+        const zMeta = {
           kind, brandName: st("brand_name") || "Chocoberry", storeName: String(body.store_name || ""),
           legalName: st("legal_name"), address: st("company_address"), taxNumber: st("tax_number"),
           currency, vatRate: Number.isFinite(vatRate) ? vatRate : null, timeZone: tz, printedAt: new Date(),
-        }).toHex();
+        } as any;
+        // Plain-text slip: the fallback, and what prints if the drawn one fails.
+        const hex = buildZReport(s, zMeta).toHex();
+        // ZREPORT RASTER: the drawn slip (zreport_raster.ts), one per paper width.
+        const rasterByDots = new Map<number, string[] | null>();
+        const rasterFor = async (paperMm: unknown): Promise<string[] | null> => {
+          const dots = Number(paperMm) > 0 && Number(paperMm) <= 60 ? 384 : 576;
+          if (!rasterByDots.has(dots)) {
+            try { rasterByDots.set(dots, await renderTreeToRasterParts(zReportTree(s, zMeta, dots), dots)); }
+            catch (e) { console.error("z raster failed, printing text:", e); rasterByDots.set(dots, null); }
+          }
+          return rasterByDots.get(dots) ?? null;
+        };
         const { data: printers } = await supabase.from("printers")
-          .select("sn, station, print_receipt, print_role, source_screen_key, location_id, active")
+          .select("sn, station, print_receipt, print_role, source_screen_key, location_id, active, paper_mm")
           .eq("location_id", locationId).eq("active", true);
         const all = printers || [];
         const tied = body.device_key ? all.filter((p: any) => String(p.source_screen_key || "") === String(body.device_key)) : [];
@@ -1172,9 +1185,23 @@ Deno.serve(async (req) => {
         if (!pick.length) return json({ ok: false, error: "no_printer", message: "No active printer at this store." });
         const results = [];
         for (const pr of pick) {
-          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), hex, { slip: kind === "x" ? "xread" : "zreport", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true }); continue; }
-          const res = await sunmi.pushContent(String(pr.sn), "zrep" + Date.now() + String(pr.sn).slice(-4), hex);
-          results.push({ sn: pr.sn, ok: ok(res) });
+          const drawn = await rasterFor((pr as any).paper_mm);
+          // A device printer takes the whole slip as one job.
+          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), drawn ? drawn.join("") : hex, { slip: kind === "x" ? "xread" : "zreport", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true, drawn: !!drawn }); continue; }
+          // Sunmi cloud: the drawn slip goes as ticket-sized parts, in order.
+          // If any part is refused, the text slip follows, so a close always
+          // prints in full.
+          const stamp = Date.now().toString(36) + String(pr.sn).slice(-4);
+          let usedDrawn = false;
+          if (drawn) {
+            usedDrawn = true;
+            for (let i = 0; i < drawn.length; i++) {
+              const r = await sunmi.pushContent(String(pr.sn), "zr" + stamp + "p" + i, drawn[i]);
+              if (!ok(r)) { usedDrawn = false; console.error("z raster part refused", i, r); break; }
+            }
+          }
+          const res = usedDrawn ? { code: 1 } : await sunmi.pushContent(String(pr.sn), "zt" + stamp, hex);
+          results.push({ sn: pr.sn, ok: ok(res as any), drawn: usedDrawn, parts: drawn ? drawn.length : 0 });
         }
         return json({ ok: results.some((x) => x.ok), printed: results });
       }

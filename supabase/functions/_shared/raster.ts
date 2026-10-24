@@ -239,3 +239,66 @@ export async function buildOrderRasterHex(o: ReceiptOrder): Promise<string> {
   for (let i = 0; i < out.length; i++) hex += lut[out[i]];
   return hex;
 }
+
+// ---- any tree (e.g. the Z report) to 1-bit ESC/POS raster ---------------
+// Same pipeline as buildOrderRasterHex, kept separate so the order receipt's
+// path is untouched. Taller canvas: an end-of-day slip runs to ~3000 dots.
+// Returned as PARTS of at most ~maxRows dots each, split only on a blank row
+// (between lines, never through text), so each part is about the size of an
+// ordinary order ticket. The first part initialises the printer, the last
+// feeds and cuts. Join them for a printer that takes one big job.
+export async function renderTreeToRasterParts(tree: unknown, paperDots = W, maxRows = 900, maxHeight = 6000): Promise<string[]> {
+  const { inter400, inter700 } = await loadAssets();
+  const svg = await satori(tree as never, {
+    width: paperDots,
+    height: maxHeight,
+    fonts: [
+      { name: "Inter", data: inter400, weight: 400, style: "normal" },
+      { name: "Inter", data: inter700, weight: 700, style: "normal" },
+    ],
+  });
+  const rendered = new Resvg(svg, { fitTo: { mode: "width", value: paperDots }, background: "white" }).render();
+  const { width, height } = rendered;
+  const px = rendered.pixels;
+  const dark = (x: number, y: number) => px[(y * width + x) * 4] < 160;
+  const blankRow = new Uint8Array(height);
+  let last = 0;
+  for (let y = 0; y < height; y++) {
+    let any = false;
+    for (let x = 0; x < width; x++) if (dark(x, y)) { any = true; break; }
+    if (any) last = y; else blankRow[y] = 1;
+  }
+  const H = Math.min(height, last + 16);
+  const bytesPerRow = width >> 3;
+  const mono = new Uint8Array(bytesPerRow * H);
+  for (let y = 0; y < H; y++) for (let x = 0; x < width; x++) if (dark(x, y)) mono[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
+
+  // Cut points: aim for maxRows, then step back to the nearest blank row.
+  const cuts: number[] = [0];
+  while (H - cuts[cuts.length - 1] > maxRows) {
+    const from = cuts[cuts.length - 1];
+    let at = from + maxRows;
+    while (at > from + maxRows / 2 && !blankRow[at]) at--;
+    if (at <= from + maxRows / 2) at = from + maxRows;   // no gap found: hard cut
+    cuts.push(at);
+  }
+  cuts.push(H);
+
+  const lut: string[] = [];
+  for (let i = 0; i < 256; i++) lut.push(i.toString(16).padStart(2, "0"));
+  const parts: string[] = [];
+  for (let p = 0; p < cuts.length - 1; p++) {
+    const out: number[] = p === 0 ? [0x1b, 0x40] : [];
+    const CHUNK = 512;
+    for (let y0 = cuts[p]; y0 < cuts[p + 1]; y0 += CHUNK) {
+      const rows = Math.min(CHUNK, cuts[p + 1] - y0);
+      out.push(0x1d, 0x76, 0x30, 0x00, bytesPerRow & 0xff, (bytesPerRow >> 8) & 0xff, rows & 0xff, (rows >> 8) & 0xff);
+      for (let i = 0; i < rows * bytesPerRow; i++) out.push(mono[y0 * bytesPerRow + i]);
+    }
+    if (p === cuts.length - 2) out.push(0x1b, 0x64, 0x03, 0x1d, 0x56, 0x42, 0x00);
+    let hex = "";
+    for (let i = 0; i < out.length; i++) hex += lut[out[i]];
+    parts.push(hex);
+  }
+  return parts;
+}
