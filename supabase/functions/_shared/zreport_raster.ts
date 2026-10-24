@@ -53,6 +53,19 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
     const x = Number(v) || 0;
     return (x < 0 ? "-" : "") + (sym ? sym : cur + " ") + n2(Math.abs(x));
   };
+  // Share of a whole, for the % column. Blank when the whole is zero.
+  const pct = (part: unknown, whole: unknown) => {
+    const w = Number(whole) || 0, p = Number(part) || 0;
+    if (w <= 0) return "";
+    const v = (p / w) * 100;
+    return (v >= 10 || v === 0 ? v.toFixed(0) : v.toFixed(1)) + "%";
+  };
+  // Shorten a long name at a word where possible, with an ellipsis.
+  const clip = (t: string, n: number) => {
+    if (t.length <= n) return t;
+    const cut = t.slice(0, n - 1), sp = cut.lastIndexOf(" ");
+    return (sp > n * 0.6 ? cut.slice(0, sp) : cut).trimEnd() + "…";
+  };
   const isZ = m.kind !== "x";
   const zNo = s.z_number != null ? String(s.z_number).padStart(6, "0") : null;
   const body = fs(22), small = fs(18), rowPad = fs(4);
@@ -65,16 +78,23 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
       txt(title, { fontSize: fs(20), fontWeight: 700, letterSpacing: 2 }),
       txt(right, { fontSize: fs(16), fontWeight: 700, letterSpacing: 1 }));
   // label ......... value   (optional count column)
-  const line = (label: string, value: string, o: { bold?: boolean; big?: boolean; indent?: boolean; count?: string; showCount?: boolean } = {}) =>
+  // label | count | % | amount — count and % columns only where asked for.
+  const CW = fs(64), PW = fs(76), VW = fs(150);
+  type LineOpts = { bold?: boolean; big?: boolean; indent?: boolean; count?: string; showCount?: boolean; pct?: string; showPct?: boolean };
+  const line = (label: string, value: string, o: LineOpts = {}) =>
     el({ justifyContent: "space-between", alignItems: "baseline", padding: `${rowPad}px 0`, fontSize: o.big ? fs(26) : body, fontWeight: o.bold ? 700 : 400 },
       txt(label, { paddingLeft: o.indent ? fs(14) : 0, flex: 1 }),
-      o.showCount ? txt(o.count ?? "", { width: fs(70), justifyContent: "flex-end" }) : txt(""),
-      txt(value, { width: fs(170), justifyContent: "flex-end" }));
-  const head = (cols: [string, string, string]) =>
+      o.showCount ? txt(o.count ?? "", { width: CW, justifyContent: "flex-end" }) : txt(""),
+      o.showPct ? txt(o.pct ?? "", { width: PW, justifyContent: "flex-end" }) : txt(""),
+      txt(value, { width: VW, justifyContent: "flex-end" }));
+  const head = (cols: string[], showCount = true, showPct = false) =>
     el({ justifyContent: "space-between", fontSize: fs(15), fontWeight: 700, letterSpacing: 1, paddingBottom: fs(2) },
-      txt(cols[0], { flex: 1 }), txt(cols[1], { width: fs(70), justifyContent: "flex-end" }), txt(cols[2], { width: fs(170), justifyContent: "flex-end" }));
-  const totalRow = (label: string, value: string, count?: string) =>
-    col({}, rule(2, 4), line(label, value, { bold: true, count, showCount: count !== undefined }));
+      txt(cols[0], { flex: 1 }),
+      showCount ? txt(cols[1], { width: CW, justifyContent: "flex-end" }) : txt(""),
+      showPct ? txt("%", { width: PW, justifyContent: "flex-end" }) : txt(""),
+      txt(cols[2], { width: VW, justifyContent: "flex-end" }));
+  const totalRow = (label: string, value: string, count?: string, pctStr?: string) =>
+    col({}, rule(2, 4), line(label, value, { bold: true, count, showCount: count !== undefined, pct: pctStr, showPct: pctStr !== undefined }));
 
   const parts: unknown[] = [];
 
@@ -118,11 +138,11 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
       stat("TAKEN", money(s.total), true))));
 
   // ---- 5. Sales ----
-  parts.push(bar("SALES", "INC. VAT"));
-  parts.push(line("Gross sales", n2(s.gross)));
-  if (Number(s.discount_total) > 0) parts.push(line("Discounts", "-" + n2(s.discount_total), { indent: true }));
-  if (Number(s.refund_total) > 0) parts.push(line("Refunds (" + (s.refund_count || 0) + ")", "-" + n2(s.refund_total), { indent: true }));
-  parts.push(totalRow("Net sales", n2(s.net)));
+  parts.push(bar("SALES", "INC. VAT · % OF GROSS"));
+  parts.push(line("Gross sales", n2(s.gross), { pct: "100%", showPct: true }));
+  if (Number(s.discount_total) > 0) parts.push(line("Discounts", "-" + n2(s.discount_total), { indent: true, pct: pct(s.discount_total, s.gross), showPct: true }));
+  if (Number(s.refund_total) > 0) parts.push(line("Refunds (" + (s.refund_count || 0) + ")", "-" + n2(s.refund_total), { indent: true, pct: pct(s.refund_total, s.gross), showPct: true }));
+  parts.push(totalRow("Net sales", n2(s.net), undefined, pct(s.net, s.gross)));
   if (s.items_sold) parts.push(line("Items sold", String(s.items_sold), { indent: true }));
 
   // ---- 6. VAT ----
@@ -131,23 +151,23 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
     const gross = Number(s.net) || 0;
     const vat = Math.round(gross * rate / (100 + rate) * 100) / 100;
     parts.push(bar("VAT", rate + "% STANDARD"));
-    parts.push(line("Net of VAT", n2(gross - vat)));
-    parts.push(line("VAT", n2(vat)));
-    parts.push(totalRow("Gross", n2(gross)));
+    parts.push(line("Net of VAT", n2(gross - vat), { pct: pct(gross - vat, gross), showPct: true }));
+    parts.push(line("VAT", n2(vat), { pct: pct(vat, gross), showPct: true }));
+    parts.push(totalRow("Gross", n2(gross), undefined, "100%"));
   }
 
   // ---- 7. Takings ----
   const t = s.tenders || {};
   parts.push(bar("TAKINGS", "PAYMENTS RECEIVED"));
-  parts.push(head(["", "COUNT", cur]));
-  parts.push(line("Card", n2(s.card), { count: String(t.card || 0), showCount: true }));
-  parts.push(line("Cash", n2(s.cash), { count: String(t.cash || 0), showCount: true }));
-  if (Number(s.other) !== 0 || t.other) parts.push(line("Other", n2(s.other), { count: String(t.other || 0), showCount: true }));
-  parts.push(totalRow("Total taken", n2(s.total), String(s.tender_count || 0)));
+  parts.push(head(["", "COUNT", cur], true, true));
+  parts.push(line("Card", n2(s.card), { count: String(t.card || 0), showCount: true, pct: pct(s.card, s.total), showPct: true }));
+  parts.push(line("Cash", n2(s.cash), { count: String(t.cash || 0), showCount: true, pct: pct(s.cash, s.total), showPct: true }));
+  if (Number(s.other) !== 0 || t.other) parts.push(line("Other", n2(s.other), { count: String(t.other || 0), showCount: true, pct: pct(s.other, s.total), showPct: true }));
+  parts.push(totalRow("Total taken", n2(s.total), String(s.tender_count || 0), "100%"));
   if (s.platform && s.platform.count) {
     parts.push(dotted());
-    parts.push(line("Delivery platforms", n2(s.platform.amount), { count: String(s.platform.count), showCount: true }));
-    parts.push(txt("Paid out later by the platform — not in the drawer or on the card terminal.", { fontSize: fs(16), paddingLeft: fs(14) }));
+    parts.push(line("Delivery platforms", n2(s.platform.amount), { count: String(s.platform.count), showCount: true, pct: pct(s.platform.amount, s.net), showPct: true }));
+    parts.push(txt("% of net sales. Paid out later by the platform — not in the drawer or on the card terminal.", { fontSize: fs(16), paddingLeft: fs(14) }));
   }
   if (Number(s.unpaid_count) > 0) {
     parts.push(el({ border: "2px solid #000", marginTop: fs(8), padding: `${fs(4)}px ${fs(10)}px`, justifyContent: "space-between", fontSize: body, fontWeight: 700 },
@@ -167,7 +187,7 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
     // The result is what a manager looks for first: solid black, full width.
     parts.push(el({ background: "#000", color: "#fff", justifyContent: "space-between", alignItems: "center", padding: `${fs(8)}px ${fs(12)}px`, marginTop: fs(8) },
       txt(verdict, { fontSize: fs(30), fontWeight: 700, letterSpacing: 3 }),
-      txt((v > 0 ? "+" : "") + n2(v), { fontSize: fs(30), fontWeight: 700 })));
+      txt((v > 0 ? "+" : "") + n2(v) + (v !== 0 && Number(s.cash_expected) > 0 ? "  (" + (v > 0 ? "+" : "-") + pct(Math.abs(v), s.cash_expected) + ")" : ""), { fontSize: fs(30), fontWeight: 700 })));
   } else if (m.kind === "x") {
     parts.push(totalRow("= Expected now", n2((Number(s.float_amount) || 0) + (Number(s.cash) || 0))));
   } else {
@@ -178,39 +198,44 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
   // ---- 9. Order type + channel ----
   const types = (Object.entries(s.by_type || {}) as [string, any][]).sort((a, b) => b[1].amount - a[1].amount);
   if (types.length) {
-    parts.push(bar("ORDER TYPE"));
-    parts.push(head(["", "ORDERS", cur]));
-    for (const [key, v] of types) parts.push(line(TYPE_LABEL[key] || key, n2(v.amount), { count: String(v.count), showCount: true }));
+    const tAll = types.reduce((a, [, v]) => a + (Number(v.amount) || 0), 0);
+    parts.push(bar("ORDER TYPE", "% OF SALES"));
+    parts.push(head(["", "ORDERS", cur], true, true));
+    for (const [key, v] of types) parts.push(line(TYPE_LABEL[key] || key, n2(v.amount), { count: String(v.count), showCount: true, pct: pct(v.amount, tAll), showPct: true }));
   }
   const rank = (x: string) => { const i = SOURCE_ORDER.indexOf(x); return i < 0 ? 99 : i; };
   const srcs = (Object.entries(s.by_source || {}) as [string, any][]).sort((a, b) => rank(a[0]) - rank(b[0]) || b[1].amount - a[1].amount);
   if (srcs.length) {
-    parts.push(bar("CHANNEL"));
-    parts.push(head(["", "ORDERS", cur]));
-    for (const [key, v] of srcs) parts.push(line(key, n2(v.amount), { count: String(v.count), showCount: true }));
+    const sAll = srcs.reduce((a, [, v]) => a + (Number(v.amount) || 0), 0);
+    parts.push(bar("CHANNEL", "% OF SALES"));
+    parts.push(head(["", "ORDERS", cur], true, true));
+    for (const [key, v] of srcs) parts.push(line(key, n2(v.amount), { count: String(v.count), showCount: true, pct: pct(v.amount, sAll), showPct: true }));
   }
 
   // ---- 10. Controls ----
-  parts.push(bar("CONTROLS", "CHECK THESE"));
-  parts.push(head(["", "COUNT", cur]));
-  parts.push(line("Voided items", n2(s.void_total), { count: String(s.void_count || 0), showCount: true }));
-  parts.push(line("Refunds", n2(s.refund_total), { count: String(s.refund_count || 0), showCount: true }));
-  parts.push(line("Discounts", n2(s.discount_total), { count: "", showCount: true }));
-  parts.push(line("Cancelled orders", n2(s.cancelled_total), { count: String(s.cancelled_count || 0), showCount: true }));
-  if (s.drawer_opens != null) parts.push(line("No-sale drawer opens", "", { count: String(s.drawer_opens), showCount: true }));
-  parts.push(line("Unpaid at close", n2(s.unpaid_total), { count: String(s.unpaid_count || 0), showCount: true }));
+  parts.push(bar("CONTROLS", "% OF GROSS"));
+  parts.push(head(["", "COUNT", cur], true, true));
+  const ctl = (label: string, amount: unknown, count: string, withPct = true) =>
+    line(label, amount === "" ? "" : n2(amount), { count, showCount: true, pct: withPct ? pct(amount, s.gross) : "", showPct: true });
+  parts.push(ctl("Voided items", s.void_total, String(s.void_count || 0)));
+  parts.push(ctl("Refunds", s.refund_total, String(s.refund_count || 0)));
+  parts.push(ctl("Discounts", s.discount_total, ""));
+  parts.push(ctl("Cancelled orders", s.cancelled_total, String(s.cancelled_count || 0)));
+  if (s.drawer_opens != null) parts.push(ctl("No-sale drawer opens", "", String(s.drawer_opens), false));
+  parts.push(ctl("Unpaid at close", s.unpaid_total, String(s.unpaid_count || 0)));
 
   // ---- 11. Top items ----
   const top = Array.isArray(s.top_items) ? s.top_items : [];
   if (top.length) {
-    parts.push(bar("TOP ITEMS"));
-    parts.push(head(["", "QTY", cur]));
+    parts.push(bar("TOP ITEMS", "% OF NET SALES"));
+    parts.push(head(["", "QTY", cur], true, true));
     top.forEach((it: any, i: number) => parts.push(
       el({ justifyContent: "space-between", alignItems: "baseline", padding: `${rowPad}px 0`, fontSize: body },
         txt(String(i + 1) + ".", { width: fs(34), fontWeight: 700 }),
-        txt(String(it.name || "").slice(0, narrow ? 18 : 26), { flex: 1 }),
-        txt(String(it.qty || 0), { width: fs(70), justifyContent: "flex-end" }),
-        txt(n2(it.sales), { width: fs(136), justifyContent: "flex-end" }))));
+        txt(clip(String(it.name || ""), narrow ? 13 : 19), { flex: 1 }),
+        txt(String(it.qty || 0), { width: CW, justifyContent: "flex-end" }),
+        txt(pct(it.sales, s.net), { width: PW, justifyContent: "flex-end" }),
+        txt(n2(it.sales), { width: VW, justifyContent: "flex-end" }))));
   }
 
   // ---- 12. Continuity (audit trail) ----
