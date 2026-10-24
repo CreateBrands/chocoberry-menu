@@ -5,6 +5,7 @@ import ServiceFeedback from "./ServiceFeedback.jsx";
 import { deviceToken } from "./device.js";
 import { sendCustomerScreen, orderForScreen } from "./customerScreen.js";
 import CartLine from "./CartLine.jsx";
+import ShiftSheet, { ShiftButton } from "./ShiftSheet.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
 // store this till is serving — see src/money.js. A store with no currency
 // setting is GBP, which is exactly what every till did before.
@@ -287,6 +288,29 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // PIN-gated, and the server logs who opened it against the device. An
   // unlogged drawer button is how cash leaves without a trace.
   const [drawerAsk, setDrawerAsk] = useState(null); // null | { pin, busy, err }
+  // ---- Shifts: handover between the people on this till ----
+  // shift_status is blind (no expected cash). Refreshed every minute and after
+  // each step; a store without the till_shifts table gets enabled:false and
+  // the button stays hidden.
+  const [shift, setShift] = useState(null);
+  const [shiftOpen, setShiftOpen] = useState(false);
+  const loadShift = useCallback(async () => {
+    try {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
+        method: "POST", headers: H,
+        body: JSON.stringify({ pos: true, device: deviceToken(), action: "shift_status", data: { location_id: loc } }),
+      });
+      if (!r.ok) return;
+      const j = await r.json().catch(() => null);
+      if (j) setShift(j);
+    } catch { /* offline — keep the last status */ }
+  }, [loc]);
+  useEffect(() => {
+    if (!loc) return;
+    loadShift();
+    const t = setInterval(loadShift, 60000);
+    return () => clearInterval(t);
+  }, [loc, loadShift]);
   // ---- Open item: something not on the menu, priced by hand ----
   // The only line whose price the till decides rather than the menu, so it
   // takes a staff PIN. The PIN travels with the order and the server records
@@ -342,7 +366,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     // Nothing before the cutoff (or we're before 4am) → close everything up to now.
     if (!sm || !sm.before_cutoff_count) { mode = "all"; sm = await loadCloseTillSummary("all"); }
     if (sm) closeTillCache.current[mode] = sm;
-    const prevFloat = sm && sm.previous && sm.previous.float_amount != null ? String(Number(sm.previous.float_amount).toFixed(2)) : "";
+    // With shifts, the day's float is the one the first shift opened with.
+    const prevFloat = sm && sm.first_float != null ? String(Number(sm.first_float).toFixed(2))
+      : sm && sm.previous && sm.previous.float_amount != null ? String(Number(sm.previous.float_amount).toFixed(2)) : "";
     setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, float: c.float || prevFloat, err: sm ? "" : (closeTillErr.current || "Could not load today's totals") });
   }
   // Look the PIN up as it's typed so the sheet can greet the closer by name.
@@ -1638,6 +1664,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             })}
           </div>
           <div style={{ flexShrink: 0, padding: "clamp(8px,.65vw,12px)", borderTop: "1px solid rgba(94,234,212,.14)", display: "grid", gap: "clamp(6px,.5vw,9px)" }}>
+            <ShiftButton status={shift} onOpen={() => { loadShift(); setShiftOpen(true); }} />
             <div onClick={() => setDrawerAsk({ pin: "", busy: false, err: "" })} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(148,163,184,.12)", color: "#cbd5e1", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(148,163,184,.25)" }}>
               Open drawer
             </div>
@@ -1647,6 +1674,10 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
         </div>
       </div>
+
+      {shiftOpen && shift && (
+        <ShiftSheet loc={loc} status={shift} act={ordActionJson} onClose={() => setShiftOpen(false)} onChanged={loadShift} />
+      )}
 
       {/* CLOSE TILL — guided closing report: Review → Cash → Sign off → Done */}
       {closeTill && (() => {
@@ -1659,7 +1690,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         const countedVal = closeTill.countMode === "denoms" ? (denomsTouched ? denomTotal : null) : (closeTill.counted === "" ? null : Number(closeTill.counted));
         const sm = closeTill.summary;
         const flt = closeTill.float === "" ? 0 : Number(closeTill.float);
-        const expected = sm ? Math.round(((flt || 0) + Number(sm.cash || 0)) * 100) / 100 : 0;
+        // Cash dropped to the safe at shift handovers has left the drawer.
+        const dropped = sm ? Number(sm.cash_dropped || 0) : 0;
+        const expected = sm ? Math.round(((flt || 0) + Number(sm.cash || 0) - dropped) * 100) / 100 : 0;
         const variance = countedVal == null ? null : Math.round((countedVal - expected) * 100) / 100;
         const VARIANCE_NOTE_FROM = varianceNoteFrom(); // beyond this a note is required
         const C = { ink: "#22271f", muted: "#6b7a60", line: "#e6e8e1", soft: "#f6f7f3", brand: "#5E7A4D", good: "#166534", bad: "#b91c1c", over: "#1d4ed8", warn: "#9a3412" };
@@ -1853,6 +1886,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                         <div style={{ marginTop: 14, background: C.soft, borderRadius: 14, padding: "10px 14px" }}>
                           <Line l="Cash taken today" v={gbp(sm.cash)} />
                           <Line l="+ Float" v={gbp(flt)} />
+                          {dropped > 0 && <Line l="− Dropped to safe" sub={(sm.shifts || []).length + " shifts"} v={gbp(dropped)} />}
                           <Line l="Expected in drawer" v={gbp(expected)} strong />
                           <Line l="Counted" v={countedVal == null ? "—" : gbp(countedVal)} />
                         </div>

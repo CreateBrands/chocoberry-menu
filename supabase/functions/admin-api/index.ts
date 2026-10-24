@@ -48,6 +48,7 @@ Deno.serve(async (req) => {
     "service_log_add", "service_log_delete", "mark_served",
     "device_activate", "device_heartbeat", "device_claim_legacy", "manager_pin_check",
     "open_drawer", "void_order", "abandon_hold",
+    "shift_status", "shift_start", "shift_end", "shift_resume", "shift_count",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   // Device enforcement: when the caller sends a device token it must be active,
@@ -431,7 +432,7 @@ Deno.serve(async (req) => {
     return d;
   }
   // Till-only actions. Screen setup (kds_screen_self), targets and kitchen prints are KDS actions and stay allowed for kitchen licences.
-  const POS_ONLY = new Set(["abandon_hold", "mark_paid", "mark_unpaid", "close_day", "day_summary", "print_x_read", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue"]);
+  const POS_ONLY = new Set(["shift_start", "shift_end", "shift_resume", "shift_count", "abandon_hold", "mark_paid", "mark_unpaid", "close_day", "day_summary", "print_x_read", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue"]);
   // Kitchen speed for the closing report, same definition as the KDS Performance tab:
   // completion = latest bump within 30 min of the first bump (later bumps are housekeeping).
   async function kitchenStats(location_id: string, from: string, to: string, targetMin: number) {
@@ -608,9 +609,102 @@ Deno.serve(async (req) => {
         later_count: laterRows.filter((o: any) => o.status !== "cancelled").length,
         before_cutoff_count: (allRows || []).filter((o: any) => o.created_at < cutoff && o.status !== "cancelled").length,
         previous: prev ? { closed_at: prev.closed_at, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance, float_amount: prev.float_amount } : null,
+        // SHIFTS: every shift since the last close, and the cash they dropped
+        // to the safe (taken off the cash the close expects in the drawer).
+        ...(await (async () => {
+          try {
+            const { data: sh, error: shErr } = await admin.from("till_shifts")
+              .select("id, device_key, status, opened_at, opened_by, ended_at, ended_by, opening_float, counted, expected_cash, variance, drop_amount, float_left, report")
+              .eq("location_id", location_id).is("closure_id", null).order("opened_at", { ascending: true });
+            if (shErr) return { shifts: [], cash_dropped: 0 };
+            const list = (sh || []).map((x: any) => ({
+              id: x.id, status: x.status, opened_at: x.opened_at, ended_at: x.ended_at, opened_by: x.opened_by, ended_by: x.ended_by,
+              opening_float: Number(x.opening_float || 0), taken: x.report ? Number(x.report.taken || 0) : null,
+              cash: x.report ? Number(x.report.cash || 0) : null, variance: x.variance == null ? null : Number(x.variance),
+              drop: Number(x.drop_amount || 0),
+            }));
+            return { shifts: list, cash_dropped: round2(list.reduce((a: number, x: any) => a + (x.drop || 0), 0)), first_float: list.length ? list[0].opening_float : null };
+          } catch { return { shifts: [], cash_dropped: 0 }; }
+        })()),
         last_week: lastWeek ? { closed_at: lastWeek.closed_at, total: Number(lastWeek.total_taken || 0), orders: lastWeek.order_count } : null,
       },
     };
+  }
+
+  // ---- SHIFTS 2026-10-24: shift handover (db/till_shifts.sql) ----
+  // A shift is one drawer session on one till. Its money is the payments taken
+  // in [from, to) at the store: those stamped with this till's device key, plus
+  // unstamped ones when no other till had a shift running over that window
+  // (one-till stores, and payments recorded before the till sent its key).
+  async function shiftMoney(location_id: string, devKey: string | null, from: string, to: string) {
+    const out = { cash: 0, card: 0, other: 0, refunds: 0, taken: 0, tenders: 0, orders: 0 };
+    let includeNull = true;
+    if (devKey) {
+      const { data: others } = await admin.from("till_shifts").select("device_key, opened_at, ended_at, status")
+        .eq("location_id", location_id).neq("device_key", devKey).lt("opened_at", to);
+      includeNull = !(others || []).some((x: any) => !x.ended_at || x.ended_at > from);
+    }
+    let pays: any[] = [];
+    let q = await admin.from("order_payments").select("order_id, method, amount, kind, device_key, created_at").gte("created_at", from).lt("created_at", to).limit(5000);
+    if (q.error && /device_key/.test(String(q.error.message || ""))) q = await admin.from("order_payments").select("order_id, method, amount, kind, created_at").gte("created_at", from).lt("created_at", to).limit(5000) as any;
+    if (q.error) throw q.error;
+    pays = (q.data || []) as any[];
+    const ids = Array.from(new Set(pays.map((p) => p.order_id)));
+    const here = new Set<string>();
+    for (let i = 0; i < ids.length; i += 100) {
+      const { data: os } = await admin.from("menu_orders").select("id").in("id", ids.slice(i, i + 100)).eq("location_id", location_id);
+      for (const o of os || []) here.add((o as any).id);
+    }
+    const orders = new Set<string>();
+    for (const p of pays) {
+      if (!here.has(p.order_id)) continue;
+      const k = p.device_key == null ? null : String(p.device_key);
+      if (devKey ? !(k === devKey || (k == null && includeNull)) : false) continue;
+      const amt = Number(p.amount || 0);
+      const m = p.method === "cash" || p.method === "card" ? p.method : "other";
+      if (p.kind === "refund" || amt < 0) { out.refunds += Math.abs(amt); (out as any)[m] -= Math.abs(amt); continue; }
+      (out as any)[m] += amt; out.tenders++; orders.add(p.order_id);
+    }
+    out.orders = orders.size;
+    out.cash = round2(out.cash); out.card = round2(out.card); out.other = round2(out.other); out.refunds = round2(out.refunds);
+    out.taken = round2(out.cash + out.card + out.other);
+    return out;
+  }
+  // A payment row stamped with the till that took it (SHIFTS). If the column
+  // isn't there yet (db/till_shifts.sql not run), the payment still records.
+  async function payInsert(row: Record<string, unknown>) {
+    const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+    if (!devKey) return await admin.from("order_payments").insert(row);
+    const r = await admin.from("order_payments").insert({ ...row, device_key: devKey });
+    if (r.error && /device_key/.test(String(r.error.message || ""))) return await admin.from("order_payments").insert(row);
+    return r;
+  }
+  async function storeFloat(location_id: string): Promise<number> {
+    const { data } = await admin.from("menu_app_settings").select("key, value").in("key", ["till_float:" + location_id, "currency:" + location_id]);
+    const get = (k: string) => (data || []).find((r: any) => r.key === k + ":" + location_id)?.value;
+    const v = Number(get("till_float"));
+    if (v > 0) return round2(v);
+    return String(get("currency") || "").toUpperCase() === "AED" ? 500 : 150;
+  }
+  async function liveShift(location_id: string, devKey: string | null) {
+    let q = admin.from("till_shifts").select("*").eq("location_id", location_id).in("status", ["open", "counting"]);
+    q = devKey ? q.eq("device_key", devKey) : q.is("device_key", null);
+    const { data } = await q.order("opened_at", { ascending: false }).limit(1);
+    return data && data.length ? (data[0] as any) : null;
+  }
+  async function lastClosedShift(location_id: string, devKey: string | null) {
+    let q = admin.from("till_shifts").select("*").eq("location_id", location_id).eq("status", "closed");
+    q = devKey ? q.eq("device_key", devKey) : q.is("device_key", null);
+    const { data } = await q.order("ended_at", { ascending: false }).limit(1);
+    return data && data.length ? (data[0] as any) : null;
+  }
+  // Who is doing this: a team member's own PIN, or a manager/master PIN.
+  async function shiftActor(pinIn: unknown, location_id: string) {
+    const st = await staffForPin(pinIn, location_id);
+    if (st && st.ok) return { ok: true, name: st.name, id: st.id };
+    const mg = await managerForPin(pinIn, location_id);
+    if (mg.ok) return { ok: true, name: mg.name || "Manager", id: null };
+    return { ok: false, name: "", id: null };
   }
 
     if (isPosCall && deviceTok && deviceTok.key && deviceTok.secret && deviceTok.location_id && !["device_activate", "device_claim_legacy", "device_heartbeat"].includes(action)) {
@@ -1445,7 +1539,7 @@ Deno.serve(async (req) => {
           const already = Math.round((existing || []).filter((p: any) => p.kind !== "refund").reduce((s: number, p: any) => s + Number(p.amount || 0), 0) * 100) / 100;
           const delta = Math.round((paid - already) * 100) / 100;
           if (delta > 0.001) {
-            const { error: pErr } = await admin.from("order_payments").insert({ order_id, method, amount: delta, kind: "payment", note: "Till" });
+            const { error: pErr } = await payInsert({ order_id, method, amount: delta, kind: "payment", note: "Till" });
             if (pErr) console.error("mark_paid tender", pErr);
           }
         }
@@ -1494,7 +1588,7 @@ Deno.serve(async (req) => {
         // Don't allow overpaying the balance on card/other; cash can exceed (change).
         const applied = (method === "cash") ? Math.min(amt, remainingBefore) : Math.min(amt, remainingBefore);
         // Record the tender.
-        const { error: pErr } = await admin.from("order_payments").insert({
+        const { error: pErr } = await payInsert({
           order_id, method, amount: applied,
           tendered: method === "cash" && tendered != null ? Math.round(Number(tendered) * 100) / 100 : null,
           note: note ? String(note).slice(0, 120) : null,
@@ -1818,7 +1912,7 @@ Deno.serve(async (req) => {
         const refundable = Math.round((paid - refundedSoFar) * 100) / 100;
         if (amt > refundable + 0.001) return json({ ok: false, error: "too_much", message: "Only £" + refundable.toFixed(2) + " can be refunded on this order" }, 409);
         // Refunds are negative ledger entries: the overpayment guard on order_payments lets them through and every sum stays honest.
-        const { error: pErr } = await admin.from("order_payments").insert({ order_id, method, amount: -amt, kind: "refund", note: ("REFUND" + (reason ? ": " + String(reason).slice(0, 100) : "") + " · by " + (mgr.name || "manager")).slice(0, 120) });
+        const { error: pErr } = await payInsert({ order_id, method, amount: -amt, kind: "refund", note: ("REFUND" + (reason ? ": " + String(reason).slice(0, 100) : "") + " · by " + (mgr.name || "manager")).slice(0, 120) });
         if (pErr) throw pErr;
         const newRefunded = Math.round((refundedSoFar + amt) * 100) / 100;
         const full = newRefunded + 0.001 >= paid;
@@ -1993,6 +2087,120 @@ Deno.serve(async (req) => {
       }
 
       // ---- TILL: today's sales summary for a location ----
+      // ---- SHIFTS: what is running on this till ----
+      case "shift_status": {
+        const { location_id } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+        let shift: any = null, last: any = null;
+        try { shift = await liveShift(location_id, devKey); last = await lastClosedShift(location_id, devKey); }
+        catch { return json({ ok: true, enabled: false }); }   // db/till_shifts.sql not run yet
+        const floatTarget = await storeFloat(location_id);
+        let live: any = null;
+        if (shift) {
+          const m = await shiftMoney(location_id, devKey, shift.opened_at, shift.ended_at || new Date().toISOString());
+          // Blind: the till is told sales, never the cash it should hold.
+          live = { taken: m.taken, card: m.card, orders: m.orders };
+        }
+        const strip = (x: any) => x && ({ id: x.id, status: x.status, opened_at: x.opened_at, opened_by: x.opened_by, opening_float: x.opening_float, ended_at: x.ended_at, ended_by: x.ended_by, float_left: x.float_left, drop_amount: x.drop_amount, note: x.note });
+        return json({ ok: true, enabled: true, shift: strip(shift), last: strip(last), live, float_target: floatTarget });
+      }
+
+      // ---- SHIFTS: the incoming person takes the drawer ----
+      case "shift_start": {
+        const { location_id, pin, float_counted, float_note } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const who = await shiftActor(pin, location_id);
+        if (!who.ok) return json({ error: "bad_pin", message: "That PIN isn't recognised at this store." }, 403);
+        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+        if (await liveShift(location_id, devKey)) return json({ error: "shift_running", message: "A shift is already running on this till." }, 409);
+        const last = await lastClosedShift(location_id, devKey);
+        const floatExpected = last && last.float_left != null ? round2(Number(last.float_left)) : null;
+        const opening = float_counted != null && float_counted !== "" ? round2(Number(float_counted)) : (floatExpected ?? await storeFloat(location_id));
+        if (floatExpected != null && Math.abs(opening - floatExpected) >= 0.01 && !String(float_note || "").trim()) {
+          return json({ error: "float_note", message: "The float differs from what was handed over — add a note." }, 400);
+        }
+        // Back-date to the moment the last shift ended, so cash taken while it
+        // was being counted belongs to this shift (it was taken off theirs).
+        const recent = last && last.ended_at && (Date.now() - Date.parse(last.ended_at)) < 3 * 3600000 && last.counted_at;
+        const openedAt = recent ? last.ended_at : new Date().toISOString();
+        const { data: row, error } = await admin.from("till_shifts").insert({
+          location_id, device_key: devKey, status: "open", opened_at: openedAt,
+          opened_by: who.name, opened_by_member: who.id, opening_float: opening,
+          float_expected: floatExpected, float_note: float_note ? String(float_note).slice(0, 200) : null,
+        }).select("*").single();
+        if (error) { if (String((error as any).code) === "23505") return json({ error: "shift_running", message: "A shift is already running on this till." }, 409); throw error; }
+        return json({ ok: true, shift: row });
+      }
+
+      // ---- SHIFTS: the outgoing person stops; the next shift's sales start now ----
+      case "shift_end": {
+        const { location_id, pin } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const who = await shiftActor(pin, location_id);
+        if (!who.ok) return json({ error: "bad_pin", message: "That PIN isn't recognised at this store." }, 403);
+        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+        const sh = await liveShift(location_id, devKey);
+        if (!sh || sh.status !== "open") return json({ error: "no_shift", message: "No shift is running on this till." }, 409);
+        const now = new Date().toISOString();
+        const { error } = await admin.from("till_shifts").update({ status: "counting", ended_at: now, ended_by: who.name, ended_by_member: who.id }).eq("id", sh.id).eq("status", "open");
+        if (error) throw error;
+        return json({ ok: true, shift_id: sh.id, ended_at: now, ended_by: who.name });
+      }
+
+      // ---- SHIFTS: "End my shift" pressed by mistake, before counting ----
+      case "shift_resume": {
+        const { location_id } = data || {};
+        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+        const sh = await liveShift(location_id, devKey);
+        if (!sh || sh.status !== "counting") return json({ error: "no_shift" }, 409);
+        await admin.from("till_shifts").update({ status: "open", ended_at: null, ended_by: null, ended_by_member: null }).eq("id", sh.id).eq("status", "counting");
+        return json({ ok: true });
+      }
+
+      // ---- SHIFTS: blind count. preview first (confirm=false), then save ----
+      case "shift_count": {
+        const { location_id, counted_raw, denoms, note, confirm } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        if (counted_raw == null || !isFinite(Number(counted_raw))) return json({ error: "count_required" }, 400);
+        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+        const sh = await liveShift(location_id, devKey);
+        if (!sh || sh.status !== "counting") return json({ error: "no_shift", message: "End the shift before counting." }, 409);
+        const now = new Date().toISOString();
+        const money = await shiftMoney(location_id, devKey, sh.opened_at, sh.ended_at);
+        const since = await shiftMoney(location_id, devKey, sh.ended_at, now);
+        const raw = round2(Number(counted_raw));
+        const counted = round2(raw - since.cash);
+        const expected = round2(Number(sh.opening_float || 0) + money.cash);
+        const variance = round2(counted - expected);
+        const target = await storeFloat(location_id);
+        const drop = Math.max(0, round2(counted - target));
+        const floatLeft = round2(counted - drop);
+        const { data: cur } = await admin.from("menu_app_settings").select("value").eq("key", "currency:" + location_id).maybeSingle();
+        const noteFrom = String(cur?.value || "").toUpperCase() === "AED" ? 20 : 5;
+        const preview = { counted_raw: raw, cash_since_end: since.cash, counted, expected, variance, drop, float_left: floatLeft, float_target: target, note_needed: Math.abs(variance) >= noteFrom };
+        if (!confirm) return json({ ok: true, preview });
+        if (preview.note_needed && !String(note || "").trim()) return json({ error: "note_required", message: "Say what happened — the drawer is out by more than " + noteFrom + ".", preview }, 400);
+        const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle();
+        const report = {
+          kind: "shift", store: loc?.name || "", opened_at: sh.opened_at, ended_at: sh.ended_at, counted_at: now,
+          opened_by: sh.opened_by, ended_by: sh.ended_by, opening_float: Number(sh.opening_float || 0),
+          taken: money.taken, cash: money.cash, card: money.card, other: money.other, refunds: money.refunds, orders: money.orders, tenders: money.tenders,
+          ...preview, note: note ? String(note).slice(0, 300) : null,
+        };
+        const { error } = await admin.from("till_shifts").update({
+          status: "closed", counted_at: now, counted_raw: raw, cash_since_end: since.cash, counted, expected_cash: expected, variance,
+          denoms: denoms || null, drop_amount: drop, float_left: floatLeft, note: report.note, report,
+        }).eq("id", sh.id).eq("status", "counting");
+        if (error) throw error;
+        let printed: boolean | null = null;
+        try {
+          const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id, device_key: devKey, summary: report });
+          printed = pr.ok && (pr.body as any)?.ok !== false;
+        } catch { printed = false; }
+        return json({ ok: true, shift: report, printed });
+      }
+
       case "day_summary": {
         const { location_id, mode } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
@@ -2516,7 +2724,9 @@ Deno.serve(async (req) => {
         const counted = cash_counted == null ? null : round2(cash_counted);
         const flt = float_amount == null ? null : round2(float_amount);
         // Expected drawer = float left in at the start + cash taken today.
-        const expected = counted == null ? null : round2((flt || 0) + summary.cash);
+        // SHIFTS: cash dropped to the safe at handovers is no longer in the drawer.
+        const dropped = round2(Number((summary as any).cash_dropped || 0));
+        const expected = counted == null ? null : round2((flt || 0) + summary.cash - dropped);
         const variance = counted == null ? null : round2(counted - (expected as number));
         // ZREPORT 2026-10-24 — the next Z number for this store and the running
         // grand total. If db/z_report.sql hasn't been run the columns don't
@@ -2547,7 +2757,7 @@ Deno.serve(async (req) => {
           closed_by: closed_by ? String(closed_by).slice(0, 80) : null, note: note ? String(note).slice(0, 300) : null,
           other_total: summary.other, cancelled_count: summary.cancelled_count,
           period_end: mode === "trading_day" ? summary.cutoff : now,
-          report: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, closed_by, note },
+          report: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, cash_dropped: dropped, closed_by, note },
           closed_by_member_id: staffCloser ? staffCloser.id : null,
         };
         if (zNumber != null) Object.assign(closureRow, { z_number: zNumber, gt_before: gtBefore, gt_after: gtAfter });
@@ -2566,13 +2776,23 @@ Deno.serve(async (req) => {
             if (uErr) throw uErr;
           }
         }
+        // SHIFTS: the day's shifts roll into this close. A shift still running
+        // ends with the day - its cash is in the count the close just took.
+        try {
+          await admin.from("till_shifts").update({ status: "closed", ended_at: now, ended_by: closed_by || "Day close", note: "Ended with the day close" })
+            .eq("location_id", location_id).in("status", ["open", "counting"]);
+          await admin.from("till_shifts").update({ closure_id: closure?.id }).eq("location_id", location_id).is("closure_id", null);
+          if (dropped) await admin.from("till_closures").update({ cash_dropped: dropped }).eq("id", closure?.id);
+        } catch (e) { console.error("shift rollup", e); }
+        // On the printed Z a shift that was still running ends with the day.
+        if (Array.isArray((summary as any).shifts)) (summary as any).shifts = (summary as any).shifts.map((x: any) => x.status === "closed" ? x : { ...x, status: "closed", ended_at: now });
         let printed: boolean | null = null;
         try {
           const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).single();
           const pr = await callSunmi({
             action: "print-summary", store_name: loc?.name || "", location_id,
             device_key: deviceTok?.key ? String(deviceTok.key) : null,
-            summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, closed_by, note },
+            summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, cash_dropped: dropped, closed_by, note },
           });
           // ZREPORT: print-summary answers 200 with ok:false when there's no
           // printer or every push failed — that is not "printed".

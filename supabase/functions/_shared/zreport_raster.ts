@@ -181,6 +181,7 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
   parts.push(bar("CASH DRAWER"));
   if (s.float_amount != null) parts.push(line("Opening float", n2(s.float_amount)));
   parts.push(line("+ Cash taken", n2(s.cash)));
+  if (Number(s.cash_dropped) > 0) parts.push(line("− Dropped to safe", n2(s.cash_dropped)));
   const counted = s.cash_counted;
   if (counted != null) {
     parts.push(totalRow("= Expected", n2(s.cash_expected)));
@@ -241,6 +242,22 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
         txt(n2(it.sales), { width: VW, justifyContent: "flex-end" }))));
   }
 
+  // ---- 11b. Shifts (handovers during the day) ----
+  const shifts = Array.isArray(s.shifts) ? s.shifts : [];
+  if (shifts.length) {
+    parts.push(bar("SHIFTS", "OVER / SHORT"));
+    for (const sh of shifts) {
+      const who = String(sh.opened_by || "—").split(" ")[0];
+      const span = fmtDate(sh.opened_at, m.timeZone, "time") + "–" + (sh.ended_at ? fmtDate(sh.ended_at, m.timeZone, "time") : "now");
+      const v = sh.variance == null ? (sh.status === "closed" ? "end of day" : "running") : ((Number(sh.variance) > 0 ? "+" : "") + n2(sh.variance));
+      parts.push(el({ justifyContent: "space-between", alignItems: "baseline", padding: `${rowPad}px 0`, fontSize: body },
+        txt(span + "  " + who, { flex: 1 }),
+        txt(sh.taken == null ? "" : n2(sh.taken), { width: VW, justifyContent: "flex-end" }),
+        txt(v, { width: fs(130), justifyContent: "flex-end", fontWeight: 700 })));
+    }
+    if (Number(s.cash_dropped) > 0) parts.push(line("Dropped to safe", n2(s.cash_dropped), { bold: true }));
+  }
+
   // ---- 12. Continuity (audit trail) ----
   if (isZ && (s.receipt_from != null || s.gt_after != null)) {
     parts.push(bar("CONTINUITY", "AUDIT"));
@@ -278,5 +295,65 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
       txt(m.kind === "x" ? "DAY STILL OPEN" : (m.kind === "reprint" ? "REPRINT · " : "DAY CLOSED · ") + (zNo ? "Z " + zNo : "Z"), { fontSize: fs(20), fontWeight: 700, letterSpacing: 2 })),
     m.kind !== "x" ? txt(cur === "AED" ? "Keep with daily sales records (UAE FTA)" : "Keep with daily takings for 6 years (HMRC)", { fontSize: fs(15), marginTop: fs(6) }) : txt("")));
 
+  return col({ width: dots, padding: `${fs(6)}px ${fs(6)}px ${fs(20)}px`, background: "#fff", color: "#000", fontFamily: "Inter", fontSize: body }, ...parts);
+}
+
+
+// ===========================================================================
+// SHIFTS 2026-10-24 — the handover slip printed when a shift is counted.
+// Same visual language as the Z report, much shorter.
+// ===========================================================================
+export function shiftSlipTree(r: any, m: ZMeta, dots = 576): Node {
+  const narrow = dots < 500, k = narrow ? 0.72 : 1, fs = (n: number) => Math.round(n * k);
+  const cur = (m.currency || "GBP").toUpperCase(), sym = SYM[cur];
+  const n2 = (v: unknown) => { const x = Number(v) || 0; return (x < 0 ? "-" : "") + Math.abs(x).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","); };
+  const money = (v: unknown) => { const x = Number(v) || 0; return (x < 0 ? "-" : "") + (sym ? sym : cur + " ") + n2(Math.abs(x)); };
+  const pct = (a: unknown, b: unknown) => { const w = Number(b) || 0; if (w <= 0) return ""; const v = (Number(a) || 0) / w * 100; return (v >= 10 || v === 0 ? v.toFixed(0) : v.toFixed(1)) + "%"; };
+  const body = fs(22), small = fs(18);
+  const row = (l: string, v: string, o: { bold?: boolean; p?: string } = {}) =>
+    el({ justifyContent: "space-between", alignItems: "baseline", padding: `${fs(4)}px 0`, fontSize: body, fontWeight: o.bold ? 700 : 400 },
+      txt(l, { flex: 1 }), txt(o.p ?? "", { width: fs(76), justifyContent: "flex-end" }), txt(v, { width: fs(150), justifyContent: "flex-end" }));
+  const rule = () => el({ height: 0, borderTop: "2px solid #000", width: "100%", margin: `${fs(4)}px 0` });
+  const bar = (t: string, right = "") => el({ justifyContent: "space-between", alignItems: "flex-end", borderBottom: "4px solid #000", paddingBottom: fs(4), marginTop: fs(20), marginBottom: fs(6) },
+    txt(t, { fontSize: fs(23), fontWeight: 700 }), txt(right, { fontSize: fs(16), fontWeight: 700 }));
+  const t = (iso: unknown) => fmtDate(iso, m.timeZone, "time");
+  const v = Number(r.variance) || 0;
+  const parts: unknown[] = [];
+  parts.push(col({ alignItems: "center" },
+    txt((m.brandName || "Chocoberry").toUpperCase(), { fontSize: fs(34), fontWeight: 700, letterSpacing: 2 }),
+    m.storeName ? txt(m.storeName, { fontSize: fs(22), fontWeight: 700 }) : txt("")));
+  parts.push(col({ border: "4px solid #000", alignItems: "center", padding: `${fs(8)}px 0`, marginTop: fs(12) },
+    txt("SHIFT HANDOVER", { fontSize: fs(30), fontWeight: 700, letterSpacing: 2 }),
+    txt(fmtDate(r.opened_at, m.timeZone, "day") + " · " + t(r.opened_at) + " – " + t(r.ended_at), { fontSize: small, fontWeight: 700, marginTop: fs(2) })));
+  parts.push(el({ justifyContent: "space-between", marginTop: fs(10), fontSize: small },
+    col({}, txt("OPENED BY", { fontSize: fs(15), fontWeight: 700 }), txt(r.opened_by || "—", { fontSize: body, fontWeight: 700 })),
+    col({ alignItems: "flex-end" }, txt("ENDED BY", { fontSize: fs(15), fontWeight: 700 }), txt(r.ended_by || "—", { fontSize: body, fontWeight: 700 }))));
+  parts.push(col({ border: "3px solid #000", alignItems: "center", padding: `${fs(8)}px 0`, marginTop: fs(12) },
+    txt("TAKEN THIS SHIFT", { fontSize: fs(16), fontWeight: 700, letterSpacing: 2 }),
+    txt(money(r.taken), { fontSize: fs(46), fontWeight: 700, lineHeight: 1.05 }),
+    txt((r.orders || 0) + " orders", { fontSize: small, fontWeight: 700 })));
+  parts.push(bar("TAKINGS", "% OF TAKEN"));
+  parts.push(row("Card", n2(r.card), { p: pct(r.card, r.taken) }));
+  parts.push(row("Cash", n2(r.cash), { p: pct(r.cash, r.taken) }));
+  if (Number(r.other)) parts.push(row("Other", n2(r.other), { p: pct(r.other, r.taken) }));
+  if (Number(r.refunds)) parts.push(row("Refunds", "-" + n2(r.refunds)));
+  parts.push(rule()); parts.push(row("Total taken", n2(r.taken), { bold: true, p: "100%" }));
+  parts.push(bar("CASH DRAWER", "BLIND COUNT"));
+  parts.push(row("Opening float", n2(r.opening_float)));
+  parts.push(row("+ Cash this shift", n2(r.cash)));
+  parts.push(rule()); parts.push(row("= Expected", n2(r.expected), { bold: true }));
+  parts.push(row("Counted in drawer", n2(r.counted_raw)));
+  if (Number(r.cash_since_end)) parts.push(row("− Next shift's cash", n2(r.cash_since_end)));
+  parts.push(row("Counted for this shift", n2(r.counted), { bold: true }));
+  parts.push(el({ border: "4px solid #000", justifyContent: "space-between", alignItems: "center", padding: `${fs(8)}px ${fs(12)}px`, marginTop: fs(8) },
+    txt(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", { fontSize: fs(30), fontWeight: 700, letterSpacing: 2 }),
+    txt((v > 0 ? "+" : "") + n2(v) + (v !== 0 && Number(r.expected) > 0 ? "  (" + (v > 0 ? "+" : "-") + pct(Math.abs(v), r.expected) + ")" : ""), { fontSize: fs(30), fontWeight: 700 })));
+  parts.push(bar("HANDOVER"));
+  parts.push(row("Drop to safe", n2(r.drop), { bold: true }));
+  parts.push(row("Float left in drawer", n2(r.float_left), { bold: true }));
+  if (r.note) { parts.push(bar("NOTE")); parts.push(txt(String(r.note), { fontSize: body, lineHeight: 1.35 })); }
+  const sign = (who: string) => col({ flex: 1, marginRight: fs(16) }, el({ height: fs(54), borderBottom: "2px solid #000" }), txt(who, { fontSize: fs(15), fontWeight: 700, marginTop: fs(4) }));
+  parts.push(el({ marginTop: fs(16) }, sign("OUTGOING"), sign("INCOMING / MANAGER")));
+  parts.push(col({ alignItems: "center", marginTop: fs(12) }, txt("Counted " + fmtDate(r.counted_at, m.timeZone, "full"), { fontSize: fs(15) })));
   return col({ width: dots, padding: `${fs(6)}px ${fs(6)}px ${fs(20)}px`, background: "#fff", color: "#000", fontFamily: "Inter", fontSize: body }, ...parts);
 }

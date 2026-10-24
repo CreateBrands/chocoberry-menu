@@ -3013,6 +3013,8 @@ export default function Admin() {
                                 <Field k="legal_name" label="Legal / company name" placeholder="Chocoberry London Road Ltd" />
                                 <Field k="company_address" label="Address" placeholder="123 London Road | Leicester LE2 0QA" hint="Use | to start a new line on the slip." />
                                 <Field k="tax_number" label="VAT number (UK) / TRN (UAE)" placeholder="GB 123 4567 89" />
+                                {/* SHIFTS 2026-10-24 — fixed float: at each shift handover the till tells staff to drop everything above this into the safe. */}
+                                <Field k="till_float" label="Till float (kept in the drawer at shift handover)" placeholder="150" hint="Empty = 150 (500 for AED stores). Everything above it goes in the safe at each handover." />
                                 <Field k="vat_rate" label="VAT rate % in prices" placeholder="20" hint="Blank = 20 for £ stores, 5 for AED stores. 0 = leave VAT off the slip." />
                                 <Field k="welcome_eyebrow" label="Welcome · eyebrow" placeholder="WELCOME TO" />
                                 <Field k="welcome_subtitle" label="Welcome · subtitle" placeholder="Tap below to start your order" />

@@ -24,9 +24,9 @@ import {
   type ReceiptOrder,
   type ReceiptItem,
 } from "../_shared/escpos.ts";
-import { buildZReport } from "../_shared/zreport.ts";
+import { buildZReport, buildShiftSlip } from "../_shared/zreport.ts";
 import { buildOrderRasterHex, renderTreeToRasterParts } from "../_shared/raster.ts";
-import { zReportTree } from "../_shared/zreport_raster.ts";
+import { zReportTree, shiftSlipTree } from "../_shared/zreport_raster.ts";
 
 // "raster" = Uber-style image tickets (real typography); anything else = text
 const RECEIPT_MODE = Deno.env.get("RECEIPT_MODE") ?? "text";
@@ -1155,6 +1155,7 @@ Deno.serve(async (req) => {
         const currency = (st("currency") || "GBP").toUpperCase();
         const vatRaw = st("vat_rate");
         const vatRate = vatRaw === "" ? (currency === "AED" ? 5 : 20) : Number(vatRaw);
+        const isShift = s.kind === "shift";   // SHIFTS: handover slip, same printer choice
         const kind = s.kind === "x" ? "x" : s.reprint ? "reprint" : "z";
         const zMeta = {
           kind, brandName: st("brand_name") || "Chocoberry", storeName: String(body.store_name || ""),
@@ -1162,13 +1163,13 @@ Deno.serve(async (req) => {
           currency, vatRate: Number.isFinite(vatRate) ? vatRate : null, timeZone: tz, printedAt: new Date(),
         } as any;
         // Plain-text slip: the fallback, and what prints if the drawn one fails.
-        const hex = buildZReport(s, zMeta).toHex();
+        const hex = (isShift ? buildShiftSlip(s, zMeta) : buildZReport(s, zMeta)).toHex();
         // ZREPORT RASTER: the drawn slip (zreport_raster.ts), one per paper width.
         const rasterByDots = new Map<number, string[] | null>();
         const rasterFor = async (paperMm: unknown): Promise<string[] | null> => {
           const dots = Number(paperMm) > 0 && Number(paperMm) <= 60 ? 384 : 576;
           if (!rasterByDots.has(dots)) {
-            try { rasterByDots.set(dots, await renderTreeToRasterParts(zReportTree(s, zMeta, dots), dots, 900, 6000, 200)); }
+            try { rasterByDots.set(dots, await renderTreeToRasterParts(isShift ? shiftSlipTree(s, zMeta, dots) : zReportTree(s, zMeta, dots), dots, 900, 6000, 200)); }
             catch (e) { console.error("z raster failed, printing text:", e); rasterByDots.set(dots, null); }
           }
           return rasterByDots.get(dots) ?? null;
@@ -1187,7 +1188,7 @@ Deno.serve(async (req) => {
         for (const pr of pick) {
           const drawn = await rasterFor((pr as any).paper_mm);
           // A device printer takes the whole slip as one job.
-          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), drawn ? drawn.join("") : hex, { slip: kind === "x" ? "xread" : "zreport", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true, drawn: !!drawn }); continue; }
+          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), drawn ? drawn.join("") : hex, { slip: isShift ? "shift" : kind === "x" ? "xread" : "zreport", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true, drawn: !!drawn }); continue; }
           // Sunmi cloud: the drawn slip goes as ticket-sized parts, in order.
           // If any part is refused, the text slip follows, so a close always
           // prints in full.

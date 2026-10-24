@@ -166,6 +166,7 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
   const counted = s.cash_counted;
   if (s.float_amount != null) lr("  Opening float", num(s.float_amount));
   lr("  + Cash taken (after cash refunds)", num(s.cash));
+  if (Number(s.cash_dropped) > 0) lr("  - Dropped to safe", num(s.cash_dropped));
   if (counted != null) {
     lr("  = Expected in drawer", num(s.cash_expected));
     lr("  Counted", num(counted));
@@ -198,6 +199,17 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
     div();
   }
 
+  const shifts = Array.isArray(s.shifts) ? s.shifts : [];
+  if (shifts.length) {
+    sec("SHIFTS");
+    for (const sh of shifts) {
+      const tt = (iso: string) => iso ? new Intl.DateTimeFormat("en-GB", { timeZone: m.timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso)) : "now";
+      const v = sh.variance == null ? "-" : num(sh.variance);
+      row3("  " + tt(sh.opened_at) + "-" + tt(sh.ended_at) + " " + String(sh.opened_by || "").split(" ")[0].slice(0, 8), sh.taken == null ? "" : num(sh.taken), v);
+    }
+    div();
+  }
+
   if (s.note) { sec("NOTE"); for (const l of String(s.note).match(/.{1,46}(\s|$)/g) || [String(s.note)]) r.line("  " + l.trim()); div(); }
 
   if (m.kind !== "x") {
@@ -211,4 +223,34 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
   if (m.kind !== "x") r.line(cur === "AED" ? "Keep with daily sales records (UAE FTA)" : "Keep with daily takings for 6 years (HMRC)");
   r.align(0).feed(3).cut();
   return r;
+}
+
+
+// SHIFTS 2026-10-24 — text fallback for the shift handover slip.
+export function buildShiftSlip(r: any, m: ZMeta): Receipt {
+  const rc = new Receipt().init();
+  const lr = (l: string, v: string) => rc.leftRight(l, v, W);
+  const tt = (iso: string) => iso ? new Intl.DateTimeFormat("en-GB", { timeZone: m.timeZone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(iso)) : "-";
+  rc.align(1).size(1, 1).bold(true).line((m.brandName || "CHOCOBERRY").toUpperCase()).bold(false).size(0, 0);
+  if (m.storeName) rc.line(m.storeName);
+  rc.line("=".repeat(W)).size(0, 1).bold(true).line("SHIFT HANDOVER").bold(false).size(0, 0)
+    .line(tt(r.opened_at) + " - " + tt(r.ended_at)).align(0).line("=".repeat(W));
+  lr("Opened by", String(r.opened_by || "-").slice(0, 30));
+  lr("Ended by", String(r.ended_by || "-").slice(0, 30));
+  rc.line("-".repeat(W));
+  lr("Card", num(r.card)); lr("Cash", num(r.cash)); if (Number(r.other)) lr("Other", num(r.other));
+  rc.bold(true); lr("TAKEN (" + (r.orders || 0) + " orders)", num(r.taken)); rc.bold(false);
+  rc.line("-".repeat(W));
+  lr("Opening float", num(r.opening_float)); lr("+ Cash this shift", num(r.cash)); lr("= Expected", num(r.expected));
+  lr("Counted in drawer", num(r.counted_raw));
+  if (Number(r.cash_since_end)) lr("- Next shift's cash", num(r.cash_since_end));
+  lr("Counted for this shift", num(r.counted));
+  const v = Number(r.variance) || 0;
+  rc.bold(true); lr(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", num(v)); rc.bold(false);
+  rc.line("-".repeat(W));
+  rc.bold(true); lr("DROP TO SAFE", num(r.drop)); lr("FLOAT LEFT", num(r.float_left)); rc.bold(false);
+  if (r.note) { rc.line("-".repeat(W)); for (const l of String(r.note).match(/.{1,46}(\s|$)/g) || [String(r.note)]) rc.line("  " + l.trim()); }
+  rc.feed(1).line("  Outgoing: " + "_".repeat(33)).feed(1).line("  Incoming: " + "_".repeat(33));
+  rc.feed(3).cut();
+  return rc;
 }
