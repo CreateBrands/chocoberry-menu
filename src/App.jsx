@@ -902,7 +902,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
               </div>
             )}
             <div style={{ display: "flex", gap: kiosk ? 14 : 12, alignItems: "center", flex: "none" }}>
-              {circle(onOpenDrawer, "Your orders & menus", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>)}
+              {onOpenDrawer && circle(onOpenDrawer, "Your orders & menus", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M3 12h18M3 18h18" /></svg>)}
               {kiosk && onReach && circle(onReach, "Bring the screen within reach", <svg width={26} height={26} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="4.5" r="2" /><path d="M5 8.5l7 1.5 7-1.5" /><path d="M12 10v5l-3 6" /><path d="M12 15l3 6" /></svg>)}
               {circle(onSearch, "Search", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.2-3.2" /></svg>)}
               {canOrder && circle(onBag, "Your bag", <svg width={kiosk ? 26 : 22} height={kiosk ? 26 : 22} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M5 8h14l-1.2 12H6.2z" /><path d="M9 8V6a3 3 0 0 1 6 0v2" /></svg>,
@@ -2712,7 +2712,21 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
   );
 }
 
-export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null }) {
+// VIEWONLY 2026-10-24 — the welcome screen on a shared view-only link keeps the
+// store's own wording, except anything inviting the customer to order here.
+function viewOnlyWelcome(w) {
+  const b = w.welcome_button || "";
+  const f = w.welcome_footer || "";
+  return {
+    ...w,
+    welcome_button: !b || /order/i.test(b) ? "View menu" : b,
+    welcome_footer: !f || /tap to begin|pickup|order ahead/i.test(f) ? "Tap to view our menu" : f,
+  };
+}
+
+export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null, viewToken = null }) {
+  // VIEWONLY 2026-10-24 — opened from a shared customer link (/menu/<link>).
+  const viewOnly = !!viewToken;
   // The kiosk's store: its licence if it has one, otherwise the store staff picked.
   const kioskStoreId = kiosk ? ((kioskDevice && kioskDevice.location_id) || kioskLoc || null) : null;
   const [screen, setScreen] = useState("welcome");
@@ -2871,7 +2885,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   // Petpooja, so the tablets are a menu and nothing else. The per-store one
   // was read but only checked at submit, so Dubai still offered Place Order
   // and only refused once the customer had filled a bag and tapped it.
-  const canOrder = orderingOn && acceptingOrders;
+  const canOrder = !viewOnly && orderingOn && acceptingOrders;
   // The kiosk shell reads this to decide whether leaving would lose an order.
   useEffect(() => { try { window.__kioskBagCount = lines.reduce((n, l) => n + l.qty, 0); } catch {} });
   const [sessionOrders, setSessionOrders] = useState(() => {
@@ -2948,7 +2962,9 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   }, [screen, allergensUnlocked]);
 
   useEffect(() => {
-    if (!allergensUnlocked) return;
+    // On a customer's own phone (view-only link) there's no next customer to
+    // protect, and jumping back to the welcome screen mid-read is just annoying.
+    if (!allergensUnlocked || viewOnly) return;
     let t;
     const arm = () => { clearTimeout(t); t = setTimeout(() => { setAllergensUnlocked(false); setTableUnlocked(false); setKioskDine(null); setKioskTable(""); setScreen("welcome"); }, IDLE_RESET_MS); };
     const events = ["pointerdown", "keydown", "touchstart", "scroll"];
@@ -3043,12 +3059,16 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
 
   useEffect(() => {
     let alive = true;
-    const token = getStoreToken();
+    // A shared view-only link comes from the path and is never saved on the
+    // phone, so it can't turn the phone into "a tablet" for later visits.
+    const token = viewOnly ? viewToken : getStoreToken();
     fetchSettings().then(setSettings);
     // Claim this tablet-link QR for this device. If it's already locked to a
     // DIFFERENT device, show the lock screen instead of the menu. Dining-table
     // QRs return 'not_found' here (they aren't tablet links) and are unaffected.
+    // A view-only link is shared with every customer, so it is never claimed.
     (async () => {
+      if (viewOnly) return;
       const st = await claimToken(token);
       if (alive && st === "locked") setLocked(true);
     })();
@@ -3067,7 +3087,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     })();
     // Determine dining-table mode from the token.
     (async () => {
-      if (!token) { setTableMode("none"); return; }
+      if (!token || viewOnly) { setTableMode("none"); return; }
       const scanned = await tableFromToken(token);
       if (!alive) return;
       if (scanned) {
@@ -3266,7 +3286,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
           ● Offline — showing saved menu
         </div>
       )}
-      <GetAppBanner settings={settingsEff} table={table} />
+      {!viewOnly && <GetAppBanner settings={settingsEff} table={table} />}
       <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Hanken+Grotesk:wght@400;500;600;700&family=Sora:wght@400;500;600&family=Jost:wght@300;400;500;600&display=swap" rel="stylesheet" />
       <style>{`
         @keyframes calmGlow{0%,100%{opacity:.55;transform:scale(1)}50%{opacity:.9;transform:scale(1.06)}}
@@ -3328,8 +3348,8 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" data-kiosk={kiosk ? "1" : undefined} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
-            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={() => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} theme={themeVars} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} catJump={catJump} canOrder={canOrder} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
+            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={viewOnly ? viewOnlyWelcome(settingsEff) : settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={viewOnly ? null : () => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} theme={themeVars} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} catJump={catJump} canOrder={canOrder} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
             <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
             <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail kiosk={kiosk} canOrder={canOrder} key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
               setAllergensUnlocked(true);

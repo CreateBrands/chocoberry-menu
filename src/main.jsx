@@ -20,12 +20,16 @@ const isKiosk = path === "/kiosk";
 const isDisplay = path === "/display";
 // The store's background-music player (Admin → Music).
 const isMusic = path === "/music";
+// VIEWONLY 2026-10-24 — a menu customers can open on their own phone from a
+// shared link or QR (/menu/<link>): browse only, no basket, no ordering, and
+// it never claims or locks a tablet link.
+const viewToken = path.startsWith("/menu/") ? decodeURIComponent(path.slice(6)) : null;
 // A licensed device may only open the surface its licence allows.
 const dev = getDevice();
 const wrongSurface = dev && ((isKDS && !surfaceAllowed(dev.kind, "kds")) || (isPOS && !surfaceAllowed(dev.kind, "pos")) || (isKiosk && !surfaceAllowed(dev.kind, "kiosk")));
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    {isAdmin ? <Admin /> : isDisplay ? <CustomerDisplay /> : isMusic ? <MusicPlayer /> : isActivate ? <Activate /> : wrongSurface ? <Activate reason="wrong_surface" /> : isKiosk ? <Kiosk /> : isKDS ? <KDS surface="kds" /> : isPOS ? <KDS surface="pos" /> : <App />}
+    {viewToken ? <App viewToken={viewToken} /> : isAdmin ? <Admin /> : isDisplay ? <CustomerDisplay /> : isMusic ? <MusicPlayer /> : isActivate ? <Activate /> : wrongSurface ? <Activate reason="wrong_surface" /> : isKiosk ? <Kiosk /> : isKDS ? <KDS surface="kds" /> : isPOS ? <KDS surface="pos" /> : <App />}
   </React.StrictMode>
 );
