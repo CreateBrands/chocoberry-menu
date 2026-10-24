@@ -24,6 +24,7 @@ import {
   type ReceiptOrder,
   type ReceiptItem,
 } from "../_shared/escpos.ts";
+import { buildZReport } from "../_shared/zreport.ts";
 import { buildOrderRasterHex } from "../_shared/raster.ts";
 
 // "raster" = Uber-style image tickets (real typography); anything else = text
@@ -1138,45 +1139,44 @@ Deno.serve(async (req) => {
       }
 
       case "print-summary": {
-        // store (or all printers if we can't resolve one).
+        // ZREPORT 2026-10-24 — full Z report / X read / reprint (see
+        // _shared/zreport.ts). It used to print a nine-line summary on EVERY
+        // kitchen printer in the estate — a close at one store came out in
+        // all of them. Now it prints at the closing store only: the printer
+        // tied to this till, else the store's receipt / counter printer, else
+        // its kitchen printer.
         const s = body.summary || {};
-        const storeName = String(body.store_name || "");
-        const when = new Date().toLocaleString("en-GB", { timeZone: await storeZone(body.location_id) });
-        const { data: zc } = await supabase.from("menu_app_settings").select("value")
-          .eq("key", "currency:" + String(body.location_id || "")).maybeSingle();
-        const fmtZ = moneyFor(zc?.value ? String(zc.value) : "GBP");
-        const money = (n: number) => fmtZ(Number(n) || 0);
-        const W = 48;
-        const r = new Receipt();
-        r.align(1).size(1, 1).bold(true).line("END OF DAY").bold(false).size(0, 0);
-        if (storeName) r.line(storeName);
-        r.line("Z-REPORT").feed(1);
-        r.align(0).line(when).divider("-").feed(1);
-        r.size(0, 1).leftRight("TOTAL TAKEN", money(s.total), W).size(0, 0);
-        r.divider("-");
-        r.leftRight("Cash", money(s.cash), W);
-        r.leftRight("Card", money(s.card), W);
-        r.leftRight("Paid orders", String(s.paid_count ?? 0), W);
-        if ((s.discount_total ?? 0) > 0) r.leftRight("Discounts given", money(s.discount_total), W);
-        if ((s.refund_total ?? 0) > 0) r.leftRight("Refunds" + (s.refund_count ? " (" + s.refund_count + ")" : ""), "-" + money(s.refund_total), W);
-        r.divider("-");
-        if ((s.unpaid_count ?? 0) > 0) {
-          r.bold(true).leftRight("UNPAID (" + s.unpaid_count + ")", money(s.unpaid_total), W).bold(false);
-          r.divider("-");
-        }
-        r.leftRight("Orders archived", String(s.order_count ?? s.paid_count ?? 0), W);
-        r.feed(1).align(1).line("Day closed").feed(2).cut();
-        const hex = r.toHex();
-        // Print to all kitchen printers (day-close is a store-level report).
-        const { data: printers } = await supabase.from("printers").select("sn, station");
-        const targets = (printers || []).filter((p: any) => (p.station || "kitchen") === "kitchen");
+        const locationId = String(body.location_id || "");
+        const tz = await storeZone(locationId);
+        const keys = ["currency", "brand_name", "legal_name", "company_address", "tax_number", "vat_rate"].map((k) => k + ":" + locationId);
+        const { data: setRows } = await supabase.from("menu_app_settings").select("key, value").in("key", keys);
+        const st = (k: string) => { const row = (setRows || []).find((x: any) => x.key === k + ":" + locationId); return row && row.value != null ? String(row.value).trim() : ""; };
+        const currency = (st("currency") || "GBP").toUpperCase();
+        const vatRaw = st("vat_rate");
+        const vatRate = vatRaw === "" ? (currency === "AED" ? 5 : 20) : Number(vatRaw);
+        const kind = s.kind === "x" ? "x" : s.reprint ? "reprint" : "z";
+        const hex = buildZReport(s, {
+          kind, brandName: st("brand_name") || "Chocoberry", storeName: String(body.store_name || ""),
+          legalName: st("legal_name"), address: st("company_address"), taxNumber: st("tax_number"),
+          currency, vatRate: Number.isFinite(vatRate) ? vatRate : null, timeZone: tz, printedAt: new Date(),
+        }).toHex();
+        const { data: printers } = await supabase.from("printers")
+          .select("sn, station, print_receipt, print_role, source_screen_key, location_id, active")
+          .eq("location_id", locationId).eq("active", true);
+        const all = printers || [];
+        const tied = body.device_key ? all.filter((p: any) => String(p.source_screen_key || "") === String(body.device_key)) : [];
+        const receipts = all.filter((p: any) => p.print_receipt === true || String(p.print_role || "").toLowerCase() === "receipt");
+        const counter = all.filter((p: any) => String(p.station || "") === "counter");
+        const kitchen = all.filter((p: any) => (p.station || "kitchen") === "kitchen");
+        const pick = tied.length ? tied : receipts.length ? receipts.slice(0, 1) : counter.length ? counter.slice(0, 1) : kitchen.length ? kitchen.slice(0, 1) : all.slice(0, 1);
+        if (!pick.length) return json({ ok: false, error: "no_printer", message: "No active printer at this store." });
         const results = [];
-        for (const pr of (targets.length ? targets : (printers || []))) {
-          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), hex, { slip: "zreport", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true }); continue; }
+        for (const pr of pick) {
+          if (isLocalSn(String(pr.sn))) { const q = await enqueueLocal(String(pr.sn), hex, { slip: kind === "x" ? "xread" : "zreport", max_batch: 0 }); results.push({ sn: pr.sn, ok: q, local: true }); continue; }
           const res = await sunmi.pushContent(String(pr.sn), "zrep" + Date.now() + String(pr.sn).slice(-4), hex);
           results.push({ sn: pr.sn, ok: ok(res) });
         }
-        return json({ ok: true, printed: results });
+        return json({ ok: results.some((x) => x.ok), printed: results });
       }
       // ---- CASH DRAWER: kick the till drawer open ----
       // The drawer hangs off the receipt printer's RJ11 socket, so "opening"

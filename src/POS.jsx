@@ -355,6 +355,13 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       setCloseTill((c) => c && c.pin === pin ? { ...c, staff: r.ok ? { name: r.name } : { unknown: true, reason: r.reason } } : c);
     }, 350);
   }
+  // ZREPORT 2026-10-24 — print an X read (no close, no reset, no Z number).
+  async function printXRead() {
+    const c = closeTill; if (!c || c.xPrinting) return;
+    setCloseTill((x) => x && { ...x, xPrinting: true, xPrinted: null });
+    const r = await ordActionJson("print_x_read", { location_id: loc, mode: c.mode, float_amount: c.float === "" ? null : Number(c.float) });
+    setCloseTill((x) => x && { ...x, xPrinting: false, xPrinted: !!(r && r.ok) });
+  }
   async function reprintClosure() {
     const c = closeTill; if (!c || !c.result || !c.result.closure_id) return;
     setCloseTill((x) => x && { ...x, reprinting: true });
@@ -1956,7 +1963,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                       <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 14, background: "#eef7ea", border: "1px solid #cfe3c4", borderRadius: 16, padding: "14px 18px" }}>
                         <span style={{ width: 40, height: 40, borderRadius: "50%", background: C.good, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 20, flexShrink: 0 }}>✓</span>
                         <div style={{ fontSize: 14.5, lineHeight: 1.5 }}>
-                          <b>{r.closed_orders} order{r.closed_orders === 1 ? "" : "s"} archived</b> and the close saved{closer ? " by " + closer : ""}. Z-report {r.printed ? "printed on the store printer." : r.printed === false ? <span style={{ color: C.warn }}>could not print — check the printer, then tap Print again.</span> : "not sent."}
+                          {rs.z_number != null && <b>Z No. {String(rs.z_number).padStart(6, "0")} · </b>}<b>{r.closed_orders} order{r.closed_orders === 1 ? "" : "s"} archived</b> and the close saved{closer ? " by " + closer : ""}. Z-report {r.printed ? "printed on the store printer." : r.printed === false ? <span style={{ color: C.warn }}>could not print — check the printer, then tap Print again.</span> : "not sent."}
                         </div>
                       </div>
                       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
@@ -1985,6 +1992,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               <div style={{ padding: "14px 26px 20px", borderTop: "1px solid " + C.line, display: "flex", gap: 10, background: "#fff" }}>
                 {closeTill.step === "summary" && stage === 0 && (<>
                   <Btn onClick={() => { if (closeTill.busy) return; setNoteKb(false); setPadFor(null); setCloseTill(null); }}>Cancel</Btn>
+                  {/* ZREPORT 2026-10-24 — X read: the day so far on paper, nothing closed or reset. */}
+                  <Btn disabled={closeTill.busy || !sm || closeTill.xPrinting} onClick={() => printXRead()}>{closeTill.xPrinting ? "Printing…" : closeTill.xPrinted === true ? "X read printed ✓" : closeTill.xPrinted === false ? "X read failed — retry" : "Print X read"}</Btn>
                   <Btn primary grow={2} disabled={closeTill.busy || !sm} onClick={() => setCloseTill((c) => ({ ...c, stage: 1 }))}>Next: count cash →</Btn>
                 </>)}
                 {/* On-screen number pad. The till has no keyboard, so every

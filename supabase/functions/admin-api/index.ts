@@ -39,7 +39,7 @@ Deno.serve(async (req) => {
     "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "refund_payment", "print_refund_receipt", "set_order_table", "staff_set_stock",
     "remove_order_item", "set_order_item_qty", "void_fired_item",
     "set_order_type",
-    "day_summary",
+    "day_summary", "print_x_read",
     "merges_list", "merge_save", "merge_delete",
     "sweep_unprinted", "retry_print", "clear_print_flag", "clear_print_flags", "clear_print_queue",
     "local_print_jobs", "local_print_done", "print_events", "usb_printer_register", "usb_printer_release", "usb_printer_test", "device_printer_register", "kiosk_slip",
@@ -431,7 +431,7 @@ Deno.serve(async (req) => {
     return d;
   }
   // Till-only actions. Screen setup (kds_screen_self), targets and kitchen prints are KDS actions and stay allowed for kitchen licences.
-  const POS_ONLY = new Set(["abandon_hold", "mark_paid", "mark_unpaid", "close_day", "day_summary", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue"]);
+  const POS_ONLY = new Set(["abandon_hold", "mark_paid", "mark_unpaid", "close_day", "day_summary", "print_x_read", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue"]);
   // Kitchen speed for the closing report, same definition as the KDS Performance tab:
   // completion = latest bump within 30 min of the first bump (later bumps are housekeeping).
   async function kitchenStats(location_id: string, from: string, to: string, targetMin: number) {
@@ -500,11 +500,13 @@ Deno.serve(async (req) => {
     // ---- items: top sellers + category mix ----
     const itemAgg: Record<string, { name: string; qty: number; sales: number }> = {};
     let itemsSold = 0;
+    // ZREPORT 2026-10-24 — voided lines are counted for the Z report's controls.
+    let voidCount = 0, voidTotal = 0;
     for (let i = 0; i < ids.length; i += 100) {
       const { data: lines, error: lineErr } = await admin.from("menu_order_items").select("order_id, name_snapshot, qty, line_total, item_status").in("order_id", ids.slice(i, i + 100));
       if (lineErr) throw lineErr;
       for (const l of lines || []) {
-        if (l.item_status === "voided") continue;
+        if (l.item_status === "voided") { voidCount += Number(l.qty || 0); voidTotal += Number(l.line_total || 0); continue; }
         const k = String(l.name_snapshot || "").trim(); if (!k) continue;
         const a = itemAgg[k] || (itemAgg[k] = { name: k, qty: 0, sales: 0 });
         a.qty += Number(l.qty || 0); a.sales += Number(l.line_total || 0); itemsSold += Number(l.qty || 0);
@@ -519,6 +521,15 @@ Deno.serve(async (req) => {
     const bySource: Record<string, { count: number; amount: number }> = {};
     const byHour: Record<string, { count: number; amount: number }> = {};
     let first: string | null = null, last: string | null = null;
+    // ZREPORT 2026-10-24 — delivery-platform orders (paid out later by the
+    // platform) and the first/last order number for the continuity block.
+    let platformCount = 0, platformTotal = 0;
+    let recFrom: number | null = null, recTo: number | null = null;
+    for (const o of orders) {
+      if ((o as any).external_channel) continue;   // platforms use their own numbers
+      const n = Number(String((o as any).order_no ?? "").replace(/\D/g, ""));
+      if (Number.isFinite(n) && n > 0) { if (recFrom == null || n < recFrom) recFrom = n; if (recTo == null || n > recTo) recTo = n; }
+    }
     // The same zone the trading-day cutoff above already uses. Hard-wiring
     // London put a Dubai store's busiest hour three hours out, and the hourly
     // bars on the closing report with it. Null or empty means London, so every
@@ -543,6 +554,7 @@ Deno.serve(async (req) => {
       if (total > 0 && settled) paidCount++;
       else if (total > 0) { unpaidCount++; unpaidTotal += total - paid; unpaid.push({ id: o.id, order_no: o.order_no, order_type: o.order_type, due: round2(total - paid), created_at: o.created_at }); }
       const t = o.order_type || "other"; (byType[t] ||= { count: 0, amount: 0 }); byType[t].count++; byType[t].amount += total;
+      if (o.external_channel) { platformCount++; platformTotal += total; }
       const src = o.external_channel ? String(o.external_channel) : (o.tablet_no === "POS" ? "Till" : o.tablet_no === "phone" ? "Phone" : o.tablet_no === "web" ? "Web" : o.tablet_no == null ? "App" : "Tablet");
       (bySource[src] ||= { count: 0, amount: 0 }); bySource[src].count++; bySource[src].amount += total;
       const h = String(hourOf(o.created_at)).padStart(2, "0"); (byHour[h] ||= { count: 0, amount: 0 }); byHour[h].count++; byHour[h].amount += total;
@@ -554,6 +566,16 @@ Deno.serve(async (req) => {
 
     // ---- previous closure + same weekday last week, for comparison ----
     const { data: prev } = await admin.from("till_closures").select("closed_at, total_taken, order_count, cash_variance, float_amount").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
+    // ZREPORT 2026-10-24 — no-sale drawer opens since the last close.
+    let drawerOpens: number | null = null;
+    try {
+      const since = prev?.closed_at || new Date(Date.now() - 24 * 3600000).toISOString();
+      let dq = admin.from("device_events").select("id", { count: "exact", head: true })
+        .eq("location_id", location_id).eq("event", "drawer_opened").gt("created_at", since);
+      if (mode === "trading_day") dq = dq.lt("created_at", cutoff);
+      const { count } = await dq;
+      drawerOpens = count ?? 0;
+    } catch { drawerOpens = null; }
     const anchor = new Date((first || new Date().toISOString()));
     const lw0 = new Date(anchor.getTime() - 8 * 86400000).toISOString(), lw1 = new Date(anchor.getTime() - 6 * 86400000).toISOString();
     const { data: lwRows } = await admin.from("till_closures").select("closed_at, total_taken, order_count").eq("location_id", location_id).gte("closed_at", lw0).lte("closed_at", lw1).order("closed_at", { ascending: false }).limit(3);
@@ -574,6 +596,14 @@ Deno.serve(async (req) => {
         peak_hour: peak ? { hour: peak[0], amount: round2(peak[1].amount), count: peak[1].count } : null,
         top_items: topItems,
         first_order: first, last_order: last,
+        // ZREPORT 2026-10-24. `oldest` is what close_day and day_summary hand
+        // to the kitchen-speed stats; it was never set, so they always fell
+        // back to "the last 24 hours".
+        oldest: first,
+        receipt_from: recFrom, receipt_to: recTo,
+        void_count: voidCount, void_total: round2(voidTotal),
+        platform: { count: platformCount, amount: round2(platformTotal) },
+        drawer_opens: drawerOpens,
         mode, cutoff,
         later_count: laterRows.filter((o: any) => o.status !== "cancelled").length,
         before_cutoff_count: (allRows || []).filter((o: any) => o.created_at < cutoff && o.status !== "cancelled").length,
@@ -2481,7 +2511,26 @@ Deno.serve(async (req) => {
         // Expected drawer = float left in at the start + cash taken today.
         const expected = counted == null ? null : round2((flt || 0) + summary.cash);
         const variance = counted == null ? null : round2(counted - (expected as number));
-        const { data: closure, error: cErr } = await admin.from("till_closures").insert({
+        // ZREPORT 2026-10-24 — the next Z number for this store and the running
+        // grand total. If db/z_report.sql hasn't been run the columns don't
+        // exist; the close still goes through, just without them.
+        let zNumber: number | null = null, gtBefore: number | null = null;
+        try {
+          const { data: lastZ, error: zErr } = await admin.from("till_closures").select("z_number, gt_after")
+            .eq("location_id", location_id).not("z_number", "is", null)
+            .order("z_number", { ascending: false }).limit(1).maybeSingle();
+          if (!zErr) {
+            zNumber = (Number(lastZ?.z_number) || 0) + 1;
+            if (lastZ && lastZ.gt_after != null) gtBefore = round2(Number(lastZ.gt_after));
+            else {
+              const { data: all } = await admin.from("till_closures").select("total_taken").eq("location_id", location_id);
+              gtBefore = round2((all || []).reduce((a: number, x: any) => a + Number(x.total_taken || 0), 0));
+            }
+          }
+        } catch { zNumber = null; gtBefore = null; }
+        const gtAfter = gtBefore == null ? null : round2(gtBefore + Number(summary.total || 0));
+        Object.assign(summary as any, { z_number: zNumber, gt_before: gtBefore, gt_after: gtAfter, closed_at: now });
+        const closureRow: any = {
           device_key: deviceTok?.key ? String(deviceTok.key) : null,
           location_id, closed_at: now,
           total_taken: summary.total, cash_total: summary.cash, card_total: summary.card,
@@ -2493,7 +2542,16 @@ Deno.serve(async (req) => {
           period_end: mode === "trading_day" ? summary.cutoff : now,
           report: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, closed_by, note },
           closed_by_member_id: staffCloser ? staffCloser.id : null,
-        }).select("id").single();
+        };
+        if (zNumber != null) Object.assign(closureRow, { z_number: zNumber, gt_before: gtBefore, gt_after: gtAfter });
+        let { data: closure, error: cErr } = await admin.from("till_closures").insert(closureRow).select("id").single();
+        if (cErr && zNumber != null && /z_number|gt_before|gt_after/.test(String(cErr.message || ""))) {
+          delete closureRow.z_number; delete closureRow.gt_before; delete closureRow.gt_after;
+          ({ data: closure, error: cErr } = await admin.from("till_closures").insert(closureRow).select("id").single());
+        }
+        if (cErr && String((cErr as any).code) === "23505") {
+          return json({ error: "already_closing", message: "This till was closed a moment ago on another screen. Reload to see it." }, 409);
+        }
         if (cErr) throw cErr;
         if (ids.length) {
           for (let i = 0; i < ids.length; i += 100) {
@@ -2506,12 +2564,29 @@ Deno.serve(async (req) => {
           const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).single();
           const pr = await callSunmi({
             action: "print-summary", store_name: loc?.name || "", location_id,
+            device_key: deviceTok?.key ? String(deviceTok.key) : null,
             summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, closed_by, note },
           });
-          printed = pr.ok;
+          // ZREPORT: print-summary answers 200 with ok:false when there's no
+          // printer or every push failed — that is not "printed".
+          printed = pr.ok && (pr.body as any)?.ok !== false;
         } catch { printed = false; }
         return json({ ok: true, closure_id: closure?.id, closed_orders: ids.length, printed,
           summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance } });
+      }
+
+      // ---- TILL: X read — print the day so far without closing anything ----
+      case "print_x_read": {
+        const { location_id, mode, float_amount = null } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const { summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
+        const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).single();
+        const flt = float_amount == null || float_amount === "" ? null : round2(Number(float_amount));
+        const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id,
+          device_key: deviceTok?.key ? String(deviceTok.key) : null,
+          summary: { ...summary, kind: "x", float_amount: flt } });
+        const done = pr.ok && (pr.body as any)?.ok !== false;
+        return json({ ok: done, printed: done, error: done ? undefined : ((pr.body as any)?.message || "Couldn't print the X read.") });
       }
 
       // ---- TILL: reprint a Z-report from a saved closure ----
@@ -2523,8 +2598,10 @@ Deno.serve(async (req) => {
         if (scope === "store" && c.location_id !== scopeLocationId) return json({ error: "forbidden" }, 403);
         if (scope === "region" && fence && !fence.locs.has(String(c.location_id))) return json({ error: "forbidden: outside your region" }, 403);
         const { data: loc } = await admin.from("menu_locations").select("name").eq("id", c.location_id).single();
-        const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id: c.location_id, summary: { ...(c.report || {}), reprint: true, closed_at: c.closed_at } });
-        return json({ ok: pr.ok });
+        const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id: c.location_id,
+          device_key: deviceTok?.key ? String(deviceTok.key) : null,
+          summary: { ...(c.report || {}), reprint: true, closed_at: c.closed_at } });
+        return json({ ok: pr.ok && (pr.body as any)?.ok !== false });
       }
 
       // ---- MENUS ----

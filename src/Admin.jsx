@@ -3008,6 +3008,12 @@ export default function Admin() {
                                 <div style={{ fontSize: 11, color: T.muted, marginBottom: 12, lineHeight: 1.45 }}>The menu, the till, the cash-up pad and the printed receipt all follow this. It does not convert anything — set this store's prices in its own money first.</div>
                                 <Field k="brand_name" label="Brand name" placeholder="Chocoberry" hint="Shown on the KDS/POS header, receipts, QR stickers and the get-the-app strip." />
                                 <Field k="brand_tagline" label="Tagline" placeholder="Desserts, beautifully done." />
+                                {/* ZREPORT 2026-10-24 — printed at the top of the Z report (end-of-day slip). */}
+                                <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", margin: "6px 0 6px" }}>End-of-day slip (Z report)</div>
+                                <Field k="legal_name" label="Legal / company name" placeholder="Chocoberry London Road Ltd" />
+                                <Field k="company_address" label="Address" placeholder="123 London Road | Leicester LE2 0QA" hint="Use | to start a new line on the slip." />
+                                <Field k="tax_number" label="VAT number (UK) / TRN (UAE)" placeholder="GB 123 4567 89" />
+                                <Field k="vat_rate" label="VAT rate % in prices" placeholder="20" hint="Blank = 20 for £ stores, 5 for AED stores. 0 = leave VAT off the slip." />
                                 <Field k="welcome_eyebrow" label="Welcome · eyebrow" placeholder="WELCOME TO" />
                                 <Field k="welcome_subtitle" label="Welcome · subtitle" placeholder="Tap below to start your order" />
                                 <Field k="welcome_button" label="Welcome · button" placeholder="Menu" />
