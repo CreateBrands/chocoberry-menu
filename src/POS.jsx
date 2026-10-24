@@ -366,7 +366,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     const c = closeTill; if (!c || !c.result || !c.result.closure_id) return;
     setCloseTill((x) => x && { ...x, reprinting: true });
     try {
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, action: "reprint_closure", data: { closure_id: c.result.closure_id } }) });
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, device: deviceToken(), action: "reprint_closure", data: { closure_id: c.result.closure_id } }) });
       const j = await r.json().catch(() => ({}));
       setCloseTill((x) => x && { ...x, reprinting: false, reprinted: !!j.ok });
     } catch { setCloseTill((x) => x && { ...x, reprinting: false, reprinted: false }); }
@@ -386,7 +386,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     setCloseTill((c) => c && { ...c, ...overrides, busy: true, err: "" });
     const c = { ...closeTill, ...overrides };
     try {
-      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, action: "close_day", data: {
+      const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, device: deviceToken(), action: "close_day", data: {
         location_id: loc, mode: c.mode, staff_pin: c.pin, cash_counted: c.counted === "" ? null : Number(c.counted), float_amount: c.float === "" ? null : Number(c.float), note: c.note.trim() || null,
       } }) });
       const j = await r.json().catch(() => ({}));

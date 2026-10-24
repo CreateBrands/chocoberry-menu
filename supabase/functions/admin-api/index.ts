@@ -621,6 +621,13 @@ Deno.serve(async (req) => {
         return json({ error: "not_allowed_for_device", message: "A kitchen-screen licence can't do till actions." }, 403);
       }
     }
+    // A till only closes, X-reads and reprints for its OWN store. The device
+    // token names the store the till is licensed to; a mismatch means a till
+    // at one store asking for another's report, which would also print there.
+    const tillStore = deviceTok && deviceTok.location_id ? String(deviceTok.location_id) : null;
+    if (tillStore && ["close_day", "print_x_read"].includes(action) && data && data.location_id && String(data.location_id) !== tillStore) {
+      return json({ error: "wrong_store", message: "This till belongs to a different store, so it can't close or print this store's report." }, 403);
+    }
     switch (action) {
       // ---- READ: everything the admin UI needs in one call ----
       case "load": {
@@ -2597,6 +2604,7 @@ Deno.serve(async (req) => {
         if (!c) return json({ error: "closure not found" }, 404);
         if (scope === "store" && c.location_id !== scopeLocationId) return json({ error: "forbidden" }, 403);
         if (scope === "region" && fence && !fence.locs.has(String(c.location_id))) return json({ error: "forbidden: outside your region" }, 403);
+        if (tillStore && String(c.location_id) !== tillStore) return json({ error: "wrong_store", message: "That closure belongs to a different store." }, 403);
         const { data: loc } = await admin.from("menu_locations").select("name").eq("id", c.location_id).single();
         const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id: c.location_id,
           device_key: deviceTok?.key ? String(deviceTok.key) : null,
