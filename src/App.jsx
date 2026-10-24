@@ -148,12 +148,19 @@ async function tableFromToken(token) {
 }
 
 // Resolve token -> which store/brand this tablet is.
-async function resolveStore(token) {
+// strict: a server error or timeout THROWS instead of answering "no store".
+// The menu refresh uses strict, because "no store" means "every menu in the
+// database": on 24 Oct a ten-minute server blip had every Al Zahia tablet
+// showing Tove and UK menus side by side until the next good refresh.
+async function resolveStore(token, strict = false) {
   if (!token) return null;
-  const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/resolve_store", {
-    method: "POST", headers: H, body: JSON.stringify({ token }),
-  });
-  if (!r.ok) return null;
+  let r;
+  try {
+    r = await fetch(SUPABASE_URL + "/rest/v1/rpc/resolve_store", {
+      method: "POST", headers: H, body: JSON.stringify({ token }), cache: "no-store",
+    });
+  } catch (e) { if (strict) throw e; return null; }
+  if (!r.ok) { if (strict) throw new Error("resolve_store " + r.status); return null; }
   const rows = await r.json();
   return rows && rows.length ? rows[0] : null;
 }
@@ -162,8 +169,27 @@ async function resolveStore(token) {
 // Falls back to the global menu when there's no store token.
 async function fetchLive(token, forcedLoc = null) {
   // Kiosks have no QR token: their store comes from the device licence.
-  const store = forcedLoc ? { location_id: forcedLoc, id: forcedLoc } : (token ? await resolveStore(token) : null);
+  let store = forcedLoc ? { location_id: forcedLoc, id: forcedLoc } : null;
+  if (!forcedLoc && token) {
+    // Remember which store this link belongs to. If the check fails (server
+    // blip, offline after a restart), carry on as that store.
+    const memo = "store_of:" + token;
+    try {
+      store = await resolveStore(token, true);
+      if (store && store.location_id) { try { localStorage.setItem(memo, JSON.stringify(store)); } catch { /* storage off */ } }
+    } catch (e) {
+      try { store = JSON.parse(localStorage.getItem(memo) || "null"); } catch { store = null; }
+      if (!store) throw e;
+    }
+  }
   const loc = forcedLoc || (store && store.location_id ? store.location_id : null);
+  // A tablet with a store link must never fall through to the all-brands
+  // menu. If its link resolves to nothing, keep whatever is on screen (the
+  // refresh ignores a failure) rather than show another brand's menu.
+  if (token && !loc) throw new Error("store link did not resolve");
+  // The offline copy belongs to this store only, so a bad moment can never
+  // leave one store's tablets showing a menu saved for another.
+  const cacheKey = "menu_cache_v2:" + (loc || "global");
 
   // store_menu_full returns menu -> category -> item with open/closed state.
   // Falls back to a location-less call (nulls resolve to master prices).
@@ -176,11 +202,11 @@ async function fetchLive(token, forcedLoc = null) {
     if (!r.ok) throw new Error("store_menu_full " + r.status);
     rows = await r.json();
     // Cache the fresh menu for offline use
-    try { localStorage.setItem("menu_cache_v1", JSON.stringify({ rows, at: Date.now() })); } catch {}
+    try { localStorage.setItem(cacheKey, JSON.stringify({ rows, at: Date.now() })); localStorage.removeItem("menu_cache_v1"); } catch {}
   } catch (netErr) {
     // Offline or fetch failed — fall back to the cached menu if we have one
     try {
-      const cached = localStorage.getItem("menu_cache_v1");
+      const cached = localStorage.getItem(cacheKey);
       if (cached) { rows = JSON.parse(cached).rows; }
       else throw netErr;
     } catch { throw netErr; }
@@ -3071,9 +3097,11 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     // changes and the ordering on/off switch propagate without a manual reload.
     // It only swaps in fresh menu DATA; it never disturbs the customer's bag or
     // which screen they're on.
+    let loadedOnce = false;
     const refreshMenu = () => {
       fetchLive(token, kioskStoreId).then((res) => {
         if (!alive || !res || !res.menus || !res.menus.length) return;
+        loadedOnce = true;
         setMenus(res.menus);
         setStore(res.store || null);
         setSource("live");
@@ -3084,7 +3112,11 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
             .then((rows) => { if (alive) setAcceptingOrders(rows.length ? rows[0].value !== "off" : true); })
             .catch(() => {});
         }
-      }).catch((e) => console.warn("menu refresh:", e.message));
+      }).catch((e) => {
+        console.warn("menu refresh:", e.message);
+        // Nothing on screen yet: try again soon rather than in a minute.
+        if (alive && !loadedOnce) setTimeout(refreshMenu, 5000);
+      });
     };
     refreshMenu();
     // Accepting-orders state gets its OWN fast poll (every 10s) so staff pausing
