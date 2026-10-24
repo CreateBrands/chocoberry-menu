@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, Fragment } from "react";
 import MenuOverview from "./MenuOverview";
 import MusicManager from "./MusicManager.jsx";
-import { openTableStickerSheet } from "./tableStickers";
+import { openTableStickerSheet, openMenuQrSheet } from "./tableStickers";
 import PricingManager from "./PricingManager";
 // Currency follows the store being served — see src/money.js.
 import { money } from "./money.js";
@@ -2800,7 +2800,12 @@ export default function Admin() {
             })()}
 
             {(state.locations || []).filter((l) => !storeQuery.trim() || String(l.name || "").toLowerCase().includes(storeQuery.trim().toLowerCase())).sort((a, b) => String(a.name).localeCompare(String(b.name))).map((loc) => {
-              const tokens = (state.tables || []).filter((t) => t.location_id === loc.id && t.is_table === false);
+              // VIEWONLY 2026-10-24 — a customer menu link is a menu_tables row
+              // like a tablet link, told apart by its label. It's shared with
+              // the public, so it must never sit in the tablet list.
+              const isCustomerLink = (t) => /^customer menu link/i.test(String(t.label || ""));
+              const customerLinks = (state.tables || []).filter((t) => t.location_id === loc.id && t.is_table === false && isCustomerLink(t));
+              const tokens = (state.tables || []).filter((t) => t.location_id === loc.id && t.is_table === false && !isCustomerLink(t));
               const diningTables = (state.tables || []).filter((t) => t.location_id === loc.id && t.is_table !== false)
                 .sort((a, b) => (parseInt(String(a.label).replace(/\D/g, "")) || 0) - (parseInt(String(b.label).replace(/\D/g, "")) || 0));
               const ovCount = (state.overrides || []).filter((o) => o.location_id === loc.id).length;
@@ -2868,7 +2873,7 @@ export default function Admin() {
                   {isOpen && (
                     <div style={{ borderTop: "1px solid " + T.line, padding: "18px", background: T.bg }}>
                       <div style={{ display: "flex", gap: 4, marginBottom: 17, background: "#ecebe3", padding: 4, borderRadius: 12, width: "fit-content" }}>
-                        {[["tablets", "Tablets", tokens.length], ["tables", "Tables", diningTables.length], ["kitchen", "Devices", (state.kdsScreens || []).filter((k) => k.location_id === loc.id).length], ["menus", "Menus", null], ["branding", "Branding", null]].map(([key, lbl, count]) => (
+                        {[["tablets", "Tablets", tokens.length], ["tables", "Tables", diningTables.length], ["kitchen", "Devices", (state.kdsScreens || []).filter((k) => k.location_id === loc.id).length], ["menus", "Menus", null], ["share", "Customer menu", null], ["branding", "Branding", null]].map(([key, lbl, count]) => (
                           <span key={key} onClick={() => setStoreTab(key)} style={{ padding: "8px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: storeTab === key ? T.ink : T.muted, background: storeTab === key ? "#fff" : "transparent", boxShadow: storeTab === key ? "0 2px 6px rgba(40,36,25,.09)" : "none", letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 7 }}>
                             {lbl}{count != null && <span style={{ fontSize: 10.5, background: storeTab === key ? "#e7f2e0" : "#e0ded4", color: storeTab === key ? "#3c5a2e" : "#8a8272", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{count}</span>}
                           </span>
@@ -2905,6 +2910,35 @@ export default function Admin() {
                           <button onClick={() => act("create_token", { location_id: loc.id, label: "Tablet " + (tokens.length + 1) })} style={{ fontSize: 12.5, color: T.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 700, marginTop: 6, padding: 8 }}>+ New tablet link</button>
                         </div>
                       )}
+
+                      {/* CUSTOMER MENU TAB — VIEWONLY 2026-10-24 */}
+                      {storeTab === "share" && (() => {
+                        const link = customerLinks[0] || null;
+                        const url = link ? window.location.origin + "/menu/" + link.qr_token : "";
+                        const brandName = getSetting("brand_name:" + loc.id) || "Chocoberry";
+                        const pill = { fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "8px 14px", borderRadius: 10, textDecoration: "none", display: "inline-block" };
+                        return (
+                          <div style={{ maxWidth: 620 }}>
+                            <div style={{ fontSize: 11, fontWeight: 700, color: T.faint, letterSpacing: ".6px", textTransform: "uppercase", marginBottom: 6 }}>View-only menu link</div>
+                            <div style={{ fontSize: 12.5, color: T.muted, marginBottom: 14, lineHeight: 1.5 }}>
+                              A link customers open on their own phone to see {loc.name}'s menu and prices. They can't order from it. Share it on WhatsApp, Instagram or Google, or print the QR for the window and counter. Don't use it on a tablet — tablets keep their own links.
+                            </div>
+                            {link ? (
+                              <div style={{ border: "1px solid " + T.line, borderRadius: 12, background: T.card, padding: "14px 16px" }}>
+                                <div style={{ fontSize: 13.5, fontWeight: 600, color: T.ink, wordBreak: "break-all" }}>{url.replace(/^https?:\/\//, "")}</div>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
+                                  <span onClick={() => { navigator.clipboard?.writeText(url); }} style={{ ...pill, color: T.accent, background: "#eef3ea", border: "1px solid #d9e6d2" }}>Copy link</span>
+                                  <span onClick={() => openMenuQrSheet({ storeName: loc.name, url, brandName })} style={{ ...pill, color: "#fff", background: T.accent, border: "1px solid " + T.accent }}>QR to print or save</span>
+                                  <a href={url} target="_blank" rel="noreferrer" style={{ ...pill, color: T.muted, background: T.bg, border: "1px solid " + T.line }}>Open</a>
+                                  <span onClick={() => { if (window.confirm("Turn this link off? Anyone using it — and any printed QR — will stop working. You can make a new one after.")) act("delete_token", { id: link.id }); }} style={{ ...pill, color: "#b4462f", background: "#fbeeeb", border: "1px solid #f2ddd6", marginLeft: "auto" }}>Turn off</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <button onClick={() => act("create_token", { location_id: loc.id, label: "Customer menu link (view only — not for tablets)" })} style={{ fontSize: 13, fontWeight: 700, color: "#fff", background: T.accent, border: "none", borderRadius: 10, padding: "10px 16px", cursor: "pointer" }}>Create customer menu link</button>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* TABLES TAB */}
                       {storeTab === "tables" && (

@@ -39,3 +39,38 @@ ${cards.map((c) => `<div class="card"><div class="brand">${esc(brandName || "Cho
   if (!w) { alert("Pop-up blocked — allow pop-ups for this site and try again."); return; }
   w.document.open(); w.document.write(html); w.document.close();
 }
+
+// VIEWONLY 2026-10-24 — one large "Scan to view our menu" card for a store's
+// view-only customer link (/menu/<token>), to print, or to save the QR image
+// for WhatsApp, Instagram or a website.
+export async function openMenuQrSheet({ storeName, url, brandName }) {
+  const png = await QRCode.toDataURL(url, { width: 900, margin: 2, errorCorrectionLevel: "M", color: { dark: "#2E2119", light: "#FFFFFF" } });
+  const esc = (s) => String(s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const file = (String(storeName || "store").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "") || "store") + "-menu-QR.png";
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(storeName)} — menu QR</title>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  @page { size: A5; margin: 10mm; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: Poppins, system-ui, sans-serif; color: #2E2119; background: #fff; }
+  .bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 14px 18px; border-bottom: 1px solid #e6dfd2; font-size: 13px; flex-wrap: wrap; }
+  .bar b { font-size: 15px; }
+  .bar .btns { display: flex; gap: 8px; }
+  .bar a, .bar button { font: inherit; font-weight: 700; background: #8F4123; color: #F9EDDC; border: 0; border-radius: 999px; padding: 9px 18px; cursor: pointer; text-decoration: none; }
+  .bar a { background: #F3EADA; color: #8F4123; }
+  .card { width: 120mm; margin: 10mm auto; border-radius: 6mm; padding: 9mm 8mm; background: #F9EDDC; text-align: center; }
+  .brand { font-size: 20pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: #8F4123; }
+  .store { font-size: 12pt; color: #6b5a4d; margin-top: 1mm; }
+  .qr { width: 86mm; height: 86mm; margin: 6mm auto 5mm; background: #fff; border-radius: 3mm; padding: 2.5mm; }
+  .qr img { width: 100%; height: 100%; display: block; }
+  .cta { font-size: 17pt; font-weight: 700; }
+  .url { font-size: 8.5pt; color: #6b5a4d; margin-top: 2mm; word-break: break-all; }
+  @media print { .bar { display: none; } .card { margin: 0 auto; } }
+</style></head><body>
+<div class="bar"><div><b>${esc(storeName)}</b> · view-only menu link</div><div class="btns"><a href="${png}" download="${esc(file)}">Save QR image</a><button onclick="window.print()">Print</button></div></div>
+<div class="card"><div class="brand">${esc(brandName || "Chocoberry")}</div><div class="store">${esc(storeName)}</div><div class="qr"><img src="${png}" alt="Menu QR"></div><div class="cta">Scan to view our menu</div><div class="url">${esc(url.replace(/^https?:\/\//, ""))}</div></div>
+</body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Pop-up blocked — allow pop-ups for this site and try again."); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
