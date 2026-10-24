@@ -48,6 +48,40 @@ public class DisplayService extends Service {
         public void onDisplayRemoved(int id) { if (id == shownOn) dismiss(); refresh(); }
         public void onDisplayChanged(int id) { }
     };
+    // Watchdog. On 24 Oct the London Road rear screen froze on one poster:
+    // no slideshow, no payments, until the till was restarted. Every 20s:
+    // if the page has sent no heartbeat for a minute, rebuild it; after three
+    // rebuilds in 15 minutes stop and say the till needs a restart (that is
+    // the screen itself, which no app can fix).
+    private static final long STALL_MS = 60000;
+    private final java.util.ArrayList<Long> rebuilds = new java.util.ArrayList<>();
+    private String lastWatch = "";
+    private final Runnable watchdog = new Runnable() { public void run() {
+        try {
+            if (web != null || activityMode) {
+                long now = System.currentTimeMillis();
+                Prefs p = new Prefs(DisplayService.this);
+                if (now - Web.lastAlive > STALL_MS && now - Web.errorAt > 2 * STALL_MS) {
+                    while (!rebuilds.isEmpty() && now - rebuilds.get(0) > 15 * 60000L) rebuilds.remove(0);
+                    if (rebuilds.size() < 3) {
+                        rebuilds.add(now);
+                        status("The customer screen stopped responding — restarting it");
+                        dismiss(); refresh();
+                    } else if (!lastWatch.equals("stuck")) {
+                        lastWatch = "stuck";
+                        status("The customer screen isn't responding — please restart the till");
+                    }
+                } else {
+                    String w = "live".equals(Web.link) ? "ok" : "wait";
+                    if (!w.equals(lastWatch)) {
+                        lastWatch = w;
+                        status("Showing posters · " + p.storeName() + ("ok".equals(w) ? " · payments link OK" : " · connecting payments link…"));
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        ui.postDelayed(this, 20000);
+    }};
     private final Runnable freshen = new Runnable() { public void run() { if (web != null) web.reload(); ui.postDelayed(this, FRESH_MS); } };
 
     @Override public IBinder onBind(Intent i) { return null; }
@@ -59,6 +93,7 @@ public class DisplayService extends Service {
         dm = (DisplayManager) getSystemService(Context.DISPLAY_SERVICE);
         dm.registerDisplayListener(displays, ui);
         ui.postDelayed(freshen, FRESH_MS);
+        ui.postDelayed(watchdog, 30000);
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -145,7 +180,7 @@ public class DisplayService extends Service {
     private void dismiss() {
         dismissOverlay();
         if (activityMode) { sendBroadcast(new Intent(DisplayActivity.ACTION_CLOSE).setPackage(getPackageName())); activityMode = false; }
-        shownOn = -1; shownLoc = null;
+        shownOn = -1; shownLoc = null; lastWatch = "";
     }
 
     private static String describe(Throwable e) {

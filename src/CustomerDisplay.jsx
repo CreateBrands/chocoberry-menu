@@ -37,12 +37,18 @@ export default function CustomerDisplay() {
   const till = qs.get("till") || "";
   const [live, setLive] = useState(null);      // last state from the till, + receivedAt
   const [, setTick] = useState(0);
+  // Live-link health. "SUBSCRIBED" means the till's messages will arrive.
+  // If the link is down for 30s the client is thrown away and rebuilt (gen),
+  // instead of trusting it to reconnect on its own.
+  const rt = useRef({ status: "connecting", since: Date.now() });
+  const [gen, setGen] = useState(0);
 
   // Listen to the till. Realtime client loaded only on this page, so the menu
   // and the till don't carry it.
   useEffect(() => {
     if (!loc || !SUPABASE_URL) return;
     let client, ch, dead = false;
+    rt.current = { status: "connecting", since: Date.now() };
     import("@supabase/supabase-js").then(({ createClient }) => {
       if (dead) return;
       client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
@@ -52,11 +58,21 @@ export default function CustomerDisplay() {
           if (!st || (till && st.till && st.till !== till)) return;
           setLive({ ...st, receivedAt: Date.now() });
         })
-        .subscribe();
-    }).catch(() => {});
-    const t = setInterval(() => setTick((n) => n + 1), 1000);
-    return () => { dead = true; clearInterval(t); try { if (client && ch) client.removeChannel(ch); } catch { /* closing */ } };
-  }, [loc, till]);
+        .subscribe((status) => { if (!dead && status !== rt.current.status) rt.current = { status, since: Date.now() }; });
+    }).catch(() => { rt.current = { status: "load failed", since: rt.current.since }; });
+    const t = setInterval(() => {
+      setTick((n) => n + 1);
+      if (rt.current.status !== "SUBSCRIBED" && Date.now() - rt.current.since > 30000) setGen((g) => g + 1);
+    }, 1000);
+    return () => { dead = true; clearInterval(t); try { if (client) client.removeAllChannels(); } catch { /* closing */ } };
+  }, [loc, till, gen]);
+  // Heartbeat to the Customer Display app (when running inside it): proves
+  // this page is alive and says whether the live link is up. The app restarts
+  // the page if the heartbeats stop.
+  useEffect(() => {
+    const beat = () => { try { if (window.CD && window.CD.alive) window.CD.alive(rt.current.status === "SUBSCRIBED" ? "live" : String(rt.current.status || "connecting")); } catch { /* not in the app */ } };
+    beat(); const t = setInterval(beat, 5000); return () => clearInterval(t);
+  }, []);
   const [cfg, setCfg] = useState(() => {
     try { return JSON.parse(localStorage.getItem(CACHE + loc) || "null"); } catch { return null; }
   });
