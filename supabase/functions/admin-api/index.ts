@@ -686,16 +686,20 @@ Deno.serve(async (req) => {
     if (v > 0) return round2(v);
     return String(get("currency") || "").toUpperCase() === "AED" ? 500 : 150;
   }
-  async function liveShift(location_id: string, devKey: string | null) {
-    let q = admin.from("till_shifts").select("*").eq("location_id", location_id).in("status", ["open", "counting"]);
-    q = devKey ? q.eq("device_key", devKey) : q.is("device_key", null);
-    const { data } = await q.order("opened_at", { ascending: false }).limit(1);
+  // ONE DRAWER PER STORE (2026-10-24): every store has a single cash drawer,
+  // so a shift belongs to the store, not to a till. Any till in the store can
+  // start, end or count it, and all of the store's payments count towards it.
+  // (devKey is kept in the signatures for a future multi-drawer store.)
+  async function liveShift(location_id: string, _devKey: string | null) {
+    const { data, error } = await admin.from("till_shifts").select("*").eq("location_id", location_id)
+      .in("status", ["open", "counting"]).order("opened_at", { ascending: false }).limit(1);
+    if (error) throw error;
     return data && data.length ? (data[0] as any) : null;
   }
-  async function lastClosedShift(location_id: string, devKey: string | null) {
-    let q = admin.from("till_shifts").select("*").eq("location_id", location_id).eq("status", "closed");
-    q = devKey ? q.eq("device_key", devKey) : q.is("device_key", null);
-    const { data } = await q.order("ended_at", { ascending: false }).limit(1);
+  async function lastClosedShift(location_id: string, _devKey: string | null) {
+    const { data, error } = await admin.from("till_shifts").select("*").eq("location_id", location_id)
+      .eq("status", "closed").order("ended_at", { ascending: false }).limit(1);
+    if (error) throw error;
     return data && data.length ? (data[0] as any) : null;
   }
   // Who is doing this: a team member's own PIN, or a manager/master PIN.
@@ -2091,7 +2095,7 @@ Deno.serve(async (req) => {
       case "shift_status": {
         const { location_id } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
-        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+        const devKey: string | null = null;   // one drawer per store
         let shift: any = null, last: any = null;
         try { shift = await liveShift(location_id, devKey); last = await lastClosedShift(location_id, devKey); }
         catch { return json({ ok: true, enabled: false }); }   // db/till_shifts.sql not run yet
@@ -2112,8 +2116,8 @@ Deno.serve(async (req) => {
         if (!location_id) return json({ error: "location_id required" }, 400);
         const who = await shiftActor(pin, location_id);
         if (!who.ok) return json({ error: "bad_pin", message: "That PIN isn't recognised at this store." }, 403);
-        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
-        if (await liveShift(location_id, devKey)) return json({ error: "shift_running", message: "A shift is already running on this till." }, 409);
+        const devKey: string | null = null;   // one drawer per store
+        if (await liveShift(location_id, devKey)) return json({ error: "shift_running", message: "A shift is already running in this store." }, 409);
         const last = await lastClosedShift(location_id, devKey);
         const floatExpected = last && last.float_left != null ? round2(Number(last.float_left)) : null;
         const opening = float_counted != null && float_counted !== "" ? round2(Number(float_counted)) : (floatExpected ?? await storeFloat(location_id));
@@ -2129,7 +2133,7 @@ Deno.serve(async (req) => {
           opened_by: who.name, opened_by_member: who.id, opening_float: opening,
           float_expected: floatExpected, float_note: float_note ? String(float_note).slice(0, 200) : null,
         }).select("*").single();
-        if (error) { if (String((error as any).code) === "23505") return json({ error: "shift_running", message: "A shift is already running on this till." }, 409); throw error; }
+        if (error) { if (String((error as any).code) === "23505") return json({ error: "shift_running", message: "A shift is already running in this store." }, 409); throw error; }
         return json({ ok: true, shift: row });
       }
 
@@ -2139,9 +2143,9 @@ Deno.serve(async (req) => {
         if (!location_id) return json({ error: "location_id required" }, 400);
         const who = await shiftActor(pin, location_id);
         if (!who.ok) return json({ error: "bad_pin", message: "That PIN isn't recognised at this store." }, 403);
-        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+        const devKey: string | null = null;   // one drawer per store
         const sh = await liveShift(location_id, devKey);
-        if (!sh || sh.status !== "open") return json({ error: "no_shift", message: "No shift is running on this till." }, 409);
+        if (!sh || sh.status !== "open") return json({ error: "no_shift", message: "No shift is running in this store." }, 409);
         const now = new Date().toISOString();
         const { error } = await admin.from("till_shifts").update({ status: "counting", ended_at: now, ended_by: who.name, ended_by_member: who.id }).eq("id", sh.id).eq("status", "open");
         if (error) throw error;
@@ -2151,7 +2155,7 @@ Deno.serve(async (req) => {
       // ---- SHIFTS: "End my shift" pressed by mistake, before counting ----
       case "shift_resume": {
         const { location_id } = data || {};
-        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+        const devKey: string | null = null;   // one drawer per store
         const sh = await liveShift(location_id, devKey);
         if (!sh || sh.status !== "counting") return json({ error: "no_shift" }, 409);
         await admin.from("till_shifts").update({ status: "open", ended_at: null, ended_by: null, ended_by_member: null }).eq("id", sh.id).eq("status", "counting");
@@ -2163,7 +2167,7 @@ Deno.serve(async (req) => {
         const { location_id, counted_raw, denoms, note, confirm } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
         if (counted_raw == null || !isFinite(Number(counted_raw))) return json({ error: "count_required" }, 400);
-        const devKey = deviceTok?.key ? String(deviceTok.key) : null;
+        const devKey: string | null = null;   // one drawer per store
         const sh = await liveShift(location_id, devKey);
         if (!sh || sh.status !== "counting") return json({ error: "no_shift", message: "End the shift before counting." }, 409);
         const now = new Date().toISOString();
@@ -2195,7 +2199,7 @@ Deno.serve(async (req) => {
         if (error) throw error;
         let printed: boolean | null = null;
         try {
-          const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id, device_key: devKey, summary: report });
+          const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id, device_key: deviceTok?.key ? String(deviceTok.key) : null, summary: report });
           printed = pr.ok && (pr.body as any)?.ok !== false;
         } catch { printed = false; }
         return json({ ok: true, shift: report, printed });

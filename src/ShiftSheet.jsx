@@ -140,7 +140,7 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
     const shown = handed ?? status.float_target;
     content = (
       <>
-        <Title t="Start your shift" sub={status.last ? "Handed over by " + (status.last.ended_by || "the last shift") + " at " + hhmm(status.last.ended_at) : "First shift on this till"} />
+        <Title t="Start your shift" sub={status.last ? "Handed over by " + (status.last.ended_by || "the last shift") + " at " + hhmm(status.last.ended_at) : "First shift in this store"} />
         <div style={{ background: C.soft, borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
           <div style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".08em", color: C.muted }}>FLOAT IN THE DRAWER</div>
           <div style={{ fontSize: 34, fontWeight: 800, fontFamily: F }}>{money(shown)}</div>
