@@ -793,7 +793,10 @@ export default function KDS({ surface = "kds" }) {
   // "active" here until THIS screen bumps it; "completed" once it has.
   // A ticket reopened by a new round is timed from that round, not the original
   // order — provided the earlier rounds are finished (ticked or previously bumped).
-  const roundOf = (o) => { const log = Array.isArray(o.items_added_log) ? o.items_added_log.length : (o.items_added_at ? 1 : 0); return log; };
+  // The round is the highest added_batch on the ticket (0 = the original
+  // order). Read from the lines themselves, which every order has, rather than
+  // items_added_log, which older appended orders never got.
+  const roundOf = (o) => { let b = 0; for (const it of (o.menu_order_items || [])) b = Math.max(b, Number(it.added_batch) || 0); const log = Array.isArray(o.items_added_log) ? o.items_added_log.length : 0; return Math.max(b, log); };
   const clockStart = (o) => {
     const r = roundOf(o);
     if (!r || !o.items_added_at) return o.created_at;

@@ -321,7 +321,7 @@ Deno.serve(async (req) => {
     // ---- APPEND to an existing order, or create a new one ----
     if (append_to_order_id) {
       const { data: existing, error: exErr } = await admin
-        .from("menu_orders").select("id, created_at, order_no, subtotal, total").eq("id", append_to_order_id).single();
+        .from("menu_orders").select("id, created_at, order_no, subtotal, total, items_added_log").eq("id", append_to_order_id).single();
       if (exErr || !existing) throw new Error("order to append not found");
       const orderId = existing.id;
 
@@ -338,13 +338,34 @@ Deno.serve(async (req) => {
       // already be served/ready — so an append would print but never reappear.
       // Clear the bumps and put the order back to "placed"; lines already done
       // keep item_status, so the kitchen sees only the new work.
+      // ROUND TIMES 2026-10-25. Each round is recorded where the KDS and the
+      // Performance tab look for it:
+      //   items_added_log  one start time per added round (index 0 = round 2).
+      //                    Nothing wrote it before, so every appended ticket
+      //                    was timed from the original order and Performance
+      //                    never split rounds.
+      //   round_restarted  the earlier rounds had already been bumped, so the
+      //                    reopened ticket's clock starts at this round.
+      //   kds_bump_log     the earlier bumps are kept (not just deleted) so the
+      //                    first round's finish time still counts.
+      const nowIso = new Date().toISOString();
+      const { data: oldBumps } = await admin.from("kds_bumps")
+        .select("order_id, screen_key, location_id, bumped_at, bumped_by").eq("order_id", orderId);
+      const prevLog = Array.isArray((existing as any).items_added_log) ? (existing as any).items_added_log : [];
+      const roundLog = [...prevLog.slice(0, Math.max(0, nextBatch - 1)), nowIso];
       await admin.from("menu_orders").update({
         subtotal: Number(existing.subtotal || 0) + subtotal,
         total: Number(existing.total || 0) + subtotal,
         status: "placed",
         kds_bumped_at: null,
-        items_added_at: new Date().toISOString(),
+        items_added_at: nowIso,
+        items_added_log: roundLog,
+        round_restarted: (oldBumps || []).length > 0,
       }).eq("id", orderId);
+      if ((oldBumps || []).length) {
+        try { await admin.from("kds_bump_log").insert(oldBumps!.map((b: any) => ({ order_id: b.order_id, screen_key: b.screen_key, location_id: b.location_id, bumped_at: b.bumped_at, bumped_by: b.bumped_by }))); }
+        catch (e) { console.error("kds_bump_log archive failed:", e); }
+      }
       await admin.from("kds_bumps").delete().eq("order_id", orderId);
 
       // The auto-print webhook only fires on menu_orders INSERT. An append adds
@@ -360,7 +381,11 @@ Deno.serve(async (req) => {
             Authorization: `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""}`,
             "x-print-secret": Deno.env.get("PRINT_WEBHOOK_SECRET") ?? "",
           },
-          body: JSON.stringify({ action: "print-order", order_id: orderId, force: true }),
+          // Not forced: each printer gets just the new round, under its
+          // "ROUND n - ADDED" heading. force:true reprinted the WHOLE order on
+          // every printer — stamped REPRINT, and on printers whose automatic
+          // printing is switched off (e.g. customer receipts) too.
+          body: JSON.stringify({ action: "print-order", order_id: orderId }),
         });
       } catch (e) {
         console.error("append print trigger failed:", e);

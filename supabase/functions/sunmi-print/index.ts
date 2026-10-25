@@ -338,7 +338,7 @@ async function loadReceiptOrder(
   for (let b = 0; b <= maxBatch; b++) {
     const ts = batchFirstTs.get(b);
     batchTimes[b] = ts !== undefined
-      ? new Date(ts).toLocaleTimeString("en-GB", { timeZone: zone, hour: "numeric", minute: "2-digit", hour12: true })
+      ? new Date(ts).toLocaleTimeString("en-GB", { timeZone: zone, hour: "2-digit", minute: "2-digit", hourCycle: "h23" })
       : "";
   }
 
