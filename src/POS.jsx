@@ -7,6 +7,7 @@ import { sendCustomerScreen, orderForScreen } from "./customerScreen.js";
 import CartLine from "./CartLine.jsx";
 import ShiftSheet, { ShiftButton } from "./ShiftSheet.jsx";
 import ManagerPin from "./ManagerPin.jsx";
+import CashSheet from "./CashSheet.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
 // store this till is serving — see src/money.js. A store with no currency
 // setting is GBP, which is exactly what every till did before.
@@ -297,6 +298,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
   // the button stays hidden.
   const [shift, setShift] = useState(null);
   const [shiftOpen, setShiftOpen] = useState(false);
+  const [cashOpen, setCashOpen] = useState(false);   // CASH MOVEMENTS: pay out / pay in / drop / safe
   const loadShift = useCallback(async () => {
     try {
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", {
@@ -1691,6 +1693,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             <div onClick={() => setDrawerAsk({ pin: "", busy: false, err: "" })} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(148,163,184,.12)", color: "#cbd5e1", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(148,163,184,.25)" }}>
               Open drawer
             </div>
+            <div onClick={() => setCashOpen(true)} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(253,186,116,.12)", color: "#fdba74", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(253,186,116,.28)" }}>
+              Cash
+            </div>
             <div onClick={openCloseTill} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(94,234,212,.12)", color: "#5eead4", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(94,234,212,.25)" }}>
               Close till
             </div>
@@ -1714,6 +1719,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
         <ManagerPin title="Print X read" sub="The X read shows the cash taken so far, so it needs a manager."
           confirmLabel="Print" onClose={() => setMgrAsk(null)} onSubmit={(p) => doPrintXRead(p)} />
       )}
+
+      {cashOpen && <CashSheet loc={loc} act={ordActionJson} onClose={() => setCashOpen(false)} />}
 
       {shiftOpen && shift && (
         <ShiftSheet loc={loc} status={shift} act={ordActionJson} onClose={() => setShiftOpen(false)} onChanged={loadShift} />
@@ -2009,6 +2016,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                               <Line l="Cash taken" v={gbp(pv.cash)} />
                               <Line l="+ Float" v={gbp(pv.float_used)} />
                               {Number(pv.cash_dropped) > 0 && <Line l="− To safe" sub={(sm.shifts || []).length + " shifts"} v={gbp(pv.cash_dropped)} />}
+                              {Number(pv.dropped_mid_shift) > 0 && <Line l="− Mid-shift drops" v={gbp(pv.dropped_mid_shift)} />}
+                              {Number(pv.paid_out) > 0 && <Line l="− Paid out" v={gbp(pv.paid_out)} />}
+                              {Number(pv.paid_in) > 0 && <Line l="+ Paid in" v={gbp(pv.paid_in)} />}
                               <Line l="Expected" v={gbp(expected)} strong />
                               <Line l="Counted" v={gbp(countedVal)} />
                             </div>

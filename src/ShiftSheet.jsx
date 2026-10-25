@@ -258,9 +258,12 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
           <span style={{ fontSize: 22, fontWeight: 800 }}>{v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT"}</span>
           <span style={{ fontSize: 30, fontWeight: 800, fontFamily: F }}>{(v > 0 ? "+" : "") + money(v)}</span>
         </div>
+        {Number(preview.paid_out) > 0 && <Line l="Paid out this shift" v={money(preview.paid_out)} />}
+        {Number(preview.paid_in) > 0 && <Line l="Paid in this shift" v={money(preview.paid_in)} />}
+        {Number(preview.dropped_mid_shift) > 0 && <Line l="Dropped to safe mid-shift" v={money(preview.dropped_mid_shift)} />}
         <Line l="Expected for your shift" v={money(preview.expected)} />
         <Line l="Counted in the drawer" v={money(preview.counted_raw)} />
-        {Number(preview.cash_since_end) > 0 && <Line l="− Next shift's cash, taken while you counted" v={money(preview.cash_since_end)} />}
+        {Number(preview.cash_since_end) !== 0 && <Line l={Number(preview.cash_since_end) > 0 ? "− Next shift's cash, taken while you counted" : "+ Next shift's pay-outs while you counted"} v={money(Math.abs(Number(preview.cash_since_end)))} />}
         <Line l="Counted for your shift" v={money(preview.counted)} strong />
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, margin: "14px 0" }}>
           <div style={{ background: C.ink, color: "#fff", borderRadius: 14, padding: "12px 14px" }}>

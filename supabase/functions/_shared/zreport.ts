@@ -169,6 +169,9 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
   if (s.float_changed && s.float_known != null) lr("    System float was", num(s.float_known));
   lr("  + Cash taken (after cash refunds)", num(s.cash));
   if (Number(s.cash_dropped) > 0) lr("  - Dropped to safe", num(s.cash_dropped));
+  if (Number(s.dropped_mid_shift) > 0) lr("  - Dropped mid-shift", num(s.dropped_mid_shift));
+  if (Number(s.paid_out) > 0) lr("  - Paid out", num(s.paid_out));
+  if (Number(s.paid_in) > 0) lr("  + Paid in", num(s.paid_in));
   if (counted != null) {
     lr("  = Expected in drawer", num(s.cash_expected));
     lr("  Counted", num(counted));
@@ -215,6 +218,13 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
     div();
   }
 
+  const po = s.payout_reasons && typeof s.payout_reasons === "object" ? Object.entries(s.payout_reasons as Record<string, number>) : [];
+  if (po.length) {
+    sec("PAY OUTS");
+    for (const [rr, a] of po) lr("  " + String(rr).slice(0, 30), num(a));
+    lr("  Total paid out", num(s.paid_out));
+    div();
+  }
   if (s.note) { sec("NOTE"); for (const l of String(s.note).match(/.{1,46}(\s|$)/g) || [String(s.note)]) r.line("  " + l.trim()); div(); }
 
   if (m.kind !== "x") {
@@ -246,7 +256,11 @@ export function buildShiftSlip(r: any, m: ZMeta): Receipt {
   lr("Card", num(r.card)); lr("Cash", num(r.cash)); if (Number(r.other)) lr("Other", num(r.other));
   rc.bold(true); lr("TAKEN (" + (r.orders || 0) + " orders)", num(r.taken)); rc.bold(false);
   rc.line("-".repeat(W));
-  lr("Opening float", num(r.opening_float)); lr("+ Cash this shift", num(r.cash)); lr("= Expected", num(r.expected));
+  lr("Opening float", num(r.opening_float)); lr("+ Cash this shift", num(r.cash));
+  if (Number(r.paid_out)) lr("- Paid out", num(r.paid_out));
+  if (Number(r.paid_in)) lr("+ Paid in", num(r.paid_in));
+  if (Number(r.dropped_mid_shift)) lr("- Dropped mid-shift", num(r.dropped_mid_shift));
+  lr("= Expected", num(r.expected));
   lr("Counted in drawer", num(r.counted_raw));
   if (Number(r.cash_since_end)) lr("- Next shift's cash", num(r.cash_since_end));
   lr("Counted for this shift", num(r.counted));
@@ -257,6 +271,29 @@ export function buildShiftSlip(r: any, m: ZMeta): Receipt {
   rc.bold(true); lr("DROP TO SAFE", num(r.drop)); lr("FLOAT LEFT", num(r.float_left)); rc.bold(false);
   if (r.note) { rc.line("-".repeat(W)); for (const l of String(r.note).match(/.{1,46}(\s|$)/g) || [String(r.note)]) rc.line("  " + l.trim()); }
   rc.feed(1).line("  Outgoing: " + "_".repeat(33)).feed(1).line("  Incoming: " + "_".repeat(33));
+  rc.feed(3).cut();
+  return rc;
+}
+
+// CASH MOVEMENTS 2026-10-25 — text fallback of cashSlipTree.
+export function buildCashSlip(r: any, m: ZMeta): Receipt {
+  const rc = new Receipt().init();
+  const lr = (l: string, v: string) => rc.leftRight(l, v, W);
+  const title: Record<string, string> = { payout: "PAY OUT", payin: "PAY IN", drop: "DROP TO SAFE", collection: "SAFE COLLECTION", safe_count: "SAFE COUNT" };
+  rc.align(1).size(1, 1).bold(true).line((m.brandName || "CHOCOBERRY").toUpperCase()).bold(false).size(0, 0);
+  if (m.storeName) rc.line(m.storeName);
+  rc.line("=".repeat(W)).size(0, 1).bold(true).line(title[r.type] || "CASH").line(num(r.type === "safe_count" ? r.counted : r.amount)).bold(false).size(0, 0);
+  if (r.undo) rc.bold(true).line("CANCELLED").bold(false);
+  rc.line(r.at ? new Intl.DateTimeFormat("en-GB", { timeZone: m.timeZone, dateStyle: "medium", timeStyle: "short" }).format(new Date(r.at)) : "").align(0).line("=".repeat(W));
+  if (r.reason) lr("Reason", String(r.reason).slice(0, 30));
+  if (r.bag_no) lr("Bag number", String(r.bag_no));
+  if (r.type === "safe_count") { lr("Expected", num(r.expected)); lr("Counted", num(r.counted)); if (r.first_count != null && Number(r.checks) > 1) lr("First count (" + r.checks + " checks)", num(r.first_count)); rc.bold(true); lr(Number(r.variance) === 0 ? "BALANCED" : Number(r.variance) > 0 ? "OVER" : "SHORT", num(r.variance)); rc.bold(false); }
+  if (r.safe_after != null) lr("Safe should now hold", num(r.safe_after));
+  if (r.by) lr("By", String(r.by).slice(0, 30));
+  if (r.witness) lr("Witness", String(r.witness).slice(0, 30));
+  if (r.approved_by) lr("Approved by", String(r.approved_by).slice(0, 30));
+  if (r.note) for (const l of String(r.note).match(/.{1,46}(\s|$)/g) || [String(r.note)]) rc.line("  " + l.trim());
+  rc.feed(1).line("  Signed: " + "_".repeat(35)).feed(1).line("  Signed: " + "_".repeat(35));
   rc.feed(3).cut();
   return rc;
 }

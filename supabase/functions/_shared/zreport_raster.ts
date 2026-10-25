@@ -183,6 +183,10 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
   if (s.float_changed && s.float_known != null) parts.push(line("  System float was", n2(s.float_known)));
   parts.push(line("+ Cash taken", n2(s.cash)));
   if (Number(s.cash_dropped) > 0) parts.push(line("− Dropped to safe", n2(s.cash_dropped)));
+  // CASH MOVEMENTS 2026-10-25
+  if (Number(s.dropped_mid_shift) > 0) parts.push(line("− Dropped mid-shift", n2(s.dropped_mid_shift)));
+  if (Number(s.paid_out) > 0) parts.push(line("− Paid out", n2(s.paid_out)));
+  if (Number(s.paid_in) > 0) parts.push(line("+ Paid in", n2(s.paid_in)));
   const counted = s.cash_counted;
   if (counted != null) {
     parts.push(totalRow("= Expected", n2(s.cash_expected)));
@@ -262,6 +266,14 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
         txt(v, { width: fs(130), justifyContent: "flex-end", fontWeight: 700 })));
     }
     if (Number(s.cash_dropped) > 0) parts.push(line("Dropped to safe", n2(s.cash_dropped), { bold: true }));
+  }
+
+  // ---- 11c. Pay-outs by reason (CASH MOVEMENTS 2026-10-25) ----
+  const po = s.payout_reasons && typeof s.payout_reasons === "object" ? Object.entries(s.payout_reasons as Record<string, number>) : [];
+  if (po.length) {
+    parts.push(bar("PAY OUTS"));
+    for (const [r, a] of po.sort((x, y) => Number(y[1]) - Number(x[1]))) parts.push(line(String(r).slice(0, 30), n2(a)));
+    parts.push(line("Total paid out", n2(s.paid_out), { bold: true }));
   }
 
   // ---- 12. Continuity (audit trail) ----
@@ -348,6 +360,9 @@ export function shiftSlipTree(r: any, m: ZMeta, dots = 576): Node {
   parts.push(bar("CASH DRAWER", "BLIND COUNT"));
   parts.push(row("Opening float", n2(r.opening_float)));
   parts.push(row("+ Cash this shift", n2(r.cash)));
+  if (Number(r.paid_out)) parts.push(row("− Paid out", n2(r.paid_out)));
+  if (Number(r.paid_in)) parts.push(row("+ Paid in", n2(r.paid_in)));
+  if (Number(r.dropped_mid_shift)) parts.push(row("− Dropped mid-shift", n2(r.dropped_mid_shift)));
   parts.push(rule()); parts.push(row("= Expected", n2(r.expected), { bold: true }));
   parts.push(row("Counted in drawer", n2(r.counted_raw)));
   if (Number(r.cash_since_end)) parts.push(row("− Next shift's cash", n2(r.cash_since_end)));
@@ -363,5 +378,53 @@ export function shiftSlipTree(r: any, m: ZMeta, dots = 576): Node {
   const sign = (who: string) => col({ flex: 1, marginRight: fs(16) }, el({ height: fs(54), borderBottom: "2px solid #000" }), txt(who, { fontSize: fs(15), fontWeight: 700, marginTop: fs(4) }));
   parts.push(el({ marginTop: fs(16) }, sign("OUTGOING"), sign("INCOMING / MANAGER")));
   parts.push(col({ alignItems: "center", marginTop: fs(12) }, txt("Counted " + fmtDate(r.counted_at, m.timeZone, "full") + (r.confirmed_by ? " · " + String(r.confirmed_by).split(" ")[0] : ""), { fontSize: fs(15) })));
+  return col({ width: dots, padding: `${fs(6)}px ${fs(6)}px ${fs(20)}px`, background: "#fff", color: "#000", fontFamily: "Inter", fontSize: body }, ...parts);
+}
+
+// CASH MOVEMENTS 2026-10-25 — slip for a pay-out, pay-in, drop to the safe,
+// area-manager collection or safe count. Big amount in a box, who and why,
+// signature lines.
+export function cashSlipTree(r: any, m: ZMeta, dots = 576): Node {
+  const narrow = dots < 500, k = narrow ? 0.72 : 1, fs = (n: number) => Math.round(n * k);
+  const cur = (m.currency || "GBP").toUpperCase(), sym = SYM[cur];
+  const n2 = (v: unknown) => { const x = Number(v) || 0; return (x < 0 ? "-" : "") + Math.abs(x).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ","); };
+  const money = (v: unknown) => { const x = Number(v) || 0; return (x < 0 ? "-" : "") + (sym ? sym : cur + " ") + n2(Math.abs(x)); };
+  const body = fs(22), small = fs(18);
+  const row = (l: string, v: string, bold = false) => el({ justifyContent: "space-between", alignItems: "baseline", padding: `${fs(4)}px 0`, fontSize: body, fontWeight: bold ? 700 : 400 }, txt(l, { flex: 1 }), txt(v, { justifyContent: "flex-end" }));
+  const title: Record<string, string> = { payout: "PAY OUT", payin: "PAY IN", drop: "DROP TO SAFE", collection: "SAFE COLLECTION", safe_count: "SAFE COUNT", undo: "CANCELLED" };
+  const parts: unknown[] = [];
+  parts.push(col({ alignItems: "center" },
+    txt((m.brandName || "Chocoberry").toUpperCase(), { fontSize: fs(34), fontWeight: 700, letterSpacing: 2 }),
+    m.storeName ? txt(m.storeName, { fontSize: fs(22), fontWeight: 700 }) : txt("")));
+  const amount = r.type === "safe_count" ? r.counted : r.amount;
+  parts.push(col({ border: "4px solid #000", alignItems: "center", padding: `${fs(8)}px 0`, marginTop: fs(12) },
+    txt(title[r.type] || "CASH", { fontSize: fs(28), fontWeight: 700, letterSpacing: 2 }),
+    txt(money(amount), { fontSize: fs(50), fontWeight: 700, lineHeight: 1.05 }),
+    txt(fmtDate(r.at, m.timeZone, "full"), { fontSize: small, fontWeight: 700 })));
+  if (r.undo) parts.push(col({ alignItems: "center", marginTop: fs(8) }, txt("THIS ENTRY WAS CANCELLED", { fontSize: fs(22), fontWeight: 700 })));
+  parts.push(el({ height: fs(10) }));
+  if (r.reason) parts.push(row("Reason", String(r.reason).slice(0, 34), true));
+  if (r.bag_no) parts.push(row("Bag number", String(r.bag_no), true));
+  if (r.type === "safe_count") {
+    parts.push(row("Expected in safe", n2(r.expected)));
+    parts.push(row("Counted", n2(r.counted), true));
+    if (r.first_count != null && Number(r.checks) > 1) parts.push(row("First count (" + r.checks + " checks)", n2(r.first_count)));
+    const v = Number(r.variance) || 0;
+    parts.push(el({ border: "4px solid #000", justifyContent: "space-between", alignItems: "center", padding: `${fs(8)}px ${fs(12)}px`, marginTop: fs(8) },
+      txt(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", { fontSize: fs(28), fontWeight: 700 }), txt((v > 0 ? "+" : "") + n2(v), { fontSize: fs(28), fontWeight: 700 })));
+  }
+  if (r.safe_after != null) parts.push(row("Safe should now hold", n2(r.safe_after)));
+  if (r.by) parts.push(row(r.type === "collection" ? "Collected by" : r.type === "safe_count" ? "Counted by" : "By", String(r.by).slice(0, 28)));
+  if (r.witness) parts.push(row(r.type === "collection" ? "Handed over by" : "Witness", String(r.witness).slice(0, 28)));
+  if (r.approved_by) parts.push(row("Approved by", String(r.approved_by).slice(0, 28)));
+  if (r.note) parts.push(txt(String(r.note).slice(0, 200), { fontSize: small, marginTop: fs(6), lineHeight: 1.35 }));
+  const sign = (who: string) => col({ flex: 1, marginRight: fs(16) }, el({ height: fs(54), borderBottom: "2px solid #000" }), txt(who, { fontSize: fs(15), fontWeight: 700, marginTop: fs(4) }));
+  const pair: Record<string, [string, string]> = {
+    payout: ["STAFF", "RECEIVED BY"], payin: ["STAFF", "MANAGER"], drop: ["STAFF", "MANAGER"],
+    collection: ["AREA MANAGER", "STORE"], safe_count: ["COUNTED BY", "WITNESS"],
+  };
+  const [a, b] = pair[r.type] || ["STAFF", "MANAGER"];
+  parts.push(el({ marginTop: fs(18) }, sign(a), sign(b)));
+  if (r.type === "payout") parts.push(col({ alignItems: "center", marginTop: fs(10) }, txt("Staple the receipt to this slip", { fontSize: fs(16), fontWeight: 700 })));
   return col({ width: dots, padding: `${fs(6)}px ${fs(6)}px ${fs(20)}px`, background: "#fff", color: "#000", fontFamily: "Inter", fontSize: body }, ...parts);
 }

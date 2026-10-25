@@ -102,6 +102,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     "open_drawer", "void_order", "abandon_hold",
     "shift_status", "shift_start", "shift_end", "shift_resume", "shift_count",
     "close_preview", "kds_order_patch", "kds_item_patch",
+    "cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   // Device enforcement: when the caller sends a device token it must be active,
@@ -301,8 +302,9 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
       // Screens, devices, tables, till
       case "set_kds_printer": case "kds_screen_add": case "kds_screen_remove": case "set_accepting_orders":
       case "device_create": case "device_revoke": case "device_replace": case "device_set_kind": case "device_reload": case "device_events":
-      case "create_token": case "create_table": case "close_day":
+      case "create_token": case "create_table": case "close_day": case "cash_log":
         return ok(has(F.locs, d.location_id));
+      case "collection_bank": return null; // checked in the handler against the collection's store
       case "release_token": case "delete_token": case "update_table": case "delete_table":
         return ok(await tableLoc(d.id));
       case "reprint_closure": return null; // checked in the handler against the closure's store
@@ -420,6 +422,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     "create_table", "update_table", "delete_table",
     "set_store_menus",
     "close_day",           // close their own till (location is forced to their store)
+    "cash_log",            // their store's pay-outs, drops, safe counts and collections
     "reprint_closure",
   ]);
 
@@ -513,13 +516,15 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
   async function storeCode(location_id: string) { const { data: l } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle(); const n = String(l?.name || "ST").replace(/[^A-Za-z]/g, "").toUpperCase(); return (n.slice(0, 2) || "ST"); }
   // Till-only actions. Screen setup (kds_screen_self), targets and kitchen prints are KDS actions and stay allowed for kitchen licences.
   const POS_ONLY = new Set(["shift_start", "shift_end", "shift_resume", "shift_count", "abandon_hold", "mark_paid", "mark_unpaid", "close_day", "day_summary", "print_x_read", "retry_print", "clear_print_flag", "clear_print_flags", "service_log_delete", "clear_print_queue",
-    "take_payment", "refund_payment", "print_refund_receipt", "open_drawer", "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "order_payments_list", "shift_status", "close_preview"]);
+    "take_payment", "refund_payment", "print_refund_receipt", "open_drawer", "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "order_payments_list", "shift_status", "close_preview",
+    "cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect"]);
   // CASH CONTROLS 2026-10-24 — money and drawer actions only from a licensed
   // till. Every till and KDS has had a licence since the device rollout; the
   // tablet and the kiosk never call these.
   const TILL_DEVICE_REQUIRED = new Set(["take_payment", "mark_paid", "mark_unpaid", "refund_payment", "print_refund_receipt", "order_payments_list",
     "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "abandon_hold",
-    "day_summary", "print_x_read", "open_drawer", "shift_status", "shift_start", "shift_end", "shift_resume", "shift_count", "close_preview", "kds_order_patch", "kds_item_patch"]);
+    "day_summary", "print_x_read", "open_drawer", "shift_status", "shift_start", "shift_end", "shift_resume", "shift_count", "close_preview", "kds_order_patch", "kds_item_patch",
+    "cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect"]);
   // Actions that name an order: a till may only touch its own store's orders.
   const ORDER_ACTIONS = new Set(["take_payment", "mark_paid", "mark_unpaid", "refund_payment", "print_refund_receipt", "order_payments_list",
     "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "abandon_hold", "void_order", "void_fired_item",
@@ -659,7 +664,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     const peak = Object.entries(byHour).sort((a, b) => b[1].amount - a[1].amount)[0];
 
     // ---- previous closure + same weekday last week, for comparison ----
-    const { data: prev } = await admin.from("till_closures").select("closed_at, total_taken, order_count, cash_variance, float_amount, float_left:report->float_left").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
+    const { data: prev } = await admin.from("till_closures").select("closed_at, period_end, total_taken, order_count, cash_variance, float_amount, float_left:report->float_left").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
     // ZREPORT 2026-10-24 — no-sale drawer opens since the last close.
     let drawerOpens: number | null = null;
     try {
@@ -701,7 +706,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         mode, cutoff,
         later_count: laterRows.filter((o: any) => o.status !== "cancelled").length,
         before_cutoff_count: (allRows || []).filter((o: any) => o.created_at < cutoff && o.status !== "cancelled").length,
-        previous: prev ? { closed_at: prev.closed_at, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance, float_amount: prev.float_amount, float_left: (prev as any).float_left ?? null } : null,
+        previous: prev ? { closed_at: prev.closed_at, period_end: (prev as any).period_end || null, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance, float_amount: prev.float_amount, float_left: (prev as any).float_left ?? null } : null,
         // SHIFTS: every shift since the last close, and the cash they dropped
         // to the safe (taken off the cash the close expects in the drawer).
         ...(await (async () => {
@@ -820,6 +825,58 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     if (last && last.float_left != null) return { amount: round2(Number(last.float_left)), by: last.ended_by, at: last.ended_at };
     return null;
   }
+  // CASH MOVEMENTS 2026-10-25 — pay-outs, pay-ins and mid-shift drops in a
+  // window, i.e. everything that changes what the DRAWER should hold apart
+  // from sales. (Drops recorded at a handover or close are safe-side only.)
+  async function cashMoves(location_id: string, from: string, to: string) {
+    const out = { payouts: 0, payins: 0, drops: 0, list: [] as any[], byReason: {} as Record<string, number> };
+    try {
+      const { data, error } = await admin.from("cash_movements").select("id, kind, amount, reason, by_name, created_at")
+        .eq("location_id", location_id).eq("source", "manual").is("reversed_at", null)
+        .in("kind", ["payout", "payin", "drop"]).gte("created_at", from).lt("created_at", to).order("created_at", { ascending: true }).limit(500);
+      if (error) return out;
+      for (const m of data || []) {
+        const a = Number(m.amount) || 0;
+        if (m.kind === "payout") { out.payouts += a; const r = String(m.reason || "Other"); out.byReason[r] = round2((out.byReason[r] || 0) + a); }
+        else if (m.kind === "payin") out.payins += a;
+        else out.drops += a;
+        out.list.push(m);
+      }
+    } catch { /* table not there yet */ }
+    out.payouts = round2(out.payouts); out.payins = round2(out.payins); out.drops = round2(out.drops);
+    return out;
+  }
+  // What the safe should hold: the last safe count, plus every drop since,
+  // minus float top-ups taken from it and area-manager collections.
+  async function safeBalance(location_id: string) {
+    const { data: lc } = await admin.from("safe_counts").select("counted, created_at, counted_by, witness").eq("location_id", location_id)
+      .order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const since = lc?.created_at || "1970-01-01T00:00:00Z";
+    let bal = lc ? Number(lc.counted) || 0 : 0;
+    const { data: mv } = await admin.from("cash_movements").select("kind, amount, from_safe").eq("location_id", location_id)
+      .is("reversed_at", null).gt("created_at", since).limit(5000);
+    for (const m of mv || []) {
+      const a = Number(m.amount) || 0;
+      if (m.kind === "drop") bal += a;
+      else if (m.kind === "collection") bal -= a;
+      else if (m.kind === "payin" && m.from_safe) bal -= a;
+    }
+    return { expected: round2(bal), last_count: lc || null };
+  }
+  async function cashSlip(location_id: string, slip: Record<string, unknown>) {
+    try {
+      const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle();
+      const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id, device_key: deviceTok?.key ? String(deviceTok.key) : null, summary: { kind: "cash", ...slip } });
+      return pr.ok && (pr.body as any)?.ok !== false;
+    } catch { return false; }
+  }
+  async function payoutLimit(location_id: string) {
+    const { data } = await admin.from("menu_app_settings").select("key, value").in("key", ["payout_manager_from:" + location_id, "currency:" + location_id]);
+    const get = (k: string) => (data || []).find((r: any) => r.key === k + ":" + location_id)?.value;
+    const v = Number(get("payout_manager_from"));
+    if (v > 0) return round2(v);
+    return String(get("currency") || "").toUpperCase() === "AED" ? 100 : 20;
+  }
   async function closeFigures(location_id: string, mode: string, cash_counted: unknown, float_amount: unknown) {
     const { ids, summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
     const sm: any = summary;
@@ -829,11 +886,17 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     const asked = float_amount == null || float_amount === "" ? null : round2(Number(float_amount));
     const floatChanged = asked != null && Math.abs(asked - knownFloat) >= 0.01;
     const flt = floatChanged ? (asked as number) : knownFloat;
-    const expected = counted == null ? null : round2(flt + Number(sm.cash || 0) - dropped);
+    // CASH MOVEMENTS: pay-outs, pay-ins and mid-shift drops since the last close.
+    // From where the last close's period ended (a trading-day close ends at
+    // 04:00, so what came after it belongs here); the first close takes all.
+    const mvFrom = sm.previous ? (sm.previous.period_end || sm.previous.closed_at) : "1970-01-01T00:00:00Z";
+    const mvTo = mode === "trading_day" && sm.cutoff ? sm.cutoff : new Date().toISOString();
+    const mv = await cashMoves(location_id, mvFrom, mvTo);
+    const expected = counted == null ? null : round2(flt + Number(sm.cash || 0) - dropped - mv.drops - mv.payouts + mv.payins);
     const variance = counted == null ? null : round2((counted as number) - (expected as number));
     const limit = await varianceLimit(location_id);
     const outBy = variance != null && Math.abs(variance) >= limit;
-    return { ids, summary, counted, dropped, knownFloat, floatChanged, flt, expected, variance, limit, outBy };
+    return { ids, summary, counted, dropped, knownFloat, floatChanged, flt, expected, variance, limit, outBy, mv };
   }
   async function liveShift(location_id: string, _devKey: string | null) {
     const { data, error } = await admin.from("till_shifts").select("*").eq("location_id", location_id)
@@ -850,10 +913,10 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
   // Who is doing this: a team member's own PIN, or a manager/master PIN.
   async function shiftActor(pinIn: unknown, location_id: string) {
     const st = await staffForPin(pinIn, location_id);
-    if (st && st.ok) return { ok: true, name: st.name, id: st.id, manager: isManagerRole((st as any).role) };
+    if (st && st.ok) return { ok: true, name: st.name, id: st.id, manager: isManagerRole((st as any).role), role: String((st as any).role || ""), kind: "staff" };
     const mg = await managerForPin(pinIn, location_id);
-    if (mg.ok) return { ok: true, name: mg.name || "Manager", id: null, manager: true };
-    return { ok: false, name: "", id: null, manager: false };
+    if (mg.ok) return { ok: true, name: mg.name || "Manager", id: null, manager: true, role: "", kind: mg.name === "Master" ? "master" : mg.name === "Regional manager" ? "region" : mg.name === "Store manager" ? "store" : "staff" };
+    return { ok: false, name: "", id: null, manager: false, role: "", kind: "" };
   }
 
     if (isPosCall && TILL_DEVICE_REQUIRED.has(action) && !(deviceTok && deviceTok.key && deviceTok.secret && deviceTok.location_id)) {
@@ -879,6 +942,10 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     if (tillStore && data && data.location_id && String(data.location_id) !== tillStore
         && !["device_activate", "device_claim_legacy", "device_heartbeat"].includes(action)) {
       return json({ error: "wrong_store", message: "This till belongs to a different store." }, 403);
+    }
+    // CASH MOVEMENTS: the till's cash actions only ever come from a verified till.
+    if (["cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect"].includes(action) && !callerDevice) {
+      return json({ error: "device_required", message: "Only a licensed till can do this." }, 403);
     }
     if (tillStore && isPosCall && ORDER_ACTIONS.has(action) && data && data.order_id) {
       const { data: oRow } = await admin.from("menu_orders").select("location_id").eq("id", String(data.order_id)).maybeSingle();
@@ -2377,15 +2444,21 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const now = new Date().toISOString();
         const money = await shiftMoney(location_id, devKey, sh.opened_at, sh.ended_at);
         const since = await shiftMoney(location_id, devKey, sh.ended_at, now);
+        // CASH MOVEMENTS: pay-outs, pay-ins and mid-shift drops in this shift,
+        // and any made by the next shift while this one was being counted.
+        const mv = await cashMoves(String(location_id), sh.opened_at, sh.ended_at);
+        const mvSince = await cashMoves(String(location_id), sh.ended_at, now);
+        const sinceNet = round2(since.cash - mvSince.payouts + mvSince.payins - mvSince.drops);
         const raw = round2(Number(counted_raw));
-        const counted = round2(raw - since.cash);
-        const expected = round2(Number(sh.opening_float || 0) + money.cash);
+        const counted = round2(raw - sinceNet);
+        const expected = round2(Number(sh.opening_float || 0) + money.cash - mv.payouts + mv.payins - mv.drops);
         const variance = round2(counted - expected);
         const target = await storeFloat(location_id);
         const drop = Math.max(0, round2(counted - target));
         const floatLeft = round2(counted - drop);
         const noteFrom = await varianceLimit(String(location_id));
-        const preview = { counted_raw: raw, cash_since_end: since.cash, counted, expected, variance, drop, float_left: floatLeft, float_target: target, note_needed: Math.abs(variance) >= noteFrom };
+        const preview = { counted_raw: raw, cash_since_end: sinceNet, counted, expected, variance, drop, float_left: floatLeft, float_target: target, note_needed: Math.abs(variance) >= noteFrom,
+          paid_out: mv.payouts, paid_in: mv.payins, dropped_mid_shift: mv.drops, payout_reasons: mv.byReason };
         // CASH CONTROLS 2026-10-24: every count is kept on the shift, so counting
         // again until it balances shows on the slip.
         const attempts: any[] = Array.isArray(sh.count_attempts) ? sh.count_attempts : [];
@@ -2411,11 +2484,19 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
           confirmed_by: cw.name, recounts: Math.max(0, attempts.length - 1),
           first_count: attempts.length > 1 ? Number(attempts[0].counted_raw) : null,
         };
-        const { error } = await admin.from("till_shifts").update({
-          status: "closed", counted_at: now, counted_raw: raw, cash_since_end: since.cash, counted, expected_cash: expected, variance,
+        const { data: closedRows, error } = await admin.from("till_shifts").update({
+          status: "closed", counted_at: now, counted_raw: raw, cash_since_end: sinceNet, counted, expected_cash: expected, variance,
           denoms: denoms || null, drop_amount: drop, float_left: floatLeft, note: report.note, report,
-        }).eq("id", sh.id).eq("status", "counting");
+        }).eq("id", sh.id).eq("status", "counting").select("id");
         if (error) throw error;
+        if (!closedRows || !closedRows.length) return json({ error: "already_counted", message: "This handover was confirmed a moment ago." }, 409);
+        // CASH MOVEMENTS: the handover drop goes into the safe log.
+        if (drop > 0) {
+          try {
+            await admin.from("cash_movements").insert({ location_id, kind: "drop", source: "handover", amount: drop, reason: "Shift handover",
+              shift_id: sh.id, device_key: deviceTok?.key ? String(deviceTok.key) : null, by_name: cw.name });
+          } catch { /* cash_movements not set up yet */ }
+        }
         let printed: boolean | null = null;
         try {
           const pr = await callSunmi({ action: "print-summary", store_name: loc?.name || "", location_id, device_key: deviceTok?.key ? String(deviceTok.key) : null, summary: report });
@@ -2943,6 +3024,194 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
       }
 
       // ---- TILL: close the day — snapshot totals, then archive open orders ----
+      // ================= CASH MOVEMENTS + SAFE (2026-10-25) =================
+      // Today's pay-outs, pay-ins and drops for the till's Cash sheet, plus the
+      // pay-out limit. Never the safe's expected balance (safe counts are blind).
+      case "cash_today": {
+        const { location_id } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const { data: prev } = await admin.from("till_closures").select("closed_at").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
+        const from = prev?.closed_at || new Date(Date.now() - 24 * 3600000).toISOString();
+        const { data: rows, error } = await admin.from("cash_movements").select("id, kind, source, amount, reason, note, by_name, approved_by, witness_name, bag_no, reversed_at, created_at")
+          .eq("location_id", location_id).gte("created_at", from).order("created_at", { ascending: false }).limit(200);
+        if (error) return json({ ok: true, enabled: false });
+        const { data: lc } = await admin.from("safe_counts").select("created_at, counted_by, witness, variance").eq("location_id", location_id).order("created_at", { ascending: false }).limit(1).maybeSingle();
+        return json({ ok: true, enabled: true, moves: rows || [], payout_limit: await payoutLimit(String(location_id)), last_safe_count: lc || null });
+      }
+
+      // A pay-out (petty cash, supplier paid in cash), pay-in or drop to the safe.
+      case "cash_move": {
+        const { location_id, kind, amount, reason, note, pin: mpin, manager_pin } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        if (!["payout", "payin", "drop"].includes(String(kind))) return json({ error: "bad kind" }, 400);
+        const amt = round2(Number(amount));
+        if (!(amt > 0) || amt > 100000) return json({ error: "amount", message: "Enter the amount." }, 400);
+        if ((kind === "payout" || kind === "payin") && !String(reason || "").trim()) return json({ error: "reason_required", message: "Pick a reason." }, 400);
+        const who = await shiftActor(mpin, String(location_id));
+        if (!who.ok) return json({ error: "bad_pin", message: "Enter your PIN." }, 403);
+        let approvedBy: string | null = null;
+        if (kind === "payout") {
+          const limit = await payoutLimit(String(location_id));
+          if (amt >= limit && !who.manager) {
+            const mg = await managerForPin(manager_pin, String(location_id));
+            if (!mg.ok) return json({ error: "manager_required", message: manager_pin ? "That manager PIN wasn't recognised." : "A pay-out of " + limit + " or more needs a manager PIN.", limit }, 403);
+            approvedBy = mg.name || "Manager";
+          }
+        }
+        let shiftId: string | null = null;
+        try { const ls = await liveShift(String(location_id), null); shiftId = ls && ls.status === "open" ? ls.id : null; } catch { shiftId = null; }
+        const fromSafe = kind === "payin" && /safe/i.test(String(reason || ""));
+        const row = {
+          location_id, kind, source: "manual", amount: amt, reason: reason ? String(reason).slice(0, 60) : null, note: note ? String(note).slice(0, 200) : null,
+          from_safe: fromSafe, shift_id: shiftId, device_key: deviceTok?.key ? String(deviceTok.key) : null,
+          by_name: who.name, by_member: who.id, approved_by: approvedBy,
+        };
+        const { data: ins, error } = await admin.from("cash_movements").insert(row).select("id, created_at").single();
+        if (error) throw error;
+        const printed = await cashSlip(String(location_id), { type: kind, amount: amt, reason: row.reason, note: row.note, by: who.name, approved_by: approvedBy, at: ins?.created_at });
+        // A drop or pay-out opens the drawer.
+        try { await callSunmi({ action: "open-drawer", location_id, device_key: deviceTok?.key ? String(deviceTok.key) : null }); } catch { /* no drawer kick */ }
+        return json({ ok: true, id: ins?.id, printed, by: who.name, approved_by: approvedBy });
+      }
+
+      // Cancel a pay-out / pay-in / drop typed by mistake: manager PIN, and only
+      // while the shift or day it belongs to hasn't been counted.
+      case "cash_move_undo": {
+        const { id, manager_pin } = data || {};
+        if (!id) return json({ error: "id required" }, 400);
+        const { data: m } = await admin.from("cash_movements").select("*").eq("id", String(id)).maybeSingle();
+        if (!m) return json({ error: "not found" }, 404);
+        if (tillStore && String(m.location_id) !== tillStore) return json({ error: "wrong_store" }, 403);
+        if (m.reversed_at) return json({ ok: true, already: true });
+        if (m.source !== "manual" || m.kind === "collection") return json({ error: "not_undoable", message: "Only pay-outs, pay-ins and drops typed at the till can be cancelled." }, 409);
+        const mg = await managerForPin(manager_pin, String(m.location_id));
+        if (!mg.ok) return json({ error: "manager_required", message: "Cancelling needs a manager PIN." }, 403);
+        const { data: cl } = await admin.from("till_closures").select("closed_at").eq("location_id", m.location_id).gt("closed_at", m.created_at).limit(1);
+        if ((cl || []).length) return json({ error: "day_closed", message: "That day has been closed — record a correcting pay-in or pay-out instead." }, 409);
+        if (m.shift_id) {
+          const { data: sh } = await admin.from("till_shifts").select("status").eq("id", m.shift_id).maybeSingle();
+          if (sh && sh.status === "closed") return json({ error: "shift_counted", message: "That shift has been counted — record a correcting entry instead." }, 409);
+        }
+        const now = new Date().toISOString();
+        const { error } = await admin.from("cash_movements").update({ reversed_at: now, reversed_by: mg.name || "Manager" }).eq("id", m.id).is("reversed_at", null);
+        if (error) throw error;
+        await cashSlip(String(m.location_id), { type: m.kind, amount: m.amount, reason: m.reason, by: m.by_name, approved_by: mg.name, at: now, undo: true });
+        return json({ ok: true });
+      }
+
+      // Two-person blind safe count. confirm=false checks it (and is logged);
+      // confirm=true saves it. Counter = a manager; witness = someone else.
+      case "safe_count": {
+        const { location_id, counted, denoms, pin: spin, witness_pin, note, confirm } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        if (counted == null || counted === "" || !isFinite(Number(counted))) return json({ error: "count_required", message: "Count the safe first." }, 400);
+        // Two NAMED people: the shared store PIN can't be one of them, or one
+        // person could count and witness alone.
+        const counter = await shiftActor(spin, String(location_id));
+        if (!counter.ok || !counter.manager) return json({ error: "manager_required", message: "The safe is counted by a manager — enter your own manager PIN." }, 403);
+        if (!counter.id && counter.kind === "store") return json({ error: "personal_pin", message: "Use your own PIN, not the store PIN." }, 403);
+        const witness = await shiftActor(witness_pin, String(location_id));
+        if (!witness.ok || !witness.id) return json({ error: "witness_required", message: "A second person must witness the count — enter their own staff PIN." }, 403);
+        if (String(witness_pin).trim() === String(spin).trim() || (counter.id && String(witness.id) === String(counter.id))) {
+          return json({ error: "same_person", message: "The witness must be a different person." }, 400);
+        }
+        const bal = await safeBalance(String(location_id));
+        const c = round2(Number(counted));
+        // The first count ever sets the opening balance: there is no earlier
+        // figure to compare it with.
+        const opening = !bal.last_count;
+        const expectedSafe = opening ? c : bal.expected;
+        const variance = round2(c - expectedSafe);
+        const limit = await varianceLimit(String(location_id));
+        const pv = { counted: c, expected: expectedSafe, variance, note_needed: Math.abs(variance) >= limit, limit, opening };
+        if (!confirm) {
+          try { await admin.from("device_events").insert({ location_id, screen_key: deviceTok?.key ? String(deviceTok.key) : "till", event: "safe_count_check", detail: { counted: c, variance, by: counter.name } }); } catch { /* log only */ }
+          return json({ ok: true, preview: pv });
+        }
+        if (pv.note_needed && !String(note || "").trim()) return json({ error: "note_required", message: "The safe is out — say what happened.", preview: pv }, 400);
+        // Every check since the last saved count — counting again until it
+        // balances shows on the record and the slip.
+        let checks: any[] = [];
+        try {
+          const sinceChk = bal.last_count ? bal.last_count.created_at : new Date(Date.now() - 24 * 3600000).toISOString();
+          const { data: ev } = await admin.from("device_events").select("detail, created_at").eq("location_id", location_id).eq("event", "safe_count_check").gt("created_at", sinceChk).order("created_at", { ascending: true }).limit(50);
+          checks = ev || [];
+        } catch { checks = []; }
+        const firstCount = checks.length > 1 ? Number(checks[0].detail?.counted) : null;
+        const noteOut = [opening ? "Opening count" : null, note ? String(note).slice(0, 260) : null, checks.length > 1 ? "checked " + checks.length + " times, first count " + firstCount : null].filter(Boolean).join(" · ") || null;
+        const row: any = {
+          location_id, counted: c, expected: expectedSafe, variance, denoms: denoms || null,
+          counted_by: counter.name, counted_by_member: counter.id, witness: witness.name, witness_member: witness.id,
+          note: noteOut, checks: checks.length, first_count: firstCount,
+        };
+        let { data: ins, error } = await admin.from("safe_counts").insert(row).select("created_at").single();
+        if (error && /checks|first_count/.test(String(error.message || ""))) { delete row.checks; delete row.first_count; ({ data: ins, error } = await admin.from("safe_counts").insert(row).select("created_at").single()); }
+        if (error) throw error;
+        const printed = await cashSlip(String(location_id), { type: "safe_count", counted: c, expected: expectedSafe, variance, by: counter.name, witness: witness.name, note: noteOut, at: ins?.created_at, first_count: firstCount, checks: checks.length });
+        return json({ ok: true, saved: pv, printed });
+      }
+
+      // The area manager takes the safe's cash for the bank: their PIN, a store
+      // witness's PIN, the bag number and the amount bagged.
+      case "safe_collect": {
+        const { location_id, amount, bag_no, pin: cpin2, witness_pin, note } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const amt = round2(Number(amount));
+        if (!(amt > 0)) return json({ error: "amount", message: "Enter the amount in the bag." }, 400);
+        if (!String(bag_no || "").trim()) return json({ error: "bag_required", message: "Enter the bag number." }, 400);
+        // The area manager: a team member whose role says area / regional /
+        // operations / director / owner / head, or a regional or master login.
+        // Not the store PIN, not a store supervisor.
+        const collector = await shiftActor(cpin2, String(location_id));
+        const areaRole = /area|regional|operations|director|owner|head/i.test(collector.role || "");
+        if (!collector.ok || !(collector.kind === "master" || collector.kind === "region" || (collector.id && areaRole))) {
+          return json({ error: "area_manager_required", message: "Collections are made by the area manager — enter their own PIN." }, 403);
+        }
+        const witness = await shiftActor(witness_pin, String(location_id));
+        if (!witness.ok || !witness.id) return json({ error: "witness_required", message: "Someone from the store must hand it over — enter their own staff PIN." }, 403);
+        if (String(witness_pin).trim() === String(cpin2).trim() || (collector.id && String(witness.id) === String(collector.id))) {
+          return json({ error: "same_person", message: "The person handing over must be someone else." }, 400);
+        }
+        const { data: ins, error } = await admin.from("cash_movements").insert({
+          location_id, kind: "collection", source: "manual", amount: amt, bag_no: String(bag_no).trim().slice(0, 40),
+          note: note ? String(note).slice(0, 200) : null, device_key: deviceTok?.key ? String(deviceTok.key) : null,
+          by_name: collector.name, by_member: collector.id, witness_name: witness.name,
+        }).select("id, created_at").single();
+        if (error) throw error;
+        const printed = await cashSlip(String(location_id), { type: "collection", amount: amt, bag_no: String(bag_no).trim(), by: collector.name, witness: witness.name, note, at: ins?.created_at });
+        return json({ ok: true, id: ins?.id, printed });
+      }
+
+      // Admin: a store's cash log — movements, safe counts, collections and
+      // what the safe should hold now.
+      case "cash_log": {
+        const { location_id, days } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const from = new Date(Date.now() - Math.min(Math.max(Number(days) || 14, 1), 120) * 86400000).toISOString();
+        const [mv, sc] = await Promise.all([
+          admin.from("cash_movements").select("*").eq("location_id", location_id).gte("created_at", from).order("created_at", { ascending: false }).limit(1000),
+          admin.from("safe_counts").select("*").eq("location_id", location_id).gte("created_at", from).order("created_at", { ascending: false }).limit(200),
+        ]);
+        if (mv.error) return json({ ok: true, enabled: false });
+        let safe: any = null;
+        try { safe = await safeBalance(String(location_id)); } catch { safe = null; }
+        return json({ ok: true, enabled: true, moves: mv.data || [], counts: sc.data || [], safe, payout_limit: await payoutLimit(String(location_id)) });
+      }
+
+      // Head office: what the bank actually credited for a collection.
+      case "collection_bank": {
+        const { id, banked_amount } = data || {};
+        if (!id) return json({ error: "id required" }, 400);
+        const { data: m } = await admin.from("cash_movements").select("id, location_id, kind, amount").eq("id", String(id)).maybeSingle();
+        if (!m || m.kind !== "collection") return json({ error: "not found" }, 404);
+        if (scope === "store") return json({ error: "forbidden", message: "Bank confirmations are entered by head office." }, 403);
+        if (scope === "region" && fence && !fence.locs.has(String(m.location_id))) return json({ error: "forbidden: outside your region" }, 403);
+        const b = banked_amount === "" || banked_amount == null ? null : round2(Number(banked_amount));
+        const { error } = await admin.from("cash_movements").update({ banked_amount: b, banked_at: b == null ? null : new Date().toISOString(), banked_by: b == null ? null : (scope === "master" ? "Admin" : scopeLabel || "Regional manager") }).eq("id", m.id);
+        if (error) throw error;
+        return json({ ok: true, banked_amount: b, difference: b == null ? null : round2(b - Number(m.amount)) });
+      }
+
       // ---- KDS: start a ticket / tick a line (ORDERS LOCKDOWN 2026-10-24) ----
       // The KDS used to PATCH menu_orders / menu_order_items straight from the
       // browser with the public key, which let anyone change any order. Now
@@ -2977,6 +3246,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
           cash: Number((f.summary as any).cash || 0), total: Number((f.summary as any).total || 0),
           counted: f.counted, expected: f.expected, variance: f.variance, float_used: f.flt, float_known: f.knownFloat,
           float_changed: f.floatChanged, cash_dropped: f.dropped, limit: f.limit,
+          paid_out: f.mv.payouts, paid_in: f.mv.payins, dropped_mid_shift: f.mv.drops,
           note_needed: f.outBy || f.floatChanged, manager_needed: f.outBy || f.floatChanged,
         } });
       }
@@ -3017,7 +3287,8 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const toBank = fig.counted == null ? null : round2((fig.counted as number) - (floatLeft as number));
         const controls = { float_known: fig.knownFloat, float_changed: fig.floatChanged, approved_by: approvedBy, count_attempts: countAttempts,
           first_count: countAttempts.length > 1 ? countAttempts[0].counted : null, recounts: Math.max(0, countAttempts.length - 1),
-          float_left: floatLeft, to_bank: toBank };
+          float_left: floatLeft, to_bank: toBank,
+          paid_out: fig.mv.payouts, paid_in: fig.mv.payins, dropped_mid_shift: fig.mv.drops, payout_reasons: fig.mv.byReason };
         // Kitchen speed for the period being closed.
         const { data: tgtRow } = await admin.from("menu_app_settings").select("value").eq("key", "kds_target_minutes:" + location_id).maybeSingle();
         const targetMin = Number(tgtRow?.value) > 0 ? Number(tgtRow!.value) : 12;
@@ -3083,6 +3354,11 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
             .eq("location_id", location_id).in("status", ["open", "counting"]);
           await admin.from("till_shifts").update({ closure_id: closure?.id }).eq("location_id", location_id).is("closure_id", null);
           if (dropped) await admin.from("till_closures").update({ cash_dropped: dropped }).eq("id", closure?.id);
+          // CASH MOVEMENTS: the takings go into the safe for the area manager.
+          if (toBank && toBank > 0) {
+            await admin.from("cash_movements").insert({ location_id, kind: "drop", source: "close", amount: toBank, reason: "Close till takings",
+              closure_id: closure?.id, device_key: deviceTok?.key ? String(deviceTok.key) : null, by_name: closed_by || null });
+          }
         } catch (e) { console.error("shift rollup", e); }
         // On the printed Z a shift that was still running ends with the day.
         if (Array.isArray((summary as any).shifts)) (summary as any).shifts = (summary as any).shifts.map((x: any) => x.status === "closed" ? x : { ...x, status: "closed", ended_at: now });
