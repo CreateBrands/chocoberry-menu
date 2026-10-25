@@ -277,10 +277,13 @@ export function StripTools({ kit, extra = [], onAnyTap }) {
                 {sizes.map((z) => <span key={z} onClick={() => kit.setSize(z)} style={{ minWidth: 40, textAlign: "center", padding: "8px 0", fontSize: 13.5, fontWeight: 800, cursor: "pointer", borderRadius: 8, background: kit.size === z ? "linear-gradient(135deg,#14b8a6,#0d9488)" : "transparent", color: kit.size === z ? "#fff" : "#99f6e4" }}>{z}</span>)}
               </span>
             </div>
-            <div onClick={() => kit.setSoundOn((v) => !v)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 4px", cursor: "pointer" }}>
-              <span style={{ fontWeight: 700, fontSize: 14.5 }}>Sound for new orders</span>
-              <span style={{ width: 46, height: 26, borderRadius: 13, background: kit.soundOn ? "#14b8a6" : "rgba(204,251,241,.18)", position: "relative", transition: "background .15s" }}>
-                <span style={{ position: "absolute", top: 3, left: kit.soundOn ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "4px 4px 0" }}>
+              <span style={{ fontWeight: 700, fontSize: 14.5 }}>New-order ring</span>
+              <span style={{ display: "flex", background: "rgba(94,234,212,.08)", borderRadius: 10, padding: 3, gap: 2 }}>
+                {[["off", "Off"], ["loud", "Once"], ["repeat", "Until tap"]].map(([m, l]) => (
+                  <span key={m} onClick={() => { kit.setRingMode && kit.setRingMode(m); if (m !== "off" && kit.testRing) setTimeout(kit.testRing, 50); }}
+                    style={{ padding: "8px 10px", fontSize: 13, fontWeight: 800, cursor: "pointer", borderRadius: 8, whiteSpace: "nowrap", background: kit.ringMode === m ? "linear-gradient(135deg,#14b8a6,#0d9488)" : "transparent", color: kit.ringMode === m ? "#fff" : "#99f6e4" }}>{l}</span>
+                ))}
               </span>
             </div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>

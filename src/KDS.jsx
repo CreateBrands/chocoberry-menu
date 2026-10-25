@@ -286,7 +286,12 @@ export default function KDS({ surface = "kds" }) {
   // Once the screen's row has loaded, its saved station is the truth; the
   // URL/localStorage seed only matters for a brand-new, never-registered screen.
   const myStation = mySettings ? (mySettings.station || "") : myStationSeed;
-  const [soundOn, setSoundOn] = useState(true);
+  // Sound for new orders: "off" | "loud" (rings once) | "repeat" (rings again
+  // every 10 s until someone touches the screen). Saved per screen.
+  const [ringMode, setRingMode] = useState(() => { try { return localStorage.getItem("kds_ring") || "loud"; } catch { return "loud"; } });
+  useEffect(() => { try { localStorage.setItem("kds_ring", ringMode); } catch {} }, [ringMode]);
+  const soundOn = ringMode !== "off";
+  const setSoundOn = (fn) => setRingMode((m) => { const on = typeof fn === "function" ? fn(m !== "off") : fn; return on ? (m === "off" ? "loud" : m) : "off"; });
   const [connected, setConnected] = useState(true);
   const [size, setSize] = useState(() => localStorage.getItem("kds_size") || "M");
   const [fullscreen, setFullscreen] = useState(false);
@@ -370,19 +375,64 @@ export default function KDS({ surface = "kds" }) {
 
   useEffect(() => { const t = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(t); }, []);
 
-  const beep = useCallback(() => {
-    if (!soundOn) return;
+  // NEW-ORDER RING 2026-10-25 — the old single soft 880 Hz blip was lost
+  // under extraction fans and the coffee machine. Now: a two-tone ring
+  // (E6/B5, where the ear is most sensitive) played twice, square + sine
+  // layered for bite, pushed through a compressor so it is as loud as the
+  // device allows without distorting. Turn the tablet's media volume up too.
+  const ensureAudio = () => {
+    if (!audioCtx.current) audioCtx.current = new (window.AudioContext || window.webkitAudioContext)();
+    const ctx = audioCtx.current;
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    return ctx;
+  };
+  const ring = useCallback(() => {
     try {
-      if (!audioCtx.current) audioCtx.current = new (window.AudioContext || window.webkitAudioContext)();
-      const ctx = audioCtx.current;
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.connect(g); g.connect(ctx.destination); o.frequency.value = 880; o.type = "sine";
-      g.gain.setValueAtTime(0.001, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.3, ctx.currentTime + 0.02);
-      g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
-      o.start(); o.stop(ctx.currentTime + 0.4);
+      const ctx = ensureAudio();
+      const t0 = ctx.currentTime + 0.03;
+      const comp = ctx.createDynamicsCompressor();
+      comp.threshold.value = -14; comp.knee.value = 4; comp.ratio.value = 12; comp.attack.value = 0.002; comp.release.value = 0.12;
+      const master = ctx.createGain(); master.gain.value = 2.2;
+      const post = ctx.createGain(); post.gain.value = 1.3;   // back up to just under full scale
+      master.connect(comp); comp.connect(post); post.connect(ctx.destination);
+      const notes = [1319, 988, 1319, 988, 0, 1319, 988, 1319, 988];
+      notes.forEach((f, i) => {
+        if (!f) return;
+        const st = t0 + i * 0.19;
+        [["square", 0.32], ["sine", 0.7], ["triangle", 0.35]].forEach(([type, amp], k) => {
+          const o = ctx.createOscillator(), g = ctx.createGain();
+          o.type = type; o.frequency.value = k === 2 ? f * 2 : f;
+          g.gain.setValueAtTime(0.0001, st);
+          g.gain.exponentialRampToValueAtTime(amp, st + 0.008);
+          g.gain.setValueAtTime(amp, st + 0.13);
+          g.gain.exponentialRampToValueAtTime(0.0001, st + 0.175);
+          o.connect(g); g.connect(master); o.start(st); o.stop(st + 0.19);
+        });
+      });
     } catch {}
-  }, [soundOn]);
+  }, []);
+  // Browsers only allow sound after a touch: unlock on the first tap, and a
+  // tap anywhere also silences a repeating ring.
+  const ringPending = useRef(0);
+  useEffect(() => {
+    const touch = () => { try { ensureAudio(); } catch {} ringPending.current = 0; };
+    window.addEventListener("pointerdown", touch, true);
+    return () => window.removeEventListener("pointerdown", touch, true);
+  }, []); // eslint-disable-line
+  useEffect(() => {
+    if (ringMode !== "repeat") return;
+    const id = setInterval(() => {
+      // Keep ringing for up to 3 minutes or until someone touches the screen.
+      if (ringPending.current && Date.now() - ringPending.current < 180000) ring();
+      else ringPending.current = 0;
+    }, 10000);
+    return () => clearInterval(id);
+  }, [ringMode, ring]);
+  const beep = useCallback(() => {
+    if (ringMode === "off") return;
+    ring();
+    if (ringMode === "repeat" && !ringPending.current) ringPending.current = Date.now();
+  }, [ringMode, ring]);
 
   const load = useCallback(async () => {
     try {
@@ -909,7 +959,11 @@ export default function KDS({ surface = "kds" }) {
               <div key={s} onClick={() => setSize(s)} className="kbtn" style={{ padding: "6px 9px", cursor: "pointer", fontSize: 12, fontWeight: 700, background: size === s ? "#ec4899" : "transparent", color: size === s ? "#ffffff" : "#475569" }}>{s}</div>
             ))}
           </div>
-          <div onClick={() => setSoundOn((v) => !v)} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#ffffff", border: "1px solid #d8dce2", fontSize: 15 }}>{soundOn ? BELL : BELLOFF}</div>
+          <div onClick={() => setRingMode((m) => { const n = m === "loud" ? "repeat" : m === "repeat" ? "off" : "loud"; if (n !== "off") setTimeout(ring, 50); return n; })} className="kbtn"
+            title="New-order ring: tap to switch Ring once → Ring until tapped → Off (plays a test ring)"
+            style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: ringMode === "off" ? "#ffffff" : "#fef3c7", border: "1px solid " + (ringMode === "off" ? "#d8dce2" : "#fcd34d"), fontSize: 13, fontWeight: 800, color: "#854d0e", whiteSpace: "nowrap" }}>
+            {ringMode === "off" ? BELLOFF : BELL + (ringMode === "repeat" ? " Until tapped" : " Ring")}
+          </div>
           <div onClick={goFullscreen} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#ffffff", border: "1px solid #d8dce2", fontSize: 15 }} title="Fullscreen">{fullscreen ? X : EXPAND}</div>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: connected ? "#15803d" : "#b91c1c", marginLeft: 2 }}>
             <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "#16a34a" : "#dc2626" }} />
@@ -1345,7 +1399,7 @@ export default function KDS({ surface = "kds" }) {
           textSize={size}
           barKit={{ problems: failedOrders.length + silentPrinters.length, onPrintLog: openPrintLog, connected, clock: nowClock,
             usb: ownsUsb ? { state: usbState, onClick: async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } } } : null,
-            sizes: Object.keys(SIZES), size, setSize, soundOn, setSoundOn,
+            sizes: Object.keys(SIZES), size, setSize, soundOn, setSoundOn, ringMode, setRingMode, testRing: ring,
             screenLabel: myName || ("Screen " + getScreenId()), onScreenSetup: () => setSetupOpen(true), fullscreen, goFullscreen }} />
       )}
 
