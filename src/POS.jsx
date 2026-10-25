@@ -9,6 +9,7 @@ import ShiftSheet from "./ShiftSheet.jsx";
 import ManagerPin from "./ManagerPin.jsx";
 import CashSheet from "./CashSheet.jsx";
 import StockSheet from "./StockSheet.jsx";
+import PrintersModal from "./PrintersModal.jsx";
 import { StripTools } from "./TillHeader.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
 // store this till is serving — see src/money.js. A store with no currency
@@ -777,6 +778,17 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
   // another till (or in the admin) shows here without a reload.
   const [menuTick, setMenuTick] = useState(0);
   const [stockOpen, setStockOpen] = useState(false);
+  // More → Printers: the Admin printer screen, for this store only, behind a
+  // manager PIN. printerPin holds the PIN while the screen is open.
+  const [printerAsk, setPrinterAsk] = useState(false);
+  const [printerPin, setPrinterPin] = useState(null);
+  const [storeLoc, setStoreLoc] = useState(null);
+  const printerCall = async (action, data) => {
+    const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action, data: { ...(data || {}), manager_pin: printerPin } }) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok || j.ok === false) throw new Error(j.message || j.error || ("HTTP " + r.status));
+    return j;
+  };
   useEffect(() => { const id = setInterval(() => setMenuTick((t) => t + 1), 120000); return () => clearInterval(id); }, []);
 
   // ---- Load menu (same source as the customer app) ----
@@ -1741,9 +1753,11 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
               {editLayout && pill("layout", "✓", "Done", () => setEditLayout(false), { on: true, title: "Finish arranging" })}
               <StripTools kit={barKit} extra={editLayout ? [
                 { k: "stock", icon: "⊘", label: "Items on/off", tile: "Items on/off", onClick: () => setStockOpen(true) },
+                { k: "printers", icon: "🖨", label: "Printers", tile: "Printer setup", onClick: () => setPrinterAsk(true) },
                 { k: "merge", icon: "⇱", label: "Merge", tile: "Merge categories", onClick: () => setShowMerge(true) },
               ] : [
                 { k: "stock", icon: "⊘", label: "Items on/off", tile: "Items on/off", onClick: () => setStockOpen(true) },
+                { k: "printers", icon: "🖨", label: "Printers", tile: "Printer setup", onClick: () => setPrinterAsk(true) },
                 { k: "layout", icon: "⇕", label: "Layout", tile: "Arrange tiles", onClick: () => setEditLayout(true) },
                 { k: "merge", icon: "⇱", label: "Merge", tile: "Merge categories", onClick: () => setShowMerge(true) },
               ]} />
@@ -1771,6 +1785,20 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       )}
 
       {cashOpen && <CashSheet loc={loc} act={ordActionJson} onClose={() => setCashOpen(false)} />}
+      {printerAsk && (
+        <ManagerPin title="Printer setup" sub="Add, rename, test and set up this store's printers. Manager PIN needed." confirmLabel="Open"
+          onClose={() => setPrinterAsk(false)}
+          onSubmit={async (pin) => {
+            const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action: "printer_list", data: { manager_pin: pin } }) });
+            const j = await r.json().catch(() => ({}));
+            if (!r.ok || j.ok === false) return j.message || j.error || "That PIN can't open printer setup.";
+            let name = "This store";
+            try { const lr = await fetch(SUPABASE_URL + "/rest/v1/menu_locations?select=id,name&id=eq." + loc, { headers: H }); const rows = lr.ok ? await lr.json() : []; if (rows[0] && rows[0].name) name = rows[0].name; } catch {}
+            setStoreLoc({ id: loc, name }); setPrinterPin(pin);
+            return null;
+          }} />
+      )}
+      {printerPin && storeLoc && <PrintersModal call={printerCall} locations={[storeLoc]} zIndex={96} onClose={() => { setPrinterPin(null); setStoreLoc(null); }} />}
       {stockOpen && <StockSheet loc={loc} onClose={() => setStockOpen(false)} onChanged={() => setMenuTick((t) => t + 1)} />}
 
       {shiftOpen && shift && (

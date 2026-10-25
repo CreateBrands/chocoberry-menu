@@ -104,6 +104,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     "close_preview", "kds_order_patch", "kds_item_patch",
     "cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect",
     "team_status",
+    "printer_list", "printer_add", "printer_update", "printer_remove", "printer_test", "printer_status",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   // Device enforcement: when the caller sends a device token it must be active,
@@ -547,7 +548,8 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
   const TILL_DEVICE_REQUIRED = new Set(["take_payment", "mark_paid", "mark_unpaid", "refund_payment", "print_refund_receipt", "order_payments_list",
     "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "abandon_hold",
     "day_summary", "print_x_read", "open_drawer", "shift_status", "shift_start", "shift_end", "shift_resume", "shift_count", "close_preview", "kds_order_patch", "kds_item_patch",
-    "cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect"]);
+    "cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect",
+    "printer_list", "printer_add", "printer_update", "printer_remove", "printer_test", "printer_status"]);
   // Actions that name an order: a till may only touch its own store's orders.
   const ORDER_ACTIONS = new Set(["take_payment", "mark_paid", "mark_unpaid", "refund_payment", "print_refund_receipt", "order_payments_list",
     "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "abandon_hold", "void_order", "void_fired_item",
@@ -973,6 +975,31 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     if (tillStore && data && data.location_id && String(data.location_id) !== tillStore
         && !["device_activate", "device_claim_legacy", "device_heartbeat"].includes(action)) {
       return json({ error: "wrong_store", message: "This till belongs to a different store." }, 403);
+    }
+    // PRINTERS FROM THE TILL 2026-10-25 — More → Printers. A manager PIN (or
+    // the store PIN) on a licensed device; only that store's printers, and a
+    // printer can't be moved to another store from here.
+    if (isPosCall && ["printer_list", "printer_add", "printer_update", "printer_remove", "printer_test", "printer_status"].includes(action)) {
+      if (!callerDevice || !tillStore) return json({ error: "device_required", message: "Only a licensed till can change printers." }, 403);
+      const mp = await managerForPin(data?.manager_pin, tillStore);
+      if (!mp.ok) return json({ ok: false, error: "bad_pin", message: "A manager PIN is needed for printer setup." }, 403);
+      if (action === "printer_add") {
+        (data as any).location_id = tillStore;
+        if (!(data as any).store_id) {
+          const { data: sib } = await admin.from("printers").select("store_id").eq("location_id", tillStore).not("store_id", "is", null).limit(1);
+          const { data: lr } = await admin.from("menu_locations").select("name").eq("id", tillStore).maybeSingle();
+          (data as any).store_id = (sib && sib[0] && (sib[0] as any).store_id) || String((lr as any)?.name || tillStore).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+        }
+      }
+      if (action === "printer_update" || action === "printer_remove") {
+        const { data: pr } = await admin.from("printers").select("location_id").eq("id", String(data?.id || "")).maybeSingle();
+        if (!pr || String((pr as any).location_id) !== tillStore) return json({ error: "wrong_store", message: "That printer belongs to another store." }, 403);
+        if (data?.fields) { delete (data as any).fields.location_id; delete (data as any).fields.store_id; }
+      }
+      if (action === "printer_test" || action === "printer_status") {
+        const { data: pr } = await admin.from("printers").select("location_id").eq("sn", String(data?.sn || "")).maybeSingle();
+        if (!pr || String((pr as any).location_id) !== tillStore) return json({ error: "wrong_store", message: "That printer belongs to another store." }, 403);
+      }
     }
     // CASH MOVEMENTS: the till's cash actions only ever come from a verified till.
     if (["cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect", "team_status"].includes(action) && !callerDevice) {
@@ -1425,7 +1452,9 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
           .from("printers").select("*").order("created_at", { ascending: true });
         if (error) throw error;
         const F = fence;
-        const printers = scope === "region" && F
+        const printers = isPosCall && tillStore
+          ? (printersAll ?? []).filter((p: any) => String(p.location_id || "") === tillStore)
+          : scope === "region" && F
           ? (printersAll ?? []).filter((p: any) => p.location_id && F.locs.has(String(p.location_id)))
           : printersAll;
         // Sunmi answers { code, data: { list: [ { sn, is_online } ] } }. This
