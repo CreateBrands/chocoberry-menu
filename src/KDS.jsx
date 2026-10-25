@@ -462,10 +462,11 @@ export default function KDS({ surface = "kds" }) {
   }, [ringMode, ring]);
 
   const loadSeq = useRef(0);
+  const withSent = useRef(true);
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,amount_paid,kds_started_at,kds_bumped_at,served_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=" + (withSent.current ? "sent_at," : "") + "id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,amount_paid,kds_started_at,kds_bumped_at,served_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
         // 'hold' = placed on the kiosk, waiting for the customer to pay at the
         // till. The kitchen sees it coming but must not start it; it becomes a
         // normal ticket the moment payment flips it to 'placed'.
@@ -477,6 +478,9 @@ export default function KDS({ surface = "kds" }) {
       url += "&created_at=gte." + encodeURIComponent(new Date(Date.now() - 20 * 3600 * 1000).toISOString());
       if (loc) url += "&location_id=eq." + loc;
       const r = await fetch(url, { headers: H, cache: "no-store" });
+      // Before db/sent_at.sql has run the column doesn't exist: drop it from
+      // the query and carry on timing from created_at, as before.
+      if (r.status === 400 && withSent.current) { withSent.current = false; return load(); }
       if (!r.ok) throw new Error("http " + r.status);
       const data = (await r.json()).reverse(); // back to oldest-first for the ticket rail
       // Polls overlap (timer, tab focus, after a start). An answer that left
@@ -803,15 +807,19 @@ export default function KDS({ surface = "kds" }) {
   // order). Read from the lines themselves, which every order has, rather than
   // items_added_log, which older appended orders never got.
   const roundOf = (o) => { let b = 0; for (const it of (o.menu_order_items || [])) b = Math.max(b, Number(it.added_batch) || 0); const log = Array.isArray(o.items_added_log) ? o.items_added_log.length : 0; return Math.max(b, log); };
+  // The kitchen clock starts when the order reached the kitchen (sent_at: on
+  // creation, or when payment released a held order) — not when Pay was
+  // pressed. Older orders without it fall back to created_at.
+  const sentAt = (o) => o.sent_at || o.created_at;
   const clockStart = (o) => {
     const r = roundOf(o);
-    if (!r || !o.items_added_at) return o.created_at;
+    if (!r || !o.items_added_at) return sentAt(o);
     const lines = o.menu_order_items || [];
     const earlier = lines.filter((it) => (Number(it.added_batch) || 0) < r);
     const earlierDone = earlier.length > 0 && earlier.every((it) => it.item_status === DONE_ITEM);
     // round_restarted is set by place-order when the ticket had already been
     // bumped before the new round arrived — i.e. the earlier rounds were served.
-    return (o.round_restarted || earlierDone) ? o.items_added_at : o.created_at;
+    return (o.round_restarted || earlierDone) ? o.items_added_at : sentAt(o);
   };
   // A till "Pay" puts the order on hold while the card or cash is taken, so
   // the kitchen sees it coming. One still on hold with nothing paid after 15
@@ -2072,8 +2080,11 @@ function PerformanceView({ loc, F, lateMin }) {
   // on the earlier one is part of the same job: one ticket, from the first
   // send to the bump that finished it.
   const segmentsOf = (o) => {
-    const starts = [new Date(o.created_at).getTime(), ...((o.items_added_log || []).map((x) => new Date(x).getTime()).filter((t) => isFinite(t)).sort((a, b) => a - b))];
-    if (starts.length === 1) return [{ ...o, _seg: 0, _segStart: starts[0], _done: completionOf(o) }];
+    // Kitchen time starts when the order reached the kitchen (sent_at), not
+    // when it was created on hold at the till or kiosk.
+    const t0 = new Date(o.sent_at || o.created_at).getTime();
+    const starts = [t0, ...((o.items_added_log || []).map((x) => new Date(x).getTime()).filter((t) => isFinite(t) && t >= t0).sort((a, b) => a - b))];
+    if (starts.length === 1) return [{ ...o, created_at: new Date(t0).toISOString(), _seg: 0, _segStart: starts[0], _done: completionOf(o) }];
     const allBumps = (o.bumps || []).map((b) => ({ ...b, _t: new Date(b.bumped_at).getTime() })).filter((b) => isFinite(b._t));
     const items = o.items || [];
     const groups = [];
@@ -2082,7 +2093,7 @@ function PerformanceView({ loc, F, lateMin }) {
       if (allBumps.some((b) => b._t >= cur.st && b._t < starts[i])) { groups.push({ ...cur, i1: i - 1, end: starts[i] }); cur = { i0: i, st: starts[i] }; }
     }
     groups.push({ ...cur, i1: starts.length - 1, end: Infinity });
-    if (groups.length === 1) return [{ ...o, _seg: 0, _segStart: starts[0], _done: completionOf(o) }];
+    if (groups.length === 1) return [{ ...o, created_at: new Date(t0).toISOString(), _seg: 0, _segStart: starts[0], _done: completionOf(o) }];
     return groups.map((g) => {
       const bumps = allBumps.filter((b) => b._t >= g.st && b._t < g.end).map(({ _t, ...b }) => b);
       const segItems = items.filter((it) => { const b = Number(it.batch) || 0; return b >= g.i0 && b <= g.i1; });

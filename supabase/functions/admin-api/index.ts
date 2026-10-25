@@ -563,7 +563,9 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
       const times: number[] = [];
       for (const o of rows) {
         // Segment: original ticket + one per addition (items_added_log), each timed from its own start.
-        const starts: number[] = [new Date(o.created_at).getTime(), ...((o.items_added_log || []).map((x: string) => new Date(x).getTime()).filter((t: number) => isFinite(t)).sort((a: number, b: number) => a - b))];
+        // Kitchen time starts when the order reached the kitchen (sent_at).
+        const t0 = new Date(o.sent_at || o.created_at).getTime();
+        const starts: number[] = [t0, ...((o.items_added_log || []).map((x: string) => new Date(x).getTime()).filter((t: number) => isFinite(t) && t >= t0).sort((a: number, b: number) => a - b))];
         const all = (o.bumps || []).map((b: any) => new Date(b.bumped_at).getTime()).filter((t: number) => isFinite(t)).sort((a: number, b: number) => a - b);
         // Same rule as the KDS Performance tab: a round is its own ticket only
         // if the earlier round had been bumped before it arrived; otherwise it
