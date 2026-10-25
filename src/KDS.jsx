@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import POS from "./POS.jsx";
 import { TeamChip, OfflineBar } from "./TillHeader.jsx";
+import KitchenBar from "./KitchenBar.jsx";
 import ServiceFeedback, { TAGS as SVC_TAGS, CATEGORY_LABEL as SVC_CAT } from "./ServiceFeedback.jsx";
 import { getDevice, setDevice, clearDevice, deviceToken, fingerprint, APP_VERSION } from "./device.js";
 import * as usbPrinter from "./usbPrinter.js";
@@ -913,75 +914,10 @@ export default function KDS({ surface = "kds" }) {
     <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "#eef0f3", color: "#1f2937", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes kfailflash{0%,100%{background:#dc2626}50%{background:#8f1414}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#00000008}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#c3c9d2;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#a8b0bb}"}</style>
 
-      {/* The POS view has no top bar at all: everything it showed, including
-          the Kitchen / Performance switch on combined screens, sits in the
-          POS bottom strip. */}
-      {view !== "pos" && (
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "#ffffff", borderBottom: "1px solid #d8dce2", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>
-        <div style={{ display: kind === "pos" && view === "pos" ? "none" : "flex", alignItems: "center", gap: 18 }}>
-          {/* The till shows no brand / store name — the space goes to the team and drawer. */}
-          {view !== "pos" && <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em", display: "inline-flex", alignItems: "center", gap: 8 }}>{brand.logo && <img src={brand.logo} alt="" style={{ height: 26, width: "auto" }} />}{brand.name} <span style={{ color: brand.accent }}>{surface === "pos" ? "POS" : "KDS"}</span></span>}
-          {kind !== "pos" && <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
-            {[["kitchen", "Kitchen"], ["perf", "Performance"], ["pos", "POS"]].filter(([v]) => kind === "kds+pos" || (kind === "pos" ? v === "pos" : v !== "pos")).map(([v, label]) => (
-              <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#475569" }}>
-                {label}
-              </div>
-            ))}
-          </div>}
-          {view === "kitchen" && (
-          <div style={{ display: "flex", gap: 6 }}>
-            {[["active", "Active"], ["allday", "All-day"], ["completed", "Done"]].map(([t, label]) => (
-              <div key={t} onClick={() => setTab(t)} className="kbtn" style={{ padding: "7px 15px", borderRadius: 9, cursor: "pointer", fontSize: 14, fontWeight: 700, background: tab === t ? "#ec4899" : "#ffffff", color: tab === t ? "#ffffff" : "#475569", border: "1px solid #d8dce2", transition: "background .12s" }}>
-                {label}{t === "active" ? " " + active.length : ""}
-              </div>
-            ))}
-          </div>
-          )}
-        </div>
-        {/* TILL HEADER 2026-10-25: on the POS view the kitchen's ticket stats,
-            sizes, bell and station chip give way to who's working, the cash
-            drawer, printer and connection, with the rest under ⚙. */}
-        {view === "pos" ? null : (<>
-        <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 13 }}>
-          <Stat label="Time" value={nowClock} />
-          <Stat label="Working" value={active.length} accent="#b45309" />
-          <Stat label="Avg today" value={avgLabel} accent="#1d4ed8" />
-          {onTimePct !== null && <Stat label="On-time" value={onTimePct + "%"} accent={onTimePct >= 80 ? "#15803d" : "#b45309"} />}
-        </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          {false && stations.length > 1 && (
-            <select value={station} onChange={(e) => setStation(e.target.value)} style={{ background: "#ffffff", color: "#1f2937", border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 10px", fontSize: 13 }}>
-              <option value="all">All stations</option>
-              {stations.map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
-          )}
-          <div style={{ display: "flex", background: "#e2e5ea", border: "1px solid #d8dce2", borderRadius: 8, overflow: "hidden" }}>
-            {Object.keys(SIZES).map((s) => (
-              <div key={s} onClick={() => setSize(s)} className="kbtn" style={{ padding: "6px 9px", cursor: "pointer", fontSize: 12, fontWeight: 700, background: size === s ? "#ec4899" : "transparent", color: size === s ? "#ffffff" : "#475569" }}>{s}</div>
-            ))}
-          </div>
-          <div onClick={() => setRingMode((m) => { const n = m === "loud" ? "repeat" : m === "repeat" ? "off" : "loud"; if (n !== "off") setTimeout(ring, 50); return n; })} className="kbtn"
-            title="New-order ring: tap to switch Ring once → Ring until tapped → Off (plays a test ring)"
-            style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: ringMode === "off" ? "#ffffff" : "#fef3c7", border: "1px solid " + (ringMode === "off" ? "#d8dce2" : "#fcd34d"), fontSize: 13, fontWeight: 800, color: "#854d0e", whiteSpace: "nowrap" }}>
-            {ringMode === "off" ? BELLOFF : BELL + (ringMode === "repeat" ? " Until tapped" : " Ring")}
-          </div>
-          <div onClick={goFullscreen} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#ffffff", border: "1px solid #d8dce2", fontSize: 15 }} title="Fullscreen">{fullscreen ? X : EXPAND}</div>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: connected ? "#15803d" : "#b91c1c", marginLeft: 2 }}>
-            <span style={{ width: 8, height: 8, borderRadius: "50%", background: connected ? "#16a34a" : "#dc2626" }} />
-            {connected ? "Live" : "\u2026"}
-          </div>
-          {/* ALWAYS shown. Previously this rendered only when ?screen= was
-              present, so an unlabelled screen displayed no identity at all —
-              exactly the screens most likely to be misconfigured. */}
-          {ownsUsb && <div onClick={async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } }} className="kbtn" title={usbState === "ready" ? "USB printer connected" : "Tap to connect the USB printer"} style={{ cursor: "pointer", fontSize: 12, fontWeight: 800, padding: "5px 10px", borderRadius: 8, background: usbState === "ready" ? "#dcfce7" : usbState === "unpaired" ? "#fef3c7" : "#fee2e2", color: usbState === "ready" ? "#166534" : usbState === "unpaired" ? "#92400e" : "#991b1b" }}>🖨 {usbState === "ready" ? "USB printer" : usbState === "unpaired" ? "Connect printer" : usbState === "unsupported" ? "USB not supported" : "Printer disconnected"}</div>}
-          <div onClick={() => setSetupOpen(true)} className="kbtn" style={{ cursor: "pointer", fontSize: 12, fontWeight: 800, color: myStation ? stationMeta(myStation).color : "#cbd5e1", background: myStation ? stationMeta(myStation).bg : "#20242f", padding: "5px 10px", borderRadius: 8, marginLeft: 2, letterSpacing: ".02em" }} title="Tap to set this screen's name, station and what it shows">
-            {stationMeta(myStation).icon} {(myName || ("Screen " + getScreenId())) + (myStation ? " \u00B7 " + myStation : " \u00B7 no station") + (mySettings && mySettings.routing ? " \u00B7 filtered" : "")} ⚙
-          </div>
-        </div>
-        </>)}
-      </div>
-      )}
-      {view === "pos" && <OfflineBar connected={connected} bare />}
+      {/* No top bar on any view (2026-10-25). The till has its bottom strip;
+          the kitchen and performance screens have the floating KitchenBar
+          (bottom-right). The offline warning shows across the top. */}
+      <OfflineBar connected={connected} bare />
 
       {failedOrders.length > 0 && view !== "pos" && (
         <div style={{ animation: "kfailflash 1.1s ease-in-out infinite", color: "#fff", padding: "10px 18px", display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 19, boxShadow: "0 4px 14px rgba(0,0,0,.25)", flexWrap: "wrap" }}>
@@ -1389,6 +1325,20 @@ export default function KDS({ surface = "kds" }) {
         </div>
       )}
       {view === "perf" && <PerformanceView loc={loc} F={F} lateMin={LATE_MIN} />}
+      {view !== "pos" && (<>
+        {/* Room to scroll the last tickets clear of the floating bar. */}
+        <div style={{ height: 88 }} />
+        <KitchenBar
+          tabs={view === "kitchen" ? [["active", "Active", active.length], ["allday", "All-day"], ["completed", "Done"]].map(([k, label, count]) => ({ k, label, count, on: tab === k, onClick: () => setTab(k) })) : [{ k: "back", label: "← Kitchen", onClick: () => setView("kitchen") }]}
+          clock={nowClock} connected={connected} problems={failedOrders.length + silentPrinters.length} onPrintLog={openPrintLog}
+          stats={[{ label: "Working", value: active.length, color: "#fdba74" }, { label: "Avg today", value: avgLabel }, ...(onTimePct !== null ? [{ label: "On time", value: onTimePct + "%", color: onTimePct >= 80 ? "#4ade80" : "#fcd34d" }] : [])]}
+          views={[["kitchen", "Kitchen"], ["perf", "Performance"], ["pos", "POS"]].filter(([v]) => kind === "kds+pos" || v !== "pos")} view={view} setView={setView}
+          ringMode={ringMode} setRingMode={setRingMode} testRing={ring}
+          sizes={Object.keys(SIZES)} size={size} setSize={setSize} fullscreen={fullscreen} goFullscreen={goFullscreen}
+          usb={ownsUsb ? { state: usbState, onClick: async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } } } : null}
+          screenLabel={stationMeta(myStation).icon + " " + (myName || ("Screen " + getScreenId())) + (myStation ? " · " + myStation : " · no station") + (mySettings && mySettings.routing ? " · filtered" : "")}
+          onScreenSetup={() => setSetupOpen(true)} />
+      </>)}
       {feedbackFor && <ServiceFeedback order={feedbackFor} prefill={feedbackFor._prefillRating ? { rating: feedbackFor._prefillRating } : null} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="kds" onClose={() => setFeedbackFor(null)} onSaved={(j) => { setQuickLogged((m) => ({ ...m, [feedbackFor.id]: feedbackFor._prefillRating || 3 })); showToast("Feedback logged for #" + feedbackFor.order_no + (j && j.logged_by ? " as " + j.logged_by : "")); }} />}
       {toast && <div style={{ position: "fixed", left: "50%", bottom: 24, transform: "translateX(-50%)", zIndex: 95, background: "#0f172a", color: "#fff", padding: "11px 18px", borderRadius: 12, fontWeight: 800, fontSize: 14, boxShadow: "0 10px 30px rgba(0,0,0,.3)" }}>{toast}</div>}
       {setupOpen && <ScreenSetup loc={loc} screenKey={getScreenId()} current={mySettings} siblings={allScreens} orders={orders.filter((o) => o.status !== "cancelled" && !myBumps.has(o.id))} onClose={() => setSetupOpen(false)} onSaved={(sn) => { setScreensTick((t) => t + 1); if (sn !== undefined) { setMyPrinter(sn || null); try { sn ? localStorage.setItem("kds_printer", sn) : localStorage.removeItem("kds_printer"); } catch {} } }} />}
