@@ -26,7 +26,7 @@ export const barPill = (alert) => ({ display: "inline-flex", alignItems: "center
   background: alert ? "rgba(239,68,68,.16)" : "rgba(94,234,212,.09)", color: "#ccfbf1", border: "1.5px solid " + (alert ? "rgba(239,68,68,.45)" : "transparent") });
 const barSep = <span style={{ width: 1, height: 16, background: "rgba(204,251,241,.22)" }} />;
 
-export function TeamChip({ loc, onStoreName, bar = false, compact = false }) {
+export function TeamChip({ loc, onStoreName, bar = false, compact = 0 }) {
   const [t, setT] = useState(null);
   const [ask, setAsk] = useState(false);
   const [list, setList] = useState(null);
@@ -46,8 +46,8 @@ export function TeamChip({ loc, onStoreName, bar = false, compact = false }) {
         <span style={{ fontSize: bar ? "clamp(14px,1.05vw,19px)" : 14 }}>👥</span>
         {late && <><span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: bar ? "#fca5a5" : "#b91c1c" }}>{dot("#ef4444")}{c.late} late</span>{bar ? barSep : sep}</>}
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{dot(bar ? "#4ade80" : "#16a34a")}{c.on} on</span>
-        {c.break > 0 && <>{bar ? barSep : sep}<span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: longBreak ? (bar ? "#fcd34d" : "#a16207") : "inherit" }}>{dot("#f59e0b")}{c.break}{compact ? "" : " break"}</span></>}
-        {c.next > 0 && <>{bar ? barSep : sep}<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{dot("#60a5fa")}{c.next} next{t.next_at && !compact ? " · " + t.next_at : ""}</span></>}
+        {c.break > 0 && <>{bar ? barSep : sep}<span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: longBreak ? (bar ? "#fcd34d" : "#a16207") : "inherit" }}>{dot("#f59e0b")}{c.break}{compact >= 2 ? "" : " break"}</span></>}
+        {c.next > 0 && compact < 2 && <>{bar ? barSep : sep}<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{dot("#60a5fa")}{c.next} next{t.next_at && !compact ? " · " + t.next_at : ""}</span></>}
       </span>
       {ask && (
         <ManagerPin title="Team today" sub="Names and times are for managers and owners." confirmLabel="Show team"
@@ -215,7 +215,7 @@ export function StripTools({ kit, extra = [], onAnyTap }) {
     if (!el || !mb) return;
     const h = mb.offsetHeight; if (h && h !== rowH) setRowH(h);
     const out = [];
-    for (const c of el.children) if (c.offsetTop > 2) out.push(c.dataset.k);
+    for (const c of el.children) if (c.offsetTop > 2 || c.offsetLeft < 0) out.push(c.dataset.k);
     setHidden((prev) => (prev.join() === out.join() ? prev : out));
   };
   useLayoutEffect(measure);

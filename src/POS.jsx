@@ -1705,10 +1705,10 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
              master menus on top: team today, shift, drawer, cash, close till,
              and More for everything else. */}
         {(() => {
-          const vw = viewW / zoom, wide = vw >= 1600, roomy = vw >= 2000;
+          const vw = viewW / zoom, wide = vw >= 1600;
           const sh = shift && shift.enabled !== false ? shift.shift : undefined;
           const t = (iso) => { try { return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
-          const shiftLabel = sh === undefined ? null : !sh ? "Start shift" : sh.status === "counting" ? "Counting" : String(sh.opened_by || "").split(" ")[0] + (wide ? " · " + t(sh.opened_at) : "");
+          const shiftLabel = sh === undefined ? null : !sh ? "Start shift" : sh.status === "counting" ? "Counting" : String(sh.opened_by || "").split(" ")[0] + (vw >= 1250 ? " · since " : " · ") + t(sh.opened_at);
           const pill = (key, icon, label, onClick, o = {}) => (
             <div key={key} className="cb-tap" onPointerDown={tapFeedback} onClick={onClick} title={o.title || label}
               style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", flexShrink: o.shrink ? 1 : 0, minWidth: 0,
@@ -1723,7 +1723,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
           );
           return (
             <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 6, alignItems: "center", gridColumn: "1 / 3", gridRow: 2, minWidth: 0, boxShadow: "0 2px 10px rgba(15,46,41,.2)", position: "relative", zIndex: 30 }}>
-              {barTeam && barTeam(!roomy)}
+              {barTeam && barTeam(vw >= 1600 ? 0 : vw >= 1250 ? 1 : 2)}
               {shiftLabel && pill("shift", "◷", shiftLabel, () => { loadShift(); setShiftOpen(true); },
                 { color: "#fde68a", bg: sh ? "rgba(253,224,71,.10)" : "rgba(253,224,71,.16)", dashed: !sh })}
               {pill("drawer", "⇥", wide ? "Open drawer" : "Drawer", () => setDrawerAsk({ pin: "", busy: false, err: "" }), { color: "#cbd5e1", bg: "rgba(148,163,184,.12)" })}
