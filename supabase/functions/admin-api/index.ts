@@ -3400,10 +3400,12 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const { order_id, item_id, item_status } = data || {};
         if (!order_id || !item_id) return json({ error: "order_id and item_id required" }, 400);
         if (!["ready", "preparing"].includes(String(item_status))) return json({ error: "bad item_status" }, 400);
-        const { error } = await admin.from("menu_order_items").update({ item_status: String(item_status) })
-          .eq("id", String(item_id)).eq("order_id", String(order_id)).or("item_status.is.null,item_status.neq.voided");
+        const { data: upd, error } = await admin.from("menu_order_items").update({ item_status: String(item_status) })
+          .eq("id", String(item_id)).eq("order_id", String(order_id)).or("item_status.is.null,item_status.neq.voided").select("id, item_status");
         if (error) throw error;
-        return json({ ok: true });
+        // Nothing matched: the line was voided or removed since the screen loaded.
+        if (!upd || !upd.length) return json({ ok: false, error: "line_gone", message: "That line was changed on the till — the ticket will refresh." }, 409);
+        return json({ ok: true, item_status: upd[0].item_status });
       }
 
       // ---- TILL: check the close's count before signing off (blind until now) ----

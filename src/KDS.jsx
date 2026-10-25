@@ -141,20 +141,42 @@ export default function KDS({ surface = "kds" }) {
   // bumping here no longer clears the ticket on the other screen.
   const [myBumps, setMyBumps] = useState(() => new Set());
   const [myBumpAt, setMyBumpAt] = useState({}); // order_id -> when THIS screen bumped it
+  // KDS RELIABILITY 2026-10-25 — writes still on their way to the server.
+  // The 15 s bump refresh and the 4 s order poll used to overwrite the screen
+  // with whatever the server had at that instant. A poll that left just
+  // before a bump (or a tick) landed brought the ticket (or the untick) back;
+  // a write that failed was silently lost. Now each pending write is laid over
+  // fresh data until the server shows it, and a write that really fails says so.
+  const pendingBumps = useRef(new Map());   // order_id -> { op: "bump" | "unbump", at, saved }
+  const pendingItems = useRef(new Map());   // item_id  -> { status, at, saved }
+  const bumpSeq = useRef(0);
+  const mergeBumps = (serverIds) => {
+    const s = new Set(serverIds); const now = Date.now();
+    for (const [id, p] of pendingBumps.current) {
+      const there = s.has(id);
+      if (p.saved && (p.op === "bump") === there) { pendingBumps.current.delete(id); continue; }
+      if (now - p.at > 120000) { pendingBumps.current.delete(id); continue; }
+      if (p.op === "bump") s.add(id); else s.delete(id);
+    }
+    return s;
+  };
   // Load THIS screen's bumps on start and keep them fresh, so a reload (or a
   // replaced tablet) does not resurrect tickets this screen already cleared.
   useEffect(() => {
     if (!loc) return;
     let alive = true;
     const load = () => {
+      const seq = ++bumpSeq.current;
       // Must cover at least the order window (20h) or bumped tickets resurrect.
       const since = new Date(Date.now() - 26 * 3600 * 1000).toISOString();
       fetch(SUPABASE_URL + "/rest/v1/kds_bumps?location_id=eq." + encodeURIComponent(loc)
             + "&screen_key=eq." + encodeURIComponent(getScreenId())
             + "&bumped_at=gte." + encodeURIComponent(since)
             + "&select=order_id,bumped_at", { headers: H, cache: "no-store" })
-        .then((r) => (r.ok ? r.json() : []))
-        .then((rows) => { if (alive) { setMyBumps(new Set((rows || []).map((r) => r.order_id))); setMyBumpAt(Object.fromEntries((rows || []).map((r) => [r.order_id, r.bumped_at]))); } })
+        // A failed read must not wipe the screen's bumps (every bumped ticket
+        // would come back); and an answer older than a newer one is ignored.
+        .then((r) => { if (!r.ok) throw new Error("http " + r.status); return r.json(); })
+        .then((rows) => { if (alive && seq === bumpSeq.current && Array.isArray(rows)) { setMyBumps(mergeBumps((rows || []).map((r) => r.order_id))); setMyBumpAt(Object.fromEntries((rows || []).map((r) => [r.order_id, r.bumped_at]))); } })
         .catch(() => {});
     };
     load();
@@ -437,7 +459,9 @@ export default function KDS({ surface = "kds" }) {
     if (ringMode === "repeat" && !ringPending.current) ringPending.current = Date.now();
   }, [ringMode, ring]);
 
+  const loadSeq = useRef(0);
   const load = useCallback(async () => {
+    const seq = ++loadSeq.current;
     try {
       let url = SUPABASE_URL + "/rest/v1/menu_orders?select=id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,amount_paid,kds_started_at,kds_bumped_at,served_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
         // 'hold' = placed on the kiosk, waiting for the customer to pay at the
@@ -453,7 +477,22 @@ export default function KDS({ surface = "kds" }) {
       const r = await fetch(url, { headers: H, cache: "no-store" });
       if (!r.ok) throw new Error("http " + r.status);
       const data = (await r.json()).reverse(); // back to oldest-first for the ticket rail
+      // Polls overlap (timer, tab focus, after a start). An answer that left
+      // before a newer one must not paint over it — that is how a tick or a
+      // bump "undid itself" for a few seconds.
+      if (seq !== loadSeq.current) return;
       setConnected(true);
+      // Ticks still being saved stay ticked until the server shows them.
+      if (pendingItems.current.size) {
+        const now = Date.now();
+        for (const o of data) for (const it of (o.menu_order_items || [])) {
+          const p = pendingItems.current.get(it.id);
+          if (!p) continue;
+          if (p.saved && it.item_status === p.status) { pendingItems.current.delete(it.id); continue; }
+          if (now - p.at > 60000) { pendingItems.current.delete(it.id); continue; }
+          it.item_status = p.status;
+        }
+      }
       // Beep for genuinely new orders (not yet served) AND for items appended
       // to an order this screen already knows about — the append reopens the
       // ticket server-side, but the id is not new, so track item counts too.
@@ -468,9 +507,9 @@ export default function KDS({ surface = "kds" }) {
       prevCounts.current = counts;
       // An append clears this screen's bump in kds_bumps; drop it locally too so
       // the ticket comes back at once instead of on the next 15s bump refresh.
-      if (grewIds.length) setMyBumps((prev) => { const next = new Set(prev); grewIds.forEach((id) => next.delete(id)); return next; });
+      if (grewIds.length) { grewIds.forEach((id) => pendingBumps.current.delete(id)); setMyBumps((prev) => { const next = new Set(prev); grewIds.forEach((id) => next.delete(id)); return next; }); }
       setOrders(data);
-    } catch { setConnected(false); }
+    } catch { if (seq === loadSeq.current) setConnected(false); }
   }, [loc, beep]);
 
   useEffect(() => {
@@ -486,16 +525,43 @@ export default function KDS({ surface = "kds" }) {
   // admin-api (licensed screen, this store's orders, two fields only) rather
   // than writing menu_orders / menu_order_items with the public key.
   const kdsCall = (action, data) => fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pos: true, device: deviceToken(), action, data }) });
+  // Send a KDS write and make sure it landed: retries a dropped connection,
+  // and returns the server's reason when it is refused.
+  async function kdsSave(action, data) {
+    let last = "No connection";
+    for (let i = 0; i < 4; i++) {
+      try {
+        const r = await kdsCall(action, data);
+        const j = await r.json().catch(() => ({}));
+        if (r.ok && j.ok !== false) return { ok: true };
+        last = j.message || j.error || ("Error " + r.status);
+        if (r.status >= 400 && r.status < 500) break;       // refused — retrying won't help
+      } catch { /* dropped — try again */ }
+      await new Promise((res) => setTimeout(res, 800 * (i + 1)));
+    }
+    return { ok: false, message: last };
+  }
   async function patchOrder(id, body) {
     setOrders((prev) => prev.map((o) => o.id === id ? { ...o, ...body } : o));
-    try { await kdsCall("kds_order_patch", { order_id: id }); } catch {}
+    const r = await kdsSave("kds_order_patch", { order_id: id });
+    if (!r.ok) showToast("Start didn't save — " + r.message);
     load();
   }
   async function patchItem(id, body) {
     const owner = orders.find((o) => (o.menu_order_items || []).some((it) => it.id === id));
     const orderId = owner ? owner.id : null;
-    setOrders((prev) => prev.map((o) => ({ ...o, menu_order_items: o.menu_order_items.map((it) => it.id === id ? { ...it, ...body } : it) })));
-    try { await kdsCall("kds_item_patch", { order_id: orderId, item_id: id, item_status: body.item_status }); } catch {}
+    const before = owner ? ((owner.menu_order_items || []).find((it) => it.id === id) || {}).item_status : null;
+    const mark = (st) => setOrders((prev) => prev.map((o) => ({ ...o, menu_order_items: (o.menu_order_items || []).map((it) => it.id === id ? { ...it, item_status: st } : it) })));
+    const pend = { status: body.item_status, at: Date.now(), saved: false };
+    pendingItems.current.set(id, pend);
+    mark(body.item_status);
+    if (!orderId) { pendingItems.current.delete(id); mark(before); return; }
+    const r = await kdsSave("kds_item_patch", { order_id: orderId, item_id: id, item_status: body.item_status });
+    if (pendingItems.current.get(id) !== pend) return;          // tapped again since — the newer tap wins
+    if (r.ok) { pend.saved = true; pend.at = Date.now(); return; }
+    pendingItems.current.delete(id);
+    mark(before);
+    showToast("Tick didn't save — " + r.message);
   }
 
   // Take payment on an order — PIN is verified at this moment (viewing is open,
@@ -586,20 +652,44 @@ export default function KDS({ surface = "kds" }) {
     // Record THIS screen's bump, then let the server decide whether every
     // active screen has now bumped it (only then does it become "served").
     const who = (myName || ("screen " + getScreenId())) + (myStation ? " / " + myStation : "");
+    const pend = { op: "bump", at: Date.now(), saved: false };
+    pendingBumps.current.set(o.id, pend);
     setMyBumps((prev) => new Set(prev).add(o.id));
     (async () => {
+      const at = new Date().toISOString();
+      const key = getScreenId();
+      let saved = false;
+      for (let i = 0; i < 4 && !saved; i++) {
+        try {
+          const r = await fetch(SUPABASE_URL + "/rest/v1/kds_bumps", {
+            method: "POST",
+            headers: { ...H, Prefer: "resolution=merge-duplicates,return=minimal" },
+            body: JSON.stringify({
+              order_id: o.id, screen_key: key, location_id: loc, bumped_by: who,
+              // Re-bumping an order that already has a row (e.g. one reopened by an
+              // append, or an old ticket) must refresh the timestamp, or the row
+              // stays outside the load window and the ticket comes straight back.
+              bumped_at: at,
+            }),
+          });
+          if (r.ok) { saved = true; break; }
+          // The row is already there (a re-bump): refresh it instead.
+          const u = await fetch(SUPABASE_URL + "/rest/v1/kds_bumps?order_id=eq." + o.id + "&screen_key=eq." + encodeURIComponent(key), {
+            method: "PATCH", headers: { ...H, Prefer: "return=representation" }, body: JSON.stringify({ bumped_at: at, bumped_by: who }),
+          });
+          if (u.ok) { const rows = await u.json().catch(() => []); if (Array.isArray(rows) && rows.length) { saved = true; break; } }
+        } catch { /* dropped — try again */ }
+        await new Promise((res) => setTimeout(res, 900 * (i + 1)));
+      }
+      if (pendingBumps.current.get(o.id) !== pend) return;     // undone or re-bumped since
+      if (!saved) {
+        pendingBumps.current.delete(o.id);
+        setMyBumps((prev) => { const n = new Set(prev); n.delete(o.id); return n; });
+        showToast("Bump for #" + o.order_no + " didn't save — check the connection and bump again");
+        return;
+      }
+      pend.saved = true; pend.at = Date.now();
       try {
-        await fetch(SUPABASE_URL + "/rest/v1/kds_bumps", {
-          method: "POST",
-          headers: { ...H, Prefer: "resolution=merge-duplicates,return=minimal" },
-          body: JSON.stringify({
-            order_id: o.id, screen_key: getScreenId(), location_id: loc, bumped_by: who,
-            // Re-bumping an order that already has a row (e.g. one reopened by an
-            // append, or an old ticket) must refresh the timestamp, or the row
-            // stays outside the load window and the ticket comes straight back.
-            bumped_at: new Date().toISOString(),
-          }),
-        });
         await fetch(SUPABASE_URL + "/rest/v1/rpc/kds_settle_order", {
           method: "POST", headers: H, body: JSON.stringify({ p_order_id: o.id }),
         });
@@ -640,13 +730,24 @@ export default function KDS({ surface = "kds" }) {
     setUndo(null);
   };
   const unbumpHere = async (o) => {
+    const pend = { op: "unbump", at: Date.now(), saved: false };
+    pendingBumps.current.set(o.id, pend);
     setMyBumps((prev) => { const n = new Set(prev); n.delete(o.id); return n; });
-    try {
-      await fetch(SUPABASE_URL + "/rest/v1/rpc/kds_unbump", {
-        method: "POST", headers: H,
-        body: JSON.stringify({ p_order_id: o.id, p_screen_key: getScreenId() }),
-      });
-    } catch {}
+    for (let i = 0; i < 4; i++) {
+      try {
+        const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/kds_unbump", {
+          method: "POST", headers: H,
+          body: JSON.stringify({ p_order_id: o.id, p_screen_key: getScreenId() }),
+        });
+        if (r.ok) { if (pendingBumps.current.get(o.id) === pend) { pend.saved = true; pend.at = Date.now(); } return; }
+      } catch { /* dropped — try again */ }
+      await new Promise((res) => setTimeout(res, 900 * (i + 1)));
+    }
+    if (pendingBumps.current.get(o.id) === pend) {
+      pendingBumps.current.delete(o.id);
+      setMyBumps((prev) => new Set(prev).add(o.id));
+      showToast("Recall for #" + o.order_no + " didn't save — try again");
+    }
   };
   const recall = (o) => unbumpHere(o);
   const toggleItem = (o, it) => patchItem(it.id, { item_status: it.item_status === DONE_ITEM ? "preparing" : DONE_ITEM });
