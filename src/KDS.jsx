@@ -816,6 +816,9 @@ export default function KDS({ surface = "kds" }) {
     if (!r || !o.items_added_at) return sentAt(o);
     const lines = o.menu_order_items || [];
     const earlier = lines.filter((it) => (Number(it.added_batch) || 0) < r);
+    // This screen had nothing in the earlier rounds: its work starts with this
+    // round (a drink added to a dessert order starts the drinks clock at 0:00).
+    if (!earlier.length) return o.items_added_at;
     const earlierDone = earlier.length > 0 && earlier.every((it) => it.item_status === DONE_ITEM);
     // round_restarted is set by place-order when the ticket had already been
     // bumped before the new round arrived — i.e. the earlier rounds were served.
