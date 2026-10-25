@@ -9,6 +9,7 @@ import ShiftSheet from "./ShiftSheet.jsx";
 import ManagerPin from "./ManagerPin.jsx";
 import CashSheet from "./CashSheet.jsx";
 import StockSheet from "./StockSheet.jsx";
+import { Sheet, PinPanel, Btn, Err as TillErr, Icon as TillIcon } from "./TillUI.jsx";
 import PrintersModal from "./PrintersModal.jsx";
 import { StripTools } from "./TillHeader.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
@@ -1270,20 +1271,12 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       {feedbackFor && <ServiceFeedback order={feedbackFor} locationId={loc} supabaseUrl={SUPABASE_URL} headers={H} source="pos" onClose={() => setFeedbackFor(null)} onSaved={(j) => setMsg("Feedback logged for #" + feedbackFor.order_no + (j && j.logged_by ? " as " + j.logged_by : ""))} />}
 
       {drawerAsk && (
-        <div onClick={() => !drawerAsk.busy && setDrawerAsk(null)} style={{ position: "fixed", inset: 0, zIndex: 9000, background: "rgba(8,15,20,.62)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ width: 380, maxWidth: "94vw", background: "#fff", borderRadius: 18, padding: 24, fontFamily: "'Poppins',sans-serif", boxShadow: "0 30px 60px -20px rgba(0,0,0,.5)" }}>
-            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.02em", color: "#22271f" }}>Open the drawer</div>
-            <div style={{ fontSize: 14, color: "#6b7a60", marginTop: 6, lineHeight: 1.5 }}>For change or the float. Your PIN is recorded against this.</div>
-            <input value={drawerAsk.pin} onChange={(e) => setDrawerAsk({ ...drawerAsk, pin: e.target.value.replace(/\D/g, "").slice(0, 8), err: "" })}
-              inputMode="numeric" type="password" autoFocus placeholder="PIN"
-              style={{ width: "100%", boxSizing: "border-box", marginTop: 16, padding: "14px 16px", fontSize: 22, letterSpacing: ".3em", textAlign: "center", borderRadius: 12, border: "1px solid #e2e8f0", background: "#f8fafc", fontFamily: "'Poppins',sans-serif" }} />
-            {drawerAsk.err && <div style={{ color: "#b4462f", fontSize: 13.5, marginTop: 10, fontWeight: 600 }}>{drawerAsk.err}</div>}
-            <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-              <span onClick={() => !drawerAsk.busy && setDrawerAsk(null)} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: "#f1f5f9", color: "#22271f", fontWeight: 800, cursor: "pointer" }}>Cancel</span>
-              <span onClick={doOpenDrawer} style={{ flex: 1, textAlign: "center", padding: "14px 0", borderRadius: 12, background: drawerAsk.pin.length < 4 ? "#cbd5e1" : "#22271f", color: "#fff", fontWeight: 800, cursor: drawerAsk.pin.length < 4 ? "default" : "pointer" }}>{drawerAsk.busy ? "Opening…" : "Open"}</span>
-            </div>
-          </div>
-        </div>
+        <Sheet icon={<TillIcon.drawer size={24} />} title="Open the drawer" sub="For change or the float — your PIN is recorded against it" width={480}
+          busy={drawerAsk.busy} onClose={() => setDrawerAsk(null)}
+          footer={<><Btn kind="secondary" onClick={() => !drawerAsk.busy && setDrawerAsk(null)}>Cancel</Btn><Btn kind="teal" icon={<TillIcon.drawer size={18} />} disabled={drawerAsk.busy || drawerAsk.pin.length < 4} onClick={doOpenDrawer}>{drawerAsk.busy ? "Opening…" : "Open drawer"}</Btn></>}>
+          <PinPanel label="Your PIN" value={drawerAsk.pin} onChange={(v) => setDrawerAsk({ ...drawerAsk, pin: v, err: "" })} error={drawerAsk.err} />
+          <TillErr>{drawerAsk.err}</TillErr>
+        </Sheet>
       )}
       {openAsk && (() => {
         const px = Math.round(Number(openAsk.price) * 100) / 100;
