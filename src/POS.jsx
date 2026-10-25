@@ -124,7 +124,7 @@ function tapFeedback() {
 // ["eggs", "mushrooms", "hash browns", "baked beans"]
 const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-export default function POS({ loc, storeToken, tablesList = [], barTeam = null, barSettings = null }) {
+export default function POS({ loc, storeToken, tablesList = [], barTeam = null, barSettings = null, barStatus = null, bare = false }) {
   const [cats, setCats] = useState(null);   // masters: [{id,name,subs:[{id,name,items:[...]}]}]
   const [activeCat, setActiveCat] = useState(0);   // master index
   const [activeSub, setActiveSub] = useState(0);   // subcategory index within active master
@@ -1179,7 +1179,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
   const showGroups = sub && sub._merged && Array.isArray(sub.groups) && sub.groups.length > 0 && !search;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
+    <div style={{ display: "flex", flexDirection: "column", height: bare ? "100dvh" : "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
       {/* ── Un-ignorable print-failure banner (Oracle-style) ── */}
       {failedPrintOrders.length > 0 && (
         <>
@@ -1694,7 +1694,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
            as the master menus on top: team today, shift, drawer, cash, close,
            then the screen tools (merge, layout, settings) on the right. */}
       {(() => {
-        const wide = window.innerWidth >= 1200;
+        const wide = window.innerWidth >= 1200, roomy = window.innerWidth >= 1600;
         const sh = shift && shift.enabled !== false ? shift.shift : undefined;
         const t = (iso) => { try { return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
         const shiftLabel = sh === undefined ? null : !sh ? "Start shift" : sh.status === "counting" ? "Counting" : String(sh.opened_by || "").split(" ")[0] + (wide ? " · " + t(sh.opened_at) : "");
@@ -1719,9 +1719,11 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
             {pill("cash", currencySymbol().trim(), "Cash", () => setCashOpen(true), { color: "#fdba74", bg: "rgba(253,186,116,.12)" })}
             {pill("close", "✓", "Close till", openCloseTill)}
             <span style={{ flex: 1, minWidth: 4 }} />
-            {pill("merge", "⇱", wide ? "Merge" : "", () => setShowMerge(true), { title: "Merge categories" })}
-            {pill("layout", editLayout ? "✓" : "⇕", wide || editLayout ? (editLayout ? "Done" : "Layout") : "", () => setEditLayout((v) => !v), { on: editLayout, title: "Layout" })}
+            {pill("merge", "⇱", roomy ? "Merge" : "", () => setShowMerge(true), { title: "Merge categories" })}
+            {pill("layout", editLayout ? "✓" : "⇕", roomy || editLayout ? (editLayout ? "Done" : "Layout") : "", () => setEditLayout((v) => !v), { on: editLayout, title: "Layout" })}
             {barSettings}
+            {barStatus && <span style={{ width: 1, alignSelf: "stretch", margin: "6px 2px", background: "rgba(204,251,241,.15)", flexShrink: 0 }} />}
+            {barStatus}
           </div>
         );
       })()}

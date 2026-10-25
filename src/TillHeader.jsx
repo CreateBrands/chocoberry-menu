@@ -21,7 +21,7 @@ const chip = { display: "inline-flex", alignItems: "center", gap: 7, padding: "6
 const dot = (c) => <span style={{ width: 8, height: 8, borderRadius: "50%", background: c, display: "inline-block", flexShrink: 0 }} />;
 const sep = <span style={{ width: 1, height: 15, background: "#d6dbe1" }} />;
 // Bottom-bar look: the same dark pills as the master menus.
-const barPill = (alert) => ({ display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, cursor: "pointer", userSelect: "none",
+export const barPill = (alert) => ({ display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, cursor: "pointer", userSelect: "none",
   padding: "clamp(11px,.9vw,17px) clamp(10px,1vw,22px)", borderRadius: 11, fontSize: "clamp(12px,.92vw,18px)", fontWeight: 700,
   background: alert ? "rgba(239,68,68,.16)" : "rgba(94,234,212,.09)", color: "#ccfbf1", border: "1.5px solid " + (alert ? "rgba(239,68,68,.45)" : "transparent") });
 const barSep = <span style={{ width: 1, height: 16, background: "rgba(204,251,241,.22)" }} />;
@@ -118,8 +118,13 @@ export function DrawerChip({ loc }) {
   return <span onClick={open} style={{ ...chip, background: "#fef3c7", color: "#854d0e", border: "1px solid #fde68a" }}>💷 {sh.status === "counting" ? "Drawer · counting" : "Drawer · " + String(sh.opened_by || "").split(" ")[0]}</span>;
 }
 
-export function PrinterChip({ problems, onOpen }) {
+export function PrinterChip({ problems, onOpen, bar = false }) {
   const bad = problems > 0;
+  if (bar) return (
+    <span onClick={onOpen} title="What the printers did" style={{ ...barPill(bad), color: bad ? "#fca5a5" : "#ccfbf1" }}>
+      {dot(bad ? "#ef4444" : "#4ade80")}{bad ? problems + " not printed" : "Printer"}
+    </span>
+  );
   return (
     <span onClick={onOpen} title="What the printers did" style={{ ...chip, background: bad ? "#fef2f2" : "#f0fdf4", color: bad ? "#991b1b" : "#166534", border: "1px solid " + (bad ? "#fecaca" : "transparent") }}>
       {dot(bad ? "#dc2626" : "#16a34a")}{bad ? "Printer · " + problems + " not printed" : "Printer"}
@@ -127,14 +132,15 @@ export function PrinterChip({ problems, onOpen }) {
   );
 }
 
-export function LiveChip({ connected }) {
+export function LiveChip({ connected, bar = false }) {
+  if (bar) return <span style={{ ...barPill(!connected), cursor: "default", color: connected ? "#ccfbf1" : "#fca5a5" }}>{dot(connected ? "#4ade80" : "#ef4444")}{connected ? "Live" : "Offline"}</span>;
   return <span style={{ ...chip, cursor: "default", background: connected ? "#f0fdf4" : "#fef2f2", color: connected ? "#166534" : "#991b1b" }}>{dot(connected ? "#16a34a" : "#dc2626")}{connected ? "Live" : "Offline"}</span>;
 }
 
-export function OfflineBar({ connected }) {
+export function OfflineBar({ connected, bare = false }) {
   if (connected) return null;
   return (
-    <div style={{ position: "sticky", top: 57, zIndex: 19, background: "#dc2626", color: "#fff", fontWeight: 800, fontSize: 14, padding: "8px 20px", display: "flex", alignItems: "center", gap: 8 }}>
+    <div style={{ ...(bare ? { position: "fixed", top: 0, left: 0, right: 0, zIndex: 90 } : { position: "sticky", top: 57, zIndex: 19 }), background: "#dc2626", color: "#fff", fontWeight: 800, fontSize: 14, padding: "8px 20px", display: "flex", alignItems: "center", gap: 8 }}>
       ⚠ No connection — new orders and payments can't be saved. Reconnecting…
     </div>
   );
