@@ -27,6 +27,7 @@ const CSS = `
 @keyframes tu-tick{from{stroke-dashoffset:40}to{stroke-dashoffset:0}}
 @keyframes tu-spin{to{transform:rotate(360deg)}}
 @keyframes tu-step{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
+@keyframes tu-shimmer{from{background-position:-400px 0}to{background-position:400px 0}}
 @keyframes tu-ring{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
 .tu-overlay{animation:tu-fade .16s ease-out}
 .tu-card{animation:tu-in .2s cubic-bezier(.2,.8,.2,1)}
@@ -38,6 +39,7 @@ const CSS = `
 .tu-tile:active{transform:scale(.98)}
 .tu-chip{transition:background .12s ease,color .12s ease,border-color .12s ease}
 .tu-shake{animation:tu-shake .38s ease}
+.tu-skel{background:linear-gradient(90deg,#eef0f3 0,#f7f8fa 40%,#eef0f3 80%) 0 0/800px 100%;animation:tu-shimmer 1.2s linear infinite;border-radius:14px}
 .tu-stepin{animation:tu-step .22s cubic-bezier(.2,.8,.2,1)}
 .tu-spin{width:16px;height:16px;border-radius:50%;border:2.5px solid currentColor;border-right-color:transparent;animation:tu-spin .7s linear infinite;display:inline-block}
 .tu-dot{animation:tu-pop .18s ease-out}
@@ -300,11 +302,11 @@ export function DenomTile({ d, label, count, subtotal, active, onSelect, onStep,
           : <span style={{ width: 28, height: 28, borderRadius: 14, background: "radial-gradient(circle at 35% 30%, #fff8, transparent 45%), " + col, color: "#fff", fontSize: d >= 1 ? 11 : 10, fontWeight: 900, display: "flex", alignItems: "center", justifyContent: "center", boxShadow: "inset 0 0 0 2px rgba(0,0,0,.12)" }}>{label}</span>}
         <span style={{ marginLeft: "auto", fontSize: 26, fontWeight: 800, ...NUM }}>{n}</span>
       </div>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 7 }}>
-        <span style={{ fontSize: 12.5, color: n ? U.sub : "#c3c8cf", fontWeight: 700, ...NUM }}>{n ? fmt(subtotal) : fmt(0)}</span>
-        <span style={{ display: "flex", gap: 5 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 6, marginTop: 7 }}>
+        <span style={{ fontSize: 12, color: n ? U.sub : "#c3c8cf", fontWeight: 700, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", ...NUM }}>{n ? fmt(subtotal) : fmt(0)}</span>
+        <span style={{ display: "flex", gap: 4, flexShrink: 0 }}>
           {[["−", -1], ["+", 1]].map(([s, dlt]) => (
-            <span key={s} className="tu-key" onClick={(e) => { e.stopPropagation(); onStep(dlt); }} style={{ width: 30, height: 30, borderRadius: 9, background: U.soft, border: "1px solid " + U.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 800, color: s === "−" && !n ? "#c3c8cf" : U.ink }}>{s}</span>
+            <span key={s} className="tu-key" onClick={(e) => { e.stopPropagation(); onStep(dlt); }} style={{ width: 29, height: 29, borderRadius: 9, background: U.soft, border: "1px solid " + U.line, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18, fontWeight: 800, color: s === "−" && !n ? "#c3c8cf" : U.ink }}>{s}</span>
           ))}
         </span>
       </div>
@@ -346,3 +348,42 @@ export const Err = ({ children }) => children ? (
     <span style={{ width: 22, height: 22, borderRadius: 11, background: U.bad, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 900, flexShrink: 0 }}>!</span>{children}
   </div>
 ) : null;
+
+// Loading placeholder that shimmers in the shape of what's coming.
+export const Skeleton = ({ h = 16, w = "100%", r = 14, style }) => <div className="tu-skel" style={{ height: h, width: w, borderRadius: r, ...style }} />;
+
+// A paper slip: what will print, before it prints. lines: [label, value, {strong, tone, dim}] or "-" for a rule.
+const MONO = "ui-monospace,'SF Mono','Cascadia Mono',Menlo,Consolas,monospace";
+export function Receipt({ title, sub, lines, foot }) {
+  return (
+    <div style={{ filter: "drop-shadow(0 8px 18px rgba(18,21,28,.12))" }}>
+      <div style={{ background: "#fffdf8", borderRadius: "12px 12px 0 0", padding: "16px 18px 10px", fontFamily: MONO, color: "#1f2328", border: "1px solid #efe9dc", borderBottom: "none" }}>
+        <div style={{ textAlign: "center", fontWeight: 800, fontSize: 14, letterSpacing: ".14em" }}>{title}</div>
+        {sub && <div style={{ textAlign: "center", fontSize: 12, color: "#6b6f76", marginTop: 3 }}>{sub}</div>}
+        <div style={{ borderTop: "1.5px dashed #cfc8b8", margin: "10px 0 6px" }} />
+        {lines.filter(Boolean).map((ln, i) => ln === "-"
+          ? <div key={i} style={{ borderTop: "1.5px dashed #cfc8b8", margin: "6px 0" }} />
+          : (
+            <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 10, padding: "3px 0", fontSize: ln[2] && ln[2].strong ? 15 : 13.5, fontWeight: ln[2] && ln[2].strong ? 800 : 500, color: (ln[2] && ln[2].tone) || (ln[2] && ln[2].dim ? "#8a8f96" : "#1f2328") }}>
+              <span>{ln[0]}</span><span style={NUM}>{ln[1]}</span>
+            </div>
+          ))}
+        {foot && <><div style={{ borderTop: "1.5px dashed #cfc8b8", margin: "8px 0 6px" }} /><div style={{ textAlign: "center", fontSize: 12, color: "#6b6f76" }}>{foot}</div></>}
+      </div>
+      <div style={{ height: 9, background: "radial-gradient(circle at 7px 9px, transparent 6px, #fffdf8 6.5px) 0 0/14px 9px repeat-x" }} />
+    </div>
+  );
+}
+
+// "Ready to close?" chips: ok (tick), warn (!) or todo (empty ring).
+export function CheckChip({ state = "ok", children, onClick }) {
+  const [bg, fg, ring] = state === "ok" ? [U.goodBg, U.good, "#bbf7d0"] : state === "warn" ? [U.warnBg, U.warn, U.amber] : state === "bad" ? [U.badBg, U.bad, "#fecaca"] : ["#fff", U.sub, U.line];
+  return (
+    <span className={onClick ? "tu-btn" : ""} onClick={onClick} style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "8px 13px 8px 9px", borderRadius: 999, background: bg, color: fg, boxShadow: "inset 0 0 0 1.5px " + ring, fontSize: 13.5, fontWeight: 700, cursor: onClick ? "pointer" : "default", userSelect: "none", whiteSpace: "nowrap" }}>
+      <span style={{ width: 20, height: 20, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", background: state === "todo" ? "transparent" : fg, border: state === "todo" ? "2px solid #cfd4da" : "none", color: "#fff", fontSize: 12, fontWeight: 900 }}>
+        {state === "ok" ? <Icon.check size={12} sw={3.4} /> : state === "todo" ? null : "!"}
+      </span>
+      {children}
+    </span>
+  );
+}

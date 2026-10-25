@@ -9,7 +9,7 @@ import ShiftSheet from "./ShiftSheet.jsx";
 import ManagerPin from "./ManagerPin.jsx";
 import CashSheet from "./CashSheet.jsx";
 import StockSheet from "./StockSheet.jsx";
-import { Sheet, PinPanel, Btn, Btn as TBtn, Err as TillErr, Icon as TillIcon, U, FONT, NUM, Label as TLabel, Note as TNote, Stat, Verdict, Field, Keypad, DenomTile, DoneMark, Instruction } from "./TillUI.jsx";
+import { Sheet, PinPanel, Btn, Btn as TBtn, Err as TillErr, Icon as TillIcon, U, FONT, NUM, Label as TLabel, Note as TNote, Stat, Verdict, Field, Keypad, DenomTile, DoneMark, Instruction, Skeleton, Receipt, CheckChip } from "./TillUI.jsx";
 import PrintersModal from "./PrintersModal.jsx";
 import { StripTools } from "./TillHeader.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
@@ -1840,10 +1840,11 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
             <span style={{ color: color || (strong ? C.ink : C.muted) }}>{l}{sub && <span style={{ fontSize: 12.5, color: U.faint, marginLeft: 6 }}>{sub}</span>}</span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{v}</span>
           </div>
         );
-        const Bar = ({ label, value, max, right }) => (
-          <div style={{ display: "grid", gridTemplateColumns: "96px 1fr auto", gap: 10, alignItems: "center", padding: "5px 0", fontSize: 13.5 }}>
+        const Bar = ({ label, value, max, right, share }) => (
+          <div style={{ display: "grid", gridTemplateColumns: "96px 1fr 40px auto", gap: 10, alignItems: "center", padding: "5px 0", fontSize: 13.5 }}>
             <span style={{ color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: 600 }}>{label}</span>
             <div style={{ height: 10, background: "#eef0f3", borderRadius: 5, overflow: "hidden" }}><div style={{ width: (max ? Math.max(3, (value / max) * 100) : 0) + "%", height: "100%", background: "linear-gradient(90deg," + U.tealL + "," + U.teal + ")", borderRadius: 5, transition: "width .4s" }} /></div>
+            <span style={{ fontSize: 12.5, fontWeight: 800, color: U.teal, textAlign: "right", ...NUM }}>{share != null ? share + "%" : ""}</span>
             <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{right}</span>
           </div>
         );
@@ -1879,8 +1880,16 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         // ---------------- body ----------------
         let body = null;
         if (closeTill.busy && !sm) body = (
-          <div style={{ padding: "90px 0", textAlign: "center", color: C.muted, fontWeight: 600 }}>
-            <span className="tu-spin" style={{ width: 28, height: 28, color: U.teal, display: "inline-block", marginBottom: 12 }} /><div>Loading the day's figures…</div>
+          <div aria-label="Loading the day's figures">
+            <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr 1fr 1fr", gap: 10 }}>
+              <Skeleton h={104} r={18} /><Skeleton h={104} r={18} /><Skeleton h={104} r={18} /><Skeleton h={104} r={18} />
+            </div>
+            <Skeleton h={44} style={{ marginTop: 10 }} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28, marginTop: 22 }}>
+              <div style={{ display: "grid", gap: 10 }}>{[0, 1, 2, 3, 4, 5].map((i) => <Skeleton key={i} h={18} w={(92 - i * 6) + "%"} />)}</div>
+              <Skeleton h={130} />
+            </div>
+            <div style={{ textAlign: "center", color: C.muted, fontWeight: 600, fontSize: 14, marginTop: 22 }}>Loading the day's figures…</div>
           </div>
         );
         else if (closeTill.err && !sm) body = <div style={{ padding: "50px 0" }}><TillErr>{closeTill.err}</TillErr></div>;
@@ -1912,6 +1921,14 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                 <span style={{ color: C.muted, marginLeft: "auto" }}>{sm.kitchen.tickets} tickets</span>
               </div>
             )}
+            {/* Ready to close? — the things that stop or spoil a close, at a glance. */}
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, marginTop: 12 }}>
+              <TLabel style={{ marginBottom: 0, marginRight: 4 }}>Ready to close?</TLabel>
+              {sm.unpaid_count > 0 ? <CheckChip state="warn">{sm.unpaid_count} unpaid order{sm.unpaid_count === 1 ? "" : "s"}</CheckChip> : <CheckChip>All orders paid</CheckChip>}
+              {(sm.shifts || []).some((x) => x.status === "counting") ? <CheckChip state="bad">Handover being counted</CheckChip>
+                : <CheckChip>{(sm.shifts || []).length ? (sm.shifts || []).length + " shift" + ((sm.shifts || []).length === 1 ? "" : "s") + " handed over" : "No handover open"}</CheckChip>}
+              {closeTill.xPrinted === true ? <CheckChip>X read printed</CheckChip> : <CheckChip state="todo" onClick={() => printXRead()}>X read — optional</CheckChip>}
+            </div>
             {(sm.shifts || []).some((x) => x.status === "counting") && (
               <Alert tone="bad"><b>A shift handover is being counted.</b> Finish it from the Shift button (or tap "Not yet") before closing the till.</Alert>
             )}
@@ -1930,11 +1947,11 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                   <Line l="Total taken" v={pv ? gbp(sm.total) : <span style={{ color: U.faint, fontWeight: 600 }}>after the count</span>} strong />
                 </Section>
                 <Section title="Orders by type">
-                  {(() => { const e = Object.entries(sm.by_type || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; return e.map(([k, v]) => <Bar key={k} label={typeLabel[k] || k} value={v.amount} max={max} right={v.count + " · " + gbp(v.amount)} />); })()}
+                  {(() => { const e = Object.entries(sm.by_type || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; const tot = e.reduce((t, [, v]) => t + Number(v.amount || 0), 0); return e.map(([k, v]) => <Bar key={k} label={typeLabel[k] || k} value={v.amount} max={max} share={tot ? Math.round((v.amount / tot) * 100) : null} right={v.count + " · " + gbp(v.amount)} />); })()}
                 </Section>
                 {Object.keys(sm.by_source || {}).length > 1 && (
                   <Section title="By source">
-                    {(() => { const e = Object.entries(sm.by_source || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; return e.map(([k, v]) => <Bar key={k} label={k} value={v.amount} max={max} right={v.count + " · " + gbp(v.amount)} />); })()}
+                    {(() => { const e = Object.entries(sm.by_source || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; const tot = e.reduce((t, [, v]) => t + Number(v.amount || 0), 0); return e.map(([k, v]) => <Bar key={k} label={k} value={v.amount} max={max} share={tot ? Math.round((v.amount / tot) * 100) : null} right={v.count + " · " + gbp(v.amount)} />); })()}
                   </Section>
                 )}
               </div>
@@ -2076,18 +2093,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 330px", gap: 24 }}>
               <div>
                 {variance != null && <Verdict variance={variance} fmt={gbp} counted={countedVal} expected={expected} />}
-                <Section title="What will happen" style={{ marginTop: variance != null ? 14 : 0 }}>
-                  <div style={{ background: U.soft, borderRadius: 16, padding: "4px 14px" }}>
-                    <Line l="Orders archived" v={String(sm.order_count + (sm.cancelled_count || 0))} />
-                    <Line l="Cash" v={gbp(sm.cash)} /><Line l="Card" v={gbp(sm.card)} />
-                    {pv && pv.float_changed && <Line l="Float (changed)" sub={"was " + gbp(pv.float_known)} v={gbp(pv.float_used)} color={C.warn} />}
-                    {sm.unpaid_count > 0 && <Line l={"Archived unpaid (" + sm.unpaid_count + ")"} v={gbp(sm.unpaid_total)} color={C.warn} />}
-                    <Line l="Cash counted" v={countedVal == null ? "not counted" : gbp(countedVal)} color={countedVal == null ? C.warn : undefined} />
-                    <Line l="Total taken" v={gbp(sm.total)} strong />
-                  </div>
-                  <TNote><span style={{ display: "inline-flex", verticalAlign: "-3px", marginRight: 6, color: U.teal }}><TillIcon.printer size={16} /></span>The Z-report prints on this store's printer and the close is saved for head office. {sm.mode === "trading_day" && sm.later_count > 0 ? sm.later_count + " orders since 4:00 stay open." : ""}</TNote>
-                </Section>
-                <Section title={varianceNeedsNote ? "Note — required for the variance" : "Note"}>
+                <Section title={varianceNeedsNote ? "Note — required for the variance" : "Note"} style={{ marginTop: variance != null ? 16 : 0 }}>
                   {/* readOnly + blur on focus, like every other field in
                       this sheet: the device has no system keyboard, and
                       letting it try just put a caret in a dead box. */}
@@ -2114,6 +2120,26 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                         style={{ padding: "9px 13px", borderRadius: 999, border: "1px solid " + C.line, fontSize: 13.5, fontWeight: 800, cursor: "pointer", userSelect: "none", color: C.bad }}>Clear</span>
                     ) : null}
                   </div>
+                </Section>
+                <Section title="What will print" >
+                  <Receipt title="Z REPORT" sub={when}
+                    lines={[
+                      ["Orders archived", String(sm.order_count + (sm.cancelled_count || 0))],
+                      ["Cash", gbp(sm.cash)], ["Card", gbp(sm.card)],
+                      sm.other > 0 && ["Other", gbp(sm.other)],
+                      sm.discount_total > 0 && ["Discounts", "-" + gbp(sm.discount_total), { dim: true }],
+                      sm.refund_total > 0 && ["Refunds", "-" + gbp(sm.refund_total), { dim: true }],
+                      "-",
+                      ["TOTAL", gbp(sm.total), { strong: true }],
+                      "-",
+                      pv && ["Float", gbp(pv.float_used), pv.float_changed ? { tone: U.warn } : null],
+                      ["Counted", countedVal == null ? "not counted" : gbp(countedVal), countedVal == null ? { tone: U.warn } : null],
+                      expected != null && ["Expected", gbp(expected)],
+                      variance != null && [variance === 0 ? "Balanced" : variance > 0 ? "Over" : "Short", (variance < 0 ? "-" : variance > 0 ? "+" : "") + gbp(Math.abs(variance)), { strong: true, tone: variance === 0 ? U.good : variance > 0 ? U.over : U.bad }],
+                      sm.unpaid_count > 0 && ["Unpaid archived (" + sm.unpaid_count + ")", gbp(sm.unpaid_total), { tone: U.warn }],
+                    ]}
+                    foot={closer ? "Closed by " + closer : "Signed with your staff PIN"} />
+                  <TNote><span style={{ display: "inline-flex", verticalAlign: "-3px", marginRight: 6, color: U.teal }}><TillIcon.printer size={16} /></span>The Z-report prints on this store's printer and the close is saved for head office. {sm.mode === "trading_day" && sm.later_count > 0 ? sm.later_count + " orders since 4:00 stay open." : ""}</TNote>
                 </Section>
               </div>
               <div>
@@ -2153,16 +2179,31 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                   <Instruction n="2" icon={<TillIcon.drawer size={26} />} title="Float for tomorrow" money={rs.float_left} note="Leave it in the drawer" />
                 </div>
               )}
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
-                <Section title="Takings">
-                  <Line l="Cash" v={gbp(rs.cash)} /><Line l="Card" v={gbp(rs.card)} />{rs.other > 0 && <Line l="Other" v={gbp(rs.other)} />}
-                  <Line l="Total taken" v={gbp(rs.total)} strong />
-                  {rs.unpaid_count > 0 && <Line l={"Archived unpaid (" + rs.unpaid_count + ")"} v={gbp(rs.unpaid_total)} color={C.warn} />}
+              <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 28 }}>
+                <Section title="Z report">
+                  <Receipt title={rs.z_number != null ? "Z No. " + String(rs.z_number).padStart(6, "0") : "Z REPORT"} sub={when}
+                    lines={[
+                      ["Cash", gbp(rs.cash)], ["Card", gbp(rs.card)], rs.other > 0 && ["Other", gbp(rs.other)],
+                      "-", ["TOTAL", gbp(rs.total), { strong: true }],
+                      rs.unpaid_count > 0 && ["Unpaid archived (" + rs.unpaid_count + ")", gbp(rs.unpaid_total), { tone: U.warn }],
+                    ]}
+                    foot={closer ? "Closed by " + closer : null} />
                 </Section>
-                <Section title="Cash drawer">
-                  {rs.cash_counted == null ? <div style={{ fontSize: 14, color: C.muted }}>No cash count recorded</div>
-                    : <Verdict variance={rs.cash_variance || 0} fmt={gbp} counted={rs.cash_counted} expected={rs.cash_expected} />}
-                </Section>
+                <div>
+                  <Section title="Cash drawer">
+                    {rs.cash_counted == null ? <div style={{ fontSize: 14, color: C.muted }}>No cash count recorded</div>
+                      : <Verdict compact variance={rs.cash_variance || 0} fmt={gbp} counted={rs.cash_counted} expected={rs.cash_expected} />}
+                  </Section>
+                  {/* Before you go — tap each one off. Just a prompt on the screen; nothing is saved. */}
+                  <Section title="Before you go">
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {["Z-report signed", "Cash bagged into the safe", "Float left in the drawer", "Drawer and safe locked"].map((t) => {
+                        const on = !!(closeTill.ticks || {})[t];
+                        return <CheckChip key={t} state={on ? "ok" : "todo"} onClick={() => setCloseTill((c) => ({ ...c, ticks: { ...(c.ticks || {}), [t]: !on } }))}>{t}</CheckChip>;
+                      })}
+                    </div>
+                  </Section>
+                </div>
               </div>
             </>
           );
