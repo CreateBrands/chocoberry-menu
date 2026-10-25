@@ -5,7 +5,7 @@ import ServiceFeedback from "./ServiceFeedback.jsx";
 import { deviceToken } from "./device.js";
 import { sendCustomerScreen, orderForScreen } from "./customerScreen.js";
 import CartLine from "./CartLine.jsx";
-import ShiftSheet, { ShiftButton } from "./ShiftSheet.jsx";
+import ShiftSheet from "./ShiftSheet.jsx";
 import ManagerPin from "./ManagerPin.jsx";
 import CashSheet from "./CashSheet.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
@@ -1371,33 +1371,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   style={{ flex: 1, minWidth: 0, border: "none", outline: "none", background: "transparent", padding: "clamp(12px,1vw,18px) 0", fontSize: "clamp(13px,1vw,18px)", color: P.ink, fontFamily: "inherit" }} />
                 {search && <span onClick={() => setSearch("")} style={{ fontSize: 18, color: P.muted2, cursor: "pointer" }}>×</span>}
               </div>
-              <div style={{ display: "flex", gap: 6 }}>
-                <div onClick={() => setShowMerge(true)} title="Merge categories"
-                  style={{ flex: 1, background: P.canvas, border: "1px solid " + P.line, borderRadius: 11, padding: "clamp(10px,.85vw,15px)", fontSize: "clamp(11.5px,.88vw,16px)", fontWeight: 800, color: P.tealDeep, textAlign: "center", cursor: "pointer" }}>
-                  ⇱ Merge
-                </div>
-                <div onClick={() => setEditLayout((v) => !v)} title={editLayout ? "Done arranging" : "Resize and rearrange tiles"}
-                  style={{ flex: 1, background: editLayout ? grad : P.canvas, border: "1px solid " + (editLayout ? "transparent" : P.line), borderRadius: 11, padding: "clamp(10px,.85vw,15px)", fontSize: "clamp(11.5px,.88vw,16px)", fontWeight: 800, color: editLayout ? "#fff" : P.tealDeep, textAlign: "center", cursor: "pointer" }}>
-                  {editLayout ? "✓ Done" : "⇕ Layout"}
-                </div>
-              </div>
-              {editLayout && (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6, background: P.canvas, border: "1px solid " + P.line, borderRadius: 11, padding: 8 }}>
-                  {[["Categories", "catSize", catSize], ["Items", "itemSize", itemSize]].map(([label, key, cur]) => (
-                    <div key={key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <span style={{ flex: 1, fontSize: "clamp(10.5px,.8vw,14px)", fontWeight: 700, color: P.muted }}>{label}</span>
-                      {["s", "m", "l"].map((z) => (
-                        <span key={z} onClick={() => saveLayout({ ...layout, [key]: z })}
-                          style={{ width: 30, textAlign: "center", padding: "6px 0", borderRadius: 8, cursor: "pointer",
-                            fontSize: "clamp(10.5px,.78vw,14px)", fontWeight: 800,
-                            background: cur === z ? P.tealDeep : "#fff", color: cur === z ? "#fff" : P.muted,
-                            border: "1px solid " + (cur === z ? P.tealDeep : P.line) }}>{z.toUpperCase()}</span>
-                      ))}
-                    </div>
-                  ))}
-                  <div style={{ fontSize: "clamp(10px,.74vw,13px)", color: P.muted2, lineHeight: 1.4 }}>Drag to rearrange. Tap the badge on a tile to resize it. Saved on this till.</div>
-                </div>
-              )}
             </div>
           </div>
 
@@ -1448,6 +1421,55 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               {arrange(shown, "item:" + (sub ? sub.id : "all")).map((it) => renderTile(it))}
             </div>
           )}
+
+          {/* Till actions — a bottom bar in the same style as the master menus
+               on top, so everything that isn't selling lives in one row. */}
+          {editLayout && (
+            <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", background: "#fff", border: "1px solid " + P.line, borderRadius: 12, padding: "8px 12px", marginTop: 9 }}>
+              {[["Categories", "catSize", catSize], ["Items", "itemSize", itemSize]].map(([label, key, cur]) => (
+                <div key={key} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: "clamp(11px,.82vw,14px)", fontWeight: 700, color: P.muted }}>{label}</span>
+                  {["s", "m", "l"].map((z) => (
+                    <span key={z} onClick={() => saveLayout({ ...layout, [key]: z })}
+                      style={{ width: 34, textAlign: "center", padding: "7px 0", borderRadius: 8, cursor: "pointer",
+                        fontSize: "clamp(11px,.8vw,14px)", fontWeight: 800,
+                        background: cur === z ? P.tealDeep : "#fff", color: cur === z ? "#fff" : P.muted,
+                        border: "1px solid " + (cur === z ? P.tealDeep : P.line) }}>{z.toUpperCase()}</span>
+                  ))}
+                </div>
+              ))}
+              <span style={{ fontSize: "clamp(10.5px,.76vw,13px)", color: P.muted2 }}>Drag to rearrange. Tap the badge on a tile to resize it. Saved on this till.</span>
+            </div>
+          )}
+          {(() => {
+            const sh = shift && shift.enabled !== false ? shift.shift : undefined;
+            const t = (iso) => { try { return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+            const shiftLabel = sh === undefined ? null : !sh ? "Start shift" : sh.status === "counting" ? "Counting" : String(sh.opened_by || "").split(" ")[0] + (window.innerWidth >= 1600 ? " · " + t(sh.opened_at) : "");
+            const pill = (key, icon, label, onClick, o = {}) => (
+              <div key={key} className="cb-tap" onPointerDown={tapFeedback} onClick={onClick} title={label}
+                style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", flexShrink: o.shrink ? 1 : 0, minWidth: 0,
+                  padding: "clamp(11px,.9vw,17px) clamp(10px,1vw,24px)", borderRadius: 11,
+                  fontSize: "clamp(12px,.92vw,18px)", fontWeight: o.on ? 800 : 700,
+                  background: o.on ? grad : o.bg || "rgba(94,234,212,.09)",
+                  color: o.on ? "#fff" : o.color || P.masterMuted,
+                  border: o.dashed ? "1.5px dashed rgba(253,224,71,.55)" : "1.5px solid transparent",
+                  boxShadow: o.on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
+                <span style={{ fontSize: "clamp(14px,1.1vw,20px)", lineHeight: 1, flexShrink: 0 }}>{icon}</span><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
+              </div>
+            );
+            return (
+              <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 6, alignItems: "center", marginTop: 9, boxShadow: "0 2px 10px rgba(15,46,41,.2)", overflowX: "auto" }}>
+                {shiftLabel && pill("shift", "◷", shiftLabel, () => { loadShift(); setShiftOpen(true); },
+                  { color: "#fde68a", bg: sh ? "rgba(253,224,71,.10)" : "rgba(253,224,71,.16)", dashed: !sh, shrink: true })}
+                {pill("drawer", "⇥", "Open drawer", () => setDrawerAsk({ pin: "", busy: false, err: "" }), { color: "#cbd5e1", bg: "rgba(148,163,184,.12)" })}
+                {pill("cash", currencySymbol().trim(), "Cash", () => setCashOpen(true), { color: "#fdba74", bg: "rgba(253,186,116,.12)" })}
+                {pill("close", "✓", "Close till", openCloseTill)}
+                <span style={{ flex: 1, minWidth: 4 }} />
+                {pill("merge", "⇱", "Merge", () => setShowMerge(true))}
+                {pill("layout", editLayout ? "✓" : "⇕", editLayout ? "Done" : "Layout", () => setEditLayout((v) => !v), { on: editLayout })}
+              </div>
+            );
+          })()}
         </div>
 
         {/* 3 — ORDER PANEL */}
@@ -1694,18 +1716,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                 </div>
               );
             })}
-          </div>
-          <div style={{ flexShrink: 0, padding: "clamp(8px,.65vw,12px)", borderTop: "1px solid rgba(94,234,212,.14)", display: "grid", gap: "clamp(6px,.5vw,9px)" }}>
-            <ShiftButton status={shift} onOpen={() => { loadShift(); setShiftOpen(true); }} />
-            <div onClick={() => setDrawerAsk({ pin: "", busy: false, err: "" })} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(148,163,184,.12)", color: "#cbd5e1", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(148,163,184,.25)" }}>
-              Open drawer
-            </div>
-            <div onClick={() => setCashOpen(true)} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(253,186,116,.12)", color: "#fdba74", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(253,186,116,.28)" }}>
-              Cash
-            </div>
-            <div onClick={openCloseTill} style={{ textAlign: "center", padding: "clamp(9px,.7vw,13px) 0", borderRadius: 10, background: "rgba(94,234,212,.12)", color: "#5eead4", fontWeight: 800, fontSize: "clamp(12px,.9vw,16px)", letterSpacing: ".04em", cursor: "pointer", border: "1px solid rgba(94,234,212,.25)" }}>
-              Close till
-            </div>
           </div>
         </div>
       </div>
