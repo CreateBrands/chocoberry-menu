@@ -659,7 +659,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     const peak = Object.entries(byHour).sort((a, b) => b[1].amount - a[1].amount)[0];
 
     // ---- previous closure + same weekday last week, for comparison ----
-    const { data: prev } = await admin.from("till_closures").select("closed_at, total_taken, order_count, cash_variance, float_amount").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
+    const { data: prev } = await admin.from("till_closures").select("closed_at, total_taken, order_count, cash_variance, float_amount, float_left:report->float_left").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
     // ZREPORT 2026-10-24 — no-sale drawer opens since the last close.
     let drawerOpens: number | null = null;
     try {
@@ -701,7 +701,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         mode, cutoff,
         later_count: laterRows.filter((o: any) => o.status !== "cancelled").length,
         before_cutoff_count: (allRows || []).filter((o: any) => o.created_at < cutoff && o.status !== "cancelled").length,
-        previous: prev ? { closed_at: prev.closed_at, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance, float_amount: prev.float_amount } : null,
+        previous: prev ? { closed_at: prev.closed_at, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance, float_amount: prev.float_amount, float_left: (prev as any).float_left ?? null } : null,
         // SHIFTS: every shift since the last close, and the cash they dropped
         // to the safe (taken off the cash the close expects in the drawer).
         ...(await (async () => {
@@ -794,13 +794,38 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
   // server. The float is the one the system knows the day started on (the first
   // shift's, else the last close's, else the store float); a different figure
   // typed at the till is only used with a manager's approval and a note.
+  // TILLFIX 2026-10-25 — the float the day started on, one rule everywhere
+  // (Close till's screen, close_preview and close_day): the first shift's
+  // opening float, else what the last close left in the drawer, else the float
+  // that close used, else the store float.
+  async function dayFloat(location_id: string, sm: any): Promise<number> {
+    if (sm && sm.first_float != null) return round2(Number(sm.first_float));
+    const p = sm && sm.previous;
+    if (p && p.float_left != null) return round2(Number(p.float_left));
+    if (p && p.float_amount != null) return round2(Number(p.float_amount));
+    return await storeFloat(location_id);
+  }
+  // What was handed to the next person: the last counted shift's float, or the
+  // last close's if that came later (the morning after a close).
+  async function handedFloat(location_id: string, last: any) {
+    let lc: any = null;
+    try {
+      const { data } = await admin.from("till_closures").select("closed_at, closed_by, float_left:report->float_left").eq("location_id", location_id).order("closed_at", { ascending: false }).limit(1).maybeSingle();
+      lc = data;
+    } catch { lc = null; }
+    const shiftAt = last ? (last.counted_at || last.ended_at || null) : null;
+    if (lc && lc.float_left != null && (!shiftAt || String(lc.closed_at) > String(shiftAt))) {
+      return { amount: round2(Number(lc.float_left)), by: "the close (" + (lc.closed_by || "manager") + ")", at: lc.closed_at };
+    }
+    if (last && last.float_left != null) return { amount: round2(Number(last.float_left)), by: last.ended_by, at: last.ended_at };
+    return null;
+  }
   async function closeFigures(location_id: string, mode: string, cash_counted: unknown, float_amount: unknown) {
     const { ids, summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
     const sm: any = summary;
     const counted = cash_counted == null || cash_counted === "" ? null : round2(Number(cash_counted));
     const dropped = round2(Number(sm.cash_dropped || 0));
-    const knownFloat = sm.first_float != null ? round2(Number(sm.first_float))
-      : sm.previous && sm.previous.float_amount != null ? round2(Number(sm.previous.float_amount)) : await storeFloat(location_id);
+    const knownFloat = await dayFloat(location_id, sm);
     const asked = float_amount == null || float_amount === "" ? null : round2(Number(float_amount));
     const floatChanged = asked != null && Math.abs(asked - knownFloat) >= 0.01;
     const flt = floatChanged ? (asked as number) : knownFloat;
@@ -2276,7 +2301,10 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
           live = { taken: m.taken, card: m.card, orders: m.orders };
         }
         const strip = (x: any) => x && ({ id: x.id, status: x.status, opened_at: x.opened_at, opened_by: x.opened_by, opening_float: x.opening_float, ended_at: x.ended_at, ended_by: x.ended_by, float_left: x.float_left, drop_amount: x.drop_amount, note: x.note });
-        return json({ ok: true, enabled: true, shift: strip(shift), last: strip(last), live, float_target: floatTarget });
+        // TILLFIX: the morning after a close, the float handed over is the one the close left.
+        const handed = await handedFloat(String(location_id), last);
+        const lastOut = handed ? { ...(strip(last) || {}), float_left: handed.amount, ended_by: handed.by, ended_at: handed.at } : strip(last);
+        return json({ ok: true, enabled: true, shift: strip(shift), last: lastOut, live, float_target: floatTarget });
       }
 
       // ---- SHIFTS: the incoming person takes the drawer ----
@@ -2288,7 +2316,8 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const devKey: string | null = null;   // one drawer per store
         if (await liveShift(location_id, devKey)) return json({ error: "shift_running", message: "A shift is already running in this store." }, 409);
         const last = await lastClosedShift(location_id, devKey);
-        const floatExpected = last && last.float_left != null ? round2(Number(last.float_left)) : null;
+        const handed = await handedFloat(String(location_id), last);
+        const floatExpected = handed ? handed.amount : null;
         const opening = float_counted != null && float_counted !== "" ? round2(Number(float_counted)) : (floatExpected ?? await storeFloat(location_id));
         if (floatExpected != null && Math.abs(opening - floatExpected) >= 0.01 && !String(float_note || "").trim()) {
           return json({ error: "float_note", message: "The float differs from what was handed over — add a note." }, 400);
@@ -2402,6 +2431,8 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const { data: tgtRow } = await admin.from("menu_app_settings").select("value").eq("key", "kds_target_minutes:" + location_id).maybeSingle();
         const targetMin = Number(tgtRow?.value) > 0 ? Number(tgtRow!.value) : 12;
         if (summary.oldest) (summary as any).kitchen = await kitchenStats(location_id, summary.oldest, mode === "trading_day" ? summary.cutoff : new Date().toISOString(), targetMin);
+        (summary as any).float_known = await dayFloat(String(location_id), summary);
+        (summary as any).float_target = await storeFloat(String(location_id));
         return json({ ok: true, summary });
       }
 
@@ -2957,6 +2988,10 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const fig = await closeFigures(String(location_id), String(mode || "all"), cash_counted, float_amount);
         const { ids, summary } = fig;
         if (!ids.length) return json({ error: "nothing_to_close", message: "No orders to close for that period." }, 409);
+        // TILLFIX: a handover being counted would lose its count if the day closed under it.
+        if (((summary as any).shifts || []).some((x: any) => x.status === "counting")) {
+          return json({ error: "shift_counting", message: "A shift handover is being counted. Finish it (or tap Not yet) before closing the till." }, 409);
+        }
         // CASH CONTROLS 2026-10-24 — who may close, and on what terms.
         const closerIsManager = !staffCloser || isManagerRole(staffCloser.role);
         if (fig.counted == null && !closerIsManager) return json({ error: "count_required", message: "Count the drawer before closing." }, 400);
@@ -2976,8 +3011,13 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
           const { data: ev } = await admin.from("device_events").select("detail, created_at").eq("location_id", location_id).eq("event", "close_count").gt("created_at", since).order("created_at", { ascending: true }).limit(50);
           countAttempts = (ev || []).map((e: any) => ({ counted: e.detail?.counted ?? null, variance: e.detail?.variance ?? null, at: e.created_at }));
         } catch { countAttempts = []; }
+        // TILLFIX: what to leave in the drawer for tomorrow and what goes to the bank/safe.
+        const tgtFloat = await storeFloat(String(location_id));
+        const floatLeft = fig.counted == null ? null : round2(Math.min(fig.counted as number, tgtFloat));
+        const toBank = fig.counted == null ? null : round2((fig.counted as number) - (floatLeft as number));
         const controls = { float_known: fig.knownFloat, float_changed: fig.floatChanged, approved_by: approvedBy, count_attempts: countAttempts,
-          first_count: countAttempts.length > 1 ? countAttempts[0].counted : null, recounts: Math.max(0, countAttempts.length - 1) };
+          first_count: countAttempts.length > 1 ? countAttempts[0].counted : null, recounts: Math.max(0, countAttempts.length - 1),
+          float_left: floatLeft, to_bank: toBank };
         // Kitchen speed for the period being closed.
         const { data: tgtRow } = await admin.from("menu_app_settings").select("value").eq("key", "kds_target_minutes:" + location_id).maybeSingle();
         const targetMin = Number(tgtRow?.value) > 0 ? Number(tgtRow!.value) : 12;
@@ -3059,7 +3099,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
           printed = pr.ok && (pr.body as any)?.ok !== false;
         } catch { printed = false; }
         return json({ ok: true, closure_id: closure?.id, closed_orders: ids.length, printed,
-          summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance } });
+          summary: { ...summary, cash_counted: counted, float_amount: flt, cash_expected: expected, cash_variance: variance, ...controls } });
       }
 
       // ---- TILL: X read — print the day so far without closing anything ----

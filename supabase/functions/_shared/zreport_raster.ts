@@ -195,6 +195,9 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
     parts.push(el({ border: "4px solid #000", justifyContent: "space-between", alignItems: "center", padding: `${fs(8)}px ${fs(12)}px`, marginTop: fs(8) },
       txt(verdict, { fontSize: fs(30), fontWeight: 700, letterSpacing: 3 }),
       txt((v > 0 ? "+" : "") + n2(v) + (v !== 0 && Number(s.cash_expected) > 0 ? "  (" + (v > 0 ? "+" : "-") + pct(Math.abs(v), s.cash_expected) + ")" : ""), { fontSize: fs(30), fontWeight: 700 })));
+    // TILLFIX 2026-10-25 — what happens to the cash now.
+    if (s.to_bank != null) parts.push(line("To bank / safe", n2(s.to_bank), { bold: true }));
+    if (s.float_left != null) parts.push(line("Float left for tomorrow", n2(s.float_left), { bold: true }));
   } else if (m.kind === "x") {
     parts.push(totalRow("= Expected now", n2((Number(s.float_amount) || 0) + (Number(s.cash) || 0))));
   } else {

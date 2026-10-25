@@ -175,6 +175,8 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
     if (Number(s.recounts) > 0 && s.first_count != null) lr("  First count (" + (Number(s.recounts) + 1) + " counts)", num(s.first_count));
     const v = Number(s.cash_variance) || 0;
     r.bold(true); lr(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", num(v)); r.bold(false);
+    if (s.to_bank != null) lr("  To bank / safe", num(s.to_bank));
+    if (s.float_left != null) lr("  Float left for tomorrow", num(s.float_left));
   } else if (m.kind === "x") {
     lr("  = Expected in drawer", num((Number(s.float_amount) || 0) + (Number(s.cash) || 0)));
   } else {

@@ -370,7 +370,9 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
     if (!sm || !sm.before_cutoff_count) { mode = "all"; sm = await loadCloseTillSummary("all"); }
     if (sm) closeTillCache.current[mode] = sm;
     // With shifts, the day's float is the one the first shift opened with.
-    const prevFloat = sm && sm.first_float != null ? String(Number(sm.first_float).toFixed(2))
+    // TILLFIX 2026-10-25: the server's float (first shift / last close / store float).
+    const prevFloat = sm && sm.float_known != null ? String(Number(sm.float_known).toFixed(2))
+      : sm && sm.first_float != null ? String(Number(sm.first_float).toFixed(2))
       : sm && sm.previous && sm.previous.float_amount != null ? String(Number(sm.previous.float_amount).toFixed(2)) : "";
     setCloseTill((c) => c && { ...c, busy: false, mode, summary: sm, floatKnown: prevFloat, float: c.float || prevFloat, err: sm ? "" : (closeTillErr.current || "Could not load today's totals") });
   }
@@ -438,6 +440,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       if (!r.ok) throw new Error(j.error === "unauthorized" ? "PIN not recognised" : (j.message || j.error || "Close failed"));
       setCloseTill((x) => x && { ...x, busy: false, step: "done", result: j });
       await loadOrders();
+      loadShift();   // a running shift ended with the day
       setSelOrderId(null); setPayNowOrder(null);
     } catch (e) { setCloseTill((x) => x && { ...x, busy: false, err: e.message || "Close failed" }); }
   }
@@ -1856,6 +1859,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                         <span style={{ color: C.muted }}>{sm.kitchen.tickets} tickets</span>
                       </div>
                     )}
+                    {(sm.shifts || []).some((x) => x.status === "counting") && (
+                      <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13.5, color: C.bad, background: "#fdeeee", border: "1px solid #f3c9c9", borderRadius: 13, padding: "11px 14px", lineHeight: 1.5 }}>
+                        <span style={{ fontSize: 18 }}>⚠</span>
+                        <div><b>A shift handover is being counted.</b> Finish it from the Shift button (or tap "Not yet") before closing the till.</div>
+                      </div>
+                    )}
                     {sm.unpaid_count > 0 && (
                       <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13.5, color: C.warn, background: "#fff4ec", border: "1px solid #f3d3c0", borderRadius: 13, padding: "11px 14px", lineHeight: 1.5 }}>
                         <span style={{ fontSize: 18 }}>⚠</span>
@@ -1917,77 +1926,121 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   </>
                 )}
 
-                {/* ---- STAGE 1: CASH ---- */}
-                {sm && closeTill.step === "summary" && stage === 1 && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1.25fr", gap: 24, marginTop: 14 }}>
-                    <div>
-                      <Section title="DRAWER" style={{ marginTop: 4 }}>
+                {/* ---- STAGE 1: CASH ----
+                    TILLFIX 2026-10-25: the number pad used to slide up OVER the
+                    notes-and-coins boxes, so on a till screen only the first row
+                    or two could ever be tapped. The pad now sits beside the
+                    boxes: tap a note or coin, type, and "Next" moves on. */}
+                {sm && closeTill.step === "summary" && stage === 1 && (() => {
+                  const isDenoms = closeTill.countMode === "denoms";
+                  const target = padFor || (isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" });
+                  const curVal = target.kind === "denom" ? String(closeTill.denoms?.[target.d] ?? "")
+                    : target.kind === "float" ? String(closeTill.float || "") : String(closeTill.counted || "");
+                  const press = (k) => {
+                    if (k === "next") {
+                      if (target.kind === "denom") {
+                        const i = DENOMS.indexOf(target.d);
+                        setPadFor(i >= 0 && i < DENOMS.length - 1 ? { kind: "denom", d: DENOMS[i + 1] } : { kind: "denom", d: DENOMS[0] });
+                      } else setPadFor(isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" });
+                      return;
+                    }
+                    let next;
+                    if (k === "⌫") next = curVal.slice(0, -1);
+                    else if (k === "C") next = "";
+                    else if (k === ".") next = curVal.includes(".") ? curVal : (curVal || "0") + ".";
+                    else if (curVal.includes(".") && curVal.split(".")[1].length >= 2) next = curVal;
+                    else next = (curVal === "0" ? k : curVal + k).slice(0, target.kind === "denom" ? 4 : 9);
+                    setPadFor(target);
+                    setCloseTill((c) => target.kind === "denom"
+                      ? { ...c, denoms: { ...(c.denoms || {}), [target.d]: next } }
+                      : target.kind === "float" ? { ...c, float: next } : { ...c, counted: next });
+                  };
+                  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", target.kind === "denom" ? "C" : ".", "0", "⌫"];
+                  const showResult = pv && !padFor;
+                  return (
+                    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)", gap: 20, marginTop: 12 }}>
+                      {/* left: what is being counted */}
+                      <div>
+                        <Section title="COUNT" style={{ marginTop: 4 }} right={
+                          <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 9, padding: 3 }}>
+                            {[["denoms", "Notes & coins"], ["total", "Enter total"]].map(([m, l]) => <div key={m} onClick={() => { setCloseTill((c) => ({ ...c, countMode: m })); setPadFor(m === "denoms" ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" }); }} style={{ padding: "5px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", background: closeTill.countMode === m ? "#fff" : "transparent", boxShadow: closeTill.countMode === m ? "0 1px 2px rgba(0,0,0,.12)" : "none" }}>{l}</div>)}
+                          </div>}>
+                          {isDenoms ? (
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 7 }}>
+                              {DENOMS.map((d) => {
+                                const n = Number(closeTill.denoms?.[d]) || 0;
+                                const on = target.kind === "denom" && target.d === d;
+                                return (
+                                  <div key={d} onClick={() => setPadFor({ kind: "denom", d })} style={{ display: "grid", gridTemplateColumns: "40px 1fr auto", alignItems: "center", gap: 6, background: on ? "#f1f5ee" : n ? "#fff" : C.soft, border: "2px solid " + (on ? C.brand : n ? C.line : "transparent"), borderRadius: 11, padding: "7px 10px", cursor: "pointer", userSelect: "none" }}>
+                                    <span style={{ fontSize: 13, fontWeight: 800, color: C.muted, fontFamily: F }}>{dLabel(d)}</span>
+                                    <span style={{ fontSize: 18, fontWeight: 800, fontFamily: F, textAlign: "center", fontVariantNumeric: "tabular-nums", color: closeTill.denoms?.[d] ? C.ink : "#b5bbb0" }}>{closeTill.denoms?.[d] || "0"}</span>
+                                    <span style={{ fontSize: 12, color: n ? C.ink : "#b5bbb0", fontVariantNumeric: "tabular-nums", fontFamily: F, minWidth: 50, textAlign: "right" }}>{gbp(n * d)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <div onClick={() => setPadFor({ kind: "counted" })} style={{ border: "2px solid " + (target.kind === "counted" ? C.brand : C.line), borderRadius: 12, padding: "14px 16px", cursor: "pointer" }}>
+                              <div style={{ fontSize: 12.5, color: C.muted }}>Cash counted — everything in the drawer, float included</div>
+                              <div style={{ fontSize: 30, fontWeight: 800, fontFamily: F, marginTop: 4, color: closeTill.counted ? C.ink : "#b5bbb0" }}>{closeTill.counted ? gbp(Number(closeTill.counted)) : gbp(0)}</div>
+                            </div>
+                          )}
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "10px 4px 0" }}>
+                            <span style={{ fontSize: 12.5, color: C.muted }}>Counted total</span><b style={{ fontSize: 22, fontFamily: F, fontVariantNumeric: "tabular-nums", letterSpacing: "-.02em" }}>{countedVal == null ? "—" : gbp(countedVal)}</b>
+                          </div>
+                        </Section>
                         {/* CASH CONTROLS 2026-10-24: the float is the one the day started on.
                             Changing it needs a note and a manager PIN at sign-off. */}
-                        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", background: C.soft, borderRadius: 12, padding: "10px 14px" }}>
-                          <span style={{ fontSize: 13.5, color: C.muted }}>Float at the start of the day</span>
-                          <b style={{ fontFamily: F, fontSize: 17 }}>{knownFloatStr === "" ? "—" : gbp(Number(knownFloatStr))}</b>
+                        <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: C.soft, borderRadius: 12, padding: "9px 12px", border: "2px solid " + (target.kind === "float" ? C.brand : "transparent") }}>
+                          <span style={{ fontSize: 13, color: closeTill.floatEdit ? C.warn : C.muted }}>{closeTill.floatEdit ? "Actual float (note + manager PIN)" : "Float at the start of the day"}</span>
+                          <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+                            <b onClick={() => closeTill.floatEdit && setPadFor({ kind: "float" })} style={{ fontFamily: F, fontSize: 17, cursor: closeTill.floatEdit ? "pointer" : "default" }}>{closeTill.floatEdit ? (closeTill.float ? gbp(Number(closeTill.float)) : "—") : (knownFloatStr === "" ? "—" : gbp(Number(knownFloatStr)))}</b>
+                            {!closeTill.floatEdit
+                              ? <span onClick={() => { setCloseTill((c) => ({ ...c, floatEdit: true, float: "" })); setPadFor({ kind: "float" }); }} style={{ fontSize: 12, color: C.brand, fontWeight: 700, cursor: "pointer" }}>Different?</span>
+                              : <span onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, floatEdit: false, float: c.floatKnown || "" })); }} style={{ fontSize: 12, color: C.muted, fontWeight: 700, cursor: "pointer" }}>Undo</span>}
+                          </span>
                         </div>
-                        {!closeTill.floatEdit ? (
-                          <div onClick={() => { setCloseTill((c) => ({ ...c, floatEdit: true })); setPadFor({ kind: "float" }); }} style={{ fontSize: 12.5, color: C.brand, fontWeight: 700, marginTop: 6, cursor: "pointer" }}>The float was different</div>
-                        ) : (
-                          <label style={{ display: "block", fontSize: 12.5, color: C.warn, marginTop: 8 }}>Actual float (needs a note and a manager PIN)
-                            <input inputMode="decimal" readOnly onFocus={(e) => e.target.blur()} onClick={() => setPadFor({ kind: "float" })} value={closeTill.float} placeholder="150.00" style={input({ marginTop: 5, cursor: "pointer", borderColor: padFor && padFor.kind === "float" ? C.brand : C.warn })} />
-                            <span onClick={(e) => { e.preventDefault(); setPadFor(null); setCloseTill((c) => ({ ...c, floatEdit: false, float: c.floatKnown || "" })); }} style={{ display: "inline-block", marginTop: 6, color: C.muted, fontWeight: 700, cursor: "pointer" }}>Use the float above</span>
-                          </label>
-                        )}
-                        {!pv ? (
-                          <div style={{ marginTop: 14, background: C.soft, borderRadius: 14, padding: "14px 16px", fontSize: 13.5, color: C.muted, lineHeight: 1.5 }}>
-                            Count <b style={{ color: C.ink }}>everything</b> in the drawer, then tap <b style={{ color: C.ink }}>Check count</b>. The till shows what it expected only after you've counted.
-                            {closeTill.err && <div style={{ marginTop: 6, color: C.bad, fontWeight: 700 }}>{closeTill.err}</div>}
-                            {closeTill.checks > 0 && <div style={{ marginTop: 6, color: C.warn }}>Changed the count — check it again. Every count is printed on the Z report.</div>}
-                          </div>
-                        ) : (<>
-                          <div style={{ marginTop: 14, background: C.soft, borderRadius: 14, padding: "10px 14px" }}>
-                            <Line l="Cash taken today" v={gbp(pv.cash)} />
-                            <Line l="+ Float" v={gbp(pv.float_used)} />
-                            {Number(pv.cash_dropped) > 0 && <Line l="− Dropped to safe" sub={(sm.shifts || []).length + " shifts"} v={gbp(pv.cash_dropped)} />}
-                            <Line l="Expected in drawer" v={gbp(expected)} strong />
-                            <Line l="Counted" v={gbp(countedVal)} />
-                          </div>
-                          <div style={{ marginTop: 12, borderRadius: 16, padding: "16px 18px", textAlign: "center", background: variance === 0 ? "#eef7ea" : variance > 0 ? "#eaf0fb" : "#fdeeee" }}>
-                            <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".08em", color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad }}>{variance === 0 ? "DRAWER BALANCED" : variance > 0 ? "OVER" : "SHORT"}</div>
-                            <div style={{ fontSize: 34, fontWeight: 800, fontFamily: F, letterSpacing: "-.03em", marginTop: 2, color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad, fontVariantNumeric: "tabular-nums" }}>{(variance < 0 ? "−" : variance > 0 ? "+" : "") + gbp(Math.abs(variance))}</div>
-                            {pv.manager_needed && <div style={{ fontSize: 12, color: C.muted, marginTop: 4 }}>{pv.float_changed ? "The float changed" : "Out by " + gbp(pv.limit) + " or more"} — a note and a manager PIN are needed at sign-off.</div>}
-                          </div>
-                        </>)}
-                      </Section>
-                    </div>
-                    <div>
-                      <Section title="COUNT" style={{ marginTop: 4 }} right={
-                        <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 9, padding: 3 }}>
-                          {[["denoms", "Notes & coins"], ["total", "Enter total"]].map(([m, l]) => <div key={m} onClick={() => setCloseTill((c) => ({ ...c, countMode: m }))} style={{ padding: "5px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", background: closeTill.countMode === m ? "#fff" : "transparent", boxShadow: closeTill.countMode === m ? "0 1px 2px rgba(0,0,0,.12)" : "none" }}>{l}</div>)}
-                        </div>}>
-                        {closeTill.countMode === "denoms" ? (
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 8 }}>
-                            {DENOMS.map((d) => {
-                              const n = Number(closeTill.denoms?.[d]) || 0;
-                              return (
-                                <div key={d} style={{ display: "grid", gridTemplateColumns: "40px 1fr auto", alignItems: "center", gap: 8, background: n ? "#fff" : C.soft, border: "1.5px solid " + (n ? C.brand : "transparent"), borderRadius: 12, padding: "6px 10px", transition: "border-color .15s" }}>
-                                  <span style={{ fontSize: 13, fontWeight: 800, color: C.muted, fontVariantNumeric: "tabular-nums", fontFamily: F }}>{dLabel(d)}</span>
-                                  <input inputMode="numeric" readOnly onFocus={(e) => e.target.blur()} onClick={() => setPadFor({ kind: "denom", d })} value={closeTill.denoms?.[d] ?? ""} placeholder="0" style={{ width: "100%", minWidth: 0, padding: "8px 8px", fontSize: 17, fontWeight: 700, border: "none", borderBottom: "1.5px solid " + C.line, outline: "none", background: "transparent", fontVariantNumeric: "tabular-nums", fontFamily: F, textAlign: "center" }} />
-                                  <span style={{ fontSize: 12.5, color: n ? C.ink : "#b5bbb0", fontVariantNumeric: "tabular-nums", fontFamily: F, minWidth: 54, textAlign: "right" }}>{gbp(n * d)}</span>
-                                </div>
-                              );
-                            })}
-                            <div style={{ gridColumn: "1 / -1", display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "8px 4px 0" }}>
-                              <span style={{ fontSize: 12.5, color: C.muted }}>Counted total</span><b style={{ fontSize: 22, fontFamily: F, fontVariantNumeric: "tabular-nums", letterSpacing: "-.02em" }}>{gbp(denomTotal)}</b>
+                      </div>
+                      {/* right: the keypad, or the result once the count is checked */}
+                      <div>
+                        {showResult ? (
+                          <Section title="RESULT" style={{ marginTop: 4 }} right={<span onClick={() => setPadFor(isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" })} style={{ fontSize: 12.5, fontWeight: 700, color: C.brand, cursor: "pointer" }}>Change count</span>}>
+                            <div style={{ background: C.soft, borderRadius: 14, padding: "8px 12px" }}>
+                              <Line l="Cash taken" v={gbp(pv.cash)} />
+                              <Line l="+ Float" v={gbp(pv.float_used)} />
+                              {Number(pv.cash_dropped) > 0 && <Line l="− To safe" sub={(sm.shifts || []).length + " shifts"} v={gbp(pv.cash_dropped)} />}
+                              <Line l="Expected" v={gbp(expected)} strong />
+                              <Line l="Counted" v={gbp(countedVal)} />
                             </div>
-                          </div>
+                            <div style={{ marginTop: 10, borderRadius: 16, padding: "12px 14px", textAlign: "center", background: variance === 0 ? "#eef7ea" : variance > 0 ? "#eaf0fb" : "#fdeeee" }}>
+                              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".08em", color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad }}>{variance === 0 ? "DRAWER BALANCED" : variance > 0 ? "OVER" : "SHORT"}</div>
+                              <div style={{ fontSize: 30, fontWeight: 800, fontFamily: F, letterSpacing: "-.03em", color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad, fontVariantNumeric: "tabular-nums" }}>{(variance < 0 ? "−" : variance > 0 ? "+" : "") + gbp(Math.abs(variance))}</div>
+                              {pv.manager_needed && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{pv.float_changed ? "The float changed" : "Out by " + gbp(pv.limit) + " or more"} — a note and a manager PIN at sign-off.</div>}
+                            </div>
+                          </Section>
                         ) : (
-                          <label style={{ fontSize: 12.5, color: C.muted }}>Cash counted (everything in the drawer)
-                            <input inputMode="decimal" readOnly onFocus={(e) => e.target.blur()} onClick={() => setPadFor({ kind: "counted" })} value={closeTill.counted} placeholder="0.00" style={input({ marginTop: 5, fontSize: 28, padding: "16px 16px", cursor: "pointer", borderColor: padFor && padFor.kind === "counted" ? C.brand : C.line })} />
-                          </label>
+                          <Section title={target.kind === "denom" ? "HOW MANY " + dLabel(target.d) + "?" : target.kind === "float" ? "ACTUAL FLOAT" : "CASH COUNTED"} style={{ marginTop: 4 }}>
+                            <div style={{ fontSize: 26, fontWeight: 800, fontFamily: F, textAlign: "right", padding: "2px 6px 8px", borderBottom: "2px solid " + C.line, marginBottom: 10, fontVariantNumeric: "tabular-nums" }}>
+                              {target.kind === "denom" ? (curVal || "0") + " × " + dLabel(target.d) : curVal ? gbp(Number(curVal)) : gbp(0)}
+                            </div>
+                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 7 }}>
+                              {keys.map((k) => (
+                                <div key={k} onClick={() => press(k)} style={{ padding: "13px 0", textAlign: "center", borderRadius: 11, background: k === "C" || k === "⌫" ? "#fff" : C.soft, border: "1px solid " + C.line, fontWeight: 800, fontSize: 20, fontFamily: F, cursor: "pointer", userSelect: "none", color: k === "C" ? C.bad : C.ink }}>{k}</div>
+                              ))}
+                            </div>
+                            <div onClick={() => press("next")} style={{ marginTop: 7, padding: "12px 0", textAlign: "center", borderRadius: 11, background: C.ink, color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer", userSelect: "none" }}>
+                              {target.kind === "denom" ? (DENOMS.indexOf(target.d) < DENOMS.length - 1 ? "Next: " + dLabel(DENOMS[DENOMS.indexOf(target.d) + 1]) + " →" : "Back to " + dLabel(DENOMS[0])) : "Done"}
+                            </div>
+                            {pv && <div onClick={() => setPadFor(null)} style={{ marginTop: 8, textAlign: "center", fontSize: 12.5, fontWeight: 700, color: C.brand, cursor: "pointer" }}>Show the result</div>}
+                            {!pv && <div style={{ marginTop: 10, fontSize: 12, color: C.muted, lineHeight: 1.45 }}>Count <b style={{ color: C.ink }}>everything</b> in the drawer, then tap <b style={{ color: C.ink }}>Check count</b>. What the till expected shows only after you've counted.</div>}
+                            {!pv && closeTill.checks > 0 && <div style={{ marginTop: 6, fontSize: 12, color: C.warn }}>Changed the count — check it again. Every count is printed on the Z report.</div>}
+                            {closeTill.err && <div style={{ marginTop: 6, fontSize: 12.5, color: C.bad, fontWeight: 700 }}>{closeTill.err}</div>}
+                          </Section>
                         )}
-                      </Section>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 {/* ---- STAGE 2: SIGN OFF ---- */}
                 {sm && closeTill.step === "summary" && stage === 2 && (
@@ -2092,6 +2145,19 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                               <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 18, fontWeight: 800, color: rs.cash_variance === 0 ? C.good : rs.cash_variance > 0 ? C.over : C.bad }}>
                                 <span>{rs.cash_variance === 0 ? "Balanced" : rs.cash_variance > 0 ? "Over" : "Short"}</span><span style={{ fontFamily: F }}>{rs.cash_variance < 0 ? "−" : ""}{gbp(Math.abs(rs.cash_variance || 0))}</span>
                               </div>
+                              {/* TILLFIX: what to do with the cash now */}
+                              {rs.to_bank != null && (
+                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 6 }}>
+                                  <div style={{ background: C.ink, color: "#fff", borderRadius: 12, padding: "10px 12px" }}>
+                                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", opacity: .8 }}>BANK / SAFE</div>
+                                    <div style={{ fontSize: 22, fontWeight: 800, fontFamily: F }}>{gbp(rs.to_bank)}</div>
+                                  </div>
+                                  <div style={{ background: C.soft, borderRadius: 12, padding: "10px 12px" }}>
+                                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", color: C.muted }}>FLOAT FOR TOMORROW</div>
+                                    <div style={{ fontSize: 22, fontWeight: 800, fontFamily: F }}>{gbp(rs.float_left)}</div>
+                                  </div>
+                                </div>
+                              )}
                             </>
                           )}
                         </Section>
@@ -2107,37 +2173,8 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
                   <Btn onClick={() => { if (closeTill.busy) return; setNoteKb(false); setPadFor(null); setCloseTill(null); }}>Cancel</Btn>
                   {/* ZREPORT 2026-10-24 — X read: the day so far on paper, nothing closed or reset. */}
                   <Btn disabled={closeTill.busy || !sm || closeTill.xPrinting} onClick={() => printXRead()}>{closeTill.xPrinting ? "Printing…" : closeTill.xPrinted === true ? "X read printed ✓" : closeTill.xPrinted === false ? "X read failed — retry" : "Print X read"}</Btn>
-                  <Btn primary grow={2} disabled={closeTill.busy || !sm} onClick={() => setCloseTill((c) => ({ ...c, stage: 1 }))}>Next: count cash →</Btn>
+                  <Btn primary grow={2} disabled={closeTill.busy || !sm || (sm.shifts || []).some((x) => x.status === "counting")} onClick={() => { setPadFor(closeTill.countMode === "denoms" ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" }); setCloseTill((c) => ({ ...c, stage: 1 })); }}>Next: count cash →</Btn>
                 </>)}
-                {/* On-screen number pad. The till has no keyboard, so every
-                    field in this step is driven from here. */}
-                {closeTill.step === "summary" && stage === 1 && padFor && (
-                  <div style={{ position: "absolute", left: 0, right: 0, bottom: 72, background: "#fff", borderTop: "1px solid " + C.line, padding: "12px 14px 14px", boxShadow: "0 -14px 30px -18px rgba(0,0,0,.35)", zIndex: 30 }}>
-                    <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
-                      <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".06em", color: C.muted, textTransform: "uppercase" }}>
-                        {padFor.kind === "float" ? "Float for tomorrow" : padFor.kind === "counted" ? "Counted total" : "How many " + denomLabel(padFor.d) + " ?"}
-                      </span>
-                      <span onClick={() => setPadFor(null)} style={{ marginLeft: "auto", fontWeight: 800, fontSize: 15, cursor: "pointer", padding: "2px 8px" }}>Done</span>
-                    </div>
-                    <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 8 }}>
-                      {["1","2","3","4","5","6","7","8","9", padFor.kind === "denom" ? "" : ".", "0", "⌫"].map((k, i) => (
-                        <div key={i} onClick={() => {
-                          if (!k) return;
-                          const isDenom = padFor.kind === "denom";
-                          const cur = isDenom ? String(closeTill.denoms?.[padFor.d] ?? "")
-                            : padFor.kind === "float" ? String(closeTill.float || "") : String(closeTill.counted || "");
-                          let next;
-                          if (k === "⌫") next = cur.slice(0, -1);
-                          else if (k === "." && cur.includes(".")) next = cur;
-                          else next = (cur + k).slice(0, 10);
-                          setCloseTill((c) => isDenom
-                            ? { ...c, denoms: { ...(c.denoms || {}), [padFor.d]: next } }
-                            : padFor.kind === "float" ? { ...c, float: next } : { ...c, counted: next });
-                        }} style={{ padding: "16px 0", textAlign: "center", borderRadius: 12, background: k ? C.soft : "transparent", fontWeight: 800, fontSize: 21, fontFamily: F, cursor: k ? "pointer" : "default", userSelect: "none" }}>{k}</div>
-                      ))}
-                    </div>
-                  </div>
-                )}
                 {/* Letters for the note. Same slide-up shape as the number pad
                     so it behaves the way the rest of the sheet already does. */}
                 {closeTill.step === "summary" && stage === 2 && noteKb && (() => {
