@@ -180,3 +180,55 @@ export function SettingsMenu({ sizes, size, setSize, soundOn, setSoundOn, screen
     </>
   );
 }
+
+// MORE 2026-10-25 — the last pill on the till's bottom strip. Everything that
+// isn't selling or cash sits behind it: printer and connection (the pill gets
+// a red dot when either needs attention), screen tools passed in by the POS
+// (merge, layout), text size, sound, this screen, fullscreen and reload.
+export function MoreMenu({ extra = [], problems = 0, onPrintLog, connected, usb, clock,
+  sizes, size, setSize, soundOn, setSoundOn, screenLabel, onScreenSetup, fullscreen, goFullscreen }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return;
+    const off = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("pointerdown", off);
+    return () => document.removeEventListener("pointerdown", off);
+  }, [open]);
+  const alert = problems > 0 || !connected || (usb && usb.state !== "ready");
+  const row = { padding: "12px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, fontSize: 14.5, cursor: "pointer", borderRadius: 9, color: "#1f2937" };
+  const act = (fn) => () => { setOpen(false); fn && fn(); };
+  return (
+    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
+      <div onClick={() => setOpen((v) => !v)} title="More"
+        style={{ ...barPill(false), position: "relative", background: open ? "linear-gradient(135deg,#14b8a6,#0d9488)" : "rgba(94,234,212,.09)", color: open ? "#fff" : "#5eead4", fontWeight: 800 }}>
+        <span style={{ fontSize: "clamp(15px,1.15vw,21px)", lineHeight: 1, letterSpacing: 1 }}>⋯</span>More
+        {alert && !open && <span style={{ position: "absolute", top: 5, right: 5, width: 10, height: 10, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 0 2px #0f2e29" }} />}
+      </div>
+      {open && (
+        <div style={{ position: "absolute", right: 0, bottom: "calc(100% + 12px)", width: 310, background: "#fff", border: "1px solid #e3e6ea", borderRadius: 14, boxShadow: "0 18px 44px rgba(15,23,42,.24)", padding: 6, zIndex: 60, fontFamily: "'Hanken Grotesk',system-ui,sans-serif" }}>
+          <div style={{ display: "flex", gap: 6, padding: 4 }}>
+            <span onClick={act(onPrintLog)} style={{ flex: 1, ...chip, justifyContent: "center", padding: "10px 8px", background: problems ? "#fef2f2" : "#f0fdf4", color: problems ? "#991b1b" : "#166534" }}>{dot(problems ? "#dc2626" : "#16a34a")}{problems ? problems + " not printed" : "Printer"}</span>
+            <span style={{ flex: 1, ...chip, justifyContent: "center", padding: "10px 8px", cursor: "default", background: connected ? "#f0fdf4" : "#fef2f2", color: connected ? "#166534" : "#991b1b" }}>{dot(connected ? "#16a34a" : "#dc2626")}{connected ? "Live" : "Offline"}</span>
+            <span style={{ ...chip, justifyContent: "center", padding: "10px 10px", cursor: "default", background: "#f1f5f9", color: "#1f2937", fontVariantNumeric: "tabular-nums" }}>{clock}</span>
+          </div>
+          {usb && <div onClick={usb.onClick} style={{ ...row, color: usb.state === "ready" ? "#166534" : "#92400e" }}>USB printer<b>{usb.state === "ready" ? "Connected" : usb.state === "unpaired" ? "Connect" : usb.state === "unsupported" ? "Not supported" : "Reconnect"}</b></div>}
+          {extra.length > 0 && <div style={{ borderTop: "1px solid #eef0f3", margin: "4px 0" }} />}
+          {extra.map((x) => (
+            <div key={x.label} onClick={act(x.onClick)} style={row}>{x.label}<span style={{ color: "#0f766e", fontWeight: 800 }}>{x.icon}</span></div>
+          ))}
+          <div style={{ borderTop: "1px solid #eef0f3", margin: "4px 0" }} />
+          <div style={{ ...row, cursor: "default" }}>Text size
+            <span style={{ display: "flex", background: "#e2e5ea", borderRadius: 8, overflow: "hidden" }}>
+              {sizes.map((s) => <span key={s} onClick={() => setSize(s)} style={{ padding: "5px 9px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", background: size === s ? "#3f7d4e" : "transparent", color: size === s ? "#fff" : "#475569" }}>{s}</span>)}
+            </span>
+          </div>
+          <div onClick={() => setSoundOn((v) => !v)} style={row}>Sound for new orders<b style={{ color: soundOn ? "#3f7d4e" : "#94a3b8" }}>{soundOn ? "On" : "Off"}</b></div>
+          <div onClick={act(onScreenSetup)} style={row}>This screen<span style={{ fontSize: 12.5, color: "#64748b" }}>{screenLabel} ⚙</span></div>
+          <div onClick={act(goFullscreen)} style={row}>{fullscreen ? "Leave fullscreen" : "Fullscreen"}<span>{fullscreen ? "✕" : "⛶"}</span></div>
+          <div onClick={() => window.location.reload()} style={row}>Reload the till<span>↻</span></div>
+        </div>
+      )}
+    </div>
+  );
+}

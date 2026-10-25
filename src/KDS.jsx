@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import POS from "./POS.jsx";
-import { TeamChip, PrinterChip, LiveChip, OfflineBar, SettingsMenu, barPill } from "./TillHeader.jsx";
+import { TeamChip, OfflineBar, MoreMenu } from "./TillHeader.jsx";
 import ServiceFeedback, { TAGS as SVC_TAGS, CATEGORY_LABEL as SVC_CAT } from "./ServiceFeedback.jsx";
 import { getDevice, setDevice, clearDevice, deviceToken, fingerprint, APP_VERSION } from "./device.js";
 import * as usbPrinter from "./usbPrinter.js";
@@ -1342,15 +1342,11 @@ export default function KDS({ surface = "kds" }) {
         <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables}
           bare={kind === "pos"}
           barTeam={(compact) => <TeamChip loc={loc} bar compact={compact} />}
-          barStatus={<>
-            {ownsUsb && <span onClick={async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } }} style={{ ...barPill(usbState !== "ready"), color: usbState === "ready" ? "#ccfbf1" : "#fcd34d" }}>🖨 {usbState === "ready" ? "USB" : usbState === "unpaired" ? "Connect printer" : usbState === "unsupported" ? "USB not supported" : "Printer disconnected"}</span>}
-            <PrinterChip bar problems={failedOrders.length + silentPrinters.length} onOpen={openPrintLog} />
-            <LiveChip bar connected={connected} />
-            <span style={{ color: "#ccfbf1", fontWeight: 800, fontSize: "clamp(13px,1vw,19px)", padding: "0 4px", flexShrink: 0, fontVariantNumeric: "tabular-nums" }}>{nowClock}</span>
-            <span onClick={goFullscreen} title="Fullscreen" style={{ ...barPill(false), color: "#5eead4", padding: "clamp(11px,.9vw,17px) clamp(12px,1vw,18px)" }}>{fullscreen ? X : EXPAND}</span>
-          </>}
-          barSettings={<SettingsMenu bar sizes={Object.keys(SIZES)} size={size} setSize={setSize} soundOn={soundOn} setSoundOn={setSoundOn}
-            screenLabel={myName || ("Screen " + getScreenId())} onScreenSetup={() => setSetupOpen(true)} />} />
+          barMore={(extra) => <MoreMenu extra={extra} problems={failedOrders.length + silentPrinters.length} onPrintLog={openPrintLog}
+            connected={connected} clock={nowClock}
+            usb={ownsUsb ? { state: usbState, onClick: async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } } } : null}
+            sizes={Object.keys(SIZES)} size={size} setSize={setSize} soundOn={soundOn} setSoundOn={setSoundOn}
+            screenLabel={myName || ("Screen " + getScreenId())} onScreenSetup={() => setSetupOpen(true)} fullscreen={fullscreen} goFullscreen={goFullscreen} />} />
       )}
 
 

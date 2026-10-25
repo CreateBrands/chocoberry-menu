@@ -124,7 +124,7 @@ function tapFeedback() {
 // ["eggs", "mushrooms", "hash browns", "baked beans"]
 const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-export default function POS({ loc, storeToken, tablesList = [], barTeam = null, barSettings = null, barStatus = null, bare = false }) {
+export default function POS({ loc, storeToken, tablesList = [], barTeam = null, barMore = null, bare = false }) {
   const [cats, setCats] = useState(null);   // masters: [{id,name,subs:[{id,name,items:[...]}]}]
   const [activeCat, setActiveCat] = useState(0);   // master index
   const [activeSub, setActiveSub] = useState(0);   // subcategory index within active master
@@ -1319,10 +1319,10 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       )}
 
       {/* ── THREE COLUMNS — categories over orders · items · order panel ── */}
-      <div style={{ display: "grid", gridTemplateColumns: "clamp(230px,15vw,340px) minmax(0,1fr) clamp(300px,20vw,470px) clamp(148px,10vw,215px)", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "clamp(230px,15vw,340px) minmax(0,1fr) clamp(300px,20vw,470px) clamp(148px,10vw,215px)", gridTemplateRows: "minmax(0,1fr) auto", gap: 9, padding: 9, flex: 1, minHeight: 0 }}>
 
         {/* 1 — CATEGORIES (top) over ORDERS (below) */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 0 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 9, minHeight: 0, gridColumn: 1, gridRow: 1 }}>
           <div style={{ background: P.panel, border: "1px solid " + P.line, borderRadius: 12, padding: 8, boxShadow: "0 1px 3px rgba(34,39,31,.05)", display: "flex", flexDirection: "column", minHeight: 0, flex: 1 }}>
             <div style={{ flex: 1, overflowY: "auto", display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gridAutoRows: CS.row, gap: 5, alignContent: "start" }}>
               {arrange(subs, "cat:" + (master ? master.id : "")).map((sc) => {
@@ -1379,7 +1379,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         {/* 2 — MASTER MENUS over the ITEM GRID. The menus sit above the items
              they filter, not across the whole screen, so the category column
              and the cart both start at the top of the display. */}
-        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0 }}>
+        <div style={{ minWidth: 0, display: "flex", flexDirection: "column", minHeight: 0, gridColumn: 2, gridRow: 1 }}>
           <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 7, alignItems: "center", marginBottom: 9, boxShadow: "0 2px 10px rgba(15,46,41,.2)", overflowX: "auto" }}>
             {catList.map((m, i) => {
               const on = activeCat === i;
@@ -1443,7 +1443,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         </div>
 
         {/* 3 — ORDER PANEL */}
-        <div style={{ minWidth: 0, background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(34,39,31,.05)" }}>
+        <div style={{ minWidth: 0, gridColumn: 3, gridRow: "1 / 3", background: P.panel, border: "1px solid " + P.line, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(34,39,31,.05)" }}>
           {selOrderId && ((payNowOrder && payNowOrder.id === selOrderId) || (orders || []).some((o) => o.id === selOrderId)) ? (
             <OrderDetailPanel onDiscount={applyDiscount} onRemoveDiscount={removeDiscount} onItemDiscount={applyItemDiscount} onRemoveItemDiscount={removeItemDiscount} onRefund={refundPayment} onPrintRefund={printRefundReceipt} onSetTable={ordSetTable} onVoidOrder={ordVoidOrder} tables={tablesList}
               printingId={printingId}
@@ -1616,7 +1616,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         {/* 4 — ORDERS, far right. A dark column so it reads as its own zone
              next to the light cart: unpaid at the top in warm amber with the
              owed total, settled orders muted beneath. */}
-        <div style={{ minWidth: 0, background: P.masterBg, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(15,46,41,.18)" }}>
+        <div style={{ minWidth: 0, gridColumn: 4, gridRow: "1 / 3", background: P.masterBg, borderRadius: 12, overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 1px 3px rgba(15,46,41,.18)" }}>
           <div style={{ flexShrink: 0, padding: "clamp(11px,.9vw,16px) clamp(10px,.8vw,15px) clamp(9px,.7vw,13px)", borderBottom: "1px solid rgba(94,234,212,.14)" }}>
             <div style={{ display: "flex", alignItems: "baseline", gap: 7 }}>
               <span style={{ fontSize: "clamp(21px,1.7vw,34px)", fontWeight: 800, color: unpaidOrders.length ? "#F0B27A" : P.masterMuted, lineHeight: 1 }}>{unpaidOrders.length}</span>
@@ -1688,45 +1688,47 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
             })}
           </div>
         </div>
+
+        {/* TILL ACTIONS — a strip under the categories and items (it stops at
+             the basket, which keeps the full height) in the same style as the
+             master menus on top: team today, shift, drawer, cash, close till,
+             and More for everything else. */}
+        {(() => {
+          const wide = window.innerWidth >= 1600, roomy = window.innerWidth >= 2000;
+          const sh = shift && shift.enabled !== false ? shift.shift : undefined;
+          const t = (iso) => { try { return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+          const shiftLabel = sh === undefined ? null : !sh ? "Start shift" : sh.status === "counting" ? "Counting" : String(sh.opened_by || "").split(" ")[0] + (wide ? " · " + t(sh.opened_at) : "");
+          const pill = (key, icon, label, onClick, o = {}) => (
+            <div key={key} className="cb-tap" onPointerDown={tapFeedback} onClick={onClick} title={o.title || label}
+              style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", flexShrink: o.shrink ? 1 : 0, minWidth: 0,
+                padding: "clamp(11px,.9vw,17px) clamp(10px,1vw,24px)", borderRadius: 11,
+                fontSize: "clamp(12px,.92vw,18px)", fontWeight: o.on ? 800 : 700,
+                background: o.on ? grad : o.bg || "rgba(94,234,212,.09)",
+                color: o.on ? "#fff" : o.color || P.masterMuted,
+                border: o.dashed ? "1.5px dashed rgba(253,224,71,.55)" : "1.5px solid transparent",
+                boxShadow: o.on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
+              <span style={{ fontSize: "clamp(14px,1.1vw,20px)", lineHeight: 1, flexShrink: 0 }}>{icon}</span>{label && <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>}
+            </div>
+          );
+          return (
+            <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 6, alignItems: "center", gridColumn: "1 / 3", gridRow: 2, minWidth: 0, boxShadow: "0 2px 10px rgba(15,46,41,.2)", position: "relative", zIndex: 30 }}>
+              {barTeam && barTeam(!roomy)}
+              {shiftLabel && pill("shift", "◷", shiftLabel, () => { loadShift(); setShiftOpen(true); },
+                { color: "#fde68a", bg: sh ? "rgba(253,224,71,.10)" : "rgba(253,224,71,.16)", dashed: !sh, shrink: true })}
+              {pill("drawer", "⇥", wide ? "Open drawer" : "Drawer", () => setDrawerAsk({ pin: "", busy: false, err: "" }), { color: "#cbd5e1", bg: "rgba(148,163,184,.12)" })}
+              {pill("cash", currencySymbol().trim(), "Cash", () => setCashOpen(true), { color: "#fdba74", bg: "rgba(253,186,116,.12)" })}
+              {pill("close", "✓", "Close till", openCloseTill)}
+              <span style={{ flex: 1, minWidth: 4 }} />
+              {editLayout && pill("layout", "✓", "Done", () => setEditLayout(false), { on: true, title: "Finish arranging" })}
+              {barMore && barMore([
+                { label: "Merge categories", icon: "⇱", onClick: () => setShowMerge(true) },
+                { label: editLayout ? "Finish arranging" : "Arrange tiles", icon: editLayout ? "✓" : "⇕", onClick: () => setEditLayout((v) => !v) },
+              ])}
+            </div>
+          );
+        })()}
       </div>
 
-      {/* TILL ACTIONS — a full-width strip along the bottom in the same style
-           as the master menus on top: team today, shift, drawer, cash, close,
-           then the screen tools (merge, layout, settings) on the right. */}
-      {(() => {
-        const wide = window.innerWidth >= 1200, roomy = window.innerWidth >= 1600;
-        const sh = shift && shift.enabled !== false ? shift.shift : undefined;
-        const t = (iso) => { try { return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
-        const shiftLabel = sh === undefined ? null : !sh ? "Start shift" : sh.status === "counting" ? "Counting" : String(sh.opened_by || "").split(" ")[0] + (wide ? " · " + t(sh.opened_at) : "");
-        const pill = (key, icon, label, onClick, o = {}) => (
-          <div key={key} className="cb-tap" onPointerDown={tapFeedback} onClick={onClick} title={o.title || label}
-            style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", flexShrink: o.shrink ? 1 : 0, minWidth: 0,
-              padding: "clamp(11px,.9vw,17px) clamp(10px,1vw,24px)", borderRadius: 11,
-              fontSize: "clamp(12px,.92vw,18px)", fontWeight: o.on ? 800 : 700,
-              background: o.on ? grad : o.bg || "rgba(94,234,212,.09)",
-              color: o.on ? "#fff" : o.color || P.masterMuted,
-              border: o.dashed ? "1.5px dashed rgba(253,224,71,.55)" : "1.5px solid transparent",
-              boxShadow: o.on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
-            <span style={{ fontSize: "clamp(14px,1.1vw,20px)", lineHeight: 1, flexShrink: 0 }}>{icon}</span>{label && <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>}
-          </div>
-        );
-        return (
-          <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 6, alignItems: "center", margin: "0 9px 9px", boxShadow: "0 2px 10px rgba(15,46,41,.2)", position: "relative", zIndex: 30 }}>
-            {barTeam && barTeam(!wide)}
-            {shiftLabel && pill("shift", "◷", shiftLabel, () => { loadShift(); setShiftOpen(true); },
-              { color: "#fde68a", bg: sh ? "rgba(253,224,71,.10)" : "rgba(253,224,71,.16)", dashed: !sh, shrink: true })}
-            {pill("drawer", "⇥", wide ? "Open drawer" : "Drawer", () => setDrawerAsk({ pin: "", busy: false, err: "" }), { color: "#cbd5e1", bg: "rgba(148,163,184,.12)" })}
-            {pill("cash", currencySymbol().trim(), "Cash", () => setCashOpen(true), { color: "#fdba74", bg: "rgba(253,186,116,.12)" })}
-            {pill("close", "✓", "Close till", openCloseTill)}
-            <span style={{ flex: 1, minWidth: 4 }} />
-            {pill("merge", "⇱", roomy ? "Merge" : "", () => setShowMerge(true), { title: "Merge categories" })}
-            {pill("layout", editLayout ? "✓" : "⇕", roomy || editLayout ? (editLayout ? "Done" : "Layout") : "", () => setEditLayout((v) => !v), { on: editLayout, title: "Layout" })}
-            {barSettings}
-            {barStatus && <span style={{ width: 1, alignSelf: "stretch", margin: "6px 2px", background: "rgba(204,251,241,.15)", flexShrink: 0 }} />}
-            {barStatus}
-          </div>
-        );
-      })()}
 
       {mgrAsk && mgrAsk.kind === "unpaid" && (
         <ManagerPin title={"Undo payment on #" + mgrAsk.order.order_no}
