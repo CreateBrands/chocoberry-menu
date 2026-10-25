@@ -321,8 +321,18 @@ Deno.serve(async (req) => {
     // ---- APPEND to an existing order, or create a new one ----
     if (append_to_order_id) {
       const { data: existing, error: exErr } = await admin
-        .from("menu_orders").select("id, created_at, order_no, subtotal, total, items_added_log").eq("id", append_to_order_id).single();
+        .from("menu_orders").select("id, created_at, order_no, subtotal, total, items_added_log, closed_at, status, location_id").eq("id", append_to_order_id).single();
       if (exErr || !existing) throw new Error("order to append not found");
+      // Never add to an order that's finished with: a closed day's order would
+      // take the new items out of sight of the KDS and every Z report, and a
+      // cancelled one would hide them. The till starts a fresh order instead.
+      const ex: any = existing;
+      if (ex.closed_at || ex.status === "cancelled") {
+        return new Response(JSON.stringify({ error: "order_closed", message: "Order #" + ex.order_no + " is " + (ex.status === "cancelled" ? "cancelled" : "already closed") + " — start a new order for these items." }), { status: 409, headers: { ...cors, "Content-Type": "application/json" } });
+      }
+      if (location_id_in && ex.location_id && String(location_id_in) !== String(ex.location_id)) {
+        return new Response(JSON.stringify({ error: "wrong_store", message: "That order belongs to a different store." }), { status: 403, headers: { ...cors, "Content-Type": "application/json" } });
+      }
       const orderId = existing.id;
 
       const { data: batches } = await admin
