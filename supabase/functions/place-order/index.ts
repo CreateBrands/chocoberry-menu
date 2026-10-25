@@ -361,6 +361,34 @@ Deno.serve(async (req) => {
       const nowIso = new Date().toISOString();
       const { data: oldBumps } = await admin.from("kds_bumps")
         .select("order_id, screen_key, location_id, bumped_at, bumped_by").eq("order_id", orderId);
+      // Reopen the ticket only on the screens that show the new round, using
+      // the same routing the KDS uses: a line goes to the screens whose routing
+      // claims its item, category or menu; a line nobody claims (and any open
+      // item) goes to every screen. Other screens keep their bump, so a coffee
+      // added to a dessert order doesn't bring the dessert ticket back.
+      let reopen: Set<string> | null = null;   // null = every screen
+      try {
+        const { data: scr } = await admin.from("kds_screens").select("screen_key, routing").eq("location_id", (existing as any).location_id);
+        const ids = [...new Set(lines.map((l: any) => l.item_id).filter(Boolean))];
+        const { data: mis } = ids.length ? await admin.from("menu_items").select("id, category_id").in("id", ids) : { data: [] as any[] };
+        const cats = [...new Set((mis || []).map((m: any) => m.category_id).filter(Boolean))];
+        const { data: mcs } = cats.length ? await admin.from("menu_categories").select("id, menu_id").in("id", cats) : { data: [] as any[] };
+        const catOf = new Map((mis || []).map((m: any) => [String(m.id), m.category_id ? String(m.category_id) : null]));
+        const menuOf = new Map((mcs || []).map((c: any) => [String(c.id), c.menu_id ? String(c.menu_id) : null]));
+        const has = (arr: unknown, v: string | null) => !!v && Array.isArray(arr) && arr.map(String).includes(v);
+        const set = new Set<string>();
+        let everyone = false;
+        for (const ln of lines as any[]) {
+          const iid = ln.item_id ? String(ln.item_id) : null;
+          const cat = iid ? (catOf.get(iid) || null) : null;
+          const menu = cat ? (menuOf.get(cat) || null) : null;
+          const by = (scr || []).filter((sc: any) => { const r = sc.routing && typeof sc.routing === "object" ? sc.routing : null; return r && (has(r.items, iid) || has(r.categories, cat) || has(r.menus, menu)); });
+          if (!by.length) { everyone = true; break; }
+          by.forEach((sc: any) => set.add(String(sc.screen_key)));
+        }
+        reopen = everyone ? null : set;
+      } catch (e) { console.error("reopen routing failed — reopening everywhere:", e); reopen = null; }
+      const toReopen = (oldBumps || []).filter((b: any) => !reopen || reopen.has(String(b.screen_key)));
       const prevLog = Array.isArray((existing as any).items_added_log) ? (existing as any).items_added_log : [];
       const roundLog = [...prevLog.slice(0, Math.max(0, nextBatch - 1)), nowIso];
       await admin.from("menu_orders").update({
@@ -372,11 +400,12 @@ Deno.serve(async (req) => {
         items_added_log: roundLog,
         round_restarted: (oldBumps || []).length > 0,
       }).eq("id", orderId);
-      if ((oldBumps || []).length) {
-        try { await admin.from("kds_bump_log").insert(oldBumps!.map((b: any) => ({ order_id: b.order_id, screen_key: b.screen_key, location_id: b.location_id, bumped_at: b.bumped_at, bumped_by: b.bumped_by }))); }
+      if (toReopen.length) {
+        try { await admin.from("kds_bump_log").insert(toReopen.map((b: any) => ({ order_id: b.order_id, screen_key: b.screen_key, location_id: b.location_id, bumped_at: b.bumped_at, bumped_by: b.bumped_by }))); }
         catch (e) { console.error("kds_bump_log archive failed:", e); }
+        if (reopen) await admin.from("kds_bumps").delete().eq("order_id", orderId).in("screen_key", toReopen.map((b: any) => b.screen_key));
+        else await admin.from("kds_bumps").delete().eq("order_id", orderId);
       }
-      await admin.from("kds_bumps").delete().eq("order_id", orderId);
 
       // The auto-print webhook only fires on menu_orders INSERT. An append adds
       // menu_order_items to an existing order (no new order row), so we must

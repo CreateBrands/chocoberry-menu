@@ -150,6 +150,7 @@ export default function KDS({ surface = "kds" }) {
   const pendingBumps = useRef(new Map());   // order_id -> { op: "bump" | "unbump", at, saved }
   const pendingItems = useRef(new Map());   // item_id  -> { status, at, saved }
   const bumpSeq = useRef(0);
+  const bumpLoadRef = useRef(null);
   const mergeBumps = (serverIds) => {
     const s = new Set(serverIds); const now = Date.now();
     for (const [id, p] of pendingBumps.current) {
@@ -179,9 +180,10 @@ export default function KDS({ surface = "kds" }) {
         .then((rows) => { if (alive && seq === bumpSeq.current && Array.isArray(rows)) { setMyBumps(mergeBumps((rows || []).map((r) => r.order_id))); setMyBumpAt(Object.fromEntries((rows || []).map((r) => [r.order_id, r.bumped_at]))); } })
         .catch(() => {});
     };
+    bumpLoadRef.current = load;
     load();
     const t = setInterval(load, 15000);
-    return () => { alive = false; clearInterval(t); };
+    return () => { alive = false; clearInterval(t); bumpLoadRef.current = null; };
   }, [loc]);
   // The DB is the source of truth for this screen's printer. kds_screens is
   // keyed (location_id, screen_key) and is managed centrally, so a replaced
@@ -507,7 +509,10 @@ export default function KDS({ surface = "kds" }) {
       prevCounts.current = counts;
       // An append clears this screen's bump in kds_bumps; drop it locally too so
       // the ticket comes back at once instead of on the next 15s bump refresh.
-      if (grewIds.length) { grewIds.forEach((id) => pendingBumps.current.delete(id)); setMyBumps((prev) => { const next = new Set(prev); grewIds.forEach((id) => next.delete(id)); return next; }); }
+      // A new round reopens the ticket only on screens that show its items (the
+      // server keeps the other screens' bumps). Re-read this screen's bumps now
+      // rather than waiting up to 15 s for the refresh.
+      if (grewIds.length) { grewIds.forEach((id) => pendingBumps.current.delete(id)); if (bumpLoadRef.current) bumpLoadRef.current(); }
       setOrders(data);
     } catch { if (seq === loadSeq.current) setConnected(false); }
   }, [loc, beep]);
@@ -751,6 +756,7 @@ export default function KDS({ surface = "kds" }) {
   };
   const recall = (o) => unbumpHere(o);
   const toggleItem = (o, it) => patchItem(it.id, { item_status: it.item_status === DONE_ITEM ? "preparing" : DONE_ITEM });
+  const [openServed, setOpenServed] = useState(() => new Set());   // tickets with "served earlier" unfolded
   const toggleRush = (o) => setRushIds((prev) => { const n = new Set(prev); n.has(o.id) ? n.delete(o.id) : n.add(o.id); return n; });
 
   const stationOf = (it) => it.station || "kitchen";
@@ -1152,7 +1158,15 @@ export default function KDS({ surface = "kds" }) {
               : age >= WARN_MIN
               ? { accent: "#d97706", tint: "#ffffff", head: "#fef3c7", headText: "#78350f", body: "#1f2937", sub: "#92400e", rule: "#00000014" }
               : { accent: "#16a34a", tint: "#ffffff", head: "#dcfce7", headText: "#14532d", body: "#1f2937", sub: "#15803d", rule: "#00000014" };
-            const items = o.menu_order_items || [];
+            // ROUNDS 2026-10-25: when a round is added after the earlier ones
+            // were bumped (round_restarted), those lines were already served —
+            // they sit folded up at the top, greyed, so nobody makes them again.
+            // The ticket's count, progress and Bump are about the new round only.
+            const allLines = o.menu_order_items || [];
+            const latestBatch = allLines.reduce((m, it) => Math.max(m, Number(it.added_batch) || 0), 0);
+            const newLines = latestBatch > 0 ? allLines.filter((it) => (Number(it.added_batch) || 0) >= latestBatch) : allLines;
+            const servedLines = o.round_restarted && latestBatch > 0 && newLines.length ? allLines.filter((it) => (Number(it.added_batch) || 0) < latestBatch) : [];
+            const items = servedLines.length ? newLines : allLines;
             const doneCount = items.filter((it) => it.item_status === DONE_ITEM).length;
             const allDone = items.length > 0 && doneCount === items.length;
             const typeLabel = o.menu_tables?.label ? o.menu_tables.label : (o.order_type === "dine_in" ? "Dine In" : o.order_type === "collection" ? "Collection" : o.order_type === "delivery" ? "Delivery" : "Takeaway");
@@ -1201,6 +1215,19 @@ export default function KDS({ surface = "kds" }) {
                 </div>
                 <div style={{ height: 3, background: "#00000012" }}><div style={{ height: "100%", width: (items.length ? Math.round(doneCount / items.length * 100) : 0) + "%", background: pal.accent, transition: "width .25s ease" }} /></div>
                 <div style={{ padding: F(8) + "px " + F(9) + "px", flex: 1 }}>
+                  {servedLines.length > 0 && (
+                    <div onClick={() => setOpenServed((prev) => { const n = new Set(prev); n.has(o.id) ? n.delete(o.id) : n.add(o.id); return n; })}
+                      style={{ marginBottom: F(6), padding: F(6) + "px " + F(8) + "px", borderRadius: 8, background: "#f1f5f9", color: "#64748b", cursor: "pointer", userSelect: "none" }}>
+                      <div style={{ display: "flex", justifyContent: "space-between", fontSize: F(12), fontWeight: 800 }}>
+                        <span>{CHECK} Served earlier {DOT} {servedLines.reduce((t, it) => t + (it.qty || 1), 0)} item{servedLines.reduce((t, it) => t + (it.qty || 1), 0) === 1 ? "" : "s"}</span>
+                        <span>{openServed.has(o.id) ? "hide" : "show"}</span>
+                      </div>
+                      {openServed.has(o.id) && servedLines.map((it) => (
+                        <div key={it.id} style={{ fontSize: F(12.5), textDecoration: "line-through", marginTop: F(3) }}>{(it.qty || 1) + "× " + it.name_snapshot}</div>
+                      ))}
+                    </div>
+                  )}
+                  {servedLines.length > 0 && <div style={{ fontSize: F(10.5), fontWeight: 900, letterSpacing: ".08em", color: "#7c3aed", marginBottom: F(2) }}>NEW {DOT} ROUND {latestBatch + 1}</div>}
                   {groupByCat(items).map(([cat, catItems]) => (
                     <div key={cat} style={{ marginBottom: F(4) }}>
                       <div style={{ fontSize: F(10.5), fontWeight: 800, letterSpacing: ".1em", textTransform: "uppercase", color: pal.sub, borderBottom: "1px solid " + pal.rule, paddingBottom: F(3), marginBottom: F(3), marginTop: F(3), display: "flex", alignItems: "center", gap: 6 }}><span style={{ width: 3, height: F(10), borderRadius: 2, background: TYPE_BADGE[typeKey(o)].bg, display: "inline-block" }} />{cat}</div>
@@ -2040,17 +2067,27 @@ function PerformanceView({ loc, F, lateMin }) {
   // An order with items added later is several tickets: the original, then one
   // per addition — each timed from its own start (placed / items added) to the
   // bumps that followed it, with only the items that belong to that batch.
+  // A round added after the earlier ones were bumped is a ticket of its own,
+  // timed from when it was added. A round added while the kitchen was still
+  // on the earlier one is part of the same job: one ticket, from the first
+  // send to the bump that finished it.
   const segmentsOf = (o) => {
     const starts = [new Date(o.created_at).getTime(), ...((o.items_added_log || []).map((x) => new Date(x).getTime()).filter((t) => isFinite(t)).sort((a, b) => a - b))];
     if (starts.length === 1) return [{ ...o, _seg: 0, _segStart: starts[0], _done: completionOf(o) }];
     const allBumps = (o.bumps || []).map((b) => ({ ...b, _t: new Date(b.bumped_at).getTime() })).filter((b) => isFinite(b._t));
     const items = o.items || [];
-    return starts.map((st, i) => {
-      const end = i + 1 < starts.length ? starts[i + 1] : Infinity;
-      const bumps = allBumps.filter((b) => b._t >= st && b._t < end).map(({ _t, ...b }) => b);
-      const segItems = items.filter((it) => (Number(it.batch) || 0) === i);
-      const seg = { ...o, _seg: i, _segStart: st, created_at: new Date(st).toISOString(), bumps, items: segItems, item_count: segItems.length || (i === 0 ? o.item_count : 0), kds_started_at: i === 0 ? o.kds_started_at : null, order_no_label: "#" + o.order_no + (i ? " +" + i : ""), order_id: o.order_id + ":" + i };
-      seg._done = bumps.length ? completionOf({ ...seg, completed_at: null }) : (i + 1 === starts.length && !bumps.length ? null : null);
+    const groups = [];
+    let cur = { i0: 0, st: starts[0] };
+    for (let i = 1; i < starts.length; i++) {
+      if (allBumps.some((b) => b._t >= cur.st && b._t < starts[i])) { groups.push({ ...cur, i1: i - 1, end: starts[i] }); cur = { i0: i, st: starts[i] }; }
+    }
+    groups.push({ ...cur, i1: starts.length - 1, end: Infinity });
+    if (groups.length === 1) return [{ ...o, _seg: 0, _segStart: starts[0], _done: completionOf(o) }];
+    return groups.map((g) => {
+      const bumps = allBumps.filter((b) => b._t >= g.st && b._t < g.end).map(({ _t, ...b }) => b);
+      const segItems = items.filter((it) => { const b = Number(it.batch) || 0; return b >= g.i0 && b <= g.i1; });
+      const seg = { ...o, _seg: g.i0, _segStart: g.st, created_at: new Date(g.st).toISOString(), bumps, items: segItems, item_count: segItems.length || (g.i0 === 0 ? o.item_count : 0), kds_started_at: g.i0 === 0 ? o.kds_started_at : null, order_no_label: "#" + o.order_no + (g.i0 ? " +" + g.i0 : ""), order_id: o.order_id + ":" + g.i0 };
+      seg._done = bumps.length ? completionOf({ ...seg, completed_at: null }) : null;
       return seg;
     });
   };

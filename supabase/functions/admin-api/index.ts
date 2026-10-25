@@ -563,12 +563,20 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         // Segment: original ticket + one per addition (items_added_log), each timed from its own start.
         const starts: number[] = [new Date(o.created_at).getTime(), ...((o.items_added_log || []).map((x: string) => new Date(x).getTime()).filter((t: number) => isFinite(t)).sort((a: number, b: number) => a - b))];
         const all = (o.bumps || []).map((b: any) => new Date(b.bumped_at).getTime()).filter((t: number) => isFinite(t)).sort((a: number, b: number) => a - b);
-        starts.forEach((st, i) => {
-          const end = i + 1 < starts.length ? starts[i + 1] : Infinity;
+        // Same rule as the KDS Performance tab: a round is its own ticket only
+        // if the earlier round had been bumped before it arrived; otherwise it
+        // joins the ticket still in progress.
+        const segs: Array<{ st: number; end: number }> = [];
+        let cur = starts[0];
+        for (let i = 1; i < starts.length; i++) {
+          if (all.some((t) => t >= cur && t < starts[i])) { segs.push({ st: cur, end: starts[i] }); cur = starts[i]; }
+        }
+        segs.push({ st: cur, end: Infinity });
+        segs.forEach(({ st, end }) => {
           const bs = all.filter((t) => t >= st && t < end);
           let doneAt: number | null = null;
           if (bs.length) { const first = bs[0]; doneAt = first; for (const t of bs) if (t - first <= 30 * 60000) doneAt = t; }
-          else if (starts.length === 1 && o.completed_at) doneAt = new Date(o.completed_at).getTime();
+          else if (segs.length === 1 && o.completed_at) doneAt = new Date(o.completed_at).getTime();
           if (doneAt != null) times.push((doneAt - st) / 1000);
         });
       }
