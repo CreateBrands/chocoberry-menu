@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { deviceToken } from "./device.js";
 import ManagerPin from "./ManagerPin.jsx";
 
@@ -42,7 +42,7 @@ export function TeamChip({ loc, onStoreName, bar = false, compact = false }) {
   const late = c.late > 0, longBreak = c.long_breaks > 0;
   return (
     <>
-      <span onClick={() => setAsk(true)} title="Team today (managers)" style={bar ? barPill(late) : { ...chip, background: late ? "#fff7f7" : "#f8fafc", border: "1px solid " + (late ? "#fecaca" : "#e2e8f0"), color: "#1f2937" }}>
+      <span onClick={() => setAsk(true)} title="Team today (managers)" style={bar ? { ...barPill(late), flexShrink: 1, minWidth: 0, overflow: "hidden" } : { ...chip, background: late ? "#fff7f7" : "#f8fafc", border: "1px solid " + (late ? "#fecaca" : "#e2e8f0"), color: "#1f2937" }}>
         <span style={{ fontSize: bar ? "clamp(14px,1.05vw,19px)" : 14 }}>👥</span>
         {late && <><span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: bar ? "#fca5a5" : "#b91c1c" }}>{dot("#ef4444")}{c.late} late</span>{bar ? barSep : sep}</>}
         <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{dot(bar ? "#4ade80" : "#16a34a")}{c.on} on</span>
@@ -181,52 +181,114 @@ export function SettingsMenu({ sizes, size, setSize, soundOn, setSoundOn, screen
   );
 }
 
-// MORE 2026-10-25 — the last pill on the till's bottom strip. Everything that
-// isn't selling or cash sits behind it: printer and connection (the pill gets
-// a red dot when either needs attention), screen tools passed in by the POS
-// (merge, layout), text size, sound, this screen, fullscreen and reload.
-export function MoreMenu({ extra = [], problems = 0, onPrintLog, connected, usb, clock,
-  sizes, size, setSize, soundOn, setSoundOn, screenLabel, onScreenSetup, fullscreen, goFullscreen }) {
+// STRIP TOOLS 2026-10-25 — the right-hand end of the till's bottom strip.
+// Fullscreen, printer, connection, clock and the screen tools sit on the
+// strip while there is room, in that order of importance; whatever doesn't
+// fit moves into More automatically, so the strip is always full and nothing
+// is ever cut off. More also holds text size, sound, this screen and reload,
+// and shows a red dot when the printer or connection needs attention.
+
+const tileBase = { display: "flex", alignItems: "center", gap: 10, padding: "13px 14px", borderRadius: 12, fontWeight: 700, fontSize: 14.5, cursor: "pointer", userSelect: "none", background: "rgba(94,234,212,.08)", color: "#ccfbf1", border: "1px solid rgba(94,234,212,.12)" };
+
+export function StripTools({ kit, extra = [], onAnyTap }) {
+  const { problems = 0, onPrintLog, connected, usb, clock, fullscreen, goFullscreen } = kit || {};
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const [hidden, setHidden] = useState([]);
+  const [rowH, setRowH] = useState(null);
+  const wrap = useRef(null), box = useRef(null), moreBtn = useRef(null);
+  const alert = problems > 0 || connected === false || (usb && usb.state !== "ready");
+
+  // Everything that can live on the strip, most important first.
+  const items = [
+    goFullscreen && { k: "full", icon: fullscreen ? "✕" : "⛶", label: fullscreen ? "Exit" : "", title: "Fullscreen", tile: fullscreen ? "Leave fullscreen" : "Fullscreen", onClick: goFullscreen },
+    kit && { k: "printer", dot: problems ? "#ef4444" : "#4ade80", label: problems ? problems + " not printed" : "Printer", tile: problems ? problems + " not printed" : "Printer · all printed", title: "What the printers did", onClick: onPrintLog, alert: problems > 0 },
+    usb && { k: "usb", icon: "🖨", label: usb.state === "ready" ? "USB" : usb.state === "unpaired" ? "Connect printer" : usb.state === "unsupported" ? "USB not supported" : "Printer disconnected", tile: usb.state === "ready" ? "USB printer connected" : "Connect USB printer", onClick: usb.onClick, alert: usb.state !== "ready" },
+    kit && { k: "live", dot: connected ? "#4ade80" : "#ef4444", label: connected ? "Live" : "Offline", tile: connected ? "Connected" : "Offline", alert: !connected },
+    kit && clock && { k: "clock", label: clock, tile: clock, clock: true },
+    ...extra.map((x) => ({ ...x, k: x.k || x.label })),
+  ].filter(Boolean);
+  const keyStr = items.map((x) => x.k + ":" + x.label).join("|");
+
+  // Work out which pills fit on one row; the rest go into More.
+  const measure = () => {
+    const el = box.current, mb = moreBtn.current;
+    if (!el || !mb) return;
+    const h = mb.offsetHeight; if (h && h !== rowH) setRowH(h);
+    const out = [];
+    for (const c of el.children) if (c.offsetTop > 2) out.push(c.dataset.k);
+    setHidden((prev) => (prev.join() === out.join() ? prev : out));
+  };
+  useLayoutEffect(measure);
+  useEffect(() => {
+    if (!wrap.current || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measure());
+    ro.observe(wrap.current);
+    return () => ro.disconnect();
+  }, []); // eslint-disable-line
   useEffect(() => {
     if (!open) return;
-    const off = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const off = (e) => { if (wrap.current && !wrap.current.contains(e.target)) setOpen(false); };
     document.addEventListener("pointerdown", off);
     return () => document.removeEventListener("pointerdown", off);
   }, [open]);
-  const alert = problems > 0 || !connected || (usb && usb.state !== "ready");
-  const row = { padding: "12px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, fontSize: 14.5, cursor: "pointer", borderRadius: 9, color: "#1f2937" };
-  const act = (fn) => () => { setOpen(false); fn && fn(); };
+
+  const pillStyle = (x) => ({ ...barPill(x.alert), flexShrink: 0, color: x.alert ? "#fca5a5" : x.clock ? "#ccfbf1" : "#5eead4",
+    cursor: x.onClick ? "pointer" : "default", fontVariantNumeric: x.clock ? "tabular-nums" : undefined, fontWeight: x.clock ? 800 : 700,
+    background: x.on ? "linear-gradient(135deg,#14b8a6,#0d9488)" : x.clock ? "transparent" : barPill(x.alert).background, ...(x.on ? { color: "#fff" } : {}) });
+  const tap = (fn) => () => { setOpen(false); onAnyTap && onAnyTap(); fn && fn(); };
+  const inMore = items.filter((x) => hidden.includes(x.k));
+  const sizes = (kit && kit.sizes) || [];
+
   return (
-    <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
-      <div onClick={() => setOpen((v) => !v)} title="More"
-        style={{ ...barPill(false), position: "relative", background: open ? "linear-gradient(135deg,#14b8a6,#0d9488)" : "rgba(94,234,212,.09)", color: open ? "#fff" : "#5eead4", fontWeight: 800 }}>
+    <div ref={wrap} style={{ flex: 1, display: "flex", alignItems: "center", gap: 6, position: "relative" }}>
+      <div ref={box} style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "row-reverse", flexWrap: "wrap", alignContent: "flex-start", gap: 6, overflow: "hidden", position: "relative", height: rowH || "auto", contain: "inline-size" }}>
+        {items.map((x) => (
+          <span key={x.k} data-k={x.k} title={x.title || x.label} onClick={x.onClick ? tap(x.onClick) : undefined}
+            style={{ ...pillStyle(x), visibility: hidden.includes(x.k) ? "hidden" : "visible" }}>
+            {x.dot && <span style={{ width: 9, height: 9, borderRadius: "50%", background: x.dot, flexShrink: 0 }} />}
+            {x.icon && <span style={{ fontSize: "clamp(14px,1.05vw,19px)", lineHeight: 1 }}>{x.icon}</span>}
+            {x.label}
+          </span>
+        ))}
+      </div>
+      <div ref={moreBtn} onClick={() => setOpen((v) => !v)} title="More"
+        style={{ ...barPill(false), flexShrink: 0, position: "relative", fontWeight: 800, background: open ? "linear-gradient(135deg,#14b8a6,#0d9488)" : "rgba(94,234,212,.09)", color: open ? "#fff" : "#5eead4" }}>
         <span style={{ fontSize: "clamp(15px,1.15vw,21px)", lineHeight: 1, letterSpacing: 1 }}>⋯</span>More
         {alert && !open && <span style={{ position: "absolute", top: 5, right: 5, width: 10, height: 10, borderRadius: "50%", background: "#ef4444", boxShadow: "0 0 0 2px #0f2e29" }} />}
       </div>
       {open && (
-        <div style={{ position: "absolute", right: 0, bottom: "calc(100% + 12px)", width: 310, background: "#fff", border: "1px solid #e3e6ea", borderRadius: 14, boxShadow: "0 18px 44px rgba(15,23,42,.24)", padding: 6, zIndex: 60, fontFamily: "'Hanken Grotesk',system-ui,sans-serif" }}>
-          <div style={{ display: "flex", gap: 6, padding: 4 }}>
-            <span onClick={act(onPrintLog)} style={{ flex: 1, ...chip, justifyContent: "center", padding: "10px 8px", background: problems ? "#fef2f2" : "#f0fdf4", color: problems ? "#991b1b" : "#166534" }}>{dot(problems ? "#dc2626" : "#16a34a")}{problems ? problems + " not printed" : "Printer"}</span>
-            <span style={{ flex: 1, ...chip, justifyContent: "center", padding: "10px 8px", cursor: "default", background: connected ? "#f0fdf4" : "#fef2f2", color: connected ? "#166534" : "#991b1b" }}>{dot(connected ? "#16a34a" : "#dc2626")}{connected ? "Live" : "Offline"}</span>
-            <span style={{ ...chip, justifyContent: "center", padding: "10px 10px", cursor: "default", background: "#f1f5f9", color: "#1f2937", fontVariantNumeric: "tabular-nums" }}>{clock}</span>
-          </div>
-          {usb && <div onClick={usb.onClick} style={{ ...row, color: usb.state === "ready" ? "#166534" : "#92400e" }}>USB printer<b>{usb.state === "ready" ? "Connected" : usb.state === "unpaired" ? "Connect" : usb.state === "unsupported" ? "Not supported" : "Reconnect"}</b></div>}
-          {extra.length > 0 && <div style={{ borderTop: "1px solid #eef0f3", margin: "4px 0" }} />}
-          {extra.map((x) => (
-            <div key={x.label} onClick={act(x.onClick)} style={row}>{x.label}<span style={{ color: "#0f766e", fontWeight: 800 }}>{x.icon}</span></div>
-          ))}
-          <div style={{ borderTop: "1px solid #eef0f3", margin: "4px 0" }} />
-          <div style={{ ...row, cursor: "default" }}>Text size
-            <span style={{ display: "flex", background: "#e2e5ea", borderRadius: 8, overflow: "hidden" }}>
-              {sizes.map((s) => <span key={s} onClick={() => setSize(s)} style={{ padding: "5px 9px", fontSize: 12.5, fontWeight: 800, cursor: "pointer", background: size === s ? "#3f7d4e" : "transparent", color: size === s ? "#fff" : "#475569" }}>{s}</span>)}
-            </span>
-          </div>
-          <div onClick={() => setSoundOn((v) => !v)} style={row}>Sound for new orders<b style={{ color: soundOn ? "#3f7d4e" : "#94a3b8" }}>{soundOn ? "On" : "Off"}</b></div>
-          <div onClick={act(onScreenSetup)} style={row}>This screen<span style={{ fontSize: 12.5, color: "#64748b" }}>{screenLabel} ⚙</span></div>
-          <div onClick={act(goFullscreen)} style={row}>{fullscreen ? "Leave fullscreen" : "Fullscreen"}<span>{fullscreen ? "✕" : "⛶"}</span></div>
-          <div onClick={() => window.location.reload()} style={row}>Reload the till<span>↻</span></div>
+        <div style={{ position: "absolute", right: 0, bottom: "calc(100% + 16px)", width: 360, maxWidth: "92vw", background: "#0f2e29", border: "1px solid rgba(94,234,212,.18)", borderRadius: 16, boxShadow: "0 22px 50px rgba(4,20,17,.45)", padding: 12, zIndex: 60, fontFamily: "'Hanken Grotesk',system-ui,sans-serif", color: "#ccfbf1", display: "grid", gap: 10 }}>
+          {inMore.length > 0 && (
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              {inMore.map((x) => (
+                <div key={x.k} onClick={x.onClick ? tap(x.onClick) : undefined}
+                  style={{ ...tileBase, cursor: x.onClick ? "pointer" : "default", color: x.alert ? "#fca5a5" : "#ccfbf1", borderColor: x.alert ? "rgba(239,68,68,.45)" : "rgba(94,234,212,.12)", background: x.on ? "linear-gradient(135deg,#14b8a6,#0d9488)" : x.alert ? "rgba(239,68,68,.12)" : tileBase.background, fontVariantNumeric: x.clock ? "tabular-nums" : undefined }}>
+                  {x.dot && <span style={{ width: 9, height: 9, borderRadius: "50%", background: x.dot, flexShrink: 0 }} />}
+                  {x.icon && <span style={{ fontSize: 17, lineHeight: 1, color: "#5eead4" }}>{x.icon}</span>}
+                  {x.tile || x.label}
+                </div>
+              ))}
+            </div>
+          )}
+          {kit && (<>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "4px 4px 0" }}>
+              <span style={{ fontWeight: 700, fontSize: 14.5 }}>Text size</span>
+              <span style={{ display: "flex", background: "rgba(94,234,212,.08)", borderRadius: 10, padding: 3, gap: 2 }}>
+                {sizes.map((z) => <span key={z} onClick={() => kit.setSize(z)} style={{ minWidth: 40, textAlign: "center", padding: "8px 0", fontSize: 13.5, fontWeight: 800, cursor: "pointer", borderRadius: 8, background: kit.size === z ? "linear-gradient(135deg,#14b8a6,#0d9488)" : "transparent", color: kit.size === z ? "#fff" : "#99f6e4" }}>{z}</span>)}
+              </span>
+            </div>
+            <div onClick={() => kit.setSoundOn((v) => !v)} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "4px 4px", cursor: "pointer" }}>
+              <span style={{ fontWeight: 700, fontSize: 14.5 }}>Sound for new orders</span>
+              <span style={{ width: 46, height: 26, borderRadius: 13, background: kit.soundOn ? "#14b8a6" : "rgba(204,251,241,.18)", position: "relative", transition: "background .15s" }}>
+                <span style={{ position: "absolute", top: 3, left: kit.soundOn ? 23 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+              </span>
+            </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+              <div onClick={tap(kit.onScreenSetup)} style={tileBase}><span style={{ fontSize: 17, color: "#5eead4" }}>⚙</span><span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>This screen</span></div>
+              <div onClick={() => window.location.reload()} style={tileBase}><span style={{ fontSize: 17, color: "#5eead4" }}>↻</span>Reload till</div>
+            </div>
+            <div style={{ fontSize: 11.5, color: "rgba(204,251,241,.5)", textAlign: "center" }}>{kit.screenLabel}</div>
+          </>)}
         </div>
       )}
     </div>

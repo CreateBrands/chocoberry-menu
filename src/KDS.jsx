@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import POS from "./POS.jsx";
-import { TeamChip, OfflineBar, MoreMenu } from "./TillHeader.jsx";
+import { TeamChip, OfflineBar } from "./TillHeader.jsx";
 import ServiceFeedback, { TAGS as SVC_TAGS, CATEGORY_LABEL as SVC_CAT } from "./ServiceFeedback.jsx";
 import { getDevice, setDevice, clearDevice, deviceToken, fingerprint, APP_VERSION } from "./device.js";
 import * as usbPrinter from "./usbPrinter.js";
@@ -1342,11 +1342,11 @@ export default function KDS({ surface = "kds" }) {
         <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables}
           bare={kind === "pos"}
           barTeam={(compact) => <TeamChip loc={loc} bar compact={compact} />}
-          barMore={(extra) => <MoreMenu extra={extra} problems={failedOrders.length + silentPrinters.length} onPrintLog={openPrintLog}
-            connected={connected} clock={nowClock}
-            usb={ownsUsb ? { state: usbState, onClick: async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } } } : null}
-            sizes={Object.keys(SIZES)} size={size} setSize={setSize} soundOn={soundOn} setSoundOn={setSoundOn}
-            screenLabel={myName || ("Screen " + getScreenId())} onScreenSetup={() => setSetupOpen(true)} fullscreen={fullscreen} goFullscreen={goFullscreen} />} />
+          textSize={size}
+          barKit={{ problems: failedOrders.length + silentPrinters.length, onPrintLog: openPrintLog, connected, clock: nowClock,
+            usb: ownsUsb ? { state: usbState, onClick: async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } } } : null,
+            sizes: Object.keys(SIZES), size, setSize, soundOn, setSoundOn,
+            screenLabel: myName || ("Screen " + getScreenId()), onScreenSetup: () => setSetupOpen(true), fullscreen, goFullscreen }} />
       )}
 
 

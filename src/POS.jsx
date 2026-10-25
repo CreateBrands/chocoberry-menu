@@ -8,6 +8,7 @@ import CartLine from "./CartLine.jsx";
 import ShiftSheet from "./ShiftSheet.jsx";
 import ManagerPin from "./ManagerPin.jsx";
 import CashSheet from "./CashSheet.jsx";
+import { StripTools } from "./TillHeader.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
 // store this till is serving — see src/money.js. A store with no currency
 // setting is GBP, which is exactly what every till did before.
@@ -124,7 +125,7 @@ function tapFeedback() {
 // ["eggs", "mushrooms", "hash browns", "baked beans"]
 const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-export default function POS({ loc, storeToken, tablesList = [], barTeam = null, barMore = null, bare = false }) {
+export default function POS({ loc, storeToken, tablesList = [], barTeam = null, barKit = null, textSize = "M", bare = false }) {
   const [cats, setCats] = useState(null);   // masters: [{id,name,subs:[{id,name,items:[...]}]}]
   const [activeCat, setActiveCat] = useState(0);   // master index
   const [activeSub, setActiveSub] = useState(0);   // subcategory index within active master
@@ -674,6 +675,12 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
   // Stored per device rather than per account: two tills at the same store can
   // reasonably want different sizes, and it needs no authenticated write path
   // from the POS. Lifting it to the server later changes nothing here.
+  // Text size from More: the whole till scales, in gentler steps than the
+  // kitchen screens so the four columns still fit.
+  const zoom = { S: 0.9, M: 1, L: 1.1, XL: 1.2 }[textSize] || 1;
+  // Re-render on a window resize so the strip's labels follow the screen.
+  const [viewW, setViewW] = useState(() => window.innerWidth);
+  useEffect(() => { const f = () => setViewW(window.innerWidth); window.addEventListener("resize", f); return () => window.removeEventListener("resize", f); }, []);
   const LAYOUT_KEY = "cb_pos_layout_v1";
   const [layout, setLayout] = useState(() => {
     try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch { return {}; }
@@ -1179,7 +1186,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
   const showGroups = sub && sub._merged && Array.isArray(sub.groups) && sub.groups.length > 0 && !search;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", height: bare ? "100dvh" : "calc(100dvh - 56px)", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
+    <div style={{ display: "flex", flexDirection: "column", zoom, height: bare ? "calc(100dvh / " + zoom + ")" : "calc((100dvh - 56px) / " + zoom + ")", background: P.canvas, color: P.ink, fontFamily: "'Hanken Grotesk',sans-serif" }}>
       {/* ── Un-ignorable print-failure banner (Oracle-style) ── */}
       {failedPrintOrders.length > 0 && (
         <>
@@ -1694,7 +1701,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
              master menus on top: team today, shift, drawer, cash, close till,
              and More for everything else. */}
         {(() => {
-          const wide = window.innerWidth >= 1600, roomy = window.innerWidth >= 2000;
+          const vw = viewW / zoom, wide = vw >= 1600, roomy = vw >= 2000;
           const sh = shift && shift.enabled !== false ? shift.shift : undefined;
           const t = (iso) => { try { return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
           const shiftLabel = sh === undefined ? null : !sh ? "Start shift" : sh.status === "counting" ? "Counting" : String(sh.opened_by || "").split(" ")[0] + (wide ? " · " + t(sh.opened_at) : "");
@@ -1714,16 +1721,17 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
             <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 6, alignItems: "center", gridColumn: "1 / 3", gridRow: 2, minWidth: 0, boxShadow: "0 2px 10px rgba(15,46,41,.2)", position: "relative", zIndex: 30 }}>
               {barTeam && barTeam(!roomy)}
               {shiftLabel && pill("shift", "◷", shiftLabel, () => { loadShift(); setShiftOpen(true); },
-                { color: "#fde68a", bg: sh ? "rgba(253,224,71,.10)" : "rgba(253,224,71,.16)", dashed: !sh, shrink: true })}
+                { color: "#fde68a", bg: sh ? "rgba(253,224,71,.10)" : "rgba(253,224,71,.16)", dashed: !sh })}
               {pill("drawer", "⇥", wide ? "Open drawer" : "Drawer", () => setDrawerAsk({ pin: "", busy: false, err: "" }), { color: "#cbd5e1", bg: "rgba(148,163,184,.12)" })}
               {pill("cash", currencySymbol().trim(), "Cash", () => setCashOpen(true), { color: "#fdba74", bg: "rgba(253,186,116,.12)" })}
               {pill("close", "✓", "Close till", openCloseTill)}
-              <span style={{ flex: 1, minWidth: 4 }} />
               {editLayout && pill("layout", "✓", "Done", () => setEditLayout(false), { on: true, title: "Finish arranging" })}
-              {barMore && barMore([
-                { label: "Merge categories", icon: "⇱", onClick: () => setShowMerge(true) },
-                { label: editLayout ? "Finish arranging" : "Arrange tiles", icon: editLayout ? "✓" : "⇕", onClick: () => setEditLayout((v) => !v) },
-              ])}
+              <StripTools kit={barKit} extra={editLayout ? [
+                { k: "merge", icon: "⇱", label: "Merge", tile: "Merge categories", onClick: () => setShowMerge(true) },
+              ] : [
+                { k: "layout", icon: "⇕", label: "Layout", tile: "Arrange tiles", onClick: () => setEditLayout(true) },
+                { k: "merge", icon: "⇱", label: "Merge", tile: "Merge categories", onClick: () => setShowMerge(true) },
+              ]} />
             </div>
           );
         })()}
