@@ -1155,10 +1155,11 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
           const state = o && o.unavailable_until && new Date(o.unavailable_until).getTime() > now ? "today"
             : o && o.available === false ? "off"
             : r.available === false ? "hq" : "on";
-          items.push({ id: r.item_id, name: r.item_name, category: r.category_name, menu: r.menu_name, state, until: state === "today" ? o.unavailable_until : null });
+          const gl = (Array.isArray(r.modifiers) ? r.modifiers : []).filter((g: any) => g && g.id).map((g: any) => g.id);
+          items.push({ id: r.item_id, name: r.item_name, category: r.category_name, category_id: r.category_id, menu: r.menu_name, menu_id: r.menu_id, state, until: state === "today" ? o.unavailable_until : null, groups: gl });
           for (const g of (Array.isArray(r.modifiers) ? r.modifiers : [])) {
             if (!g || !g.id) continue; groupIds.add(g.id);
-            const l = groupItems.get(g.id) || []; if (l.length < 4 && !l.includes(r.item_name)) l.push(r.item_name); groupItems.set(g.id, l);
+            const l = groupItems.get(g.id) || []; if (!l.includes(r.item_name)) l.push(r.item_name); groupItems.set(g.id, l);
           }
         }
         const gids = [...groupIds];

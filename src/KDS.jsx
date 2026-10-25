@@ -300,8 +300,10 @@ export default function KDS({ surface = "kds" }) {
   const [armedBump, setArmedBump] = useState(null); // {id, timer} — first tap arms, second confirms
   const [rushIds, setRushIds] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("kds_rush") || "[]")); } catch { return new Set(); } });
   // Orders/payment view state
-  const [view, setView] = useState(surface === "pos" ? "pos" : "kitchen");      // "kitchen" | "perf" | "pos"
   const device = getDevice();
+  // A licence that includes the till opens on the till; kitchen-only and
+  // unlicensed legacy screens open on the kitchen view as before.
+  const [view, setView] = useState(surface === "pos" || (device && (device.kind === "pos" || device.kind === "kds+pos")) ? "pos" : "kitchen");      // "kitchen" | "perf" | "pos"
   const kind = device ? device.kind : "kds+pos"; // unlicensed legacy screens keep everything until claimed
   const [licence, setLicence] = useState("ok"); // ok | revoked | unclaimed | needs_code
   const [brand, setBrand] = useState({ name: "Chocoberry", accent: "#f472b6", logo: null });
