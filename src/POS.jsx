@@ -1586,10 +1586,6 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
 
           <div style={{ borderTop: "1px solid " + P.line, padding: "15px 18px", background: "#faf9f5" }}>
             {msg && <div style={{ fontSize: 15, textAlign: "center", marginBottom: 10, color: (msg.includes("fail") || msg.includes("Wrong")) ? "#c94a4a" : "#16a34a" }}>{msg}</div>}
-            <div onClick={() => setOpenAsk({ name: "", price: "", qty: 1, pin: openPin, err: "" })}
-              style={{ marginBottom: 12, textAlign: "center", padding: "11px 0", borderRadius: 11, border: "1.5px dashed #cfd4cb", color: "#5b6b4e", fontSize: 14.5, fontWeight: 700, cursor: "pointer", background: "#fff" }}>
-              + Open item
-            </div>
             {ticket.length > 0 && (
               <div style={{ marginBottom: 12 }}>
                 <input type="text" value={orderNote} onChange={(e) => setOrderNote(e.target.value)} placeholder="📝 Order note (e.g. allergy, ring on arrival)…"
@@ -1693,6 +1689,14 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                 </div>
               );
             })}
+          </div>
+          {/* Open item — something not on the menu. At the foot of the orders
+              column so the basket keeps its space for lines and Pay. */}
+          <div style={{ flexShrink: 0, padding: "clamp(8px,.65vw,12px)", borderTop: "1px solid rgba(94,234,212,.14)" }}>
+            <div className="cb-tap" onPointerDown={tapFeedback} onClick={() => setOpenAsk({ name: "", price: "", qty: 1, pin: openPin, err: "" })} title="Open item — something not on the menu"
+              style={{ textAlign: "center", padding: "clamp(11px,.9vw,17px) 6px", borderRadius: 11, border: "1.5px dashed rgba(94,234,212,.45)", color: P.masterMuted, background: "rgba(94,234,212,.08)", fontSize: "clamp(12px,.92vw,18px)", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" }}>
+              + Open item
+            </div>
           </div>
         </div>
 
