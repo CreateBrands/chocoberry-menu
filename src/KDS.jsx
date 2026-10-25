@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import POS from "./POS.jsx";
+import { TeamChip, DrawerChip, PrinterChip, LiveChip, OfflineBar, SettingsMenu } from "./TillHeader.jsx";
 import ServiceFeedback, { TAGS as SVC_TAGS, CATEGORY_LABEL as SVC_CAT } from "./ServiceFeedback.jsx";
 import { getDevice, setDevice, clearDevice, deviceToken, fingerprint, APP_VERSION } from "./device.js";
 import * as usbPrinter from "./usbPrinter.js";
@@ -854,7 +855,7 @@ export default function KDS({ surface = "kds" }) {
   }, []);
 
   const stations = Array.from(new Set(orders.flatMap((o) => (o.menu_order_items || []).map(stationOf))));
-  const nowClock = new Date(now).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const nowClock = new Date(now).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
   const F = (px) => Math.round(px * scale);
   const BOLT = "\u26A1", PRINTER = "\uD83D\uDDA8", CHECK = "\u2713", ARROW = "\u21A9", WARN = "\u26A0", DOT = "\u00B7", TIMES = "\u00D7", BELL = "\uD83D\uDD14", BELLOFF = "\uD83D\uDD15", EXPAND = "\u26F6", X = "\u2715";
 
@@ -863,15 +864,16 @@ export default function KDS({ surface = "kds" }) {
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes kfailflash{0%,100%{background:#dc2626}50%{background:#8f1414}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#00000008}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#c3c9d2;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#a8b0bb}"}</style>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "#ffffff", borderBottom: "1px solid #d8dce2", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 18 }}>
-          <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em", display: "inline-flex", alignItems: "center", gap: 8 }}>{brand.logo && <img src={brand.logo} alt="" style={{ height: 26, width: "auto" }} />}{brand.name} <span style={{ color: brand.accent }}>{surface === "pos" ? "POS" : "KDS"}</span></span>
-          <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
+        <div style={{ display: kind === "pos" && view === "pos" ? "none" : "flex", alignItems: "center", gap: 18 }}>
+          {/* The till shows no brand / store name — the space goes to the team and drawer. */}
+          {view !== "pos" && <span style={{ fontWeight: 800, fontSize: 21, letterSpacing: "-.02em", display: "inline-flex", alignItems: "center", gap: 8 }}>{brand.logo && <img src={brand.logo} alt="" style={{ height: 26, width: "auto" }} />}{brand.name} <span style={{ color: brand.accent }}>{surface === "pos" ? "POS" : "KDS"}</span></span>}
+          {kind !== "pos" && <div style={{ display: "flex", background: "#e2e5ea", borderRadius: 10, padding: 3, gap: 2 }}>
             {[["kitchen", "Kitchen"], ["perf", "Performance"], ["pos", "POS"]].filter(([v]) => kind === "kds+pos" || (kind === "pos" ? v === "pos" : v !== "pos")).map(([v, label]) => (
               <div key={v} onClick={() => setView(v)} className="kbtn" style={{ padding: "7px 16px", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 800, background: view === v ? "#ec4899" : "transparent", color: view === v ? "#fff" : "#475569" }}>
                 {label}
               </div>
             ))}
-          </div>
+          </div>}
           {view === "kitchen" && (
           <div style={{ display: "flex", gap: 6 }}>
             {[["active", "Active"], ["allday", "All-day"], ["completed", "Done"]].map(([t, label]) => (
@@ -882,6 +884,25 @@ export default function KDS({ surface = "kds" }) {
           </div>
           )}
         </div>
+        {/* TILL HEADER 2026-10-25: on the POS view the kitchen's ticket stats,
+            sizes, bell and station chip give way to who's working, the cash
+            drawer, printer and connection, with the rest under ⚙. */}
+        {view === "pos" ? (
+        <>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <TeamChip loc={loc} />
+          <DrawerChip loc={loc} />
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {ownsUsb && <div onClick={async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } }} className="kbtn" style={{ cursor: "pointer", fontSize: 12, fontWeight: 800, padding: "5px 10px", borderRadius: 8, background: usbState === "ready" ? "#dcfce7" : usbState === "unpaired" ? "#fef3c7" : "#fee2e2", color: usbState === "ready" ? "#166534" : usbState === "unpaired" ? "#92400e" : "#991b1b" }}>🖨 {usbState === "ready" ? "USB printer" : usbState === "unpaired" ? "Connect printer" : usbState === "unsupported" ? "USB not supported" : "Printer disconnected"}</div>}
+          <PrinterChip problems={failedOrders.length + silentPrinters.length} onOpen={openPrintLog} />
+          <LiveChip connected={connected} />
+          <span style={{ color: "#64748b", fontSize: 13, fontWeight: 600, margin: "0 2px" }}>{nowClock}</span>
+          <SettingsMenu sizes={Object.keys(SIZES)} size={size} setSize={setSize} soundOn={soundOn} setSoundOn={setSoundOn}
+            screenLabel={myName || ("Screen " + getScreenId())} onScreenSetup={() => setSetupOpen(true)} fullscreen={fullscreen} goFullscreen={goFullscreen} />
+        </div>
+        </>
+        ) : (<>
         <div style={{ display: "flex", alignItems: "center", gap: 18, fontSize: 13 }}>
           <Stat label="Time" value={nowClock} />
           <Stat label="Working" value={active.length} accent="#b45309" />
@@ -914,7 +935,9 @@ export default function KDS({ surface = "kds" }) {
             {stationMeta(myStation).icon} {(myName || ("Screen " + getScreenId())) + (myStation ? " \u00B7 " + myStation : " \u00B7 no station") + (mySettings && mySettings.routing ? " \u00B7 filtered" : "")} ⚙
           </div>
         </div>
+        </>)}
       </div>
+      {view === "pos" && <OfflineBar connected={connected} />}
 
       {failedOrders.length > 0 && view !== "pos" && (
         <div style={{ animation: "kfailflash 1.1s ease-in-out infinite", color: "#fff", padding: "10px 18px", display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 19, boxShadow: "0 4px 14px rgba(0,0,0,.25)", flexWrap: "wrap" }}>

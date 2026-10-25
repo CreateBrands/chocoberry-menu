@@ -310,6 +310,12 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       if (j) setShift(j);
     } catch { /* offline — keep the last status */ }
   }, [loc]);
+  // TILL HEADER: the drawer chip in the top bar opens the Shift sheet.
+  useEffect(() => {
+    const open = () => { loadShift(); setShiftOpen(true); };
+    window.addEventListener("pos:open-shift", open);
+    return () => window.removeEventListener("pos:open-shift", open);
+  }, [loadShift]);
   useEffect(() => {
     if (!loc) return;
     loadShift();
@@ -443,6 +449,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       setCloseTill((x) => x && { ...x, busy: false, step: "done", result: j });
       await loadOrders();
       loadShift();   // a running shift ended with the day
+      window.dispatchEvent(new Event("pos:shift-changed"));
       setSelOrderId(null); setPayNowOrder(null);
     } catch (e) { setCloseTill((x) => x && { ...x, busy: false, err: e.message || "Close failed" }); }
   }
@@ -1723,7 +1730,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
       {cashOpen && <CashSheet loc={loc} act={ordActionJson} onClose={() => setCashOpen(false)} />}
 
       {shiftOpen && shift && (
-        <ShiftSheet loc={loc} status={shift} act={ordActionJson} onClose={() => setShiftOpen(false)} onChanged={loadShift} />
+        <ShiftSheet loc={loc} status={shift} act={ordActionJson} onClose={() => setShiftOpen(false)} onChanged={() => { loadShift(); window.dispatchEvent(new Event("pos:shift-changed")); }} />
       )}
 
       {/* CLOSE TILL — guided closing report: Review → Cash → Sign off → Done */}

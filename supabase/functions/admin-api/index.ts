@@ -103,6 +103,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     "shift_status", "shift_start", "shift_end", "shift_resume", "shift_count",
     "close_preview", "kds_order_patch", "kds_item_patch",
     "cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect",
+    "team_status",
   ]);
   const isPosCall = pos === true && POS_ACTIONS.has(action);
   // Device enforcement: when the caller sends a device token it must be active,
@@ -944,7 +945,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
       return json({ error: "wrong_store", message: "This till belongs to a different store." }, 403);
     }
     // CASH MOVEMENTS: the till's cash actions only ever come from a verified till.
-    if (["cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect"].includes(action) && !callerDevice) {
+    if (["cash_today", "cash_move", "cash_move_undo", "safe_count", "safe_collect", "team_status"].includes(action) && !callerDevice) {
       return json({ error: "device_required", message: "Only a licensed till can do this." }, 403);
     }
     if (tillStore && isPosCall && ORDER_ACTIONS.has(action) && data && data.order_id) {
@@ -3210,6 +3211,74 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const { error } = await admin.from("cash_movements").update({ banked_amount: b, banked_at: b == null ? null : new Date().toISOString(), banked_by: b == null ? null : (scope === "master" ? "Admin" : scopeLabel || "Regional manager") }).eq("id", m.id);
         if (error) throw error;
         return json({ ok: true, banked_amount: b, difference: b == null ? null : round2(b - Number(m.amount)) });
+      }
+
+      // ---- TILL HEADER: who is working (TEAM STATUS 2026-10-25) ----
+      // From the dashboard's clock-ins (punch_records) and published rota
+      // (schedules) for this store. Counts for everyone; names only with a
+      // manager / owner PIN (the list is for managers, and customers can see
+      // the till screen).
+      case "team_status": {
+        const { location_id, manager_pin } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        let names = false, viewer: string | null = null;
+        if (manager_pin) {
+          const mg = await managerForPin(manager_pin, String(location_id));
+          if (!mg.ok) return json({ error: "manager_required", message: "The team list is for managers — that PIN isn't one." }, 403);
+          names = true; viewer = mg.name || "Manager";
+        }
+        const { data: lr } = await admin.from("menu_locations").select("name, store_id, timezone").eq("id", location_id).maybeSingle();
+        const tz = String((lr as any)?.timezone || "").trim() || "Europe/London";
+        const storeId = (lr as any)?.store_id || null;
+        const out: any = { ok: true, store_name: (lr as any)?.name || "", counts: { on: 0, break: 0, late: 0, next: 0 }, next_at: null, enabled: !!storeId };
+        if (!storeId) return json(out);
+        const nowMs = Date.now();
+        const parts = new Intl.DateTimeFormat("en-GB", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(nowMs));
+        const g = (t: string) => parts.find((x) => x.type === t)?.value || "00";
+        const today = g("year") + "-" + g("month") + "-" + g("day");
+        const nowMin = Number(g("hour")) * 60 + Number(g("minute"));
+        const toMin = (t: unknown) => { const m = String(t || "").match(/^(\d{1,2}):(\d{2})/); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
+        const first = (n: unknown) => String(n || "").trim().split(/\s+/)[0] || "Team member";
+        const hhmmOf = (iso: unknown) => iso ? new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(new Date(String(iso))) : null;
+        const [pq, sq] = await Promise.all([
+          admin.from("punch_records").select("employee_id, employee_name, punch_in, punch_out, break_start, break_end, scheduled_end")
+            .eq("store_id", storeId).gte("punch_in", new Date(nowMs - 20 * 3600000).toISOString()).limit(300),
+          admin.from("schedules").select("employee_id, employee_name, start_time, end_time, status, published")
+            .eq("store_id", storeId).eq("date", today).limit(300),
+        ]);
+        if (pq.error || sq.error) return json({ ...out, enabled: false });
+        const punches = pq.data || [];
+        const rota = (sq.data || []).filter((r: any) => r.published !== false && !/cancel|deleted/i.test(String(r.status || "")));
+        const people: any[] = [];
+        const seen = new Set<string>();
+        for (const p of punches) {
+          if (p.punch_out) continue;
+          const onBreak = !!p.break_start && !p.break_end;
+          const shiftRow = rota.find((r: any) => String(r.employee_id) === String(p.employee_id));
+          people.push({ name: first(p.employee_name), state: onBreak ? "break" : "on", since: hhmmOf(onBreak ? p.break_start : p.punch_in),
+            break_min: onBreak ? Math.round((nowMs - Date.parse(p.break_start)) / 60000) : null,
+            until: shiftRow?.end_time ? String(shiftRow.end_time).slice(0, 5) : (p.scheduled_end ? String(p.scheduled_end).slice(0, 5) : null) });
+          seen.add(String(p.employee_id));
+        }
+        const punchedToday = new Set(punches.filter((p: any) => p.punch_in && (nowMs - Date.parse(p.punch_in)) < 16 * 3600000).map((p: any) => String(p.employee_id)));
+        let nextMin: number | null = null;
+        for (const r of rota) {
+          if (seen.has(String(r.employee_id)) || punchedToday.has(String(r.employee_id))) continue;
+          const st = toMin(r.start_time), en0 = toMin(r.end_time);
+          if (st == null) continue;
+          const en = en0 == null ? null : (en0 <= st ? en0 + 1440 : en0);
+          if (en != null && nowMin >= en) continue;              // that shift is over
+          if (nowMin >= st + 5) people.push({ name: first(r.employee_name), state: "late", due: String(r.start_time).slice(0, 5), late_min: nowMin - st, until: r.end_time ? String(r.end_time).slice(0, 5) : null });
+          else if (st > nowMin - 5) {
+            people.push({ name: first(r.employee_name), state: "next", due: String(r.start_time).slice(0, 5), until: r.end_time ? String(r.end_time).slice(0, 5) : null });
+            if (st >= nowMin && (nextMin == null || st < nextMin)) nextMin = st;
+          }
+        }
+        for (const x of people) out.counts[x.state === "next" ? "next" : x.state]++;
+        out.counts.long_breaks = people.filter((x) => x.state === "break" && Number(x.break_min) >= 30).length;
+        out.next_at = nextMin == null ? null : String(Math.floor(nextMin / 60)).padStart(2, "0") + ":" + String(nextMin % 60).padStart(2, "0");
+        if (names) { out.people = people; out.viewer = viewer; out.date = today; }
+        return json(out);
       }
 
       // ---- KDS: start a ticket / tick a line (ORDERS LOCKDOWN 2026-10-24) ----
