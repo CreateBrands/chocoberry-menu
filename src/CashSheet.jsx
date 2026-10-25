@@ -276,7 +276,7 @@ export default function CashSheet({ loc, act, onClose }) {
   return (
     <>
       <Sheet icon={<Icon.cash size={24} />} title="Cash" sub="Pay-outs, pay-ins and drops come off what the drawer should hold" onClose={onClose} busy={busy} width={1060}
-        tabs={TABS} tab={tab} onTab={(k) => reset(k, null)} steps={steps} step={stepNow}
+        tabs={TABS} tab={tab} onTab={(k) => reset(k, null)} steps={steps} step={stepNow} bodyKey={tab + (safeMode || "") + step}
         aside={aside} asideTitle="Since the last close" footer={footer}>
         {pane}
         <Err>{err}</Err>

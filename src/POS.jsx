@@ -9,7 +9,7 @@ import ShiftSheet from "./ShiftSheet.jsx";
 import ManagerPin from "./ManagerPin.jsx";
 import CashSheet from "./CashSheet.jsx";
 import StockSheet from "./StockSheet.jsx";
-import { Sheet, PinPanel, Btn, Err as TillErr, Icon as TillIcon } from "./TillUI.jsx";
+import { Sheet, PinPanel, Btn, Btn as TBtn, Err as TillErr, Icon as TillIcon, U, FONT, NUM, Label as TLabel, Note as TNote, Stat, Verdict, Field, Keypad, DenomTile, DoneMark, Instruction } from "./TillUI.jsx";
 import PrintersModal from "./PrintersModal.jsx";
 import { StripTools } from "./TillHeader.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
@@ -1819,505 +1819,434 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         const expected = pv ? Number(pv.expected) : null;
         const variance = pv ? Number(pv.variance) : null;
         const VARIANCE_NOTE_FROM = varianceNoteFrom(); // beyond this a note is required
-        const C = { ink: "#22271f", muted: "#6b7a60", line: "#e6e8e1", soft: "#f6f7f3", brand: "#5E7A4D", good: "#166534", bad: "#b91c1c", over: "#1d4ed8", warn: "#9a3412" };
-        const F = "'Poppins',sans-serif";
+        // TILL UI 2026-10-25 — the close uses the same sheet, keypads, note and
+        // coin tiles and result banners as Shift and Cash. Logic unchanged.
+        const C = { ink: U.ink, muted: U.sub, line: U.line, soft: U.soft, brand: U.teal, good: U.good, bad: U.bad, over: U.over, warn: U.warn };
+        const F = FONT;
         const typeLabel = { dine_in: "Dine in", takeaway: "Takeaway", delivery: "Delivery", collection: "Collection" };
         const fmtT = (iso) => iso ? new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : "";
         const fmtD = (iso) => iso ? new Date(iso).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" }) : "";
         const delta = (a, b) => { if (b == null) return null; const d = Math.round((a - b) * 100) / 100; const pct = b ? Math.round((d / b) * 100) : null; return { d, pct }; };
-        const Delta = ({ a, b, label }) => { const x = delta(a, b); if (!x) return null; const up = x.d >= 0; return <span style={{ fontSize: 11.5, fontWeight: 700, color: up ? C.good : C.bad }}>{up ? "▲" : "▼"} {gbp(Math.abs(x.d))}{x.pct != null && " (" + Math.abs(x.pct) + "%)"} <span style={{ color: C.muted, fontWeight: 500 }}>{label}</span></span>; };
         const Section = ({ title, right, children, style }) => (
-          <div style={{ marginTop: 18, ...style }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
-              <span style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".09em", color: C.muted }}>{title}</span>{right}
+          <div style={{ marginTop: 20, ...style }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 10 }}>
+              <TLabel style={{ marginBottom: 0 }}>{title}</TLabel>{right}
             </div>
             {children}
           </div>
         );
         const Line = ({ l, v, sub, strong, color }) => (
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "6px 0", borderBottom: "1px solid " + C.line, fontSize: strong ? 16 : 14.5, fontWeight: strong ? 800 : 500, color: color || C.ink }}>
-            <span style={{ color: color || (strong ? C.ink : C.muted) }}>{l}{sub && <span style={{ fontSize: 12, color: "#9aa394", marginLeft: 6 }}>{sub}</span>}</span><span style={{ fontVariantNumeric: "tabular-nums", fontFamily: F }}>{v}</span>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, padding: "9px 2px", borderBottom: "1px solid " + C.line, fontSize: strong ? 16.5 : 14.5, fontWeight: strong ? 800 : 500, color: color || C.ink }}>
+            <span style={{ color: color || (strong ? C.ink : C.muted) }}>{l}{sub && <span style={{ fontSize: 12.5, color: U.faint, marginLeft: 6 }}>{sub}</span>}</span><span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 700 }}>{v}</span>
           </div>
         );
         const Bar = ({ label, value, max, right }) => (
-          <div style={{ display: "grid", gridTemplateColumns: "92px 1fr auto", gap: 10, alignItems: "center", padding: "4px 0", fontSize: 13.5 }}>
-            <span style={{ color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
-            <div style={{ height: 9, background: C.soft, borderRadius: 5, overflow: "hidden" }}><div style={{ width: (max ? Math.max(3, (value / max) * 100) : 0) + "%", height: "100%", background: C.brand, borderRadius: 5, transition: "width .4s" }} /></div>
-            <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", fontFamily: F }}>{right}</span>
+          <div style={{ display: "grid", gridTemplateColumns: "96px 1fr auto", gap: 10, alignItems: "center", padding: "5px 0", fontSize: 13.5 }}>
+            <span style={{ color: C.muted, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", fontWeight: 600 }}>{label}</span>
+            <div style={{ height: 10, background: "#eef0f3", borderRadius: 5, overflow: "hidden" }}><div style={{ width: (max ? Math.max(3, (value / max) * 100) : 0) + "%", height: "100%", background: "linear-gradient(90deg," + U.tealL + "," + U.teal + ")", borderRadius: 5, transition: "width .4s" }} /></div>
+            <span style={{ fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{right}</span>
           </div>
         );
-        const input = (extra) => ({ display: "block", width: "100%", boxSizing: "border-box", padding: "12px 13px", fontSize: 17, fontWeight: 700, border: "1.5px solid " + C.line, borderRadius: 12, outline: "none", fontVariantNumeric: "tabular-nums", fontFamily: F, background: "#fff", ...extra });
+        const Alert = ({ tone, children }) => (
+          <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "flex-start", fontSize: 14, color: tone === "bad" ? U.bad : U.warn, background: tone === "bad" ? U.badBg : U.warnBg, boxShadow: "inset 0 0 0 1.5px " + (tone === "bad" ? "#fecaca" : U.amber), borderRadius: 14, padding: "12px 14px", lineHeight: 1.5 }}>
+            <span style={{ width: 24, height: 24, borderRadius: 12, background: tone === "bad" ? U.bad : U.warn, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 900, fontSize: 14, flexShrink: 0 }}>!</span>
+            <div>{children}</div>
+          </div>
+        );
+        const Seg = ({ options, value, onPick }) => (
+          <div style={{ display: "flex", gap: 4, background: U.soft, borderRadius: 12, padding: 4 }}>
+            {options.map(([m, l]) => <div key={m} className="tu-btn" onClick={() => onPick(m)} style={{ padding: "8px 13px", borderRadius: 9, fontSize: 13.5, fontWeight: 800, cursor: "pointer", userSelect: "none", whiteSpace: "nowrap", background: value === m ? "#fff" : "transparent", color: value === m ? U.ink : U.sub, boxShadow: value === m ? "0 1px 3px rgba(18,21,28,.12)" : "none" }}>{l}</div>)}
+          </div>
+        );
+        const input = (extra) => ({ display: "block", width: "100%", boxSizing: "border-box", padding: "13px 14px", fontSize: 15, fontWeight: 500, border: "2px solid " + C.line, borderRadius: 14, outline: "none", fontFamily: "inherit", background: "#fff", ...extra });
         const stages = ["Review", "Cash", "Sign off"];
         const stage = closeTill.step === "done" ? 3 : closeTill.stage;
-        const canLeaveCash = true;
         const varianceNeedsNote = !!(pv && pv.note_needed) && !closeTill.note.trim();
         const closer = closeTill.staff && closeTill.staff.name ? closeTill.staff.name : null;
         const signoffOk = closeTill.pin.length >= 4 && !varianceNeedsNote;
-        const Btn = ({ children, onClick, primary, disabled, grow }) => (
-          <div onClick={() => !disabled && onClick && onClick()} style={{ flex: grow || 1, textAlign: "center", padding: "15px 0", borderRadius: 13, fontWeight: 800, fontSize: 15.5, cursor: disabled ? "default" : "pointer", background: primary ? (disabled ? "#b9bfb3" : C.ink) : C.soft, color: primary ? "#fff" : C.ink, transition: "background .15s", userSelect: "none" }}>{children}</div>
+        const Btn = ({ primary, grow, ...p }) => <TBtn kind={primary ? "primary" : "secondary"} grow={grow || 1} {...p} />;
+        const shut = () => { if (closeTill.busy) return; setNoteKb(false); setPadFor(null); setCloseTill(null); };
+        const when = sm && sm.first_order ? (() => {
+          const a = new Date(sm.first_order), b = new Date(sm.last_order || sm.first_order);
+          const sameDay = a.toDateString() === b.toDateString();
+          const short = (d) => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+          return sameDay ? fmtD(sm.first_order) + " · " + fmtT(sm.first_order) + " – " + fmtT(sm.last_order)
+            : short(a) + " " + fmtT(sm.first_order) + " – " + short(b) + " " + fmtT(sm.last_order);
+        })() + (sm.mode === "trading_day" ? " · trading day to 04:00" : "") : "Closing report";
+        const vs = (x) => (x.d >= 0 ? "▲ " : "▼ ") + gbp(Math.abs(x.d));
+        const mmss = (s) => Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+
+        // ---------------- body ----------------
+        let body = null;
+        if (closeTill.busy && !sm) body = (
+          <div style={{ padding: "90px 0", textAlign: "center", color: C.muted, fontWeight: 600 }}>
+            <span className="tu-spin" style={{ width: 28, height: 28, color: U.teal, display: "inline-block", marginBottom: 12 }} /><div>Loading the day's figures…</div>
+          </div>
         );
-        return (
-          <div onClick={() => { if (closeTill.busy) return; setNoteKb(false); setPadFor(null); setCloseTill(null); }} style={{ position: "fixed", inset: 0, background: "rgba(18,21,28,.58)", zIndex: 90, display: "flex", alignItems: "center", justifyContent: "center", padding: 18 }}>
-            <div onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 26, width: 760, maxWidth: "100%", height: "min(92vh, 820px)", display: "flex", flexDirection: "column", boxShadow: "0 30px 80px rgba(18,21,28,.35)", overflow: "hidden", fontFamily: "inherit", position: "relative" }}>
-              {/* header */}
-              <div style={{ padding: "20px 26px 0" }}>
-                <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 25, fontWeight: 800, letterSpacing: "-.02em", fontFamily: F }}>{closeTill.step === "done" ? "Till closed" : "Close till"}</div>
-                    <div style={{ fontSize: 13.5, color: C.muted, marginTop: 2 }}>
-                      {sm && sm.first_order ? (() => {
-                        const a = new Date(sm.first_order), b = new Date(sm.last_order || sm.first_order);
-                        const sameDay = a.toDateString() === b.toDateString();
-                        const short = (d) => d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
-                        return sameDay ? fmtD(sm.first_order) + " · " + fmtT(sm.first_order) + " – " + fmtT(sm.last_order)
-                          : short(a) + " " + fmtT(sm.first_order) + " – " + short(b) + " " + fmtT(sm.last_order);
-                      })() + (sm.mode === "trading_day" ? " · trading day to 04:00" : "") : "Closing report"}
-                    </div>
-                  </div>
-                  {closeTill.step === "summary" && sm && sm.later_count > 0 && stage === 0 && (
-                    <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 12, padding: 4 }}>
-                      {[["trading_day", "To 4:00"], ["all", "Up to now"]].map(([m, label]) => {
-                        const on = closeTill.mode === m;
-                        return <div key={m} onClick={() => !closeTill.busy && m !== closeTill.mode && switchCloseTillMode(m)} style={{ padding: "8px 14px", borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: "pointer", background: on ? "#fff" : "transparent", boxShadow: on ? "0 1px 3px rgba(0,0,0,.12)" : "none" }}>{label}</div>;
-                      })}
-                    </div>
-                  )}
-                </div>
-                {/* stepper */}
-                <div style={{ display: "flex", gap: 6, marginTop: 16, marginBottom: 2 }}>
-                  {stages.map((n, i) => {
-                    const done = stage > i, on = stage === i;
+        else if (closeTill.err && !sm) body = <div style={{ padding: "50px 0" }}><TillErr>{closeTill.err}</TillErr></div>;
+
+        // ---- STAGE 0: REVIEW ----
+        else if (sm && closeTill.step === "summary" && stage === 0) body = (
+          <>
+            {sm.mode === "trading_day" && sm.later_count > 0 && (
+              <div style={{ marginBottom: 12, display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, color: C.muted, background: U.soft, borderRadius: 12, padding: "9px 13px" }}><TillIcon.clock size={16} />{sm.later_count} order{sm.later_count === 1 ? "" : "s"} since 4:00 stay open for today's trade.</div>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "1.35fr 1fr 1fr 1fr", gap: 10 }}>
+              {pv
+                ? <Stat big tone="dark" icon={<TillIcon.cash size={15} />} label="Total taken" money={sm.total}
+                    note={[sm.previous && vs(delta(sm.total, sm.previous.total)) + " vs last close", sm.last_week && (() => { const x = delta(sm.total, sm.last_week.total); return vs(x) + (x.pct != null ? " (" + Math.abs(x.pct) + "%)" : "") + " vs last " + new Date(sm.last_week.closed_at).toLocaleDateString("en-GB", { weekday: "short" }); })()].filter(Boolean).join(" · ") || null} />
+                : <Stat big tone="dark" icon={<TillIcon.lock size={15} />} label="Total taken" value={<span style={{ fontSize: 19, letterSpacing: 0 }}>After the cash count</span>} note="Blind close — count first" />}
+              <Stat label="Orders" value={String(sm.order_count)} note={sm.cancelled_count ? sm.cancelled_count + " cancelled" : (sm.last_week ? "last wk " + sm.last_week.orders : null)} />
+              <Stat label="Avg order" money={sm.avg_ticket} note={sm.items_sold ? sm.items_sold + " items sold" : null} />
+              <Stat label="Busiest hour" value={sm.peak_hour ? sm.peak_hour.hour + ":00" : "—"} note={sm.peak_hour ? gbp(sm.peak_hour.amount) + " · " + sm.peak_hour.count + " orders" : null} />
+            </div>
+            {sm.kitchen && sm.kitchen.tickets > 0 && (
+              <div style={{ marginTop: 10, display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap", background: U.soft, borderRadius: 14, padding: "11px 15px", fontSize: 14 }}>
+                <TLabel style={{ marginBottom: 0 }}>Kitchen</TLabel>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ width: 70, height: 8, borderRadius: 4, background: "#e5e7eb", overflow: "hidden" }}><span style={{ display: "block", height: "100%", width: sm.kitchen.on_time_pct + "%", background: sm.kitchen.on_time_pct >= 80 ? U.good : sm.kitchen.on_time_pct >= 60 ? "#f59e0b" : U.bad }} /></span>
+                  <b>{sm.kitchen.on_time_pct}%</b> on time at {sm.kitchen.target_min} min
+                </span>
+                <span>typical <b style={NUM}>{mmss(sm.kitchen.median_secs)}</b></span>
+                <span>90th pct <b style={NUM}>{mmss(sm.kitchen.p90_secs)}</b></span>
+                <span style={{ color: C.muted, marginLeft: "auto" }}>{sm.kitchen.tickets} tickets</span>
+              </div>
+            )}
+            {(sm.shifts || []).some((x) => x.status === "counting") && (
+              <Alert tone="bad"><b>A shift handover is being counted.</b> Finish it from the Shift button (or tap "Not yet") before closing the till.</Alert>
+            )}
+            {sm.unpaid_count > 0 && (
+              <Alert><b>{sm.unpaid_count} order{sm.unpaid_count === 1 ? "" : "s"} still unpaid — {gbp(sm.unpaid_total)}.</b> {(sm.unpaid || []).slice(0, 6).map((u) => "#" + u.order_no + " (" + gbp(u.due) + ")").join(", ")}{sm.unpaid_count > 6 ? "…" : ""}. Take payment or cancel them before closing, otherwise they'll be archived as unpaid.</Alert>
+            )}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
+              <div>
+                <Section title="Tenders">
+                  <Line l="Cash" sub={sm.tenders?.cash ? sm.tenders.cash + " payments" : ""} v={pv ? gbp(sm.cash) : <span style={{ color: U.faint, fontWeight: 600 }}>after the count</span>} />
+                  <Line l="Card" sub={sm.tenders?.card ? sm.tenders.card + " payments" : ""} v={gbp(sm.card)} />
+                  {sm.other > 0 && <Line l="Other" sub={sm.tenders?.other ? sm.tenders.other + " payments" : ""} v={gbp(sm.other)} />}
+                  {sm.discount_total > 0 && <Line l="Discounts given" v={"−" + gbp(sm.discount_total)} color={C.muted} />}
+                  {sm.refund_total > 0 && <Line l={"Refunds (" + (sm.refund_count || 0) + ")"} v={"−" + gbp(sm.refund_total)} color={U.bad} />}
+                  {sm.cancelled_total > 0 && <Line l={"Cancelled (" + sm.cancelled_count + ")"} v={gbp(sm.cancelled_total)} color={C.muted} />}
+                  <Line l="Total taken" v={pv ? gbp(sm.total) : <span style={{ color: U.faint, fontWeight: 600 }}>after the count</span>} strong />
+                </Section>
+                <Section title="Orders by type">
+                  {(() => { const e = Object.entries(sm.by_type || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; return e.map(([k, v]) => <Bar key={k} label={typeLabel[k] || k} value={v.amount} max={max} right={v.count + " · " + gbp(v.amount)} />); })()}
+                </Section>
+                {Object.keys(sm.by_source || {}).length > 1 && (
+                  <Section title="By source">
+                    {(() => { const e = Object.entries(sm.by_source || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; return e.map(([k, v]) => <Bar key={k} label={k} value={v.amount} max={max} right={v.count + " · " + gbp(v.amount)} />); })()}
+                  </Section>
+                )}
+              </div>
+              <div>
+                <Section title="Sales by hour">
+                  {(() => {
+                    const hrs = Object.entries(sm.by_hour || {}).sort((a, b) => a[0].localeCompare(b[0]));
+                    const max = Math.max(1, ...hrs.map(([, v]) => v.amount));
                     return (
-                      <div key={n} onClick={() => { if (closeTill.step === "summary" && i < stage) setCloseTill((c) => ({ ...c, stage: i, err: "" })); }} style={{ flex: 1, cursor: closeTill.step === "summary" && i < stage ? "pointer" : "default" }}>
-                        <div style={{ height: 4, borderRadius: 2, background: done || on ? C.brand : C.line, transition: "background .2s" }} />
-                        <div style={{ fontSize: 11.5, fontWeight: 700, marginTop: 6, color: on ? C.ink : done ? C.brand : "#aab1a4", letterSpacing: ".04em" }}>{i + 1}. {n}{done ? " ✓" : ""}</div>
+                      <div style={{ display: "flex", alignItems: "flex-end", gap: 4, height: 112, padding: "0 2px", background: "linear-gradient(180deg,transparent 0 24px," + U.soft + " 24px)", borderRadius: 12, paddingTop: 4 }}>
+                        {hrs.map(([h, v]) => {
+                          const peak = sm.peak_hour && sm.peak_hour.hour === h;
+                          return (
+                            <div key={h} title={h + ":00 · " + v.count + " orders · " + gbp(v.amount)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0 }}>
+                              {peak && <span style={{ fontSize: 10, fontWeight: 800, color: U.teal, ...NUM }}>{gbp(v.amount).replace(/\.\d+$/, "")}</span>}
+                              <div style={{ width: "100%", height: Math.max(3, (v.amount / max) * 72), background: peak ? "linear-gradient(180deg," + U.tealL + "," + U.teal + ")" : "#c7ece6", borderRadius: "4px 4px 2px 2px", transition: "height .4s" }} />
+                              <span style={{ fontSize: 10, color: peak ? U.ink : C.muted, fontWeight: peak ? 800 : 500, ...NUM }}>{h}</span>
+                            </div>
+                          );
+                        })}
                       </div>
                     );
-                  })}
-                </div>
-              </div>
-
-              {/* body */}
-              <div style={{ flex: 1, overflowY: "auto", padding: "6px 26px 22px" }}>
-                {closeTill.busy && !sm && <div style={{ padding: "60px 0", textAlign: "center", color: C.muted }}>Loading the day's figures…</div>}
-                {closeTill.err && !sm && <div style={{ padding: "40px 0", textAlign: "center", color: C.bad, fontWeight: 700 }}>{closeTill.err}</div>}
-
-                {/* ---- STAGE 0: REVIEW ---- */}
-                {sm && closeTill.step === "summary" && stage === 0 && (
-                  <>
-                    {sm.mode === "trading_day" && sm.later_count > 0 && (
-                      <div style={{ marginTop: 12, fontSize: 13, color: C.muted, background: C.soft, borderRadius: 10, padding: "8px 12px" }}>{sm.later_count} order{sm.later_count === 1 ? "" : "s"} since 4:00 stay open for today's trade.</div>
-                    )}
-                    <div style={{ display: "grid", gridTemplateColumns: "1.3fr 1fr 1fr 1fr", gap: 10, marginTop: 14 }}>
-                      <div style={{ background: C.ink, color: "#fff", borderRadius: 16, padding: "14px 16px" }}>
-                        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", opacity: .65 }}>TOTAL TAKEN</div>
-                        <div style={{ fontSize: pv ? 30 : 17, fontWeight: 800, marginTop: 2, fontFamily: F, letterSpacing: "-.02em", fontVariantNumeric: "tabular-nums" }}>{pv ? gbp(sm.total) : "After the cash count"}</div>
-                        {pv && <div style={{ display: "flex", flexDirection: "column", gap: 2, marginTop: 6 }}>
-                          {sm.previous && <span style={{ fontSize: 11.5, opacity: .85 }}>{(() => { const x = delta(sm.total, sm.previous.total); return (x.d >= 0 ? "▲ " : "▼ ") + gbp(Math.abs(x.d)) + " vs last close"; })()}</span>}
-                          {sm.last_week && <span style={{ fontSize: 11.5, opacity: .85 }}>{(() => { const x = delta(sm.total, sm.last_week.total); return (x.d >= 0 ? "▲ " : "▼ ") + gbp(Math.abs(x.d)) + (x.pct != null ? " (" + Math.abs(x.pct) + "%)" : "") + " vs last " + new Date(sm.last_week.closed_at).toLocaleDateString("en-GB", { weekday: "short" }); })()}</span>}
-                        </div>}
-                      </div>
-                      {[
-                        ["Orders", String(sm.order_count), sm.cancelled_count ? sm.cancelled_count + " cancelled" : (sm.last_week ? "last wk " + sm.last_week.orders : null)],
-                        ["Avg order", gbp(sm.avg_ticket), sm.items_sold ? sm.items_sold + " items sold" : null],
-                        ["Busiest hour", sm.peak_hour ? sm.peak_hour.hour + ":00" : "—", sm.peak_hour ? gbp(sm.peak_hour.amount) + " · " + sm.peak_hour.count + " orders" : null],
-                      ].map(([l, v, sub]) => (
-                        <div key={l} style={{ background: C.soft, borderRadius: 16, padding: "14px 16px" }}>
-                          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: ".08em", color: C.muted }}>{l.toUpperCase()}</div>
-                          <div style={{ fontSize: 24, fontWeight: 800, marginTop: 2, fontFamily: F, fontVariantNumeric: "tabular-nums", letterSpacing: "-.02em" }}>{v}</div>
-                          {sub && <div style={{ fontSize: 11.5, marginTop: 4, color: C.muted }}>{sub}</div>}
-                        </div>
-                      ))}
+                  })()}
+                </Section>
+                <Section title="Top sellers">
+                  {(sm.top_items || []).slice(0, 7).map((it, i) => (
+                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "7px 0", borderBottom: "1px solid " + C.line, fontSize: 14 }}>
+                      <span style={{ width: 22, height: 22, borderRadius: 7, background: i === 0 ? U.ink : U.soft, color: i === 0 ? "#fff" : C.muted, fontSize: 11.5, fontWeight: 800, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{i + 1}</span>
+                      <span style={{ flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b style={{ marginRight: 7, ...NUM }}>{it.qty}×</b>{it.name}</span>
+                      <span style={{ color: C.muted, fontWeight: 700, ...NUM }}>{gbp(it.sales)}</span>
                     </div>
-                    {closeTill.step === "summary" && sm.kitchen && sm.kitchen.tickets > 0 && (
-                      <div style={{ marginTop: 12, display: "flex", gap: 14, alignItems: "center", background: C.soft, borderRadius: 13, padding: "10px 14px", fontSize: 13.5 }}>
-                        <span style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", color: C.muted }}>KITCHEN</span>
-                        <span><b style={{ fontFamily: F }}>{sm.kitchen.on_time_pct}%</b> on-time at {sm.kitchen.target_min} min</span>
-                        <span>typical <b style={{ fontFamily: F }}>{Math.floor(sm.kitchen.median_secs / 60)}:{String(sm.kitchen.median_secs % 60).padStart(2, "0")}</b></span>
-                        <span>90th pct <b style={{ fontFamily: F }}>{Math.floor(sm.kitchen.p90_secs / 60)}:{String(sm.kitchen.p90_secs % 60).padStart(2, "0")}</b></span>
-                        <span style={{ color: C.muted }}>{sm.kitchen.tickets} tickets</span>
-                      </div>
-                    )}
-                    {(sm.shifts || []).some((x) => x.status === "counting") && (
-                      <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13.5, color: C.bad, background: "#fdeeee", border: "1px solid #f3c9c9", borderRadius: 13, padding: "11px 14px", lineHeight: 1.5 }}>
-                        <span style={{ fontSize: 18 }}>⚠</span>
-                        <div><b>A shift handover is being counted.</b> Finish it from the Shift button (or tap "Not yet") before closing the till.</div>
-                      </div>
-                    )}
-                    {sm.unpaid_count > 0 && (
-                      <div style={{ marginTop: 14, display: "flex", gap: 12, alignItems: "flex-start", fontSize: 13.5, color: C.warn, background: "#fff4ec", border: "1px solid #f3d3c0", borderRadius: 13, padding: "11px 14px", lineHeight: 1.5 }}>
-                        <span style={{ fontSize: 18 }}>⚠</span>
-                        <div><b>{sm.unpaid_count} order{sm.unpaid_count === 1 ? "" : "s"} still unpaid — {gbp(sm.unpaid_total)}.</b> {(sm.unpaid || []).slice(0, 6).map((u) => "#" + u.order_no + " (" + gbp(u.due) + ")").join(", ")}{sm.unpaid_count > 6 ? "…" : ""}. Take payment or cancel them before closing, otherwise they'll be archived as unpaid.</div>
-                      </div>
-                    )}
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-                      <div>
-                        <Section title="TENDERS">
-                          <Line l="Cash" sub={sm.tenders?.cash ? sm.tenders.cash + " payments" : ""} v={pv ? gbp(sm.cash) : "after the count"} />
-                          <Line l="Card" sub={sm.tenders?.card ? sm.tenders.card + " payments" : ""} v={gbp(sm.card)} />
-                          {sm.other > 0 && <Line l="Other" sub={sm.tenders?.other ? sm.tenders.other + " payments" : ""} v={gbp(sm.other)} />}
-                          {sm.discount_total > 0 && <Line l="Discounts given" v={"−" + gbp(sm.discount_total)} color={C.muted} />}
-                          {sm.refund_total > 0 && <Line l={"Refunds (" + (sm.refund_count || 0) + ")"} v={"−" + gbp(sm.refund_total)} color="#b4462f" />}
-                          {sm.cancelled_total > 0 && <Line l={"Cancelled (" + sm.cancelled_count + ")"} v={gbp(sm.cancelled_total)} color={C.muted} />}
-                          <Line l="Total taken" v={pv ? gbp(sm.total) : "after the count"} strong />
-                        </Section>
-                        <Section title="ORDERS BY TYPE">
-                          {(() => { const e = Object.entries(sm.by_type || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; return e.map(([k, v]) => <Bar key={k} label={typeLabel[k] || k} value={v.amount} max={max} right={v.count + " · " + gbp(v.amount)} />); })()}
-                        </Section>
-                        {Object.keys(sm.by_source || {}).length > 1 && (
-                          <Section title="BY SOURCE">
-                            {(() => { const e = Object.entries(sm.by_source || {}).sort((a, b) => b[1].amount - a[1].amount); const max = e[0]?.[1].amount || 0; return e.map(([k, v]) => <Bar key={k} label={k} value={v.amount} max={max} right={v.count + " · " + gbp(v.amount)} />); })()}
-                          </Section>
-                        )}
-                      </div>
-                      <div>
-                        <Section title="SALES BY HOUR">
-                          {(() => {
-                            const hrs = Object.entries(sm.by_hour || {}).sort((a, b) => a[0].localeCompare(b[0]));
-                            const max = Math.max(1, ...hrs.map(([, v]) => v.amount));
-                            return (
-                              <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 96, padding: "0 2px" }}>
-                                {hrs.map(([h, v]) => {
-                                  const peak = sm.peak_hour && sm.peak_hour.hour === h;
-                                  return (
-                                    <div key={h} title={h + ":00 · " + v.count + " orders · " + gbp(v.amount)} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3, minWidth: 0 }}>
-                                      {peak && <span style={{ fontSize: 9.5, fontWeight: 800, color: C.ink, fontFamily: F }}>{gbp(v.amount).replace(/\.\d+$/, "")}</span>}
-                                      <div style={{ width: "100%", height: Math.max(3, (v.amount / max) * 64), background: peak ? C.ink : "#b7cba9", borderRadius: 3, transition: "height .4s" }} />
-                                      <span style={{ fontSize: 9.5, color: C.muted, fontVariantNumeric: "tabular-nums" }}>{h}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            );
-                          })()}
-                        </Section>
-                        <Section title="TOP SELLERS">
-                          {(sm.top_items || []).slice(0, 7).map((it, i) => (
-                            <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "5px 0", borderBottom: "1px solid " + C.line, fontSize: 13.5 }}>
-                              <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}><b style={{ fontVariantNumeric: "tabular-nums", marginRight: 8, fontFamily: F }}>{it.qty}×</b>{it.name}</span>
-                              <span style={{ color: C.muted, fontVariantNumeric: "tabular-nums", marginLeft: 10, fontFamily: F }}>{gbp(it.sales)}</span>
-                            </div>
-                          ))}
-                          {!(sm.top_items || []).length && <div style={{ fontSize: 13, color: C.muted }}>No items</div>}
-                        </Section>
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {/* ---- STAGE 1: CASH ----
-                    TILLFIX 2026-10-25: the number pad used to slide up OVER the
-                    notes-and-coins boxes, so on a till screen only the first row
-                    or two could ever be tapped. The pad now sits beside the
-                    boxes: tap a note or coin, type, and "Next" moves on. */}
-                {sm && closeTill.step === "summary" && stage === 1 && (() => {
-                  const isDenoms = closeTill.countMode === "denoms";
-                  const target = padFor || (isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" });
-                  const curVal = target.kind === "denom" ? String(closeTill.denoms?.[target.d] ?? "")
-                    : target.kind === "float" ? String(closeTill.float || "") : String(closeTill.counted || "");
-                  const press = (k) => {
-                    if (k === "next") {
-                      if (target.kind === "denom") {
-                        const i = DENOMS.indexOf(target.d);
-                        setPadFor(i >= 0 && i < DENOMS.length - 1 ? { kind: "denom", d: DENOMS[i + 1] } : { kind: "denom", d: DENOMS[0] });
-                      } else setPadFor(isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" });
-                      return;
-                    }
-                    let next;
-                    if (k === "⌫") next = curVal.slice(0, -1);
-                    else if (k === "C") next = "";
-                    else if (k === ".") next = curVal.includes(".") ? curVal : (curVal || "0") + ".";
-                    else if (curVal.includes(".") && curVal.split(".")[1].length >= 2) next = curVal;
-                    else next = (curVal === "0" ? k : curVal + k).slice(0, target.kind === "denom" ? 4 : 9);
-                    setPadFor(target);
-                    setCloseTill((c) => target.kind === "denom"
-                      ? { ...c, denoms: { ...(c.denoms || {}), [target.d]: next } }
-                      : target.kind === "float" ? { ...c, float: next } : { ...c, counted: next });
-                  };
-                  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", target.kind === "denom" ? "C" : ".", "0", "⌫"];
-                  const showResult = pv && !padFor;
-                  return (
-                    <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.3fr) minmax(0,1fr)", gap: 20, marginTop: 12 }}>
-                      {/* left: what is being counted */}
-                      <div>
-                        <Section title="COUNT" style={{ marginTop: 4 }} right={
-                          <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 9, padding: 3 }}>
-                            {[["denoms", "Notes & coins"], ["total", "Enter total"]].map(([m, l]) => <div key={m} onClick={() => { setCloseTill((c) => ({ ...c, countMode: m })); setPadFor(m === "denoms" ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" }); }} style={{ padding: "5px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", background: closeTill.countMode === m ? "#fff" : "transparent", boxShadow: closeTill.countMode === m ? "0 1px 2px rgba(0,0,0,.12)" : "none" }}>{l}</div>)}
-                          </div>}>
-                          {isDenoms ? (
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0,1fr))", gap: 7 }}>
-                              {DENOMS.map((d) => {
-                                const n = Number(closeTill.denoms?.[d]) || 0;
-                                const on = target.kind === "denom" && target.d === d;
-                                return (
-                                  <div key={d} onClick={() => setPadFor({ kind: "denom", d })} style={{ display: "grid", gridTemplateColumns: "40px 1fr auto", alignItems: "center", gap: 6, background: on ? "#f1f5ee" : n ? "#fff" : C.soft, border: "2px solid " + (on ? C.brand : n ? C.line : "transparent"), borderRadius: 11, padding: "7px 10px", cursor: "pointer", userSelect: "none" }}>
-                                    <span style={{ fontSize: 13, fontWeight: 800, color: C.muted, fontFamily: F }}>{dLabel(d)}</span>
-                                    <span style={{ fontSize: 18, fontWeight: 800, fontFamily: F, textAlign: "center", fontVariantNumeric: "tabular-nums", color: closeTill.denoms?.[d] ? C.ink : "#b5bbb0" }}>{closeTill.denoms?.[d] || "0"}</span>
-                                    <span style={{ fontSize: 12, color: n ? C.ink : "#b5bbb0", fontVariantNumeric: "tabular-nums", fontFamily: F, minWidth: 50, textAlign: "right" }}>{gbp(n * d)}</span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <div onClick={() => setPadFor({ kind: "counted" })} style={{ border: "2px solid " + (target.kind === "counted" ? C.brand : C.line), borderRadius: 12, padding: "14px 16px", cursor: "pointer" }}>
-                              <div style={{ fontSize: 12.5, color: C.muted }}>Cash counted — everything in the drawer, float included</div>
-                              <div style={{ fontSize: 30, fontWeight: 800, fontFamily: F, marginTop: 4, color: closeTill.counted ? C.ink : "#b5bbb0" }}>{closeTill.counted ? gbp(Number(closeTill.counted)) : gbp(0)}</div>
-                            </div>
-                          )}
-                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", padding: "10px 4px 0" }}>
-                            <span style={{ fontSize: 12.5, color: C.muted }}>Counted total</span><b style={{ fontSize: 22, fontFamily: F, fontVariantNumeric: "tabular-nums", letterSpacing: "-.02em" }}>{countedVal == null ? "—" : gbp(countedVal)}</b>
-                          </div>
-                        </Section>
-                        {/* CASH CONTROLS 2026-10-24: the float is the one the day started on.
-                            Changing it needs a note and a manager PIN at sign-off. */}
-                        <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, background: C.soft, borderRadius: 12, padding: "9px 12px", border: "2px solid " + (target.kind === "float" ? C.brand : "transparent") }}>
-                          <span style={{ fontSize: 13, color: closeTill.floatEdit ? C.warn : C.muted }}>{closeTill.floatEdit ? "Actual float (note + manager PIN)" : "Float at the start of the day"}</span>
-                          <span style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                            <b onClick={() => closeTill.floatEdit && setPadFor({ kind: "float" })} style={{ fontFamily: F, fontSize: 17, cursor: closeTill.floatEdit ? "pointer" : "default" }}>{closeTill.floatEdit ? (closeTill.float ? gbp(Number(closeTill.float)) : "—") : (knownFloatStr === "" ? "—" : gbp(Number(knownFloatStr)))}</b>
-                            {!closeTill.floatEdit
-                              ? <span onClick={() => { setCloseTill((c) => ({ ...c, floatEdit: true, float: "" })); setPadFor({ kind: "float" }); }} style={{ fontSize: 12, color: C.brand, fontWeight: 700, cursor: "pointer" }}>Different?</span>
-                              : <span onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, floatEdit: false, float: c.floatKnown || "" })); }} style={{ fontSize: 12, color: C.muted, fontWeight: 700, cursor: "pointer" }}>Undo</span>}
-                          </span>
-                        </div>
-                      </div>
-                      {/* right: the keypad, or the result once the count is checked */}
-                      <div>
-                        {showResult ? (
-                          <Section title="RESULT" style={{ marginTop: 4 }} right={<span onClick={() => setPadFor(isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" })} style={{ fontSize: 12.5, fontWeight: 700, color: C.brand, cursor: "pointer" }}>Change count</span>}>
-                            <div style={{ background: C.soft, borderRadius: 14, padding: "8px 12px" }}>
-                              <Line l="Cash taken" v={gbp(pv.cash)} />
-                              <Line l="+ Float" v={gbp(pv.float_used)} />
-                              {Number(pv.cash_dropped) > 0 && <Line l="− To safe" sub={(sm.shifts || []).length + " shifts"} v={gbp(pv.cash_dropped)} />}
-                              {Number(pv.dropped_mid_shift) > 0 && <Line l="− Mid-shift drops" v={gbp(pv.dropped_mid_shift)} />}
-                              {Number(pv.paid_out) > 0 && <Line l="− Paid out" v={gbp(pv.paid_out)} />}
-                              {Number(pv.paid_in) > 0 && <Line l="+ Paid in" v={gbp(pv.paid_in)} />}
-                              <Line l="Expected" v={gbp(expected)} strong />
-                              <Line l="Counted" v={gbp(countedVal)} />
-                            </div>
-                            <div style={{ marginTop: 10, borderRadius: 16, padding: "12px 14px", textAlign: "center", background: variance === 0 ? "#eef7ea" : variance > 0 ? "#eaf0fb" : "#fdeeee" }}>
-                              <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".08em", color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad }}>{variance === 0 ? "DRAWER BALANCED" : variance > 0 ? "OVER" : "SHORT"}</div>
-                              <div style={{ fontSize: 30, fontWeight: 800, fontFamily: F, letterSpacing: "-.03em", color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad, fontVariantNumeric: "tabular-nums" }}>{(variance < 0 ? "−" : variance > 0 ? "+" : "") + gbp(Math.abs(variance))}</div>
-                              {pv.manager_needed && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>{pv.float_changed ? "The float changed" : "Out by " + gbp(pv.limit) + " or more"} — a note and a manager PIN at sign-off.</div>}
-                            </div>
-                          </Section>
-                        ) : (
-                          <Section title={target.kind === "denom" ? "HOW MANY " + dLabel(target.d) + "?" : target.kind === "float" ? "ACTUAL FLOAT" : "CASH COUNTED"} style={{ marginTop: 4 }}>
-                            <div style={{ fontSize: 26, fontWeight: 800, fontFamily: F, textAlign: "right", padding: "2px 6px 8px", borderBottom: "2px solid " + C.line, marginBottom: 10, fontVariantNumeric: "tabular-nums" }}>
-                              {target.kind === "denom" ? (curVal || "0") + " × " + dLabel(target.d) : curVal ? gbp(Number(curVal)) : gbp(0)}
-                            </div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 7 }}>
-                              {keys.map((k) => (
-                                <div key={k} onClick={() => press(k)} style={{ padding: "13px 0", textAlign: "center", borderRadius: 11, background: k === "C" || k === "⌫" ? "#fff" : C.soft, border: "1px solid " + C.line, fontWeight: 800, fontSize: 20, fontFamily: F, cursor: "pointer", userSelect: "none", color: k === "C" ? C.bad : C.ink }}>{k}</div>
-                              ))}
-                            </div>
-                            <div onClick={() => press("next")} style={{ marginTop: 7, padding: "12px 0", textAlign: "center", borderRadius: 11, background: C.ink, color: "#fff", fontWeight: 800, fontSize: 15, cursor: "pointer", userSelect: "none" }}>
-                              {target.kind === "denom" ? (DENOMS.indexOf(target.d) < DENOMS.length - 1 ? "Next: " + dLabel(DENOMS[DENOMS.indexOf(target.d) + 1]) + " →" : "Back to " + dLabel(DENOMS[0])) : "Done"}
-                            </div>
-                            {pv && <div onClick={() => setPadFor(null)} style={{ marginTop: 8, textAlign: "center", fontSize: 12.5, fontWeight: 700, color: C.brand, cursor: "pointer" }}>Show the result</div>}
-                            {!pv && <div style={{ marginTop: 10, fontSize: 12, color: C.muted, lineHeight: 1.45 }}>Count <b style={{ color: C.ink }}>everything</b> in the drawer, then tap <b style={{ color: C.ink }}>Check count</b>. What the till expected shows only after you've counted.</div>}
-                            {!pv && closeTill.checks > 0 && <div style={{ marginTop: 6, fontSize: 12, color: C.warn }}>Changed the count — check it again. Every count is printed on the Z report.</div>}
-                            {closeTill.err && <div style={{ marginTop: 6, fontSize: 12.5, color: C.bad, fontWeight: 700 }}>{closeTill.err}</div>}
-                          </Section>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })()}
-
-                {/* ---- STAGE 2: SIGN OFF ---- */}
-                {sm && closeTill.step === "summary" && stage === 2 && (
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginTop: 14 }}>
-                    <div>
-                      <Section title="WHAT WILL HAPPEN" style={{ marginTop: 4 }}>
-                        <div style={{ background: C.soft, borderRadius: 14, padding: "10px 14px" }}>
-                          <Line l="Orders archived" v={String(sm.order_count + (sm.cancelled_count || 0))} />
-                          <Line l="Total taken" v={gbp(sm.total)} strong />
-                          <Line l="Cash" v={gbp(sm.cash)} /><Line l="Card" v={gbp(sm.card)} />
-                          {pv && pv.float_changed && <Line l="Float (changed)" sub={"was " + gbp(pv.float_known)} v={gbp(pv.float_used)} color={C.warn} />}
-                          {sm.unpaid_count > 0 && <Line l={"Archived unpaid (" + sm.unpaid_count + ")"} v={gbp(sm.unpaid_total)} color={C.warn} />}
-                          <Line l="Cash counted" v={countedVal == null ? "not counted" : gbp(countedVal)} color={countedVal == null ? C.warn : undefined} />
-                          {variance != null && <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0 2px", fontSize: 16, fontWeight: 800, color: variance === 0 ? C.good : variance > 0 ? C.over : C.bad }}><span>{variance === 0 ? "Drawer balanced" : variance > 0 ? "Over" : "Short"}</span><span style={{ fontFamily: F }}>{(variance < 0 ? "−" : "") + gbp(Math.abs(variance))}</span></div>}
-                        </div>
-                        <div style={{ fontSize: 12.5, color: C.muted, marginTop: 10, lineHeight: 1.5 }}>The Z-report prints on this store's printer and the close is saved for head office. {sm.mode === "trading_day" && sm.later_count > 0 ? sm.later_count + " orders since 4:00 stay open." : ""}</div>
-                      </Section>
-                      <Section title="NOTE">
-                        {/* readOnly + blur on focus, like every other field in
-                            this sheet: the device has no system keyboard, and
-                            letting it try just put a caret in a dead box. */}
-                        <textarea value={closeTill.note} readOnly onFocus={(e) => e.target.blur()} onClick={() => setNoteKb(true)}
-                          placeholder={varianceNeedsNote ? "Required: explain the cash variance" : "Note (optional — petty cash taken, reason for variance…)"} rows={3}
-                          style={input({ marginTop: 10, fontWeight: 500, fontSize: 14, fontFamily: "inherit", resize: "none", cursor: "pointer", borderColor: varianceNeedsNote ? C.warn : noteKb ? C.brand : C.line })} />
-                        {/* Most variances have one of a handful of causes. One
-                            tap beats spelling it out on a glass keyboard, and
-                            head office gets wording it can actually group by. */}
-                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
-                          {["Petty cash taken", "Wrong change given", "Cash refund", "Supplier paid in cash", "Float miscounted", "Miscount"].map((r) => (
-                            <span key={r} onClick={() => setCloseTill((c) => {
-                              const cur = (c.note || "").trim();
-                              if (cur.toLowerCase().includes(r.toLowerCase())) return c;
-                              return { ...c, note: (cur ? cur.replace(/[.,\s]*$/, "") + ", " + r.charAt(0).toLowerCase() + r.slice(1) : r).slice(0, 240) };
-                            })}
-                              style={{ padding: "6px 11px", borderRadius: 999, background: C.soft, border: "1px solid " + C.line, fontSize: 12.5, fontWeight: 700, cursor: "pointer", userSelect: "none" }}>{r}</span>
-                          ))}
-                          {closeTill.note ? (
-                            <span onClick={() => setCloseTill((c) => ({ ...c, note: "" }))}
-                              style={{ padding: "6px 11px", borderRadius: 999, background: "transparent", border: "1px solid " + C.line, fontSize: 12.5, fontWeight: 700, cursor: "pointer", userSelect: "none", color: C.bad }}>Clear</span>
-                          ) : null}
-                        </div>
-                      </Section>
-                    </div>
-                    <div>
-                      <Section title={pv && (pv.manager_needed || closeTill.mgrForced) ? "PINS" : "YOUR STAFF PIN"} style={{ marginTop: 4 }} right={pv && (pv.manager_needed || closeTill.mgrForced) ? (
-                        <div style={{ display: "flex", gap: 4, background: C.soft, borderRadius: 9, padding: 3 }}>
-                          {[["staff", "Your PIN"], ["manager", "Manager PIN"]].map(([m, l]) => <div key={m} onClick={() => setCloseTill((c) => ({ ...c, pinFor: m }))} style={{ padding: "5px 10px", borderRadius: 7, fontSize: 12, fontWeight: 700, cursor: "pointer", background: (closeTill.pinFor || "staff") === m ? "#fff" : "transparent" }}>{l}{m === "manager" && closeTill.mgrPin.length >= 4 ? " ✓" : ""}</div>)}
-                        </div>) : null}>
-                        {pv && (pv.manager_needed || closeTill.mgrForced) && (closeTill.pinFor || "staff") === "manager" ? (<>
-                          <div style={{ textAlign: "center", minHeight: 24, marginBottom: 6, fontSize: 13.5, fontWeight: 700, color: C.muted }}>A manager approves this close (not needed if you're the manager)</div>
-                          <div style={{ display: "flex", justifyContent: "center", gap: 10, margin: "6px 0 14px" }}>
-                            {[0, 1, 2, 3].map((i) => <span key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < closeTill.mgrPin.length ? C.ink : C.line }} />)}
-                          </div>
-                          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                            {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "C"].map((k) => (
-                              <div key={k} onClick={() => setCloseTill((c) => ({ ...c, err: "", mgrPin: k === "C" ? "" : k === "⌫" ? c.mgrPin.slice(0, -1) : (c.mgrPin + k).slice(0, 8) }))}
-                                style={{ textAlign: "center", padding: "15px 0", borderRadius: 13, background: k === "C" || k === "⌫" ? C.soft : "#fff", border: "1.5px solid " + C.line, fontSize: 21, fontWeight: 700, fontFamily: F, cursor: "pointer", userSelect: "none", color: k === "C" ? C.bad : C.ink }}>{k}</div>
-                            ))}
-                          </div>
-                          {closeTill.err && <div style={{ marginTop: 12, textAlign: "center", color: C.bad, fontWeight: 700, fontSize: 14 }}>{closeTill.err}</div>}
-                        </>) : (<>
-                        <div style={{ textAlign: "center", minHeight: 24, marginBottom: 6, fontSize: 14.5, fontWeight: 700, color: closer ? C.good : closeTill.staff?.unknown ? C.warn : C.muted }}>
-                          {closer ? "✓ " + closer : closeTill.staff?.unknown ? (closeTill.staff.reason === "not_this_store" ? "That PIN isn't assigned to this store" : "PIN not recognised — a manager PIN also works") : closeTill.pin.length >= 4 ? "Checking…" : "Enter the PIN you use for the staff app"}
-                        </div>
-                        <div style={{ display: "flex", justifyContent: "center", gap: 10, margin: "6px 0 14px" }}>
-                          {[0, 1, 2, 3, 4, 5].map((i) => <span key={i} style={{ width: 14, height: 14, borderRadius: "50%", background: i < closeTill.pin.length ? (closeTill.err === "Wrong PIN" ? C.bad : C.ink) : C.line, transition: "background .12s", display: i < 4 || closeTill.pin.length > 4 ? "block" : "none" }} />)}
-                        </div>
-                        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 8 }}>
-                          {["1", "2", "3", "4", "5", "6", "7", "8", "9", "⌫", "0", "C"].map((k) => (
-                            <div key={k} onClick={() => { const next = k === "C" ? "" : k === "⌫" ? closeTill.pin.slice(0, -1) : (closeTill.pin + k).slice(0, 8); setCloseTill((c) => ({ ...c, err: "", pin: next, staff: next.length < 4 ? null : c.staff })); lookupStaffPin(next); }}
-                              style={{ textAlign: "center", padding: "15px 0", borderRadius: 13, background: k === "C" || k === "⌫" ? C.soft : "#fff", border: "1.5px solid " + C.line, fontSize: 21, fontWeight: 700, fontFamily: F, cursor: "pointer", userSelect: "none", color: k === "C" ? C.bad : C.ink }}>{k}</div>
-                          ))}
-                        </div>
-                        {closeTill.err && <div style={{ marginTop: 12, textAlign: "center", color: C.bad, fontWeight: 700, fontSize: 14 }}>{closeTill.err}</div>}
-                        </>)}
-                      </Section>
-                    </div>
-                  </div>
-                )}
-
-                {/* ---- DONE ---- */}
-                {closeTill.step === "done" && (() => {
-                  const r = closeTill.result || {}; const rs = r.summary || {};
-                  return (
-                    <>
-                      <div style={{ marginTop: 16, display: "flex", alignItems: "center", gap: 14, background: "#eef7ea", border: "1px solid #cfe3c4", borderRadius: 16, padding: "14px 18px" }}>
-                        <span style={{ width: 40, height: 40, borderRadius: "50%", background: C.good, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 800, fontSize: 20, flexShrink: 0 }}>✓</span>
-                        <div style={{ fontSize: 14.5, lineHeight: 1.5 }}>
-                          {rs.z_number != null && <b>Z No. {String(rs.z_number).padStart(6, "0")} · </b>}<b>{r.closed_orders} order{r.closed_orders === 1 ? "" : "s"} archived</b> and the close saved{closer ? " by " + closer : ""}. Z-report {r.printed ? "printed on the store printer." : r.printed === false ? <span style={{ color: C.warn }}>could not print — check the printer, then tap Print again.</span> : "not sent."}
-                        </div>
-                      </div>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24 }}>
-                        <Section title="TAKINGS">
-                          <Line l="Cash" v={gbp(rs.cash)} /><Line l="Card" v={gbp(rs.card)} />{rs.other > 0 && <Line l="Other" v={gbp(rs.other)} />}
-                          <Line l="Total taken" v={gbp(rs.total)} strong />
-                          {rs.unpaid_count > 0 && <Line l={"Archived unpaid (" + rs.unpaid_count + ")"} v={gbp(rs.unpaid_total)} color={C.warn} />}
-                        </Section>
-                        <Section title="CASH DRAWER">
-                          {rs.cash_counted == null ? <div style={{ fontSize: 13.5, color: C.muted }}>No cash count recorded</div> : (
-                            <>
-                              <Line l="Expected" v={gbp(rs.cash_expected)} /><Line l="Counted" v={gbp(rs.cash_counted)} />
-                              <div style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", fontSize: 18, fontWeight: 800, color: rs.cash_variance === 0 ? C.good : rs.cash_variance > 0 ? C.over : C.bad }}>
-                                <span>{rs.cash_variance === 0 ? "Balanced" : rs.cash_variance > 0 ? "Over" : "Short"}</span><span style={{ fontFamily: F }}>{rs.cash_variance < 0 ? "−" : ""}{gbp(Math.abs(rs.cash_variance || 0))}</span>
-                              </div>
-                              {/* TILLFIX: what to do with the cash now */}
-                              {rs.to_bank != null && (
-                                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginTop: 6 }}>
-                                  <div style={{ background: C.ink, color: "#fff", borderRadius: 12, padding: "10px 12px" }}>
-                                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", opacity: .8 }}>BANK / SAFE</div>
-                                    <div style={{ fontSize: 22, fontWeight: 800, fontFamily: F }}>{gbp(rs.to_bank)}</div>
-                                  </div>
-                                  <div style={{ background: C.soft, borderRadius: 12, padding: "10px 12px" }}>
-                                    <div style={{ fontSize: 11, fontWeight: 800, letterSpacing: ".08em", color: C.muted }}>FLOAT FOR TOMORROW</div>
-                                    <div style={{ fontSize: 22, fontWeight: 800, fontFamily: F }}>{gbp(rs.float_left)}</div>
-                                  </div>
-                                </div>
-                              )}
-                            </>
-                          )}
-                        </Section>
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-
-              {/* footer */}
-              <div style={{ padding: "14px 26px 20px", borderTop: "1px solid " + C.line, display: "flex", gap: 10, background: "#fff" }}>
-                {closeTill.step === "summary" && stage === 0 && (<>
-                  <Btn onClick={() => { if (closeTill.busy) return; setNoteKb(false); setPadFor(null); setCloseTill(null); }}>Cancel</Btn>
-                  {/* ZREPORT 2026-10-24 — X read: the day so far on paper, nothing closed or reset. */}
-                  <Btn disabled={closeTill.busy || !sm || closeTill.xPrinting} onClick={() => printXRead()}>{closeTill.xPrinting ? "Printing…" : closeTill.xPrinted === true ? "X read printed ✓" : closeTill.xPrinted === false ? "X read failed — retry" : "Print X read"}</Btn>
-                  <Btn primary grow={2} disabled={closeTill.busy || !sm || (sm.shifts || []).some((x) => x.status === "counting")} onClick={() => { setPadFor(closeTill.countMode === "denoms" ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" }); setCloseTill((c) => ({ ...c, stage: 1 })); }}>Next: count cash →</Btn>
-                </>)}
-                {/* Letters for the note. Same slide-up shape as the number pad
-                    so it behaves the way the rest of the sheet already does. */}
-                {closeTill.step === "summary" && stage === 2 && noteKb && (() => {
-                  const rows = kbNum
-                    ? ["1234567890", "£.,-/:", "()&%!?'"]
-                    : ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
-                  const type = (ch) => {
-                    setCloseTill((c) => ({ ...c, note: ((c.note || "") + ch).slice(0, 240) }));
-                    if (!kbNum && kbCaps) setKbCaps(false);
-                  };
-                  const Key = ({ label, on, grow = 1, tone }) => (
-                    <div onClick={on} style={{ flex: grow, minWidth: 0, padding: "13px 0", textAlign: "center", borderRadius: 9,
-                      background: tone === "dark" ? C.ink : tone === "soft" ? C.soft : "#fff",
-                      color: tone === "dark" ? "#fff" : C.ink,
-                      border: "1px solid " + C.line, fontWeight: 700, fontSize: 16, fontFamily: F, cursor: "pointer", userSelect: "none" }}>{label}</div>
-                  );
-                  return (
-                    <div style={{ position: "absolute", left: 0, right: 0, bottom: 72, background: "#fff", borderTop: "1px solid " + C.line, padding: "10px 12px 12px", boxShadow: "0 -14px 30px -18px rgba(0,0,0,.35)", zIndex: 30 }}>
-                      <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-                        <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: ".06em", color: C.muted, textTransform: "uppercase" }}>Note</span>
-                        <span style={{ marginLeft: 10, fontSize: 12, color: C.muted }}>{(closeTill.note || "").length}/240</span>
-                        <span onClick={() => setNoteKb(false)} style={{ marginLeft: "auto", fontWeight: 800, fontSize: 15, cursor: "pointer", padding: "2px 8px" }}>Done</span>
-                      </div>
-                      {rows.map((r, ri) => (
-                        <div key={ri} style={{ display: "flex", gap: 5, marginBottom: 5, paddingInline: ri === 1 ? 14 : ri === 2 ? 28 : 0 }}>
-                          {r.split("").map((ch) => {
-                            const out = !kbNum && kbCaps ? ch.toUpperCase() : ch;
-                            return <Key key={ch} label={out} on={() => type(out)} />;
-                          })}
-                        </div>
-                      ))}
-                      <div style={{ display: "flex", gap: 5 }}>
-                        <Key label={kbNum ? "ABC" : "123"} grow={1.4} tone="soft" on={() => setKbNum((v) => !v)} />
-                        {!kbNum && <Key label="⇧" grow={1} tone={kbCaps ? "dark" : "soft"} on={() => setKbCaps((v) => !v)} />}
-                        <Key label="space" grow={4} on={() => type(" ")} />
-                        <Key label="⌫" grow={1.4} tone="soft" on={() => setCloseTill((c) => ({ ...c, note: (c.note || "").slice(0, -1) }))} />
-                      </div>
-                    </div>
-                  );
-                })()}
-                {closeTill.step === "summary" && stage === 1 && (<>
-                  <Btn onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 0 })); }}>← Back</Btn>
-                  {pv ? (
-                    <Btn primary grow={2} onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 2, err: "" })); }}>Next: sign off →</Btn>
-                  ) : (
-                    <Btn primary grow={2} disabled={closeTill.busy || countedVal == null || (closeTill.floatEdit && closeTill.float === "")} onClick={() => { setPadFor(null); checkCloseCount(countedVal); }}>{closeTill.busy ? "Checking…" : countedVal == null ? "Count the drawer" : "Check count"}</Btn>
-                  )}
-                </>)}
-                {closeTill.step === "summary" && stage === 2 && (<>
-                  <Btn onClick={() => { if (closeTill.busy) return; setNoteKb(false); setCloseTill((c) => ({ ...c, stage: 1, err: "" })); }}>← Back</Btn>
-                  <Btn primary grow={2} disabled={closeTill.busy || !signoffOk} onClick={() => confirmCloseTill({ counted: countedVal == null ? "" : String(countedVal) })}>
-                    {closeTill.busy ? "Closing…" : varianceNeedsNote ? "Add a note for the variance" : closeTill.pin.length < 4 ? "Enter your PIN" : closer ? "Close till as " + closer.split(" ")[0] : "Close till & print Z-report"}
-                  </Btn>
-                </>)}
-                {closeTill.step === "done" && (<>
-                  <Btn onClick={() => !closeTill.reprinting && reprintClosure()}>{closeTill.reprinting ? "Printing…" : closeTill.reprinted ? "Printed ✓" : "Print again"}</Btn>
-                  <Btn primary grow={2} onClick={() => setCloseTill(null)}>Done</Btn>
-                </>)}
+                  ))}
+                  {!(sm.top_items || []).length && <div style={{ fontSize: 13.5, color: C.muted }}>No items</div>}
+                </Section>
               </div>
             </div>
-          </div>
+          </>
+        );
+
+        // ---- STAGE 1: CASH (blind) ----
+        else if (sm && closeTill.step === "summary" && stage === 1) body = (() => {
+          const isDenoms = closeTill.countMode === "denoms";
+          const target = padFor || (isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" });
+          const curVal = target.kind === "denom" ? String(closeTill.denoms?.[target.d] ?? "")
+            : target.kind === "float" ? String(closeTill.float || "") : String(closeTill.counted || "");
+          const setVal = (t, next) => setCloseTill((c) => t.kind === "denom"
+            ? { ...c, denoms: { ...(c.denoms || {}), [t.d]: next } }
+            : t.kind === "float" ? { ...c, float: next } : { ...c, counted: next });
+          const goNext = () => {
+            if (target.kind === "denom") {
+              const i = DENOMS.indexOf(target.d);
+              setPadFor(i >= 0 && i < DENOMS.length - 1 ? { kind: "denom", d: DENOMS[i + 1] } : { kind: "denom", d: DENOMS[0] });
+            } else setPadFor(isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" });
+          };
+          const showResult = pv && !padFor;
+          const notes = DENOMS.filter((d) => d >= 5), coins = DENOMS.filter((d) => d < 5);
+          const part = (list) => Math.round(list.reduce((t, d) => t + d * (Number(closeTill.denoms?.[d]) || 0), 0) * 100) / 100;
+          const group = (name, list) => (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 8 }}>
+                <TLabel style={{ marginBottom: 0 }}>{name}</TLabel>
+                <span style={{ fontSize: 14, fontWeight: 800, color: part(list) ? U.ink : U.faint, ...NUM }}>{gbp(part(list))}</span>
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(124px, 1fr))", gap: 8 }}>
+                {list.map((d) => (
+                  <DenomTile key={d} d={d} label={dLabel(d)} count={closeTill.denoms?.[d]} subtotal={(Number(closeTill.denoms?.[d]) || 0) * d} fmt={gbp}
+                    active={!showResult && target.kind === "denom" && target.d === d}
+                    onSelect={() => setPadFor({ kind: "denom", d })}
+                    onStep={(k) => { setPadFor({ kind: "denom", d }); setVal({ kind: "denom", d }, String(Math.max(0, (Number(closeTill.denoms?.[d]) || 0) + k))); }} />
+                ))}
+              </div>
+            </div>
+          );
+          return (
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 330px", gap: 22 }}>
+              <div>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 14 }}>
+                  <Seg value={closeTill.countMode} options={[["denoms", "Notes & coins"], ["total", "One total"]]} onPick={(m) => { setCloseTill((c) => ({ ...c, countMode: m })); setPadFor(m === "denoms" ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" }); }} />
+                  <span style={{ flex: 1 }} />
+                  {isDenoms && denomsTouched && <span className="tu-btn" onClick={() => { setCloseTill((c) => ({ ...c, denoms: {} })); setPadFor({ kind: "denom", d: DENOMS[0] }); }} style={{ fontSize: 14, fontWeight: 800, color: U.bad, cursor: "pointer", padding: "8px 10px" }}>Clear all</span>}
+                </div>
+                {isDenoms
+                  ? <>{group("Notes", notes)}{group("Coins", coins)}</>
+                  : <Field label="Cash counted — everything in the drawer, float included" money={Number(closeTill.counted) || 0} active={!showResult && target.kind === "counted"} onClick={() => setPadFor({ kind: "counted" })} />}
+                {/* CASH CONTROLS 2026-10-24: the float is the one the day started on.
+                    Changing it needs a note and a manager PIN at sign-off. */}
+                <div className="tu-tile" onClick={() => closeTill.floatEdit && setPadFor({ kind: "float" })} style={{ marginTop: 6, display: "flex", alignItems: "center", gap: 12, background: closeTill.floatEdit ? U.warnBg : U.soft, borderRadius: 16, padding: "12px 15px", border: "2px solid " + (!showResult && target.kind === "float" ? U.teal : closeTill.floatEdit ? U.amber : "transparent"), cursor: closeTill.floatEdit ? "pointer" : "default" }}>
+                  <span style={{ width: 38, height: 38, borderRadius: 11, background: "#fff", border: "1px solid " + C.line, color: closeTill.floatEdit ? U.warn : U.teal, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><TillIcon.drawer size={19} /></span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13.5, fontWeight: 700, color: closeTill.floatEdit ? U.warn : C.muted }}>{closeTill.floatEdit ? "Actual float — a note and a manager PIN at sign-off" : "Float at the start of the day"}</div>
+                    <div style={{ fontSize: 20, fontWeight: 800, ...NUM }}>{closeTill.floatEdit ? (closeTill.float ? gbp(Number(closeTill.float)) : "—") : (knownFloatStr === "" ? "—" : gbp(Number(knownFloatStr)))}</div>
+                  </div>
+                  {!closeTill.floatEdit
+                    ? <span className="tu-btn" onClick={(e) => { e.stopPropagation(); setCloseTill((c) => ({ ...c, floatEdit: true, float: "" })); setPadFor({ kind: "float" }); }} style={{ fontSize: 13.5, color: U.teal, fontWeight: 800, cursor: "pointer", padding: "8px 10px", borderRadius: 10, background: "#fff", border: "1px solid " + C.line }}>Different?</span>
+                    : <span className="tu-btn" onClick={(e) => { e.stopPropagation(); setPadFor(null); setCloseTill((c) => ({ ...c, floatEdit: false, float: c.floatKnown || "" })); }} style={{ fontSize: 13.5, color: C.muted, fontWeight: 800, cursor: "pointer", padding: "8px 10px", borderRadius: 10, background: "#fff", border: "1px solid " + C.line }}>Undo</span>}
+                </div>
+              </div>
+              <div>
+                <Stat tone="dark" label="Counted so far" money={countedVal || 0} note={isDenoms ? Object.values(closeTill.denoms || {}).filter((v) => Number(v) > 0).length + " of " + DENOMS.length + " counted" : null} />
+                {showResult ? (
+                  <div className="tu-stepin" style={{ marginTop: 14 }}>
+                    <Verdict variance={variance} fmt={gbp} counted={countedVal} expected={expected} compact />
+                    <div style={{ background: U.soft, borderRadius: 16, padding: "4px 14px", marginTop: 10 }}>
+                      <Line l="Cash taken" v={gbp(pv.cash)} />
+                      <Line l="+ Float" v={gbp(pv.float_used)} />
+                      {Number(pv.cash_dropped) > 0 && <Line l="− To safe" sub={(sm.shifts || []).length + " shifts"} v={gbp(pv.cash_dropped)} />}
+                      {Number(pv.dropped_mid_shift) > 0 && <Line l="− Mid-shift drops" v={gbp(pv.dropped_mid_shift)} />}
+                      {Number(pv.paid_out) > 0 && <Line l="− Paid out" v={gbp(pv.paid_out)} />}
+                      {Number(pv.paid_in) > 0 && <Line l="+ Paid in" v={gbp(pv.paid_in)} />}
+                      <Line l="Expected" v={gbp(expected)} strong />
+                    </div>
+                    {pv.manager_needed && <TNote tone={U.warn}>{pv.float_changed ? "The float changed" : "Out by " + gbp(pv.limit) + " or more"} — a note and a manager PIN at sign-off.</TNote>}
+                    <div style={{ marginTop: 10 }}><TBtn kind="secondary" icon={<TillIcon.back size={17} />} onClick={() => setPadFor(isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" })}>Change the count</TBtn></div>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: 14 }}>
+                    <TLabel>{target.kind === "denom" ? "How many " + dLabel(target.d) + "?" : target.kind === "float" ? "Actual float" : "Cash counted"}</TLabel>
+                    <Keypad key={target.kind + (target.d ?? "")} value={curVal} decimal={target.kind !== "denom"} money={target.kind !== "denom"} max={target.kind === "denom" ? 4 : 9}
+                      onChange={(v) => { setPadFor(target); setVal(target, v); }} />
+                    <div style={{ marginTop: 9 }}>
+                      <TBtn kind="secondary" icon={<TillIcon.chev size={17} />} onClick={goNext}>{target.kind === "denom" ? (DENOMS.indexOf(target.d) < DENOMS.length - 1 ? "Next: " + dLabel(DENOMS[DENOMS.indexOf(target.d) + 1]) : "Back to " + dLabel(DENOMS[0])) : "Done"}</TBtn>
+                    </div>
+                    {pv && <div className="tu-btn" onClick={() => setPadFor(null)} style={{ marginTop: 10, textAlign: "center", fontSize: 14, fontWeight: 800, color: U.teal, cursor: "pointer" }}>Show the result</div>}
+                    {!pv && closeTill.checks > 0 && <TNote tone={U.warn}>Changed the count — check it again. Every count is printed on the Z report.</TNote>}
+                    {!pv && !closeTill.checks && <TNote>Count <b style={{ color: U.ink }}>everything</b> in the drawer, then tap <b style={{ color: U.ink }}>Check count</b>. What the till expected shows only after you've counted.</TNote>}
+                  </div>
+                )}
+                <TillErr>{closeTill.err}</TillErr>
+              </div>
+            </div>
+          );
+        })();
+
+        // ---- STAGE 2: SIGN OFF ----
+        else if (sm && closeTill.step === "summary" && stage === 2) {
+          const needMgr = pv && (pv.manager_needed || closeTill.mgrForced);
+          const forMgr = needMgr && (closeTill.pinFor || "staff") === "manager";
+          body = (
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 330px", gap: 24 }}>
+              <div>
+                {variance != null && <Verdict variance={variance} fmt={gbp} counted={countedVal} expected={expected} />}
+                <Section title="What will happen" style={{ marginTop: variance != null ? 14 : 0 }}>
+                  <div style={{ background: U.soft, borderRadius: 16, padding: "4px 14px" }}>
+                    <Line l="Orders archived" v={String(sm.order_count + (sm.cancelled_count || 0))} />
+                    <Line l="Cash" v={gbp(sm.cash)} /><Line l="Card" v={gbp(sm.card)} />
+                    {pv && pv.float_changed && <Line l="Float (changed)" sub={"was " + gbp(pv.float_known)} v={gbp(pv.float_used)} color={C.warn} />}
+                    {sm.unpaid_count > 0 && <Line l={"Archived unpaid (" + sm.unpaid_count + ")"} v={gbp(sm.unpaid_total)} color={C.warn} />}
+                    <Line l="Cash counted" v={countedVal == null ? "not counted" : gbp(countedVal)} color={countedVal == null ? C.warn : undefined} />
+                    <Line l="Total taken" v={gbp(sm.total)} strong />
+                  </div>
+                  <TNote><span style={{ display: "inline-flex", verticalAlign: "-3px", marginRight: 6, color: U.teal }}><TillIcon.printer size={16} /></span>The Z-report prints on this store's printer and the close is saved for head office. {sm.mode === "trading_day" && sm.later_count > 0 ? sm.later_count + " orders since 4:00 stay open." : ""}</TNote>
+                </Section>
+                <Section title={varianceNeedsNote ? "Note — required for the variance" : "Note"}>
+                  {/* readOnly + blur on focus, like every other field in
+                      this sheet: the device has no system keyboard, and
+                      letting it try just put a caret in a dead box. */}
+                  <textarea value={closeTill.note} readOnly onFocus={(e) => e.target.blur()} onClick={() => setNoteKb(true)}
+                    placeholder={varianceNeedsNote ? "Required: explain the cash variance" : "Note (optional — petty cash taken, reason for variance…)"} rows={2}
+                    style={input({ resize: "none", cursor: "pointer", borderColor: varianceNeedsNote ? U.amber : noteKb ? U.teal : C.line, background: varianceNeedsNote ? U.warnBg : "#fff" })} />
+                  {/* Most variances have one of a handful of causes. One
+                      tap beats spelling it out on a glass keyboard, and
+                      head office gets wording it can actually group by. */}
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginTop: 9 }}>
+                    {["Petty cash taken", "Wrong change given", "Cash refund", "Supplier paid in cash", "Float miscounted", "Miscount"].map((r) => {
+                      const on = (closeTill.note || "").toLowerCase().includes(r.toLowerCase());
+                      return (
+                        <span key={r} className="tu-chip tu-btn" onClick={() => setCloseTill((c) => {
+                          const cur = (c.note || "").trim();
+                          if (cur.toLowerCase().includes(r.toLowerCase())) return c;
+                          return { ...c, note: (cur ? cur.replace(/[.,\s]*$/, "") + ", " + r.charAt(0).toLowerCase() + r.slice(1) : r).slice(0, 240) };
+                        })}
+                          style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "9px 13px", borderRadius: 999, background: on ? U.ink : "#fff", color: on ? "#fff" : U.ink, border: "1px solid " + (on ? U.ink : C.line), fontSize: 13.5, fontWeight: 700, cursor: "pointer", userSelect: "none" }}>{on && <TillIcon.check size={13} sw={3} />}{r}</span>
+                      );
+                    })}
+                    {closeTill.note ? (
+                      <span className="tu-btn" onClick={() => setCloseTill((c) => ({ ...c, note: "" }))}
+                        style={{ padding: "9px 13px", borderRadius: 999, border: "1px solid " + C.line, fontSize: 13.5, fontWeight: 800, cursor: "pointer", userSelect: "none", color: C.bad }}>Clear</span>
+                    ) : null}
+                  </div>
+                </Section>
+              </div>
+              <div>
+                {needMgr && (
+                  <div style={{ marginBottom: 14 }}>
+                    <Seg value={closeTill.pinFor || "staff"} onPick={(m) => setCloseTill((c) => ({ ...c, pinFor: m }))}
+                      options={[["staff", closeTill.pin.length >= 4 ? "✓ Your PIN" : "Your PIN"], ["manager", closeTill.mgrPin.length >= 4 ? "✓ Manager PIN" : "Manager PIN"]]} />
+                  </div>
+                )}
+                {forMgr ? (
+                  <PinPanel label="Manager PIN" tone={U.warn} hint="A manager approves this close (not needed if you're the manager)." value={closeTill.mgrPin} error={closeTill.err}
+                    onChange={(v) => setCloseTill((c) => ({ ...c, err: "", mgrPin: v }))} />
+                ) : (<>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, marginBottom: 6, padding: "8px 12px", borderRadius: 12, background: closer ? U.goodBg : closeTill.staff?.unknown ? U.warnBg : U.soft, color: closer ? U.good : closeTill.staff?.unknown ? U.warn : C.muted, fontSize: 14, fontWeight: 700 }}>
+                    <span style={{ display: "flex" }}>{closer ? <TillIcon.check size={18} sw={3} /> : <TillIcon.user size={18} />}</span>
+                    {closer ? "Closing as " + closer : closeTill.staff?.unknown ? (closeTill.staff.reason === "not_this_store" ? "That PIN isn't assigned to this store" : "PIN not recognised — a manager PIN also works") : closeTill.pin.length >= 4 ? "Checking…" : "The PIN you use for the staff app"}
+                  </div>
+                  <PinPanel label="Your staff PIN" value={closeTill.pin} error={closeTill.err === "Wrong PIN" || closeTill.err === "PIN not recognised" ? closeTill.err : ""}
+                    onChange={(next) => { setCloseTill((c) => ({ ...c, err: "", pin: next, staff: next.length < 4 ? null : c.staff })); lookupStaffPin(next); }} />
+                </>)}
+                <TillErr>{closeTill.err}</TillErr>
+              </div>
+            </div>
+          );
+        }
+
+        // ---- DONE ----
+        else if (closeTill.step === "done") body = (() => {
+          const r = closeTill.result || {}; const rs = r.summary || {};
+          return (
+            <>
+              <DoneMark title={(rs.z_number != null ? "Z No. " + String(rs.z_number).padStart(6, "0") + " · " : "") + "Day closed"}
+                sub={<>{r.closed_orders} order{r.closed_orders === 1 ? "" : "s"} archived and the close saved{closer ? " by " + closer : ""}. {r.printed ? "The Z-report is printing." : r.printed === false ? <span style={{ color: C.warn, fontWeight: 700 }}>The Z-report couldn't print — check the printer, then tap Print again.</span> : "Z-report not sent."}</>} />
+              {rs.cash_counted != null && rs.to_bank != null && (
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 6 }}>
+                  <Instruction dark n="1" icon={<TillIcon.bag size={26} />} title="Bank / safe" money={rs.to_bank} note="Bag it with the Z-report, into the safe" />
+                  <Instruction n="2" icon={<TillIcon.drawer size={26} />} title="Float for tomorrow" money={rs.float_left} note="Leave it in the drawer" />
+                </div>
+              )}
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 28 }}>
+                <Section title="Takings">
+                  <Line l="Cash" v={gbp(rs.cash)} /><Line l="Card" v={gbp(rs.card)} />{rs.other > 0 && <Line l="Other" v={gbp(rs.other)} />}
+                  <Line l="Total taken" v={gbp(rs.total)} strong />
+                  {rs.unpaid_count > 0 && <Line l={"Archived unpaid (" + rs.unpaid_count + ")"} v={gbp(rs.unpaid_total)} color={C.warn} />}
+                </Section>
+                <Section title="Cash drawer">
+                  {rs.cash_counted == null ? <div style={{ fontSize: 14, color: C.muted }}>No cash count recorded</div>
+                    : <Verdict variance={rs.cash_variance || 0} fmt={gbp} counted={rs.cash_counted} expected={rs.cash_expected} />}
+                </Section>
+              </div>
+            </>
+          );
+        })();
+
+        // ---------------- footer ----------------
+        let footer = null;
+        if (closeTill.step === "summary" && stage === 0) footer = (<>
+          <Btn onClick={shut}>Cancel</Btn>
+          {/* ZREPORT 2026-10-24 — X read: the day so far on paper, nothing closed or reset. */}
+          <Btn icon={<TillIcon.printer size={18} />} disabled={closeTill.busy || !sm || closeTill.xPrinting} onClick={() => printXRead()}>{closeTill.xPrinting ? "Printing…" : closeTill.xPrinted === true ? "X read printed ✓" : closeTill.xPrinted === false ? "X read failed — retry" : "Print X read"}</Btn>
+          <Btn primary grow={1.6} icon={<TillIcon.chev size={18} />} disabled={closeTill.busy || !sm || (sm.shifts || []).some((x) => x.status === "counting")} onClick={() => { setPadFor(closeTill.countMode === "denoms" ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" }); setCloseTill((c) => ({ ...c, stage: 1 })); }}>Next: count cash</Btn>
+        </>);
+        else if (closeTill.step === "summary" && stage === 1) footer = (<>
+          <Btn icon={<TillIcon.back size={18} />} onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 0 })); }}>Back</Btn>
+          {pv ? (
+            <Btn primary grow={2} icon={<TillIcon.chev size={18} />} onClick={() => { setPadFor(null); setCloseTill((c) => ({ ...c, stage: 2, err: "" })); }}>Next: sign off</Btn>
+          ) : (
+            <Btn primary grow={2} icon={<TillIcon.check size={18} sw={2.6} />} disabled={closeTill.busy || countedVal == null || (closeTill.floatEdit && closeTill.float === "")} onClick={() => { setPadFor(null); checkCloseCount(countedVal); }}>{closeTill.busy ? "Checking…" : countedVal == null ? "Count the drawer" : "Check count"}</Btn>
+          )}
+        </>);
+        else if (closeTill.step === "summary" && stage === 2) footer = (<>
+          <Btn icon={<TillIcon.back size={18} />} onClick={() => { if (closeTill.busy) return; setNoteKb(false); setCloseTill((c) => ({ ...c, stage: 1, err: "" })); }}>Back</Btn>
+          <Btn primary grow={2} icon={<TillIcon.printer size={18} />} disabled={closeTill.busy || !signoffOk} onClick={() => confirmCloseTill({ counted: countedVal == null ? "" : String(countedVal) })}>
+            {closeTill.busy ? "Closing…" : varianceNeedsNote ? "Add a note for the variance" : closeTill.pin.length < 4 ? "Enter your PIN" : closer ? "Close till as " + closer.split(" ")[0] : "Close till & print Z-report"}
+          </Btn>
+        </>);
+        else if (closeTill.step === "done") footer = (<>
+          <Btn icon={<TillIcon.printer size={18} />} onClick={() => !closeTill.reprinting && reprintClosure()}>{closeTill.reprinting ? "Printing…" : closeTill.reprinted ? "Printed ✓" : "Print again"}</Btn>
+          <TBtn kind="teal" grow={2} icon={<TillIcon.check size={18} sw={2.6} />} onClick={() => setCloseTill(null)}>Done</TBtn>
+        </>);
+        else footer = <Btn onClick={shut}>Close</Btn>;
+
+        // Letters for the note — slides up over the footer, the till has no keyboard.
+        const noteKeyboard = closeTill.step === "summary" && stage === 2 && noteKb ? (() => {
+          const rows = kbNum
+            ? ["1234567890", "£.,-/:", "()&%!?'"]
+            : ["qwertyuiop", "asdfghjkl", "zxcvbnm"];
+          const type = (ch) => {
+            setCloseTill((c) => ({ ...c, note: ((c.note || "") + ch).slice(0, 240) }));
+            if (!kbNum && kbCaps) setKbCaps(false);
+          };
+          const Key = ({ label, on, grow = 1, tone }) => (
+            <div className="tu-key" onClick={on} style={{ flex: grow, minWidth: 0, padding: "14px 0", textAlign: "center", borderRadius: 11,
+              background: tone === "dark" ? U.ink : tone === "soft" ? "#eef0f3" : "#fff",
+              color: tone === "dark" ? "#fff" : U.ink,
+              border: "1px solid " + C.line, boxShadow: "0 1px 0 rgba(18,21,28,.06)", fontWeight: 700, fontSize: 17, cursor: "pointer", userSelect: "none" }}>{label}</div>
+          );
+          return (
+            <div className="tu-card" style={{ position: "absolute", left: 0, right: 0, bottom: 0, background: "#f7f8fa", borderTop: "1px solid " + C.line, padding: "12px 14px 14px", boxShadow: "0 -18px 40px -18px rgba(8,15,20,.4)", zIndex: 30 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                <TLabel style={{ marginBottom: 0 }}>Note</TLabel>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 14, color: closeTill.note ? U.ink : U.faint, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", direction: "rtl", textAlign: "left" }}>{closeTill.note || "Start typing…"}</span>
+                <span style={{ fontSize: 12.5, color: C.muted, ...NUM }}>{(closeTill.note || "").length}/240</span>
+                <span className="tu-btn" onClick={() => setNoteKb(false)} style={{ fontWeight: 800, fontSize: 15, cursor: "pointer", padding: "8px 16px", borderRadius: 10, background: U.ink, color: "#fff" }}>Done</span>
+              </div>
+              {rows.map((r, ri) => (
+                <div key={ri} style={{ display: "flex", gap: 6, marginBottom: 6, paddingInline: ri === 1 ? 18 : ri === 2 ? 36 : 0 }}>
+                  {r.split("").map((ch) => {
+                    const out = !kbNum && kbCaps ? ch.toUpperCase() : ch;
+                    return <Key key={ch} label={out} on={() => type(out)} />;
+                  })}
+                </div>
+              ))}
+              <div style={{ display: "flex", gap: 6 }}>
+                <Key label={kbNum ? "ABC" : "123"} grow={1.4} tone="soft" on={() => setKbNum((v) => !v)} />
+                {!kbNum && <Key label="⇧" grow={1} tone={kbCaps ? "dark" : "soft"} on={() => setKbCaps((v) => !v)} />}
+                <Key label="space" grow={4} on={() => type(" ")} />
+                <Key label="⌫" grow={1.4} tone="soft" on={() => setCloseTill((c) => ({ ...c, note: (c.note || "").slice(0, -1) }))} />
+              </div>
+            </div>
+          );
+        })() : null;
+
+        return (
+          <Sheet icon={<TillIcon.check size={24} sw={2.4} />} title={closeTill.step === "done" ? "Till closed" : "Close till"} sub={when}
+            onClose={shut} busy={closeTill.busy} width={1060} height="min(94vh, 860px)" zIndex={90}
+            tabs={closeTill.step === "summary" && sm && sm.later_count > 0 && stage === 0 ? [["trading_day", "To 4:00", <TillIcon.clock size={15} />], ["all", "Up to now", null]] : null}
+            tab={closeTill.mode} onTab={(m) => m !== closeTill.mode && switchCloseTillMode(m)}
+            steps={[...stages, "Done"]} step={closeTill.step === "done" ? "Done" : stages[stage]}
+            onStep={(i) => { if (closeTill.step === "summary" && i < stage) { setNoteKb(false); setPadFor(null); setCloseTill((c) => ({ ...c, stage: i, err: "" })); } }}
+            bodyKey={closeTill.step + stage} footer={footer} overlay={noteKeyboard}>
+            {body}
+          </Sheet>
         );
       })()}
 

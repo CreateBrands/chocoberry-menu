@@ -4,6 +4,7 @@
 // tiles, and the same buttons, chips, figures and result banners everywhere.
 // Presentation only — no money or rules live here.
 
+import { useEffect, useRef } from "react";
 import { currencySymbol } from "./money.js";
 
 export const U = {
@@ -24,6 +25,8 @@ const CSS = `
 @keyframes tu-pop{0%{transform:scale(.4)}70%{transform:scale(1.18)}100%{transform:scale(1)}}
 @keyframes tu-caret{0%,49%{opacity:1}50%,100%{opacity:0}}
 @keyframes tu-tick{from{stroke-dashoffset:40}to{stroke-dashoffset:0}}
+@keyframes tu-spin{to{transform:rotate(360deg)}}
+@keyframes tu-step{from{opacity:0;transform:translateX(14px)}to{opacity:1;transform:none}}
 @keyframes tu-ring{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
 .tu-overlay{animation:tu-fade .16s ease-out}
 .tu-card{animation:tu-in .2s cubic-bezier(.2,.8,.2,1)}
@@ -35,13 +38,17 @@ const CSS = `
 .tu-tile:active{transform:scale(.98)}
 .tu-chip{transition:background .12s ease,color .12s ease,border-color .12s ease}
 .tu-shake{animation:tu-shake .38s ease}
+.tu-stepin{animation:tu-step .22s cubic-bezier(.2,.8,.2,1)}
+.tu-spin{width:16px;height:16px;border-radius:50%;border:2.5px solid currentColor;border-right-color:transparent;animation:tu-spin .7s linear infinite;display:inline-block}
 .tu-dot{animation:tu-pop .18s ease-out}
 .tu-caret{display:inline-block;width:3px;height:.9em;background:${U.teal};margin-left:4px;vertical-align:-.05em;border-radius:2px;animation:tu-caret 1s steps(1) infinite}
 .tu-done-ring{animation:tu-ring .3s cubic-bezier(.2,.8,.2,1)}
 .tu-done-tick{stroke-dasharray:40;animation:tu-tick .35s .12s ease-out both}
-@media (prefers-reduced-motion: reduce){.tu-overlay,.tu-card,.tu-shake,.tu-dot,.tu-done-ring,.tu-done-tick{animation:none}}
+@media (prefers-reduced-motion: reduce){.tu-stepin,.tu-overlay,.tu-card,.tu-shake,.tu-dot,.tu-done-ring,.tu-done-tick{animation:none}}
 `;
 function Styles() { return <style>{CSS}</style>; }
+// A tiny buzz on tills that have one (Sunmi, Android tablets); silent elsewhere.
+export function tap() { try { navigator.vibrate && navigator.vibrate(8); } catch { /* not supported */ } }
 
 // ---------------- icons (drawn, crisp at any size) ----------------
 const S = (d, sz = 22, sw = 2) => (props) => (
@@ -85,12 +92,14 @@ export const Label = ({ children, tone, style }) => (
 );
 
 // The frame every till sheet sits in.
-export function Sheet({ icon, title, sub, onClose, busy, width = 980, tabs, tab, onTab, steps, step, aside, asideTitle, footer, children, zIndex = 92 }) {
+// bodyKey: change it (the step name) and the body slides in, so a step change reads as one.
+// onStep(i): makes the steps already done tappable, to go back to one.
+export function Sheet({ icon, title, sub, onClose, busy, width = 980, height, tabs, tab, onTab, steps, step, onStep, aside, asideTitle, footer, children, zIndex = 92, bodyKey, overlay }) {
   const idx = steps ? steps.indexOf(step) : -1;
   return (
     <div className="tu-overlay" onClick={() => !busy && onClose && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(8,15,20,.64)", backdropFilter: "blur(2px)", zIndex, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, fontFamily: FONT }}>
       <Styles />
-      <div className="tu-card" onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 22, width, maxWidth: "100%", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 40px 90px rgba(8,15,20,.5), 0 0 0 1px rgba(255,255,255,.04)", color: U.ink }}>
+      <div className="tu-card" onClick={(e) => e.stopPropagation()} style={{ background: "#fff", borderRadius: 22, width, maxWidth: "100%", maxHeight: "94vh", height, position: "relative", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 40px 90px rgba(8,15,20,.5), 0 0 0 1px rgba(255,255,255,.04)", color: U.ink }}>
         <div style={{ background: "radial-gradient(120% 140% at 0% 0%, #164139 0%, " + U.dark + " 55%)", color: "#fff", padding: "16px 20px", display: "flex", alignItems: "center", gap: 14, flexWrap: tabs ? "wrap" : "nowrap" }}>
           {icon && <span style={{ width: 46, height: 46, borderRadius: 13, background: "rgba(94,234,212,.12)", boxShadow: "inset 0 0 0 1px rgba(94,234,212,.18)", color: U.mintT, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>{icon}</span>}
           <div style={{ minWidth: 0, flex: "1 1 auto" }}>
@@ -113,7 +122,7 @@ export function Sheet({ icon, title, sub, onClose, busy, width = 980, tabs, tab,
             {steps.map((s, i) => {
               const on = i === idx, past = i < idx;
               return (
-                <div key={s} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 800, color: on ? U.ink : past ? U.teal : U.faint }}>
+                <div key={s} onClick={() => past && onStep && !busy && onStep(i)} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, fontWeight: 800, color: on ? U.ink : past ? U.teal : U.faint, cursor: past && onStep ? "pointer" : "default" }}>
                   <span style={{ width: 24, height: 24, borderRadius: 12, display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 12, background: on ? U.ink : past ? U.teal : "#fff", color: on || past ? "#fff" : U.faint, border: "1.5px solid " + (on ? U.ink : past ? U.teal : U.line), boxShadow: on ? "0 0 0 4px rgba(18,21,28,.08)" : "none" }}>{past ? <Icon.check size={13} sw={3} /> : i + 1}</span>
                   {s}{i < steps.length - 1 && <span style={{ width: 26, height: 2, borderRadius: 1, background: past ? U.teal : U.line, margin: "0 4px" }} />}
                 </div>
@@ -123,7 +132,7 @@ export function Sheet({ icon, title, sub, onClose, busy, width = 980, tabs, tab,
           </div>
         )}
         <div style={{ flex: 1, minHeight: 0, display: "flex", overflow: "hidden" }}>
-          <div style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: "20px 22px" }}>{children}</div>
+          <div key={bodyKey} className={bodyKey != null ? "tu-stepin" : ""} style={{ flex: 1, minWidth: 0, overflowY: "auto", padding: "20px 22px" }}>{children}</div>
           {aside && (
             <div style={{ width: 344, flexShrink: 0, background: "linear-gradient(180deg,#f7f8fa,#f1f3f5)", borderLeft: "1px solid " + U.line, overflowY: "auto", padding: "18px 18px" }}>
               {asideTitle && <Label>{asideTitle}</Label>}
@@ -132,6 +141,7 @@ export function Sheet({ icon, title, sub, onClose, busy, width = 980, tabs, tab,
           )}
         </div>
         {footer && <div style={{ display: "flex", gap: 10, padding: "14px 20px", borderTop: "1px solid " + U.line, background: "#fff" }}>{footer}</div>}
+        {overlay}
       </div>
     </div>
   );
@@ -141,6 +151,7 @@ export function Sheet({ icon, title, sub, onClose, busy, width = 980, tabs, tab,
 export function Keypad({ value, onChange, decimal = false, max = 8, money = false }) {
   const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", decimal ? "." : "C", "0", "⌫"];
   const press = (k) => {
+    tap();
     if (k === "⌫") return onChange(value.slice(0, -1));
     if (k === "C") return onChange("");
     if (k === ".") return onChange(value.includes(".") ? value : (value || "0") + ".");
@@ -148,6 +159,17 @@ export function Keypad({ value, onChange, decimal = false, max = 8, money = fals
     if (value.length >= max) return;
     onChange(money && value === "0" ? k : value + k);
   };
+  // A till with a keyboard (or a USB number pad) types straight in.
+  const ref = useRef(press); ref.current = press;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.target && /input|textarea/i.test(e.target.tagName)) return;
+      const k = e.key === "Backspace" ? "⌫" : e.key === "Delete" ? "C" : e.key === "." && decimal ? "." : /^[0-9]$/.test(e.key) ? e.key : null;
+      if (k) { e.preventDefault(); ref.current(k); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [decimal]);
   return (
     <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 9 }}>
       {keys.map((k) => (
@@ -183,10 +205,11 @@ export function PinPanel({ label = "Your PIN", hint, value, onChange, tone, erro
 }
 
 export function Btn({ children, onClick, kind = "primary", disabled, grow = true, icon }) {
+  const working = typeof children === "string" && children.endsWith("…");
   const bg = disabled ? "#e2e6ea" : kind === "primary" ? U.ink : kind === "teal" ? grad : kind === "danger" ? U.bad : "#fff";
   const fg = disabled ? "#9aa3ad" : kind === "secondary" ? U.ink : "#fff";
   return (
-    <div className={disabled ? "" : "tu-btn"} onClick={() => !disabled && onClick && onClick()} style={{ flex: grow ? 1 : "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "16px 22px", borderRadius: 15, fontWeight: 800, fontSize: 16.5, cursor: disabled ? "default" : "pointer", background: bg, color: fg, border: kind === "secondary" ? "1px solid " + U.line : "1px solid transparent", boxShadow: !disabled && kind !== "secondary" ? "0 6px 16px rgba(18,21,28,.16)" : "none", userSelect: "none", whiteSpace: "nowrap" }}>{icon}{children}</div>
+    <div className={disabled ? "" : "tu-btn"} onClick={() => { if (!disabled && onClick) { tap(); onClick(); } }} style={{ flex: typeof grow === "number" ? grow : grow ? 1 : "none", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, padding: "16px 22px", borderRadius: 15, fontWeight: 800, fontSize: 16.5, cursor: disabled ? "default" : "pointer", background: bg, color: fg, border: kind === "secondary" ? "1px solid " + U.line : "1px solid transparent", boxShadow: !disabled && kind !== "secondary" ? "0 6px 16px rgba(18,21,28,.16)" : "none", userSelect: "none", whiteSpace: "nowrap" }}>{working ? <span className="tu-spin" /> : icon}{children}</div>
   );
 }
 
@@ -232,7 +255,7 @@ export function Row({ label, value, strong, tone, minus }) {
 }
 
 // Balanced / over / short, with what it was measured against.
-export function Verdict({ variance, fmt, counted, expected }) {
+export function Verdict({ variance, fmt, counted, expected, compact }) {
   const v = Number(variance) || 0;
   const [bg, fg, word, I] = v === 0 ? [U.goodBg, U.good, "Balanced", Icon.check] : v > 0 ? [U.overBg, U.over, "Over", Icon.up] : [U.badBg, U.bad, "Short", Icon.down];
   return (
@@ -240,9 +263,11 @@ export function Verdict({ variance, fmt, counted, expected }) {
       <span style={{ width: 46, height: 46, borderRadius: 23, background: fg, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><I size={24} sw={3} /></span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 24, fontWeight: 900, letterSpacing: ".01em", lineHeight: 1.1 }}>{word}</div>
-        {counted != null && expected != null && <div style={{ fontSize: 13.5, fontWeight: 600, opacity: .85, ...NUM }}>Counted {fmt(counted)} · expected {fmt(expected)}</div>}
+        {counted != null && expected != null && (compact
+          ? <div style={{ fontSize: 13, fontWeight: 600, opacity: .85, lineHeight: 1.35, ...NUM }}>Counted {fmt(counted)}<br />Expected {fmt(expected)}</div>
+          : <div style={{ fontSize: 13.5, fontWeight: 600, opacity: .85, ...NUM }}>Counted {fmt(counted)} · expected {fmt(expected)}</div>)}
       </div>
-      <Money value={v} size={36} sign={v > 0 ? "+" : v < 0 ? "−" : ""} />
+      <Money value={v} size={compact ? 30 : 36} sign={v > 0 ? "+" : v < 0 ? "−" : ""} />
     </div>
   );
 }

@@ -274,7 +274,7 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
 
   return (
     <Sheet icon={<Icon.clock size={24} />} title={title} sub={sub} onClose={onClose} busy={busy} width={aside ? 1020 : 780}
-      steps={flowStep ? FLOW : null} step={flowStep} aside={aside} asideTitle={asideTitle} footer={footer}>
+      steps={flowStep ? FLOW : null} step={flowStep} bodyKey={step} aside={aside} asideTitle={asideTitle} footer={footer}>
       {body}
       <Err>{err}</Err>
     </Sheet>
