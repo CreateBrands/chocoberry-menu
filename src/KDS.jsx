@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import POS from "./POS.jsx";
-import { TeamChip, DrawerChip, PrinterChip, LiveChip, OfflineBar, SettingsMenu } from "./TillHeader.jsx";
+import { TeamChip, PrinterChip, LiveChip, OfflineBar, SettingsMenu } from "./TillHeader.jsx";
 import ServiceFeedback, { TAGS as SVC_TAGS, CATEGORY_LABEL as SVC_CAT } from "./ServiceFeedback.jsx";
 import { getDevice, setDevice, clearDevice, deviceToken, fingerprint, APP_VERSION } from "./device.js";
 import * as usbPrinter from "./usbPrinter.js";
@@ -889,17 +889,15 @@ export default function KDS({ surface = "kds" }) {
             drawer, printer and connection, with the rest under ⚙. */}
         {view === "pos" ? (
         <>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <TeamChip loc={loc} />
-          <DrawerChip loc={loc} />
-        </div>
+        {/* Team overview, the drawer/shift and ⚙ settings live in the POS
+            bottom bar now; the header keeps printer, connection and clock. */}
+        <div />
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {ownsUsb && <div onClick={async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } }} className="kbtn" style={{ cursor: "pointer", fontSize: 12, fontWeight: 800, padding: "5px 10px", borderRadius: 8, background: usbState === "ready" ? "#dcfce7" : usbState === "unpaired" ? "#fef3c7" : "#fee2e2", color: usbState === "ready" ? "#166534" : usbState === "unpaired" ? "#92400e" : "#991b1b" }}>🖨 {usbState === "ready" ? "USB printer" : usbState === "unpaired" ? "Connect printer" : usbState === "unsupported" ? "USB not supported" : "Printer disconnected"}</div>}
           <PrinterChip problems={failedOrders.length + silentPrinters.length} onOpen={openPrintLog} />
           <LiveChip connected={connected} />
           <span style={{ color: "#64748b", fontSize: 13, fontWeight: 600, margin: "0 2px" }}>{nowClock}</span>
-          <SettingsMenu sizes={Object.keys(SIZES)} size={size} setSize={setSize} soundOn={soundOn} setSoundOn={setSoundOn}
-            screenLabel={myName || ("Screen " + getScreenId())} onScreenSetup={() => setSetupOpen(true)} fullscreen={fullscreen} goFullscreen={goFullscreen} />
+          <div onClick={goFullscreen} className="kbtn" style={{ cursor: "pointer", padding: "6px 10px", borderRadius: 8, background: "#ffffff", border: "1px solid #d8dce2", fontSize: 15, userSelect: "none" }} title="Fullscreen">{fullscreen ? X : EXPAND}</div>
         </div>
         </>
         ) : (<>
@@ -1350,7 +1348,10 @@ export default function KDS({ surface = "kds" }) {
       {setupOpen && <ScreenSetup loc={loc} screenKey={getScreenId()} current={mySettings} siblings={allScreens} orders={orders.filter((o) => o.status !== "cancelled" && !myBumps.has(o.id))} onClose={() => setSetupOpen(false)} onSaved={(sn) => { setScreensTick((t) => t + 1); if (sn !== undefined) { setMyPrinter(sn || null); try { sn ? localStorage.setItem("kds_printer", sn) : localStorage.removeItem("kds_printer"); } catch {} } }} />}
 
       {view === "pos" && (
-        <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables} />
+        <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables}
+          barTeam={(compact) => <TeamChip loc={loc} bar compact={compact} />}
+          barSettings={<SettingsMenu bar sizes={Object.keys(SIZES)} size={size} setSize={setSize} soundOn={soundOn} setSoundOn={setSoundOn}
+            screenLabel={myName || ("Screen " + getScreenId())} onScreenSetup={() => setSetupOpen(true)} />} />
       )}
 
 

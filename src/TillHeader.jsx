@@ -20,8 +20,13 @@ const post = (action, data) => fetch(SUPABASE_URL + "/functions/v1/admin-api", {
 const chip = { display: "inline-flex", alignItems: "center", gap: 7, padding: "6px 11px", borderRadius: 9, fontWeight: 700, fontSize: 13, whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" };
 const dot = (c) => <span style={{ width: 8, height: 8, borderRadius: "50%", background: c, display: "inline-block", flexShrink: 0 }} />;
 const sep = <span style={{ width: 1, height: 15, background: "#d6dbe1" }} />;
+// Bottom-bar look: the same dark pills as the master menus.
+const barPill = (alert) => ({ display: "inline-flex", alignItems: "center", gap: 8, whiteSpace: "nowrap", flexShrink: 0, cursor: "pointer", userSelect: "none",
+  padding: "clamp(11px,.9vw,17px) clamp(10px,1vw,22px)", borderRadius: 11, fontSize: "clamp(12px,.92vw,18px)", fontWeight: 700,
+  background: alert ? "rgba(239,68,68,.16)" : "rgba(94,234,212,.09)", color: "#ccfbf1", border: "1.5px solid " + (alert ? "rgba(239,68,68,.45)" : "transparent") });
+const barSep = <span style={{ width: 1, height: 16, background: "rgba(204,251,241,.22)" }} />;
 
-export function TeamChip({ loc, onStoreName }) {
+export function TeamChip({ loc, onStoreName, bar = false, compact = false }) {
   const [t, setT] = useState(null);
   const [ask, setAsk] = useState(false);
   const [list, setList] = useState(null);
@@ -37,12 +42,12 @@ export function TeamChip({ loc, onStoreName }) {
   const late = c.late > 0, longBreak = c.long_breaks > 0;
   return (
     <>
-      <span onClick={() => setAsk(true)} title="Team today (managers)" style={{ ...chip, background: late ? "#fff7f7" : "#f8fafc", border: "1px solid " + (late ? "#fecaca" : "#e2e8f0"), color: "#1f2937" }}>
-        <span style={{ fontSize: 14 }}>👥</span>
-        {late && <><span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "#b91c1c" }}>{dot("#dc2626")}{c.late} late</span>{sep}</>}
-        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{dot("#16a34a")}{c.on} on</span>
-        {c.break > 0 && <>{sep}<span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: longBreak ? "#a16207" : "#1f2937" }}>{dot("#f59e0b")}{c.break} break</span></>}
-        {c.next > 0 && <>{sep}<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{dot("#3b82f6")}{c.next} next{t.next_at ? " · " + t.next_at : ""}</span></>}
+      <span onClick={() => setAsk(true)} title="Team today (managers)" style={bar ? barPill(late) : { ...chip, background: late ? "#fff7f7" : "#f8fafc", border: "1px solid " + (late ? "#fecaca" : "#e2e8f0"), color: "#1f2937" }}>
+        <span style={{ fontSize: bar ? "clamp(14px,1.05vw,19px)" : 14 }}>👥</span>
+        {late && <><span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: bar ? "#fca5a5" : "#b91c1c" }}>{dot("#ef4444")}{c.late} late</span>{bar ? barSep : sep}</>}
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{dot(bar ? "#4ade80" : "#16a34a")}{c.on} on</span>
+        {c.break > 0 && <>{bar ? barSep : sep}<span style={{ display: "inline-flex", alignItems: "center", gap: 5, color: longBreak ? (bar ? "#fcd34d" : "#a16207") : "inherit" }}>{dot("#f59e0b")}{c.break}{compact ? "" : " break"}</span></>}
+        {c.next > 0 && <>{bar ? barSep : sep}<span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>{dot("#60a5fa")}{c.next} next{t.next_at && !compact ? " · " + t.next_at : ""}</span></>}
       </span>
       {ask && (
         <ManagerPin title="Team today" sub="Names and times are for managers and owners." confirmLabel="Show team"
@@ -135,7 +140,7 @@ export function OfflineBar({ connected }) {
   );
 }
 
-export function SettingsMenu({ sizes, size, setSize, soundOn, setSoundOn, screenLabel, onScreenSetup, fullscreen, goFullscreen }) {
+export function SettingsMenu({ sizes, size, setSize, soundOn, setSoundOn, screenLabel, onScreenSetup, fullscreen, goFullscreen, bar = false }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
   useEffect(() => {
@@ -148,11 +153,13 @@ export function SettingsMenu({ sizes, size, setSize, soundOn, setSoundOn, screen
   const row = { padding: "10px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, fontSize: 14, cursor: "pointer", borderRadius: 8 };
   return (
     <>
-      <div onClick={goFullscreen} style={icon} title="Fullscreen">{fullscreen ? "✕" : "⛶"}</div>
-      <div ref={ref} style={{ position: "relative" }}>
-        <div onClick={() => setOpen((v) => !v)} style={{ ...icon, borderColor: open ? "#3f7d4e" : "#d8dce2" }} title="Settings">⚙</div>
+      {!bar && <div onClick={goFullscreen} style={icon} title="Fullscreen">{fullscreen ? "✕" : "⛶"}</div>}
+      <div ref={ref} style={{ position: "relative", flexShrink: 0 }}>
+        {bar
+          ? <div onClick={() => setOpen((v) => !v)} title="Settings" style={{ ...barPill(false), background: open ? "linear-gradient(135deg,#14b8a6,#0d9488)" : "rgba(94,234,212,.09)", color: open ? "#fff" : "#5eead4", padding: "clamp(11px,.9vw,17px) clamp(12px,1vw,18px)" }}><span style={{ fontSize: "clamp(14px,1.05vw,19px)", lineHeight: 1 }}>⚙</span></div>
+          : <div onClick={() => setOpen((v) => !v)} style={{ ...icon, borderColor: open ? "#3f7d4e" : "#d8dce2" }} title="Settings">⚙</div>}
         {open && (
-          <div style={{ position: "absolute", right: 0, top: 42, width: 270, background: "#fff", border: "1px solid #e3e6ea", borderRadius: 12, boxShadow: "0 12px 34px rgba(15,23,42,.16)", padding: 6, zIndex: 40 }}>
+          <div style={{ position: "absolute", right: 0, ...(bar ? { bottom: "calc(100% + 10px)" } : { top: 42 }), width: 270, background: "#fff", border: "1px solid #e3e6ea", borderRadius: 12, boxShadow: "0 12px 34px rgba(15,23,42,.16)", padding: 6, zIndex: 40 }}>
             <div style={{ ...row, cursor: "default" }}>Text size
               <span style={{ display: "flex", background: "#e2e5ea", borderRadius: 8, overflow: "hidden" }}>
                 {sizes.map((s) => <span key={s} onClick={() => setSize(s)} style={{ padding: "4px 8px", fontSize: 12, fontWeight: 800, cursor: "pointer", background: size === s ? "#3f7d4e" : "transparent", color: size === s ? "#fff" : "#475569" }}>{s}</span>)}

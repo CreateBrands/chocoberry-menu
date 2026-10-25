@@ -124,7 +124,7 @@ function tapFeedback() {
 // ["eggs", "mushrooms", "hash browns", "baked beans"]
 const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
-export default function POS({ loc, storeToken, tablesList = [] }) {
+export default function POS({ loc, storeToken, tablesList = [], barTeam = null, barSettings = null }) {
   const [cats, setCats] = useState(null);   // masters: [{id,name,subs:[{id,name,items:[...]}]}]
   const [activeCat, setActiveCat] = useState(0);   // master index
   const [activeSub, setActiveSub] = useState(0);   // subcategory index within active master
@@ -1422,8 +1422,7 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
             </div>
           )}
 
-          {/* Till actions — a bottom bar in the same style as the master menus
-               on top, so everything that isn't selling lives in one row. */}
+          {/* Layout size controls — open just above the till-actions strip. */}
           {editLayout && (
             <div style={{ flexShrink: 0, display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", background: "#fff", border: "1px solid " + P.line, borderRadius: 12, padding: "8px 12px", marginTop: 9 }}>
               {[["Categories", "catSize", catSize], ["Items", "itemSize", itemSize]].map(([label, key, cur]) => (
@@ -1441,35 +1440,6 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
               <span style={{ fontSize: "clamp(10.5px,.76vw,13px)", color: P.muted2 }}>Drag to rearrange. Tap the badge on a tile to resize it. Saved on this till.</span>
             </div>
           )}
-          {(() => {
-            const sh = shift && shift.enabled !== false ? shift.shift : undefined;
-            const t = (iso) => { try { return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
-            const shiftLabel = sh === undefined ? null : !sh ? "Start shift" : sh.status === "counting" ? "Counting" : String(sh.opened_by || "").split(" ")[0] + (window.innerWidth >= 1600 ? " · " + t(sh.opened_at) : "");
-            const pill = (key, icon, label, onClick, o = {}) => (
-              <div key={key} className="cb-tap" onPointerDown={tapFeedback} onClick={onClick} title={label}
-                style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", flexShrink: o.shrink ? 1 : 0, minWidth: 0,
-                  padding: "clamp(11px,.9vw,17px) clamp(10px,1vw,24px)", borderRadius: 11,
-                  fontSize: "clamp(12px,.92vw,18px)", fontWeight: o.on ? 800 : 700,
-                  background: o.on ? grad : o.bg || "rgba(94,234,212,.09)",
-                  color: o.on ? "#fff" : o.color || P.masterMuted,
-                  border: o.dashed ? "1.5px dashed rgba(253,224,71,.55)" : "1.5px solid transparent",
-                  boxShadow: o.on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
-                <span style={{ fontSize: "clamp(14px,1.1vw,20px)", lineHeight: 1, flexShrink: 0 }}>{icon}</span><span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>
-              </div>
-            );
-            return (
-              <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 6, alignItems: "center", marginTop: 9, boxShadow: "0 2px 10px rgba(15,46,41,.2)", overflowX: "auto" }}>
-                {shiftLabel && pill("shift", "◷", shiftLabel, () => { loadShift(); setShiftOpen(true); },
-                  { color: "#fde68a", bg: sh ? "rgba(253,224,71,.10)" : "rgba(253,224,71,.16)", dashed: !sh, shrink: true })}
-                {pill("drawer", "⇥", "Open drawer", () => setDrawerAsk({ pin: "", busy: false, err: "" }), { color: "#cbd5e1", bg: "rgba(148,163,184,.12)" })}
-                {pill("cash", currencySymbol().trim(), "Cash", () => setCashOpen(true), { color: "#fdba74", bg: "rgba(253,186,116,.12)" })}
-                {pill("close", "✓", "Close till", openCloseTill)}
-                <span style={{ flex: 1, minWidth: 4 }} />
-                {pill("merge", "⇱", "Merge", () => setShowMerge(true))}
-                {pill("layout", editLayout ? "✓" : "⇕", editLayout ? "Done" : "Layout", () => setEditLayout((v) => !v), { on: editLayout })}
-              </div>
-            );
-          })()}
         </div>
 
         {/* 3 — ORDER PANEL */}
@@ -1719,6 +1689,42 @@ export default function POS({ loc, storeToken, tablesList = [] }) {
           </div>
         </div>
       </div>
+
+      {/* TILL ACTIONS — a full-width strip along the bottom in the same style
+           as the master menus on top: team today, shift, drawer, cash, close,
+           then the screen tools (merge, layout, settings) on the right. */}
+      {(() => {
+        const wide = window.innerWidth >= 1200;
+        const sh = shift && shift.enabled !== false ? shift.shift : undefined;
+        const t = (iso) => { try { return new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }); } catch { return ""; } };
+        const shiftLabel = sh === undefined ? null : !sh ? "Start shift" : sh.status === "counting" ? "Counting" : String(sh.opened_by || "").split(" ")[0] + (wide ? " · " + t(sh.opened_at) : "");
+        const pill = (key, icon, label, onClick, o = {}) => (
+          <div key={key} className="cb-tap" onPointerDown={tapFeedback} onClick={onClick} title={o.title || label}
+            style={{ cursor: "pointer", display: "flex", alignItems: "center", gap: 7, whiteSpace: "nowrap", flexShrink: o.shrink ? 1 : 0, minWidth: 0,
+              padding: "clamp(11px,.9vw,17px) clamp(10px,1vw,24px)", borderRadius: 11,
+              fontSize: "clamp(12px,.92vw,18px)", fontWeight: o.on ? 800 : 700,
+              background: o.on ? grad : o.bg || "rgba(94,234,212,.09)",
+              color: o.on ? "#fff" : o.color || P.masterMuted,
+              border: o.dashed ? "1.5px dashed rgba(253,224,71,.55)" : "1.5px solid transparent",
+              boxShadow: o.on ? "0 4px 12px rgba(13,148,136,.4)" : "none" }}>
+            <span style={{ fontSize: "clamp(14px,1.1vw,20px)", lineHeight: 1, flexShrink: 0 }}>{icon}</span>{label && <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{label}</span>}
+          </div>
+        );
+        return (
+          <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 6, alignItems: "center", margin: "0 9px 9px", boxShadow: "0 2px 10px rgba(15,46,41,.2)", position: "relative", zIndex: 30 }}>
+            {barTeam && barTeam(!wide)}
+            {shiftLabel && pill("shift", "◷", shiftLabel, () => { loadShift(); setShiftOpen(true); },
+              { color: "#fde68a", bg: sh ? "rgba(253,224,71,.10)" : "rgba(253,224,71,.16)", dashed: !sh, shrink: true })}
+            {pill("drawer", "⇥", wide ? "Open drawer" : "Drawer", () => setDrawerAsk({ pin: "", busy: false, err: "" }), { color: "#cbd5e1", bg: "rgba(148,163,184,.12)" })}
+            {pill("cash", currencySymbol().trim(), "Cash", () => setCashOpen(true), { color: "#fdba74", bg: "rgba(253,186,116,.12)" })}
+            {pill("close", "✓", "Close till", openCloseTill)}
+            <span style={{ flex: 1, minWidth: 4 }} />
+            {pill("merge", "⇱", wide ? "Merge" : "", () => setShowMerge(true), { title: "Merge categories" })}
+            {pill("layout", editLayout ? "✓" : "⇕", wide || editLayout ? (editLayout ? "Done" : "Layout") : "", () => setEditLayout((v) => !v), { on: editLayout, title: "Layout" })}
+            {barSettings}
+          </div>
+        );
+      })()}
 
       {mgrAsk && mgrAsk.kind === "unpaid" && (
         <ManagerPin title={"Undo payment on #" + mgrAsk.order.order_no}
