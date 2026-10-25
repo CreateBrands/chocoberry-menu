@@ -8,7 +8,7 @@ import { useState } from "react";
 const C = { ink: "#22271f", muted: "#6b7a60", line: "#e6e8e1", soft: "#f6f7f3", bad: "#b91c1c" };
 const F = "'Poppins',sans-serif";
 
-export default function ManagerPin({ title, sub, reasons = null, confirmLabel = "Confirm", onSubmit, onClose }) {
+export default function ManagerPin({ title, sub, reasons = null, confirmLabel = "Confirm", pinLabel = "MANAGER PIN", onSubmit, onClose }) {
   const [pin, setPin] = useState("");
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -39,7 +39,7 @@ export default function ManagerPin({ title, sub, reasons = null, confirmLabel = 
             ))}
           </div>
         )}
-        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".08em", color: C.muted, marginTop: 16 }}>MANAGER PIN</div>
+        <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: ".08em", color: C.muted, marginTop: 16 }}>{pinLabel}</div>
         <div style={{ display: "flex", justifyContent: "center", gap: 10, margin: "8px 0 12px" }}>
           {[0, 1, 2, 3].map((i) => <span key={i} style={{ width: 14, height: 14, borderRadius: 7, background: i < pin.length ? C.ink : C.line }} />)}
         </div>

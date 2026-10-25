@@ -8,6 +8,7 @@ import CartLine from "./CartLine.jsx";
 import ShiftSheet from "./ShiftSheet.jsx";
 import ManagerPin from "./ManagerPin.jsx";
 import CashSheet from "./CashSheet.jsx";
+import StockSheet from "./StockSheet.jsx";
 import { StripTools } from "./TillHeader.jsx";
 // Currency, cash-up denominations and the variance threshold all follow the
 // store this till is serving — see src/money.js. A store with no currency
@@ -772,6 +773,12 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
     .filter((o) => o.status !== "cancelled" && o.paid_method)
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
+  // Menu reload: after Items on/off, and every 2 minutes so a change made on
+  // another till (or in the admin) shows here without a reload.
+  const [menuTick, setMenuTick] = useState(0);
+  const [stockOpen, setStockOpen] = useState(false);
+  useEffect(() => { const id = setInterval(() => setMenuTick((t) => t + 1), 120000); return () => clearInterval(id); }, []);
+
   // ---- Load menu (same source as the customer app) ----
   // Three levels: master MENU (Breakfast, Desserts…) → subcategory → items.
   useEffect(() => {
@@ -780,7 +787,9 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       try {
         const body = loc ? { loc } : { loc: null };
         const r = await fetch(SUPABASE_URL + "/rest/v1/rpc/store_menu_full", { method: "POST", headers: H, body: JSON.stringify(body), cache: "no-store" });
-        const rows = r.ok ? await r.json() : [];
+        // A failed refresh keeps the menu on screen rather than blanking it.
+        if (!r.ok) throw new Error("menu " + r.status);
+        const rows = await r.json();
 
         // Short till labels, Toast-style. store_menu_full is shared with
         // place-order and the customer app, so rather than change its return
@@ -817,10 +826,10 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         const masters = [...menuMap.values()].sort((a, b) => a.sort - b.sort)
           .map((m) => ({ id: m.id, name: m.name, posName: m.posName, subs: [...m.subMap.values()].sort((a, b) => a.sort - b.sort) }));
         if (alive) setCats(masters);
-      } catch { if (alive) setCats([]); }
+      } catch { if (alive) setCats((c) => (c && c.length ? c : [])); }
     })();
     return () => { alive = false; };
-  }, [loc]);
+  }, [loc, menuTick]);
 
   // Load display-only category merges (saved in DB, shared across devices).
   const loadMerges = useCallback(async () => {
@@ -1731,8 +1740,10 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
               {pill("close", "✓", "Close till", openCloseTill)}
               {editLayout && pill("layout", "✓", "Done", () => setEditLayout(false), { on: true, title: "Finish arranging" })}
               <StripTools kit={barKit} extra={editLayout ? [
+                { k: "stock", icon: "⊘", label: "Items on/off", tile: "Items on/off", onClick: () => setStockOpen(true) },
                 { k: "merge", icon: "⇱", label: "Merge", tile: "Merge categories", onClick: () => setShowMerge(true) },
               ] : [
+                { k: "stock", icon: "⊘", label: "Items on/off", tile: "Items on/off", onClick: () => setStockOpen(true) },
                 { k: "layout", icon: "⇕", label: "Layout", tile: "Arrange tiles", onClick: () => setEditLayout(true) },
                 { k: "merge", icon: "⇱", label: "Merge", tile: "Merge categories", onClick: () => setShowMerge(true) },
               ]} />
@@ -1760,6 +1771,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       )}
 
       {cashOpen && <CashSheet loc={loc} act={ordActionJson} onClose={() => setCashOpen(false)} />}
+      {stockOpen && <StockSheet loc={loc} onClose={() => setStockOpen(false)} onChanged={() => setMenuTick((t) => t + 1)} />}
 
       {shiftOpen && shift && (
         <ShiftSheet loc={loc} status={shift} act={ordActionJson} onClose={() => setShiftOpen(false)} onChanged={() => { loadShift(); window.dispatchEvent(new Event("pos:shift-changed")); }} />

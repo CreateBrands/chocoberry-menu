@@ -88,7 +88,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
   // surface used by front-line staff, and gating every payment behind a PIN was
   // too much friction. Admin-panel actions still require the PIN below.
   const POS_ACTIONS = new Set([
-    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "refund_payment", "print_refund_receipt", "set_order_table", "staff_set_stock",
+    "mark_paid", "take_payment", "mark_unpaid", "order_payments_list", "apply_discount", "remove_discount", "apply_item_discount", "remove_item_discount", "refund_payment", "print_refund_receipt", "set_order_table", "staff_set_stock", "stock_list", "stock_set",
     "remove_order_item", "set_order_item_qty", "void_fired_item",
     "set_order_type",
     "day_summary", "print_x_read",
@@ -121,6 +121,28 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
   // The employee app signs people in with a personal PIN on their ops_team
   // record. The POS uses the same PIN so any team member can close the till
   // and the closure is recorded against them. Scoped to their own store.
+  // Who is changing stock: any staff member of the store, or a manager PIN.
+  async function stockActor(pinIn: unknown, location_id: string) {
+    const st: any = await staffForPin(pinIn, location_id);
+    if (st && st.ok) return { name: st.name || "Staff" };
+    const mg: any = await managerForPin(pinIn, location_id);
+    if (mg && mg.ok) return { name: mg.name || "Manager" };
+    return null;
+  }
+  // The next 06:00 in the store's time zone, as an ISO instant. Same rule as
+  // menu_item_86: switched off at 23:00 stays off for the rest of the night
+  // and comes back for the next opening.
+  function nextSixAm(tz: string) {
+    const now = new Date();
+    const p: Record<string, string> = {};
+    for (const x of new Intl.DateTimeFormat("en-GB", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(now)) p[x.type] = x.value;
+    const localAsUtc = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+    const offset = localAsUtc - Math.floor(now.getTime() / 1000) * 1000;
+    let target = Date.UTC(+p.year, +p.month - 1, +p.day, 6, 0, 0);
+    if (+p.hour >= 6) target += 86400000;
+    return new Date(target - offset).toISOString();
+  }
+
   async function staffForPin(pinIn: unknown, location_id: string | null) {
     const pinStr = String(pinIn || "").trim();
     if (pinStr.length < 4 || !location_id) return null;
@@ -1107,6 +1129,86 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
 
       // ---- OVERRIDE: set (upsert) per-store price/availability ----
       // ---- STAFF: mark an item sold out / back on at this store (punch-in PIN) ----
+      // ---- STOCK ON/OFF FROM THE TILL 2026-10-25 ----
+      // Items and modifier options for this store with their state:
+      //   on     selling
+      //   today  off until the next 06:00 store time, then back by itself
+      //   off    off at this store until someone turns it back on
+      //   hq     switched off by head office (master or band) — not the
+      //          till's to change
+      // Any staff PIN for the store (or a manager PIN) opens and changes it;
+      // every change is logged to device_events with who did it.
+      case "stock_list": {
+        const { location_id, staff_pin } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const who = await stockActor(staff_pin, location_id);
+        if (!who) return json({ ok: false, error: "bad_pin", message: "PIN not recognised for this store" }, 403);
+        const now = Date.now();
+        const { data: rows, error } = await admin.rpc("store_menu_full", { loc: location_id });
+        if (error) throw error;
+        const { data: iov } = await admin.from("menu_item_overrides").select("item_id, available, unavailable_until").eq("location_id", location_id);
+        const iMap = new Map((iov || []).map((o: any) => [o.item_id, o]));
+        const items: any[] = []; const seen = new Set<string>(); const groupIds = new Set<string>(); const groupItems = new Map<string, string[]>();
+        for (const r of (rows || []) as any[]) {
+          if (seen.has(r.item_id)) continue; seen.add(r.item_id);
+          const o: any = iMap.get(r.item_id);
+          const state = o && o.unavailable_until && new Date(o.unavailable_until).getTime() > now ? "today"
+            : o && o.available === false ? "off"
+            : r.available === false ? "hq" : "on";
+          items.push({ id: r.item_id, name: r.item_name, category: r.category_name, menu: r.menu_name, state, until: state === "today" ? o.unavailable_until : null });
+          for (const g of (Array.isArray(r.modifiers) ? r.modifiers : [])) {
+            if (!g || !g.id) continue; groupIds.add(g.id);
+            const l = groupItems.get(g.id) || []; if (l.length < 4 && !l.includes(r.item_name)) l.push(r.item_name); groupItems.set(g.id, l);
+          }
+        }
+        const gids = [...groupIds];
+        const [{ data: groups }, { data: opts }, { data: mov }] = await Promise.all([
+          gids.length ? admin.from("menu_modifier_groups").select("id, name, required, min_select").in("id", gids) : Promise.resolve({ data: [] } as any),
+          gids.length ? admin.from("menu_modifiers").select("id, name, group_id, sort_order").in("group_id", gids) : Promise.resolve({ data: [] } as any),
+          admin.from("menu_modifier_overrides").select("option_id, available, unavailable_until").eq("location_id", location_id),
+        ]);
+        const mMap = new Map((mov || []).map((o: any) => [o.option_id, o]));
+        const options = (opts || []).map((m: any) => {
+          const o: any = mMap.get(m.id);
+          const state = o && o.unavailable_until && new Date(o.unavailable_until).getTime() > now ? "today" : o && o.available === false ? "off" : "on";
+          return { id: m.id, name: m.name, group_id: m.group_id, sort: m.sort_order ?? 999, state, until: state === "today" ? o.unavailable_until : null };
+        });
+        return json({ ok: true, by: who.name, items,
+          groups: (groups || []).map((g: any) => ({ id: g.id, name: g.name, required: !!g.required || Number(g.min_select || 0) > 0, used_by: groupItems.get(g.id) || [] })),
+          options });
+      }
+      case "stock_set": {
+        const { location_id, kind, id, state, staff_pin, name } = data || {};
+        if (!location_id || !id || !["item", "option"].includes(kind) || !["on", "today", "off"].includes(state)) return json({ error: "location_id, kind, id and state required" }, 400);
+        const who = await stockActor(staff_pin, location_id);
+        if (!who) return json({ ok: false, error: "bad_pin", message: "PIN not recognised for this store" }, 403);
+        let until: string | null = null;
+        if (kind === "item") {
+          if (state === "today") {
+            const { data: u, error } = await admin.rpc("menu_item_86", { p_location_id: location_id, p_item_id: id });
+            if (error) throw error; until = (u as any) || null;
+          } else {
+            const { data: cur } = await admin.from("menu_item_overrides").select("price").eq("item_id", id).eq("location_id", location_id).maybeSingle();
+            const { error } = await admin.from("menu_item_overrides")
+              .upsert({ item_id: id, location_id, price: cur?.price ?? null, available: state === "off" ? false : null, unavailable_until: null, updated_at: new Date().toISOString() }, { onConflict: "item_id,location_id" });
+            if (error) throw error;
+            if (state === "on" && (cur?.price ?? null) === null) await admin.from("menu_item_overrides").delete().eq("item_id", id).eq("location_id", location_id).is("price", null).is("available", null).is("unavailable_until", null);
+          }
+        } else {
+          const { data: lz } = await admin.from("menu_locations").select("timezone").eq("id", location_id).maybeSingle();
+          until = state === "today" ? nextSixAm(String((lz as any)?.timezone || "").trim() || "Europe/London") : null;
+          const { data: cur } = await admin.from("menu_modifier_overrides").select("price_delta").eq("option_id", id).eq("location_id", location_id).maybeSingle();
+          const { error } = await admin.from("menu_modifier_overrides")
+            .upsert({ option_id: id, location_id, price_delta: cur?.price_delta ?? null, available: state === "off" ? false : null, unavailable_until: until, updated_at: new Date().toISOString() }, { onConflict: "option_id,location_id" });
+          if (error) {
+            if (/unavailable_until/.test(String(error.message || ""))) return json({ ok: false, error: "setup", message: "Run db/stock_86.sql in Supabase first." }, 409);
+            throw error;
+          }
+          if (state === "on" && (cur?.price_delta ?? null) === null) await admin.from("menu_modifier_overrides").delete().eq("option_id", id).eq("location_id", location_id).is("price_delta", null).is("available", null);
+        }
+        await admin.from("device_events").insert({ location_id, screen_key: callerDevice?.screen_key || null, event: "stock", detail: { kind, id, name: name ? String(name).slice(0, 80) : null, state, until, by: who.name } });
+        return json({ ok: true, until });
+      }
       case "staff_set_stock": {
         const { item_id, location_id, available, staff_pin } = data || {};
         if (!item_id || !location_id) return json({ error: "item_id and location_id required" }, 400);
