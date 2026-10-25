@@ -3400,9 +3400,19 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const { order_id, item_id, item_status } = data || {};
         if (!order_id || !item_id) return json({ error: "order_id and item_id required" }, 400);
         if (!["ready", "preparing"].includes(String(item_status))) return json({ error: "bad item_status" }, 400);
+        // item_status is a Postgres enum: comparing it to a value the enum
+        // doesn't have ("voided") makes the whole UPDATE fail, which is why
+        // ticks never saved. Read the line, check in code, then update by id.
+        const { data: line, error: lErr } = await admin.from("menu_order_items").select("id, item_status")
+          .eq("id", String(item_id)).eq("order_id", String(order_id)).maybeSingle();
+        if (lErr) throw lErr;
+        if (!line || String((line as any).item_status || "") === "voided") return json({ ok: false, error: "line_gone", message: "That line was changed on the till — the ticket will refresh." }, 409);
         const { data: upd, error } = await admin.from("menu_order_items").update({ item_status: String(item_status) })
-          .eq("id", String(item_id)).eq("order_id", String(order_id)).or("item_status.is.null,item_status.neq.voided").select("id, item_status");
-        if (error) throw error;
+          .eq("id", String(item_id)).eq("order_id", String(order_id)).select("id, item_status");
+        if (error) {
+          if (/invalid input value for enum/i.test(String(error.message || ""))) return json({ ok: false, error: "bad_status", message: "The database doesn't accept \"" + item_status + "\" for a line — run db/item_status_check.sql and send the result." }, 409);
+          throw error;
+        }
         // Nothing matched: the line was voided or removed since the screen loaded.
         if (!upd || !upd.length) return json({ ok: false, error: "line_gone", message: "That line was changed on the till — the ticket will refresh." }, 409);
         return json({ ok: true, item_status: upd[0].item_status });
