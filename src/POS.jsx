@@ -1723,7 +1723,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
           );
           return (
             <div style={{ flexShrink: 0, background: P.masterBg, borderRadius: 12, padding: "8px 9px", display: "flex", gap: 6, alignItems: "center", gridColumn: "1 / 3", gridRow: 2, minWidth: 0, boxShadow: "0 2px 10px rgba(15,46,41,.2)", position: "relative", zIndex: 30 }}>
-              {barTeam && barTeam(vw >= 1600 ? 0 : vw >= 1250 ? 1 : 2)}
+              {barTeam && barTeam(Math.min(2, (vw >= 1600 ? 0 : vw >= 1250 ? 1 : 2) + (barKit && barKit.views && barKit.views.length ? 1 : 0)))}
               {shiftLabel && pill("shift", "◷", shiftLabel, () => { loadShift(); setShiftOpen(true); },
                 { color: "#fde68a", bg: sh ? "rgba(253,224,71,.10)" : "rgba(253,224,71,.16)", dashed: !sh })}
               {pill("drawer", "⇥", wide ? "Open drawer" : "Drawer", () => setDrawerAsk({ pin: "", busy: false, err: "" }), { color: "#cbd5e1", bg: "rgba(148,163,184,.12)" })}

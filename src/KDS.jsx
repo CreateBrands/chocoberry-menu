@@ -913,9 +913,10 @@ export default function KDS({ surface = "kds" }) {
     <div style={{ fontFamily: "'Hanken Grotesk',system-ui,-apple-system,sans-serif", background: "#eef0f3", color: "#1f2937", minHeight: "100vh", cursor: fullscreen ? "none" : "auto" }}>
       <style>{"@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800;900&display=swap');@keyframes kpop{0%{transform:scale(.96) translateY(6px);opacity:0}100%{transform:scale(1) translateY(0);opacity:1}}@keyframes kpulse{0%,100%{box-shadow:0 0 0 0 rgba(244,63,94,.5)}50%{box-shadow:0 0 0 5px rgba(244,63,94,0)}}@keyframes klate{0%,100%{opacity:1}50%{opacity:.72}}@keyframes ktoast{0%{transform:translate(-50%,20px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}@keyframes kfailflash{0%,100%{background:#dc2626}50%{background:#8f1414}}.kcard{animation:kpop .22s cubic-bezier(.2,.8,.2,1)}.krush{animation:kpulse 1.5s infinite}.klate .ktime{animation:klate 1.6s infinite}.kbtn{transition:filter .12s,transform .08s}.kbtn:hover{filter:brightness(1.12)}.kbtn:active{transform:translateY(1px) scale(.99)}.kitem{transition:opacity .15s,background .12s;border-radius:6px}.kitem:hover{background:#00000008}::-webkit-scrollbar{width:9px}::-webkit-scrollbar-thumb{background:#c3c9d2;border-radius:5px}::-webkit-scrollbar-thumb:hover{background:#a8b0bb}"}</style>
 
-      {/* A till-only screen on the POS has no top bar at all: everything it
-          showed now sits in the POS bottom strip. */}
-      {!(view === "pos" && kind === "pos") && (
+      {/* The POS view has no top bar at all: everything it showed, including
+          the Kitchen / Performance switch on combined screens, sits in the
+          POS bottom strip. */}
+      {view !== "pos" && (
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "11px 20px", background: "#ffffff", borderBottom: "1px solid #d8dce2", position: "sticky", top: 0, zIndex: 20, boxShadow: "0 1px 3px rgba(15,23,42,.06)" }}>
         <div style={{ display: kind === "pos" && view === "pos" ? "none" : "flex", alignItems: "center", gap: 18 }}>
           {/* The till shows no brand / store name — the space goes to the team and drawer. */}
@@ -980,7 +981,7 @@ export default function KDS({ surface = "kds" }) {
         </>)}
       </div>
       )}
-      {view === "pos" && <OfflineBar connected={connected} bare={kind === "pos"} />}
+      {view === "pos" && <OfflineBar connected={connected} bare />}
 
       {failedOrders.length > 0 && view !== "pos" && (
         <div style={{ animation: "kfailflash 1.1s ease-in-out infinite", color: "#fff", padding: "10px 18px", display: "flex", alignItems: "center", gap: 14, position: "sticky", top: 0, zIndex: 19, boxShadow: "0 4px 14px rgba(0,0,0,.25)", flexWrap: "wrap" }}>
@@ -1394,11 +1395,15 @@ export default function KDS({ surface = "kds" }) {
 
       {view === "pos" && (
         <POS loc={loc} storeToken={getParam("store") || null} tablesList={posTables}
-          bare={kind === "pos"}
+          bare
           barTeam={(compact) => <TeamChip loc={loc} bar compact={compact} />}
           textSize={size}
           barKit={{ problems: failedOrders.length + silentPrinters.length, onPrintLog: openPrintLog, connected, clock: nowClock,
             usb: ownsUsb ? { state: usbState, onClick: async () => { try { await usbPrinter.pair(); setUsbState("ready"); } catch (e) { setUsbState("error"); } } } : null,
+            views: kind === "kds+pos" ? [
+              { k: "v-kitchen", icon: "🍳", label: "Kitchen", tile: "Kitchen screen", onClick: () => setView("kitchen") },
+              { k: "v-perf", icon: "📈", label: "Performance", tile: "Performance", onClick: () => setView("perf") },
+            ] : [],
             sizes: Object.keys(SIZES), size, setSize, soundOn, setSoundOn, ringMode, setRingMode, testRing: ring,
             screenLabel: myName || ("Screen " + getScreenId()), onScreenSetup: () => setSetupOpen(true), fullscreen, goFullscreen }} />
       )}

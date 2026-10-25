@@ -200,6 +200,7 @@ export function StripTools({ kit, extra = [], onAnyTap }) {
 
   // Everything that can live on the strip, most important first.
   const items = [
+    ...((kit && kit.views) || []).slice(1),
     goFullscreen && { k: "full", icon: fullscreen ? "✕" : "⛶", label: fullscreen ? "Exit" : "", title: "Fullscreen", tile: fullscreen ? "Leave fullscreen" : "Fullscreen", onClick: goFullscreen },
     kit && { k: "printer", dot: problems ? "#ef4444" : "#4ade80", label: problems ? problems + " not printed" : "Printer", tile: problems ? problems + " not printed" : "Printer · all printed", title: "What the printers did", onClick: onPrintLog, alert: problems > 0 },
     usb && { k: "usb", icon: "🖨", label: usb.state === "ready" ? "USB" : usb.state === "unpaired" ? "Connect printer" : usb.state === "unsupported" ? "USB not supported" : "Printer disconnected", tile: usb.state === "ready" ? "USB printer connected" : "Connect USB printer", onClick: usb.onClick, alert: usb.state !== "ready" },
@@ -251,6 +252,11 @@ export function StripTools({ kit, extra = [], onAnyTap }) {
           </span>
         ))}
       </div>
+      {kit && kit.views && kit.views[0] && (() => { const v = kit.views[0]; return (
+        <div onClick={tap(v.onClick)} title={v.tile || v.label}
+          style={{ ...barPill(false), flexShrink: 0, fontWeight: 800, color: "#fbcfe8", background: "rgba(236,72,153,.16)", border: "1.5px solid rgba(236,72,153,.35)" }}>
+          <span style={{ fontSize: "clamp(14px,1.05vw,19px)", lineHeight: 1 }}>{v.icon}</span>{v.label}
+        </div>); })()}
       <div ref={moreBtn} onClick={() => setOpen((v) => !v)} title="More"
         style={{ ...barPill(false), flexShrink: 0, position: "relative", fontWeight: 800, background: open ? "linear-gradient(135deg,#14b8a6,#0d9488)" : "rgba(94,234,212,.09)", color: open ? "#fff" : "#5eead4" }}>
         <span style={{ fontSize: "clamp(15px,1.15vw,21px)", lineHeight: 1, letterSpacing: 1 }}>⋯</span>More
