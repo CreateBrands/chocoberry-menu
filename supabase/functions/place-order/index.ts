@@ -431,6 +431,16 @@ Deno.serve(async (req) => {
         items_added_log: roundLog,
         round_restarted: (oldBumps || []).length > 0,
       }).eq("id", orderId);
+      // ROUNDS PER SCREEN 2026-10-26: the screens that had already bumped the
+      // earlier rounds AND show this one. Only those fold their earlier lines
+      // away as served; a screen still working on round 1 keeps its whole
+      // ticket open. Separate update so a database without the column (before
+      // db/kds_restart_per_screen.sql) still takes the round.
+      try {
+        const { error: rsErr } = await admin.from("menu_orders")
+          .update({ restarted_screens: toReopen.map((b: any) => String(b.screen_key)) }).eq("id", orderId);
+        if (rsErr) console.error("restarted_screens not saved:", rsErr.message);
+      } catch (e) { console.error("restarted_screens not saved:", e); }
       if (toReopen.length) {
         try { await admin.from("kds_bump_log").insert(toReopen.map((b: any) => ({ order_id: b.order_id, screen_key: b.screen_key, location_id: b.location_id, bumped_at: b.bumped_at, bumped_by: b.bumped_by }))); }
         catch (e) { console.error("kds_bump_log archive failed:", e); }

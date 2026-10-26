@@ -322,6 +322,7 @@ export default function KDS({ surface = "kds" }) {
   const [fullscreen, setFullscreen] = useState(false);
   const [undo, setUndo] = useState(null);
   const [armedBump, setArmedBump] = useState(null); // {id, timer} — first tap arms, second confirms
+  const [untickedAsk, setUntickedAsk] = useState(null); // UNTICKED GUARD: { order, names }
   const [rushIds, setRushIds] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem("kds_rush") || "[]")); } catch { return new Set(); } });
   // Orders/payment view state
   const device = getDevice();
@@ -466,7 +467,7 @@ export default function KDS({ surface = "kds" }) {
   const load = useCallback(async () => {
     const seq = ++loadSeq.current;
     try {
-      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=" + (withSent.current ? "sent_at," : "") + "id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,amount_paid,kds_started_at,kds_bumped_at,served_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
+      let url = SUPABASE_URL + "/rest/v1/menu_orders?select=" + (withSent.current ? "sent_at,restarted_screens," : "") + "id,order_no,tablet_no,order_type,pickup_name,customer_note,status,print_failed,print_error,total,paid_method,paid_amount,amount_paid,kds_started_at,kds_bumped_at,served_at,items_added_at,items_added_log,round_restarted,created_at,order_channel,external_channel,external_ref,requested_for,menu_tables(label),menu_order_items(id,name_snapshot,qty,added_batch,modifiers_snapshot,note,item_status,item_id,menu_items(id,category_id,menu_categories(id,menu_id,menu_menus(id,name))))"
         // 'hold' = placed on the kiosk, waiting for the customer to pay at the
         // till. The kitchen sees it coming but must not start it; it becomes a
         // normal ticket the moment payment flips it to 'placed'.
@@ -478,8 +479,8 @@ export default function KDS({ surface = "kds" }) {
       url += "&created_at=gte." + encodeURIComponent(new Date(Date.now() - 20 * 3600 * 1000).toISOString());
       if (loc) url += "&location_id=eq." + loc;
       const r = await fetch(url, { headers: H, cache: "no-store" });
-      // Before db/sent_at.sql has run the column doesn't exist: drop it from
-      // the query and carry on timing from created_at, as before.
+      // Before db/sent_at.sql (or db/kds_restart_per_screen.sql) has run a
+      // column doesn't exist: drop both from the query and carry on as before.
       if (r.status === 400 && withSent.current) { withSent.current = false; return load(); }
       if (!r.ok) throw new Error("http " + r.status);
       const data = (await r.json()).reverse(); // back to oldest-first for the ticket rail
@@ -720,11 +721,23 @@ export default function KDS({ surface = "kds" }) {
   //     the double-fire above more likely.
   const MIN_CONFIRM_MS = 400;
   const ARM_WINDOW_MS = 8000;
-  const requestBump = (o) => {
+  // UNTICKED GUARD 2026-10-26: on a production screen, a ticket where some
+  // items are ticked ready and others aren't is still being worked on. The
+  // second tap then asks first instead of clearing it (London Road #T5-71:
+  // chips added as a new round were bumped unticked). A kitchen that never
+  // ticks (nothing ticked) and pass screens bump as before.
+  const requestBump = (o, lines) => {
     if (armedBump && armedBump.id === o.id) {
       if (Date.now() - armedBump.at < MIN_CONFIRM_MS) return; // stays armed
       if (armedBump.timer) clearTimeout(armedBump.timer);
       setArmedBump(null);
+      const pass = ["pass", "front", "expo", "counter"].includes(String(myStation || "").toLowerCase());
+      const ls = Array.isArray(lines) ? lines : [];
+      const open = ls.filter((it) => it.item_status !== DONE_ITEM);
+      if (!pass && open.length && open.length < ls.length) {
+        setUntickedAsk({ order: o, names: open.map((it) => (it.qty > 1 ? it.qty + " × " : "") + (it.name_snapshot || "Item")) });
+        return;
+      }
       bump(o);
       return;
     }
@@ -811,6 +824,16 @@ export default function KDS({ surface = "kds" }) {
   // creation, or when payment released a held order) — not when Pay was
   // pressed. Older orders without it fall back to created_at.
   const sentAt = (o) => o.sent_at || o.created_at;
+  // ROUNDS PER SCREEN 2026-10-26: were THIS screen's earlier rounds finished
+  // (bumped here) when the latest round arrived? place-order records the
+  // screens whose bump the round cleared (restarted_screens). The old
+  // order-wide round_restarted said yes as soon as ANY screen had bumped — so
+  // at London Road #T5-71 the dessert, coffee and pass bumps folded Cooking's
+  // unfinished food away as "served earlier" when chips were added, and the
+  // cook bumped what looked like a chips-only ticket. Older orders without the
+  // per-screen list keep the old rule.
+  const myScreenKey = getScreenId();
+  const restartedHere = (o) => Array.isArray(o.restarted_screens) ? o.restarted_screens.map(String).includes(String(myScreenKey)) : !!o.round_restarted;
   const clockStart = (o) => {
     const r = roundOf(o);
     if (!r || !o.items_added_at) return sentAt(o);
@@ -822,7 +845,7 @@ export default function KDS({ surface = "kds" }) {
     const earlierDone = earlier.length > 0 && earlier.every((it) => it.item_status === DONE_ITEM);
     // round_restarted is set by place-order when the ticket had already been
     // bumped before the new round arrived — i.e. the earlier rounds were served.
-    return (o.round_restarted || earlierDone) ? o.items_added_at : sentAt(o);
+    return (restartedHere(o) || earlierDone) ? o.items_added_at : sentAt(o);
   };
   // A till "Pay" puts the order on hold while the card or cash is taken, so
   // the kitchen sees it coming. One still on hold with nothing paid after 15
@@ -1176,7 +1199,7 @@ export default function KDS({ surface = "kds" }) {
             const allLines = o.menu_order_items || [];
             const latestBatch = allLines.reduce((m, it) => Math.max(m, Number(it.added_batch) || 0), 0);
             const newLines = latestBatch > 0 ? allLines.filter((it) => (Number(it.added_batch) || 0) >= latestBatch) : allLines;
-            const servedLines = o.round_restarted && latestBatch > 0 && newLines.length ? allLines.filter((it) => (Number(it.added_batch) || 0) < latestBatch) : [];
+            const servedLines = restartedHere(o) && latestBatch > 0 && newLines.length ? allLines.filter((it) => (Number(it.added_batch) || 0) < latestBatch) : [];
             const items = servedLines.length ? newLines : allLines;
             const doneCount = items.filter((it) => it.item_status === DONE_ITEM).length;
             const allDone = items.length > 0 && doneCount === items.length;
@@ -1269,7 +1292,7 @@ export default function KDS({ surface = "kds" }) {
                     {printingId === o.id ? "\u2026" : PRINTER}
                   </div>
                   {o.status === "placed" && <div onClick={() => start(o)} className="kbtn" style={{ flex: 1, textAlign: "center", padding: F(11) + "px 0", background: "#ffffff14", borderRadius: 9, fontWeight: 700, fontSize: F(14), cursor: "pointer" }}>Start</div>}
-                  <div onClick={() => requestBump(o)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: (armedBump && armedBump.id === o.id) ? "#b45309" : (allDone ? "#15803d" : "#16a34a"), borderRadius: 9, fontWeight: 800, fontSize: F(15.5), cursor: "pointer", color: "#ffffff", boxShadow: "none" }}>{(armedBump && armedBump.id === o.id) ? "Tap again ✓" : (CHECK + " Bump")}</div>
+                  <div onClick={() => requestBump(o, items)} className="kbtn" style={{ flex: 2, textAlign: "center", padding: F(11) + "px 0", background: (armedBump && armedBump.id === o.id) ? "#b45309" : (allDone ? "#15803d" : "#16a34a"), borderRadius: 9, fontWeight: 800, fontSize: F(15.5), cursor: "pointer", color: "#ffffff", boxShadow: "none" }}>{(armedBump && armedBump.id === o.id) ? "Tap again ✓" : (CHECK + " Bump")}</div>
                 </div>
               </div>
             );
@@ -1564,6 +1587,22 @@ export default function KDS({ surface = "kds" }) {
               style={{ width: "100%", boxSizing: "border-box", textAlign: "center", fontSize: 20, letterSpacing: 6, padding: "12px 0", borderRadius: 12, border: "1px solid #cbd5e1", background: "#ffffff", color: "#1f2937", marginBottom: 8, WebkitTextSecurity: "disc", textSecurity: "disc" }} />
             {payErr && <div style={{ color: "#f87171", fontSize: 13, textAlign: "center", marginBottom: 8 }}>{payErr}</div>}
             <div onClick={takePayment} className="kbtn" style={{ textAlign: "center", padding: "13px 0", borderRadius: 30, background: (payMethod && payPin) ? "#16a34a" : "#334155", color: "#fff", fontWeight: 800, fontSize: 16, cursor: (payMethod && payPin) ? "pointer" : "default", opacity: payBusy ? .6 : 1 }}>{payBusy ? "Processing…" : "Confirm payment"}</div>
+          </div>
+        </div>
+      )}
+
+      {untickedAsk && (
+        <div onClick={() => setUntickedAsk(null)} style={{ position: "fixed", inset: 0, zIndex: 300, background: "rgba(15,23,42,.55)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+          <div role="dialog" aria-label="Items not ticked" onClick={(e) => e.stopPropagation()} style={{ width: 440, maxWidth: "100%", background: "#fff", borderRadius: 18, padding: "22px 22px 18px", boxShadow: "0 30px 70px rgba(15,23,42,.45)", color: "#0f172a" }}>
+            <div style={{ fontSize: 13, fontWeight: 800, letterSpacing: ".08em", textTransform: "uppercase", color: "#b45309" }}>Not ticked yet</div>
+            <div style={{ fontSize: 21, fontWeight: 800, margin: "4px 0 10px" }}>{(untickedAsk.order.tablet_no ? "T" + untickedAsk.order.tablet_no + "-" : "#") + (untickedAsk.order.order_no ?? "")} still has {untickedAsk.names.length === 1 ? "an item" : untickedAsk.names.length + " items"} to make</div>
+            <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 12, padding: "10px 14px", marginBottom: 16 }}>
+              {untickedAsk.names.map((n, i) => <div key={i} style={{ fontSize: 17, fontWeight: 700, padding: "3px 0" }}>{n}</div>)}
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <div onClick={() => setUntickedAsk(null)} className="kbtn" style={{ flex: 1.4, textAlign: "center", padding: "15px 0", borderRadius: 12, background: "#16a34a", color: "#fff", fontWeight: 800, fontSize: 16, cursor: "pointer" }}>Keep the ticket</div>
+              <div onClick={() => { const o = untickedAsk.order; setUntickedAsk(null); bump(o); }} className="kbtn" style={{ flex: 1, textAlign: "center", padding: "15px 0", borderRadius: 12, background: "#fff", border: "1.5px solid #94a3b8", color: "#334155", fontWeight: 800, fontSize: 16, cursor: "pointer" }}>Bump anyway</div>
+            </div>
           </div>
         </div>
       )}
