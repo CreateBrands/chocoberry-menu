@@ -126,14 +126,15 @@ function formatOrderNo(seq) {
 }
 
 // Fetch a store's dining tables (is_table=true) for the picker.
-async function fetchTables(locationId) {
-  if (!locationId) return [];
+// strict: a failed request returns null (unknown) instead of [] (no tables).
+async function fetchTables(locationId, strict = false) {
+  if (!locationId) return strict ? null : [];
   try {
-    const r = await fetch(SUPABASE_URL + "/rest/v1/menu_tables?location_id=eq." + locationId + "&is_table=eq.true&active=eq.true&select=id,label,qr_token", { headers: H });
-    if (!r.ok) return [];
+    const r = await fetch(SUPABASE_URL + "/rest/v1/menu_tables?location_id=eq." + locationId + "&is_table=eq.true&active=eq.true&select=id,label,qr_token", { headers: H, cache: "no-store" });
+    if (!r.ok) return strict ? null : [];
     const rows = await r.json();
     return (rows || []).sort((a, b) => (parseInt(String(a.label).replace(/\D/g, "")) || 0) - (parseInt(String(b.label).replace(/\D/g, "")) || 0));
-  } catch { return []; }
+  } catch { return strict ? null : []; }
 }
 
 // If the current token is itself a table's QR token, return that table row.
@@ -3017,6 +3018,19 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         body: JSON.stringify(payload),
       });
       const resp = await res.json();
+      // The server insists on a table this tablet didn't know it needed:
+      // switch to the staff table step instead of "your order did not go through".
+      if (res.status === 409 && resp && resp.code === "table_required" && !kiosk) {
+        setPlacing(false);
+        setTableMode("pick");
+        if (!(tables || []).length) {
+          const st = await resolveStore(getStoreToken());
+          if (st && st.location_id) setTables(await fetchTables(st.location_id));
+        }
+        setOrderErr(resp.error);
+        openTablePicker();
+        return;
+      }
       if (!res.ok) throw new Error(resp.error || ("HTTP " + res.status));
       setOrderNo(formatOrderNo(resp.order_no));
       setLastOrderId(resp.order_id);
@@ -3101,18 +3115,35 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         setTables(await fetchTables(scanned.location_id));
       } else {
         // Token is a tablet link (or store token) -> customer must pick a table.
-        const st = kioskStoreId ? { location_id: kioskStoreId } : await resolveStore(token);
-        const loc = kioskStoreId || (st && st.location_id ? st.location_id : null);
-        if (!alive) return;
-        if (loc) {
-          const tbls = await fetchTables(loc);
-          if (!alive) return;
+        // TABLE REQUIRED 2026-10-26: this used to run once at start-up, and a
+        // failed request (slow network, server blip) read as "this store has
+        // no tables" until the tablet was restarted — so Al Zahia and Downtown
+        // tablets took orders with no table. Now a failure falls back to the
+        // tables this tablet last saw and keeps retrying until it gets an answer.
+        const memo = "tables_of:" + token;
+        const apply = (tbls) => {
           setTables(tbls);
           // The kiosk offers the store's real tables in the bag; it never uses
           // the staff-locked picker.
           setTableMode(kiosk ? "none" : (tbls.length ? "pick" : "none"));
-        } else {
-          setTableMode("none");
+        };
+        try { const saved = JSON.parse(localStorage.getItem(memo) || "null"); if (Array.isArray(saved)) apply(saved); } catch { /* storage off */ }
+        let wait = 5000;
+        for (;;) {
+          const st = kioskStoreId ? { location_id: kioskStoreId } : await resolveStore(token, true).catch(() => undefined);
+          if (!alive) return;
+          const loc = kioskStoreId || (st && st.location_id ? st.location_id : null);
+          if (st === null && !kioskStoreId) break;   // the link resolves to no store: leave as is
+          const tbls = loc ? await fetchTables(loc, true) : null;
+          if (!alive) return;
+          if (Array.isArray(tbls)) {
+            apply(tbls);
+            try { localStorage.setItem(memo, JSON.stringify(tbls)); } catch { /* storage off */ }
+            break;
+          }
+          await new Promise((res) => setTimeout(res, wait));
+          if (!alive) return;
+          wait = Math.min(wait * 2, 60000);
         }
       }
     })();

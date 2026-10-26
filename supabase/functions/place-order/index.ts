@@ -121,6 +121,37 @@ Deno.serve(async (req) => {
       location_id = loc?.id ?? null;
     }
 
+    // TABLE REQUIRED 2026-10-26 — a tablet-menu order at a store with dining
+    // tables needs a table that staff set with their PIN. The tablet already
+    // asks for it, but only once it has loaded the store's tables; a tablet that
+    // missed that load (a slow network at start-up) let customers order with no
+    // table at all — Al Zahia and Downtown, which have 40 and 34 tables. The
+    // same rule now holds here, whatever the tablet thinks. Not for the till
+    // (POS / phone / web), kiosks, the customer app, or adding to an order.
+    {
+      const src = String(tablet_no ?? "");
+      const tillSource = src === "POS" || src === "phone" || src === "web";
+      if (qr_token && location_id && !isApp && !kioskOk && !tillSource && !append_to_order_id) {
+        const { data: link } = await admin.from("menu_tables").select("is_table, label").eq("qr_token", qr_token).maybeSingle();
+        const isTabletLink = !!link && link.is_table === false && !/^customer menu link/i.test(String(link.label || ""));
+        if (isTabletLink) {
+          const { count } = await admin.from("menu_tables").select("id", { count: "exact", head: true })
+            .eq("location_id", location_id).eq("is_table", true).eq("active", true);
+          let tableOk = false;
+          if (table_id_in) {
+            const { data: t } = await admin.from("menu_tables").select("is_table, location_id, active").eq("id", table_id_in).maybeSingle();
+            tableOk = !!t && t.is_table === true && t.active !== false && t.location_id === location_id;
+          }
+          if ((count ?? 0) > 0 && !tableOk) {
+            return new Response(JSON.stringify({
+              error: "Please ask a member of staff to set your table before ordering.",
+              code: "table_required",
+            }), { status: 409, headers: { ...cors, "Content-Type": "application/json" } });
+          }
+        }
+      }
+    }
+
     // ── ORDERING PAUSED? Enforced SERVER-SIDE, deliberately. ──
     // The tablet also checks this (App.jsx polls every 10s) but a client check
     // alone does not hold: on 25 Aug, Slough had ordering paused at 22:47 and
