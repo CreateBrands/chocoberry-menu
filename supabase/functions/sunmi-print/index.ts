@@ -27,6 +27,8 @@ import {
 import { buildZReport, buildShiftSlip, buildCashSlip } from "../_shared/zreport.ts";
 import { buildOrderRasterHex, renderTreeToRasterParts } from "../_shared/raster.ts";
 import { zReportTree, shiftSlipTree, cashSlipTree } from "../_shared/zreport_raster.ts";
+import { normalizeReceiptCfg } from "../_shared/receipt_config.ts";
+import { buildDesignedReceiptText } from "../_shared/receipt_text.ts";
 
 // "raster" = Uber-style image tickets (real typography); anything else = text
 const RECEIPT_MODE = Deno.env.get("RECEIPT_MODE") ?? "text";
@@ -63,13 +65,18 @@ async function receiptHexFor(order: ReceiptOrder): Promise<string> {
   // NOTE: with RECEIPT_MODE="raster" (default) the LIVE receipt layout lives in
   // raster.ts (receiptTree). escpos.ts buildOrderReceipt is only the text
   // fallback used if raster throws. Edit raster.ts to change the printed slip.
-  if (RECEIPT_MODE === "raster") {
+  // RECEIPT DESIGNER: a store's designed customer receipt is always drawn as a
+  // picture (logo, QR and Arabic need it), whatever RECEIPT_MODE says; if that
+  // fails it falls back to its own text version, still with every legal line.
+  const designed = (order as any).receiptCfg && !(order as any).isKitchenTicket;
+  if (RECEIPT_MODE === "raster" || designed) {
     try {
       return await buildOrderRasterHex(order);
     } catch (e) {
       console.error("raster render failed, falling back to text:", e);
     }
   }
+  if (designed) return buildDesignedReceiptText(order, (order as any).receiptCfg).toHex();
   return buildOrderReceipt(order).toHex();
 }
 
@@ -207,6 +214,16 @@ async function resolveLineCategories(
   });
 }
 
+// RECEIPT DESIGNER: blanks in a store's receipt fall back to what the Z report
+// already uses (Cash settings: company address, tax number, VAT rate).
+function withStoreDefaults(c: ReturnType<typeof normalizeReceiptCfg> | undefined, st: Record<string, string>) {
+  if (!c) return c;
+  const out = { ...c };
+  if (!out.address && st.company_address) out.address = st.company_address;
+  if (!out.tax_id && st.tax_number) out.tax_id = st.tax_number;
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Build the receipt model from a menu_orders row + its menu_order_items
 // ---------------------------------------------------------------------------
@@ -270,6 +287,7 @@ async function loadReceiptOrder(
 
   // Dine-in table name (best-effort: tolerate unknown column naming)
   let tableLabel: string | undefined;
+  let tableIsReal = false;
   if (rec.table_id) {
     const { data: t } = await supabase
       .from("menu_tables")
@@ -278,6 +296,7 @@ async function loadReceiptOrder(
       .maybeSingle();
     if (t) {
       const tt = t as Record<string, unknown>;
+      tableIsReal = tt.is_table !== false;
       const raw = tt.name ?? tt.label ?? tt.table_number ?? tt.number ?? tt.code;
       if (raw != null) {
         const s = String(raw);
@@ -313,15 +332,21 @@ async function loadReceiptOrder(
   // Currency for every figure on the slip. Absent setting = GBP, so a UK
   // receipt is byte-for-byte what it was before.
   let currency = "GBP";
+  // RECEIPT DESIGNER: the store's designed customer receipt, if it has one.
+  let receiptCfg: ReturnType<typeof normalizeReceiptCfg> | undefined;
   if (rec.location_id) {
     const { data: cfg } = await supabase.from("menu_app_settings").select("key, value")
-      .in("key", ["brand_name:" + String(rec.location_id), "currency:" + String(rec.location_id)]);
+      .in("key", ["brand_name", "currency", "receipt", "company_address", "tax_number", "vat_rate"].map((k) => k + ":" + String(rec.location_id)));
+    const extra: Record<string, string> = {};
     for (const row of cfg ?? []) {
       const k = String((row as { key: string }).key).split(":")[0];
       const v = (row as { value: unknown }).value;
       if (k === "brand_name" && v) brandName = String(v);
       if (k === "currency" && v) currency = String(v);
+      if (k === "receipt" && v) receiptCfg = normalizeReceiptCfg(v);
+      if (v != null) extra[k] = String(v).trim();
     }
+    receiptCfg = withStoreDefaults(receiptCfg, extra);
   }
 
   const orderType =
@@ -366,7 +391,12 @@ async function loadReceiptOrder(
     currency,
     hasAdditions,
     batchTimes,
-  };
+    // RECEIPT DESIGNER — used only by the designed customer receipt.
+    receiptCfg,
+    invoiceNo: (rec as any).invoice_no ? String((rec as any).invoice_no) : undefined,
+    tableLabel: tableIsReal ? tableLabel : undefined,
+    dineIn: rec.order_type === "dine_in",
+  } as ReceiptOrder;
 }
 
 // ---------------------------------------------------------------------------
@@ -1016,6 +1046,44 @@ Deno.serve(async (req) => {
           error: ok(res) ? null : (res.msg ?? "test push failed"),
         });
         return json(res, ok(res) ? 200 : 502);
+      }
+      // RECEIPT DESIGNER: print a sample of a store's receipt design (saved or
+      // not yet saved) on that store's receipt printer, from Admin.
+      case "receipt-test": {
+        const locationId = String(body.location_id || "");
+        if (!locationId) return json({ ok: false, error: "location_id required" }, 400);
+        const tz = await storeZone(locationId);
+        const { data: setRows } = await supabase.from("menu_app_settings").select("key, value")
+          .in("key", ["brand_name", "currency", "company_address", "tax_number"].map((k) => k + ":" + locationId));
+        const st: Record<string, string> = {};
+        for (const row of setRows || []) st[String((row as any).key).split(":")[0]] = String((row as any).value ?? "").trim();
+        const cfg = withStoreDefaults(normalizeReceiptCfg(body.config), st)!;
+        const uae = cfg.country === "UAE";
+        const sample = {
+          orderNumber: "042", tabletNo: "5", placedAt: new Date().toLocaleString("en-GB", { timeZone: tz }),
+          items: uae
+            ? [{ qty: 1, name: "Dubai Choc Cup", price: 39, modifiers: ["Pistachio sauce"] }, { qty: 1, name: "Spanish Latte", price: 22, modifiers: [] }, { qty: 1, name: "Mojito", price: 26, modifiers: [] }]
+            : [{ qty: 1, name: "Chocoberry Waffle", price: 8.99, modifiers: ["Vanilla ice cream"] }, { qty: 1, name: "Strawberry Cup", price: 7.99, modifiers: [] }, { qty: 1, name: "Hot Chocolate", price: 3.99, modifiers: [] }],
+          total: uae ? 87 : 20.97, amountPaid: uae ? 87 : 20.97, paidMethod: "card",
+          brandName: st.brand_name || "Chocoberry", currency: st.currency || (uae ? "AED" : "GBP"),
+          receiptCfg: cfg, invoiceNo: uae ? (cfg.invoice_prefix || "INV") + "-TEST" : undefined, tableLabel: "Table 12", dineIn: true,
+        } as unknown as ReceiptOrder;
+        const { data: printers } = await supabase.from("printers")
+          .select("sn, station, print_receipt, print_role, location_id, active, paper_mm")
+          .eq("location_id", locationId).eq("active", true);
+        const all = printers || [];
+        const receipts = all.filter((p: any) => p.print_receipt === true || String(p.print_role || "").toLowerCase() === "receipt");
+        const counter = all.filter((p: any) => String(p.station || "") === "counter");
+        const pr: any = body.sn ? all.find((p: any) => String(p.sn) === String(body.sn)) : (receipts[0] || counter[0] || all[0]);
+        if (!pr) return json({ ok: false, error: "no_printer", message: "No active printer at this store." });
+        const hex = await receiptHexFor({ ...sample, paperMm: Number(pr.paper_mm) || 80 } as ReceiptOrder);
+        if (isLocalSn(String(pr.sn))) {
+          const q = await enqueueLocal(String(pr.sn), hex, { slip: "test", max_batch: 0 });
+          return json({ ok: q, local: true, printer: pr.sn, error: q ? null : lastEnqueueError });
+        }
+        const res = await sunmi.pushContent(String(pr.sn), "rcpt" + Date.now().toString(36), hex);
+        await logJob({ printer_sn: String(pr.sn), status: ok(res) ? "sent" : "failed", slip: "test", response: res, error: ok(res) ? null : (res.msg ?? "test push failed") });
+        return json({ ok: ok(res), printer: pr.sn, message: ok(res) ? null : (res.msg ?? "The printer refused the test.") });
       }
       case "print-order": {
         const { data, error } = await supabase

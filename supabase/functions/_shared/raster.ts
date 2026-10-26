@@ -19,6 +19,7 @@
 import satori from "npm:satori@0.12.2";
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
 import type { ReceiptOrder } from "./escpos.ts";
+import { customerReceiptTree, receiptPictures } from "./receipt_raster.ts";
 
 const W = 576; // NT311 printable width in dots (80mm); 58mm printers (Sunmi handhelds) are 384
 const dotsFor = (mm?: number) => (mm && mm <= 60 ? 384 : W);
@@ -186,9 +187,14 @@ export async function buildOrderRasterHex(o: ReceiptOrder): Promise<string> {
   const { inter400, inter700 } = await loadAssets();
   const paperDots = dotsFor((o as any).paperMm);
 
-  const svg = await satori(receiptTree(o) as never, {
+  // RECEIPT DESIGNER: a customer receipt at a store that has designed one.
+  // Kitchen tickets, and stores without a design, print exactly as before.
+  const cfg = (o as any).receiptCfg;
+  const designed = !!cfg && !(o as any).isKitchenTicket;
+  const tree = designed ? customerReceiptTree(o, cfg, await receiptPictures(o, cfg, paperDots)) : receiptTree(o);
+  const svg = await satori(tree as never, {
     width: paperDots,
-    height: 2000, // generous canvas; trimmed to content below
+    height: designed ? 3200 : 2000, // generous canvas; trimmed to content below
     fonts: [
       { name: "Inter", data: inter400, weight: 400, style: "normal" },
       { name: "Inter", data: inter700, weight: 700, style: "normal" },

@@ -5,6 +5,7 @@
 // write with the service role. One function, several actions.
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { normalizeReceiptCfg, receiptMissing } from "../_shared/receipt_config.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -308,6 +309,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
       case "store_pin_set": case "store_pin_delete": case "set_store_menus":
         if (act === "set_store_menus" && !allOrEmpty(F.menus, d.menu_ids)) return OUT;
         return ok(has(F.locs, d.location_id));
+      case "receipt_save": case "receipt_test": return ok(has(F.locs, d.location_id));
       case "set_setting": {
         // Only per-store keys ("<name>:<location id>") for their own stores.
         // Plain keys (theme, hero_slides, ordering_enabled…) are chain-wide.
@@ -1848,6 +1850,44 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
                   { onConflict: "key" });
         if (error) throw error;
         return json({ ok: true, key, value });
+      }
+
+      // ---- RECEIPT DESIGNER 2026-10-26: a store's customer receipt ----
+      // Saves the design ("receipt:<location>") and, for a UAE store, switches
+      // on its tax-invoice counter with the prefix given. Empty config = go
+      // back to the standard receipt.
+      case "receipt_save": {
+        const { location_id, config, clear } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const key = "receipt:" + String(location_id);
+        if (clear) {
+          await admin.from("menu_app_settings").delete().eq("key", key);
+          await admin.from("receipt_invoice_seq").update({ enabled: false, updated_at: new Date().toISOString() }).eq("location_id", location_id);
+          return json({ ok: true, cleared: true });
+        }
+        const cfg = normalizeReceiptCfg(config);
+        const missing = receiptMissing(cfg);
+        if (missing.length) return json({ error: "missing", message: "Fill in the " + missing.join(", ") + " first — they are required on a " + (cfg.country === "UAE" ? "UAE tax invoice." : "UK VAT receipt."), missing }, 400);
+        const { error } = await admin.from("menu_app_settings")
+          .upsert({ key, value: JSON.stringify(cfg), updated_at: new Date().toISOString() }, { onConflict: "key" });
+        if (error) throw error;
+        if (cfg.country === "UAE") {
+          const { error: sErr } = await admin.from("receipt_invoice_seq")
+            .upsert({ location_id, enabled: true, prefix: cfg.invoice_prefix, updated_at: new Date().toISOString() }, { onConflict: "location_id" });
+          if (sErr) return json({ error: "invoice_counter", message: "Saved, but the invoice counter isn't set up — run receipt_designer.sql. " + sErr.message }, 500);
+        } else {
+          await admin.from("receipt_invoice_seq").update({ enabled: false, updated_at: new Date().toISOString() }).eq("location_id", location_id);
+        }
+        const { data: seq } = await admin.from("receipt_invoice_seq").select("next_no, prefix, enabled").eq("location_id", location_id).maybeSingle();
+        return json({ ok: true, config: cfg, invoice: seq || null });
+      }
+      // Print a sample of the design (saved or not) on the store's receipt printer.
+      case "receipt_test": {
+        const { location_id, config } = data || {};
+        if (!location_id) return json({ error: "location_id required" }, 400);
+        const r = await callSunmi({ action: "receipt-test", location_id, config: normalizeReceiptCfg(config) });
+        const b = (r.body && typeof r.body === "object") ? r.body : {};
+        return json({ ...b, ok: !!(r.ok && b.ok !== false), message: b.message || (r.ok ? null : "The test didn't print (" + r.status + ").") });
       }
 
       // ---- SETTINGS: upsert a key/value into menu_app_settings ----
