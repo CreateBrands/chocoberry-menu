@@ -208,6 +208,21 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
 
   // On first mount, honour the saved default view for this tablet.
   useEffect(() => { setMode(defaultView === "orders" ? "orders" : "new"); }, []); // eslint-disable-line
+
+  // ORIENTATION 2026-10-26 — the till is laid out for landscape. A tablet whose
+  // home-screen app was installed from the menu page (or from /activate, which
+  // gets the menu's manifest) is locked to portrait by that app, and turning
+  // the tablet does nothing (Zahia). Ask for landscape: an installed or
+  // fullscreen app may grant it; a plain browser tab ignores it, harmlessly.
+  useEffect(() => {
+    const lock = () => {
+      try { const o = window.screen && window.screen.orientation; if (o && o.lock) o.lock("landscape").catch(() => {}); } catch { /* not supported */ }
+    };
+    lock();
+    document.addEventListener("fullscreenchange", lock);
+    document.addEventListener("visibilitychange", lock);
+    return () => { document.removeEventListener("fullscreenchange", lock); document.removeEventListener("visibilitychange", lock); };
+  }, []);
   // Tick for live elapsed-time colouring in the orders list.
   useEffect(() => { const id = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(id); }, []);
 
