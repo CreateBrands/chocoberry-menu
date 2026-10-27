@@ -187,6 +187,19 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
   }
   div();
 
+  // ---- Card check (CARD CHECK 2026-10-27) ----
+  if (s.terminal_card != null || s.terminal_na) {
+    sec("CARD MACHINE");
+    lr("  Card on the till", num(s.card));
+    if (s.terminal_na) r.bold(true).line("  Machine total not available").bold(false);
+    else {
+      lr("  Card machine end-of-day", num(s.terminal_card));
+      const g = Number(s.card_gap) || 0;
+      r.bold(true); lr(Math.abs(g) < 0.01 ? "CARD MATCHES" : g > 0 ? "MACHINE HIGHER" : "MACHINE LOWER", num(g)); r.bold(false);
+    }
+    div();
+  }
+
   // ---- Controls ----
   sec("CONTROLS");
   row3("", "COUNT", cur);

@@ -3557,6 +3557,15 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         // CASH CONTROLS 2026-10-24 — who may close, and on what terms.
         const closerIsManager = !staffCloser || isManagerRole(staffCloser.role);
         if (fig.counted == null && !closerIsManager) return json({ error: "count_required", message: "Count the drawer before closing." }, 400);
+        // CARD CHECK 2026-10-27: stores without a linked card machine type its
+        // end-of-day total, so a card gap shows on the Z the same night.
+        const termRaw = data?.terminal_card;
+        const terminalCard = termRaw == null || termRaw === "" || !isFinite(Number(termRaw)) ? null : round2(Number(termRaw));
+        const terminalNa = terminalCard == null && !!data?.terminal_na;
+        const cardGap = terminalCard == null ? null : round2(terminalCard - Number((summary as any).card || 0));
+        if ((terminalNa || (cardGap != null && Math.abs(cardGap) >= fig.limit)) && !String(note || "").trim()) {
+          return json({ error: "note_required", message: terminalNa ? "Say why there's no card machine total." : "The card machine is out by " + fig.limit + " or more — say what happened." }, 400);
+        }
         if ((fig.outBy || fig.floatChanged) && !String(note || "").trim()) {
           return json({ error: "note_required", message: fig.floatChanged ? "Say why the float is different." : "The drawer is out by " + fig.limit + " or more — say what happened." }, 400);
         }
@@ -3580,6 +3589,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const controls = { float_known: fig.knownFloat, float_changed: fig.floatChanged, approved_by: approvedBy, count_attempts: countAttempts,
           first_count: countAttempts.length > 1 ? countAttempts[0].counted : null, recounts: Math.max(0, countAttempts.length - 1),
           float_left: floatLeft, to_bank: toBank,
+          terminal_card: terminalCard, terminal_na: terminalNa || undefined, card_gap: cardGap,
           paid_out: fig.mv.payouts, paid_in: fig.mv.payins, dropped_mid_shift: fig.mv.drops, payout_reasons: fig.mv.byReason };
         // Kitchen speed for the period being closed.
         const { data: tgtRow } = await admin.from("menu_app_settings").select("value").eq("key", "kds_target_minutes:" + location_id).maybeSingle();

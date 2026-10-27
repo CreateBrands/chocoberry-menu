@@ -390,7 +390,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
   }
   async function openCloseTill() {
     closeTillCache.current = {};   // fresh figures each time the sheet opens
-    setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "", preview: null, floatEdit: false, mgrPin: "", pinFor: "staff" });
+    setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "", preview: null, floatEdit: false, mgrPin: "", pinFor: "staff", terminal: "", terminalNa: false });
     let sm = await loadCloseTillSummary("trading_day");
     // CLOSE FIX 2026-10-27: before 4am the server answers "all" (one close for
     // the whole night) — take its word for the mode rather than assuming.
@@ -466,6 +466,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       const r = await fetch(SUPABASE_URL + "/functions/v1/admin-api", { method: "POST", headers: H, body: JSON.stringify({ pin: c.pin, device: deviceToken(), action: "close_day", data: {
         location_id: loc, mode: c.mode, staff_pin: c.pin, cash_counted: c.counted === "" ? null : Number(c.counted),
         float_amount: c.floatEdit && c.float !== "" ? Number(c.float) : null, note: c.note.trim() || null, manager_pin: c.mgrPin || null,
+        terminal_card: needTerminal && c.terminal !== "" ? Number(c.terminal) : null, terminal_na: needTerminal && c.terminalNa,
       } }) });
       const j = await r.json().catch(() => ({}));
       if (j && j.error === "manager_required") setCloseTill((x) => x && { ...x, pinFor: "manager", mgrPin: "", mgrForced: true });
@@ -489,6 +490,8 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
     fetch(SUPABASE_URL + "/rest/v1/teya_terminals?select=id,label,tablet_no&active=eq.true&location_id=eq." + loc, { headers: H })
       .then((r) => r.ok ? r.json() : []).then((rows) => setTeyaTerminal((rows || []).length ? rows : null)).catch(() => setTeyaTerminal(null));
   }, [loc]); // eslint-disable-line
+  // CARD CHECK 2026-10-27: no linked card machine → type its total at close.
+  const needTerminal = !teyaTerminal;
   const [teyaWait, setTeyaWait] = useState(null); // { amount, label, prId, status, reason, note }
   const teyaCancelRef = useRef(false);
   // Card failures used to go only to `msg`, which renders inside the cart panel
@@ -1882,9 +1885,15 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         const input = (extra) => ({ display: "block", width: "100%", boxSizing: "border-box", padding: "13px 14px", fontSize: 15, fontWeight: 500, border: "2px solid " + C.line, borderRadius: 14, outline: "none", fontFamily: "inherit", background: "#fff", ...extra });
         const stages = ["Review", "Cash", "Sign off"];
         const stage = closeTill.step === "done" ? 3 : closeTill.stage;
-        const varianceNeedsNote = !!(pv && pv.note_needed) && !closeTill.note.trim();
+        // CARD CHECK 2026-10-27: no linked card machine → its end-of-day total is
+        // typed at close and compared with the till's card.
+        const termVal = needTerminal && closeTill.terminal !== "" ? Number(closeTill.terminal) : null;
+        const cardGap = termVal == null ? null : Math.round((termVal - Number(sm ? sm.card : 0)) * 100) / 100;
+        const cardOut = closeTill.terminalNa || (cardGap != null && Math.abs(cardGap) >= VARIANCE_NOTE_FROM);
+        const terminalMissing = needTerminal && termVal == null && !closeTill.terminalNa;
+        const varianceNeedsNote = (!!(pv && pv.note_needed) || (needTerminal && cardOut)) && !closeTill.note.trim();
         const closer = closeTill.staff && closeTill.staff.name ? closeTill.staff.name : null;
-        const signoffOk = closeTill.pin.length >= 4 && !varianceNeedsNote;
+        const signoffOk = closeTill.pin.length >= 4 && !varianceNeedsNote && !terminalMissing;
         const Btn = ({ primary, grow, ...p }) => <TBtn kind={primary ? "primary" : "secondary"} grow={grow || 1} {...p} />;
         const shut = () => { if (closeTill.busy) return; setNoteKb(false); setPadFor(null); setCloseTill(null); };
         const when = sm && sm.first_order ? (() => {
@@ -2016,15 +2025,16 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
           const isDenoms = closeTill.countMode === "denoms";
           const target = padFor || (isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" });
           const curVal = target.kind === "denom" ? String(closeTill.denoms?.[target.d] ?? "")
-            : target.kind === "float" ? String(closeTill.float || "") : String(closeTill.counted || "");
+            : target.kind === "float" ? String(closeTill.float || "") : target.kind === "terminal" ? String(closeTill.terminal || "") : String(closeTill.counted || "");
           const setVal = (t, next) => setCloseTill((c) => t.kind === "denom"
             ? { ...c, denoms: { ...(c.denoms || {}), [t.d]: next } }
-            : t.kind === "float" ? { ...c, float: next } : { ...c, counted: next });
+            : t.kind === "float" ? { ...c, float: next } : t.kind === "terminal" ? { ...c, terminal: next, terminalNa: false } : { ...c, counted: next });
           const goNext = () => {
             if (target.kind === "denom") {
               const i = DENOMS.indexOf(target.d);
               setPadFor(i >= 0 && i < DENOMS.length - 1 ? { kind: "denom", d: DENOMS[i + 1] } : { kind: "denom", d: DENOMS[0] });
-            } else setPadFor(isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" });
+            } else if (target.kind === "terminal") setPadFor(null);
+            else setPadFor(isDenoms ? { kind: "denom", d: DENOMS[0] } : { kind: "counted" });
           };
           const showResult = pv && !padFor;
           const notes = DENOMS.filter((d) => d >= 5), coins = DENOMS.filter((d) => d < 5);
@@ -2068,6 +2078,19 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                     ? <span className="tu-btn" onClick={(e) => { e.stopPropagation(); setCloseTill((c) => ({ ...c, floatEdit: true, float: "" })); setPadFor({ kind: "float" }); }} style={{ fontSize: 13.5, color: U.teal, fontWeight: 800, cursor: "pointer", padding: "8px 10px", borderRadius: 10, background: "#fff", border: "1px solid " + C.line }}>Different?</span>
                     : <span className="tu-btn" onClick={(e) => { e.stopPropagation(); setPadFor(null); setCloseTill((c) => ({ ...c, floatEdit: false, float: c.floatKnown || "" })); }} style={{ fontSize: 13.5, color: C.muted, fontWeight: 800, cursor: "pointer", padding: "8px 10px", borderRadius: 10, background: "#fff", border: "1px solid " + C.line }}>Undo</span>}
                 </div>
+                {/* CARD CHECK 2026-10-27 — only at stores without a linked card machine. */}
+                {needTerminal && (
+                  <div className="tu-tile" onClick={() => setPadFor({ kind: "terminal" })} style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 12, background: closeTill.terminalNa ? U.warnBg : termVal == null ? "#fff" : U.soft, borderRadius: 16, padding: "12px 15px", border: "2px solid " + (!showResult && target.kind === "terminal" ? U.teal : termVal == null && !closeTill.terminalNa ? U.amber : "transparent"), cursor: "pointer" }}>
+                    <span style={{ width: 38, height: 38, borderRadius: 11, background: "#fff", border: "1px solid " + C.line, color: U.teal, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><TillIcon.card size={19} /></span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: C.muted }}>{closeTill.terminalNa ? "Card machine total — not available (a note at sign-off)" : "Card machine end-of-day total — run it now, type the total"}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, ...NUM }}>{closeTill.terminalNa ? "—" : termVal == null ? <span style={{ color: U.warn, fontSize: 16 }}>Required</span> : gbp(termVal)}</div>
+                    </div>
+                    {!closeTill.terminalNa
+                      ? <span className="tu-btn" onClick={(e) => { e.stopPropagation(); setPadFor(null); setCloseTill((c) => ({ ...c, terminal: "", terminalNa: true })); }} style={{ fontSize: 13.5, color: C.muted, fontWeight: 800, cursor: "pointer", padding: "8px 10px", borderRadius: 10, background: "#fff", border: "1px solid " + C.line, whiteSpace: "nowrap" }}>Can't get it</span>
+                      : <span className="tu-btn" onClick={(e) => { e.stopPropagation(); setCloseTill((c) => ({ ...c, terminalNa: false })); setPadFor({ kind: "terminal" }); }} style={{ fontSize: 13.5, color: U.teal, fontWeight: 800, cursor: "pointer", padding: "8px 10px", borderRadius: 10, background: "#fff", border: "1px solid " + C.line }}>Type it</span>}
+                  </div>
+                )}
               </div>
               <div>
                 <Stat tone="dark" label="Counted so far" money={countedVal || 0} note={isDenoms ? Object.values(closeTill.denoms || {}).filter((v) => Number(v) > 0).length + " of " + DENOMS.length + " counted" : null} />
@@ -2088,7 +2111,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                   </div>
                 ) : (
                   <div style={{ marginTop: 14 }}>
-                    <TLabel>{target.kind === "denom" ? "How many " + dLabel(target.d) + "?" : target.kind === "float" ? "Actual float" : "Cash counted"}</TLabel>
+                    <TLabel>{target.kind === "denom" ? "How many " + dLabel(target.d) + "?" : target.kind === "float" ? "Actual float" : target.kind === "terminal" ? "Card machine total" : "Cash counted"}</TLabel>
                     <Keypad key={target.kind + (target.d ?? "")} value={curVal} decimal={target.kind !== "denom"} money={target.kind !== "denom"} max={target.kind === "denom" ? 4 : 9}
                       onChange={(v) => { setPadFor(target); setVal(target, v); }} />
                     <div style={{ marginTop: 9 }}>
@@ -2113,7 +2136,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) 330px", gap: 24 }}>
               <div>
                 {variance != null && <Verdict variance={variance} fmt={gbp} counted={countedVal} expected={expected} />}
-                <Section title={varianceNeedsNote ? "Note — required for the variance" : "Note"} style={{ marginTop: variance != null ? 16 : 0 }}>
+                <Section title={varianceNeedsNote ? (pv && pv.note_needed ? "Note — required for the variance" : "Note — required for the card machine") : "Note"} style={{ marginTop: variance != null ? 16 : 0 }}>
                   {/* readOnly + blur on focus, like every other field in
                       this sheet: the device has no system keyboard, and
                       letting it try just put a caret in a dead box. */}
@@ -2157,6 +2180,9 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                       expected != null && ["Expected", gbp(expected)],
                       variance != null && [variance === 0 ? "Balanced" : variance > 0 ? "Over" : "Short", (variance < 0 ? "-" : variance > 0 ? "+" : "") + gbp(Math.abs(variance)), { strong: true, tone: variance === 0 ? U.good : variance > 0 ? U.over : U.bad }],
                       sm.unpaid_count > 0 && ["Unpaid archived (" + sm.unpaid_count + ")", gbp(sm.unpaid_total), { tone: U.warn }],
+                      needTerminal && "-",
+                      needTerminal && ["Card machine", closeTill.terminalNa ? "not available" : termVal == null ? "not typed" : gbp(termVal), termVal == null ? { tone: U.warn } : null],
+                      cardGap != null && [Math.abs(cardGap) < 0.01 ? "Card matches" : cardGap > 0 ? "Machine higher" : "Machine lower", (cardGap > 0 ? "+" : cardGap < 0 ? "-" : "") + gbp(Math.abs(cardGap)), { strong: true, tone: Math.abs(cardGap) < 0.01 ? U.good : Math.abs(cardGap) >= VARIANCE_NOTE_FROM ? U.bad : U.warn }],
                     ]}
                     foot={closer ? "Closed by " + closer : "Signed with your staff PIN"} />
                   <TNote><span style={{ display: "inline-flex", verticalAlign: "-3px", marginRight: 6, color: U.teal }}><TillIcon.printer size={16} /></span>The Z-report prints on this store's printer and the close is saved for head office. {sm.mode === "trading_day" && sm.later_count > 0 ? sm.later_count + " orders since 4:00 stay open." : ""}</TNote>
@@ -2206,6 +2232,9 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                       ["Cash", gbp(rs.cash)], ["Card", gbp(rs.card)], rs.other > 0 && ["Other", gbp(rs.other)],
                       "-", ["TOTAL", gbp(rs.total), { strong: true }],
                       rs.unpaid_count > 0 && ["Unpaid archived (" + rs.unpaid_count + ")", gbp(rs.unpaid_total), { tone: U.warn }],
+                      rs.terminal_card != null && "-",
+                      rs.terminal_card != null && ["Card machine", gbp(rs.terminal_card)],
+                      rs.card_gap != null && [Math.abs(rs.card_gap) < 0.01 ? "Card matches" : rs.card_gap > 0 ? "Machine higher" : "Machine lower", (rs.card_gap > 0 ? "+" : rs.card_gap < 0 ? "-" : "") + gbp(Math.abs(rs.card_gap)), { strong: true }],
                     ]}
                     foot={closer ? "Closed by " + closer : null} />
                 </Section>
@@ -2248,7 +2277,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         else if (closeTill.step === "summary" && stage === 2) footer = (<>
           <Btn icon={<TillIcon.back size={18} />} onClick={() => { if (closeTill.busy) return; setNoteKb(false); setCloseTill((c) => ({ ...c, stage: 1, err: "" })); }}>Back</Btn>
           <Btn primary grow={2} icon={<TillIcon.printer size={18} />} disabled={closeTill.busy || !signoffOk} onClick={() => confirmCloseTill({ counted: countedVal == null ? "" : String(countedVal) })}>
-            {closeTill.busy ? "Closing…" : varianceNeedsNote ? "Add a note for the variance" : closeTill.pin.length < 4 ? "Enter your PIN" : closer ? "Close till as " + closer.split(" ")[0] : "Close till & print Z-report"}
+            {closeTill.busy ? "Closing…" : terminalMissing ? "Type the card machine total" : varianceNeedsNote ? "Add a note for the variance" : closeTill.pin.length < 4 ? "Enter your PIN" : closer ? "Close till as " + closer.split(" ")[0] : "Close till & print Z-report"}
           </Btn>
         </>);
         else if (closeTill.step === "done") footer = (<>

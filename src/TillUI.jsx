@@ -60,6 +60,7 @@ export const Icon = {
   clock: S(<><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>),
   drawer: S(<><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 11h18" /><path d="M10 15h4" /></>),
   cash: S(<><rect x="2.5" y="6" width="19" height="12" rx="2" /><circle cx="12" cy="12" r="2.6" /><path d="M6 9.5v.01M18 14.5v.01" /></>),
+  card: S(<><rect x="2.5" y="5" width="19" height="14" rx="2" /><path d="M2.5 10h19" /><path d="M6 15h4" /></>),
   safe: S(<><rect x="3" y="3.5" width="18" height="17" rx="2" /><circle cx="12" cy="12" r="3.2" /><path d="M12 8.8V7.6M12 16.4v-1.2M15.2 12h1.2M7.6 12h1.2" /><path d="M6 20.5v1.2M18 20.5v1.2" /></>),
   bag: S(<><path d="M7 8h10l1.6 11.2a1.6 1.6 0 0 1-1.6 1.8H7a1.6 1.6 0 0 1-1.6-1.8L7 8z" /><path d="M9 8V6.5a3 3 0 0 1 6 0V8" /></>),
   up: S(<><path d="M12 19V5" /><path d="M6 11l6-6 6 6" /></>),

@@ -209,6 +209,21 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
       txt("CASH NOT COUNTED", { fontSize: fs(26), fontWeight: 700, letterSpacing: 2 })));
   }
 
+  // ---- 8b. Card check (CARD CHECK 2026-10-27) ----
+  // Stores without a linked card machine type its end-of-day total at close.
+  if (s.terminal_card != null || s.terminal_na) {
+    parts.push(bar("CARD MACHINE"));
+    parts.push(line("Card on the till", n2(s.card)));
+    if (s.terminal_na) parts.push(txt("Machine total not available at close", { fontSize: body, fontWeight: 700 }));
+    else {
+      parts.push(line("Card machine end-of-day", n2(s.terminal_card)));
+      const g = Number(s.card_gap) || 0;
+      parts.push(el({ border: "3px solid #000", justifyContent: "space-between", alignItems: "center", padding: `${fs(6)}px ${fs(12)}px`, marginTop: fs(6) },
+        txt(Math.abs(g) < 0.01 ? "CARD MATCHES" : g > 0 ? "MACHINE HIGHER" : "MACHINE LOWER", { fontSize: fs(24), fontWeight: 700, letterSpacing: 1 }),
+        txt((g > 0 ? "+" : "") + n2(g), { fontSize: fs(24), fontWeight: 700 })));
+    }
+  }
+
   // ---- 9. Order type + channel ----
   const types = (Object.entries(s.by_type || {}) as [string, any][]).sort((a, b) => b[1].amount - a[1].amount);
   if (types.length) {
