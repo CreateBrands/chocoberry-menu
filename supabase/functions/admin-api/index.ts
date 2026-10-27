@@ -536,6 +536,24 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     const wall = Date.UTC(y, m, d, TRADING_DAY_END_HOUR);
     return new Date(wall - tzOffsetMinutes(wall, zone) * 60000).toISOString();
   }
+  // CLOSE FIX 2026-10-27: the hour on the store's own clock.
+  function storeHour(tz?: string | null): number {
+    const zone = String(tz || "").trim() || "Europe/London";
+    const now = Date.now();
+    return new Date(now + tzOffsetMinutes(now, zone) * 60000).getUTCHours();
+  }
+  // CLOSE FIX 2026-10-27: "To 4:00" only means something after 4am (closing
+  // yesterday the next morning while today's orders stay open). Before 4am the
+  // last 04:00 is YESTERDAY's, so a "To 4:00" close picked up only the odd
+  // order rung up after the previous close — and took the whole drawer count
+  // and the shift drops with it, leaving a second close for the real day with
+  // the same count (two takings bags logged for one). Before 4am every close
+  // covers everything, whatever an older screen asks for.
+  async function closeMode(location_id: string, mode: unknown): Promise<"trading_day" | "all"> {
+    if (mode !== "trading_day") return "all";
+    const { data: l } = await admin.from("menu_locations").select("timezone").eq("id", location_id).maybeSingle();
+    return storeHour((l as any)?.timezone) < TRADING_DAY_END_HOUR ? "all" : "trading_day";
+  }
   // ---- Device licences ----
   const randCode = (n: number) => { const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; const r = crypto.getRandomValues(new Uint8Array(n)); return Array.from(r).map((x) => A[x % A.length]).join(""); };
   const randSecret = () => { const r = crypto.getRandomValues(new Uint8Array(24)); return Array.from(r).map((x) => x.toString(16).padStart(2, "0")).join(""); };
@@ -741,6 +759,8 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         platform: { count: platformCount, amount: round2(platformTotal) },
         drawer_opens: drawerOpens,
         mode, cutoff,
+        // CLOSE FIX 2026-10-27: the till only offers "To 4:00" when this is true.
+        split_ok: storeHour((locRow as any)?.timezone) >= TRADING_DAY_END_HOUR,
         later_count: laterRows.filter((o: any) => o.status !== "cancelled").length,
         before_cutoff_count: (allRows || []).filter((o: any) => o.created_at < cutoff && o.status !== "cancelled").length,
         previous: prev ? { closed_at: prev.closed_at, period_end: (prev as any).period_end || null, total: Number(prev.total_taken || 0), orders: prev.order_count, variance: prev.cash_variance, float_amount: prev.float_amount, float_left: (prev as any).float_left ?? null } : null,
@@ -2618,7 +2638,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
 
       // ---- SHIFTS: blind count. preview first (confirm=false), then save ----
       case "shift_count": {
-        const { location_id, counted_raw, denoms, note, confirm, pin: cpin } = data || {};
+        const { location_id, counted_raw, denoms, note, confirm, pin: cpin, keep_in_drawer } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
         if (counted_raw == null || !isFinite(Number(counted_raw))) return json({ error: "count_required" }, 400);
         const devKey: string | null = null;   // one drawer per store
@@ -2659,24 +2679,30 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         }
         if (preview.note_needed && !String(note || "").trim()) return json({ error: "note_required", message: "Say what happened — the drawer is out by more than " + noteFrom + ".", preview }, 400);
         const { data: loc } = await admin.from("menu_locations").select("name").eq("id", location_id).maybeSingle();
+        // HANDOVER 2026-10-27: some stores leave the takings in the till and bag
+        // everything at the day close. Then nothing goes to the safe now, and the
+        // next shift starts with the whole drawer as its float.
+        const keep = !!keep_in_drawer && preview.drop > 0;
+        const keptAmount = keep ? preview.drop : 0;
+        if (keep) { preview.drop = 0; preview.float_left = counted; }
         const report = {
           kind: "shift", store: loc?.name || "", opened_at: sh.opened_at, ended_at: sh.ended_at, counted_at: now,
           opened_by: sh.opened_by, ended_by: sh.ended_by, opening_float: Number(sh.opening_float || 0),
           taken: money.taken, cash: money.cash, card: money.card, other: money.other, refunds: money.refunds, orders: money.orders, tenders: money.tenders,
-          ...preview, note: note ? String(note).slice(0, 300) : null,
+          ...preview, kept_in_drawer: keptAmount, note: note ? String(note).slice(0, 300) : null,
           confirmed_by: cw.name, recounts: Math.max(0, attempts.length - 1),
           first_count: attempts.length > 1 ? Number(attempts[0].counted_raw) : null,
         };
         const { data: closedRows, error } = await admin.from("till_shifts").update({
           status: "closed", counted_at: now, counted_raw: raw, cash_since_end: sinceNet, counted, expected_cash: expected, variance,
-          denoms: denoms || null, drop_amount: drop, float_left: floatLeft, note: report.note, report,
+          denoms: denoms || null, drop_amount: preview.drop, float_left: preview.float_left, note: report.note, report,
         }).eq("id", sh.id).eq("status", "counting").select("id");
         if (error) throw error;
         if (!closedRows || !closedRows.length) return json({ error: "already_counted", message: "This handover was confirmed a moment ago." }, 409);
         // CASH MOVEMENTS: the handover drop goes into the safe log.
-        if (drop > 0) {
+        if (preview.drop > 0) {
           try {
-            await admin.from("cash_movements").insert({ location_id, kind: "drop", source: "handover", amount: drop, reason: "Shift handover",
+            await admin.from("cash_movements").insert({ location_id, kind: "drop", source: "handover", amount: preview.drop, reason: "Shift handover",
               shift_id: sh.id, device_key: deviceTok?.key ? String(deviceTok.key) : null, by_name: cw.name });
           } catch { /* cash_movements not set up yet */ }
         }
@@ -2689,8 +2715,9 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
       }
 
       case "day_summary": {
-        const { location_id, mode } = data || {};
+        const { location_id } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
+        const mode = await closeMode(String(location_id), data?.mode);
         const { summary } = await dayTotals(location_id, mode === "trading_day" ? "trading_day" : "all");
         const { data: tgtRow } = await admin.from("menu_app_settings").select("value").eq("key", "kds_target_minutes:" + location_id).maybeSingle();
         const targetMin = Number(tgtRow?.value) > 0 ? Number(tgtRow!.value) : 12;
@@ -3499,8 +3526,9 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
 
       // ---- TILL: check the close's count before signing off (blind until now) ----
       case "close_preview": {
-        const { location_id, cash_counted = null, float_amount = null, mode } = data || {};
+        const { location_id, cash_counted = null, float_amount = null } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
+        const mode = await closeMode(String(location_id), data?.mode);
         if (cash_counted == null || cash_counted === "" || !isFinite(Number(cash_counted))) return json({ error: "count_required", message: "Count the drawer first." }, 400);
         const f = await closeFigures(String(location_id), String(mode || "all"), cash_counted, float_amount);
         // Every count is kept: a recount until it balances shows on the Z.
@@ -3515,9 +3543,10 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
       }
 
       case "close_day": {
-        const { location_id, cash_counted = null, float_amount = null, note = null, mode } = data || {};
+        const { location_id, cash_counted = null, float_amount = null, note = null } = data || {};
         const closed_by = staffCloser ? staffCloser.name : (data?.closed_by || (scope === "master" ? "Admin" : scope === "region" ? (scopeLabel || "Regional manager") : "Manager"));
         if (!location_id) return json({ error: "location_id required" }, 400);
+        const mode = await closeMode(String(location_id), data?.mode);
         const fig = await closeFigures(String(location_id), String(mode || "all"), cash_counted, float_amount);
         const { ids, summary } = fig;
         if (!ids.length) return json({ error: "nothing_to_close", message: "No orders to close for that period." }, 409);
@@ -3643,8 +3672,9 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
 
       // ---- TILL: X read — print the day so far without closing anything ----
       case "print_x_read": {
-        const { location_id, mode, float_amount = null } = data || {};
+        const { location_id, float_amount = null } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);
+        const mode = await closeMode(String(location_id), data?.mode);
         // CASH CONTROLS: the X read prints the cash taken so far, which would
         // tell whoever counts the drawer what it should hold. Managers only.
         const xm = await managerForPin(data?.manager_pin, String(location_id));

@@ -268,7 +268,8 @@ export function buildShiftSlip(r: any, m: ZMeta): Receipt {
   const v = Number(r.variance) || 0;
   rc.bold(true); lr(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", num(v)); rc.bold(false);
   rc.line("-".repeat(W));
-  rc.bold(true); lr("DROP TO SAFE", num(r.drop)); lr("FLOAT LEFT", num(r.float_left)); rc.bold(false);
+  if (Number(r.kept_in_drawer) > 0) { rc.bold(true); lr("LEFT IN TILL (to close)", num(r.kept_in_drawer)); lr("DRAWER FOR NEXT SHIFT", num(r.float_left)); rc.bold(false); }
+  else { rc.bold(true); lr("DROP TO SAFE", num(r.drop)); lr("FLOAT LEFT", num(r.float_left)); rc.bold(false); }
   if (r.note) { rc.line("-".repeat(W)); for (const l of String(r.note).match(/.{1,46}(\s|$)/g) || [String(r.note)]) rc.line("  " + l.trim()); }
   rc.feed(1).line("  Outgoing: " + "_".repeat(33)).feed(1).line("  Incoming: " + "_".repeat(33));
   rc.feed(3).cut();

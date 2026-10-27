@@ -372,8 +372,14 @@ export function shiftSlipTree(r: any, m: ZMeta, dots = 576): Node {
     txt(v === 0 ? "BALANCED" : v > 0 ? "OVER" : "SHORT", { fontSize: fs(30), fontWeight: 700, letterSpacing: 2 }),
     txt((v > 0 ? "+" : "") + n2(v) + (v !== 0 && Number(r.expected) > 0 ? "  (" + (v > 0 ? "+" : "-") + pct(Math.abs(v), r.expected) + ")" : ""), { fontSize: fs(30), fontWeight: 700 })));
   parts.push(bar("HANDOVER"));
-  parts.push(row("Drop to safe", n2(r.drop), { bold: true }));
-  parts.push(row("Float left in drawer", n2(r.float_left), { bold: true }));
+  if (Number(r.kept_in_drawer) > 0) {
+    // HANDOVER 2026-10-27: takings left in the till, bagged at the day close.
+    parts.push(row("Left in till for the close", n2(r.kept_in_drawer), { bold: true }));
+    parts.push(row("Drawer for next shift", n2(r.float_left), { bold: true }));
+  } else {
+    parts.push(row("Drop to safe", n2(r.drop), { bold: true }));
+    parts.push(row("Float left in drawer", n2(r.float_left), { bold: true }));
+  }
   if (r.note) { parts.push(bar("NOTE")); parts.push(txt(String(r.note), { fontSize: body, lineHeight: 1.35 })); }
   const sign = (who: string) => col({ flex: 1, marginRight: fs(16) }, el({ height: fs(54), borderBottom: "2px solid #000" }), txt(who, { fontSize: fs(15), fontWeight: 700, marginTop: fs(4) }));
   parts.push(el({ marginTop: fs(16) }, sign("OUTGOING"), sign("INCOMING / MANAGER")));

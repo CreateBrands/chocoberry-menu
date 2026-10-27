@@ -54,6 +54,10 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
   const [preview, setPreview] = useState(null);
   const [note, setNote] = useState("");
   const [done, setDone] = useState(null);
+  // HANDOVER 2026-10-27: where the takings go — "safe" (bag it now) or "till"
+  // (leave it in the drawer; it's bagged at the day close). Asked every time
+  // there's something to drop, so the safe log only shows bags that exist.
+  const [cashTo, setCashTo] = useState(null);
 
   // Follow the server's state (another till or a refresh), but never yank the
   // result or the "put £X in the safe" screen away while someone reads it.
@@ -85,10 +89,10 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
   const resume = async () => { const res = await run("shift_resume", { pin }); if (res) { setPin(""); onChanged(); onClose(); } };
   const doPreview = async () => {
     const res = await run("shift_count", { counted_raw: counted, denoms: countMode === "denoms" ? denoms : null, confirm: false });
-    if (res) { setPreview(res.preview); setPin(""); setStep("result"); }
+    if (res) { setPreview(res.preview); setPin(""); setCashTo(null); setStep("result"); }
   };
   const confirm = async () => {
-    const res = await run("shift_count", { counted_raw: counted, denoms: countMode === "denoms" ? denoms : null, note, pin, confirm: true });
+    const res = await run("shift_count", { counted_raw: counted, denoms: countMode === "denoms" ? denoms : null, note, pin, confirm: true, keep_in_drawer: cashTo === "till" });
     if (res) { setDone(res); setStep("done"); onChanged(); }
   };
 
@@ -100,6 +104,8 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
 
   if (step === "start") {
     const shown = handed ?? status.float_target;
+    // The last shift left its takings in the till: the whole drawer is the float.
+    const withTakings = handed != null && status.float_target != null && handed > Number(status.float_target) + 0.01;
     title = "Start your shift";
     sub = status.last ? "Handed over by " + (status.last.ended_by || "the last shift") + " at " + hhmm(status.last.ended_at) : "First shift on this till";
     const opt = (k, l, d, I) => (
@@ -110,8 +116,8 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
     );
     body = (
       <>
-        <Stat big tone="dark" icon={<Icon.drawer size={15} />} label={floatMode === "other" ? "Float you counted" : "Float in the drawer"} money={floatMode === "other" ? Number(floatVal) || 0 : shown}
-          note={floatMode === "same" ? "Count it, then confirm it's right" : shown != null ? "Handed over as " + money(shown) : "Type what's actually there"} />
+        <Stat big tone="dark" icon={<Icon.drawer size={15} />} label={floatMode === "other" ? "Cash you counted" : withTakings ? "Cash in the drawer" : "Float in the drawer"} money={floatMode === "other" ? Number(floatVal) || 0 : shown}
+          note={floatMode === "same" ? (withTakings ? "Float + the last shift's takings, left in for the close — count it all" : "Count it, then confirm it's right") : shown != null ? "Handed over as " + money(shown) : "Type what's actually there"} />
         <div style={{ display: "flex", gap: 10, margin: "14px 0" }}>
           {opt("same", "That's right", "The float matches", Icon.check)}
           {opt("other", "Different amount", "Type what's there", Icon.cash)}
@@ -241,10 +247,22 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
           {Number(preview.cash_since_end) !== 0 && <Row label={Number(preview.cash_since_end) > 0 ? "− Next shift's cash, taken while you counted" : "+ Next shift's pay-outs while you counted"} value={money(Math.abs(Number(preview.cash_since_end)))} />}
           <Row strong label="Counted for your shift" value={money(preview.counted)} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 16 }}>
-          <Stat tone="dark" icon={<Icon.safe size={15} />} label="Put in the safe" money={preview.drop} />
-          <Stat icon={<Icon.drawer size={15} />} label="Leave in the drawer" money={preview.float_left} />
-        </div>
+        {Number(preview.drop) > 0 ? (
+          <>
+            <Label style={{ marginTop: 18 }} tone={cashTo ? null : U.bad}>The takings ({money(preview.drop)}) — where are they going?</Label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {[["safe", Icon.safe, "Into the safe now", "Bag " + money(preview.drop) + " · leave " + money(preview.float_left) + " float"],
+                ["till", Icon.drawer, "Leave it in the till", "All " + money(preview.counted) + " stays · bagged at close"]].map(([k, I, t, d]) => (
+                <div key={k} className="tu-tile" onClick={() => setCashTo(k)} style={{ display: "flex", gap: 12, alignItems: "center", padding: "14px 16px", borderRadius: 16, cursor: "pointer", userSelect: "none", background: cashTo === k ? "#f0fdfa" : "#fff", border: "2px solid " + (cashTo === k ? U.teal : U.line), boxShadow: cashTo === k ? "0 0 0 4px rgba(20,184,166,.12)" : "none" }}>
+                  <span style={{ width: 38, height: 38, borderRadius: 19, display: "flex", alignItems: "center", justifyContent: "center", background: cashTo === k ? U.teal : U.soft, color: cashTo === k ? "#fff" : U.sub, flexShrink: 0 }}><I size={20} /></span>
+                  <div><div style={{ fontWeight: 800, fontSize: 16 }}>{t}</div><div style={{ fontSize: 13, color: U.sub, ...NUM }}>{d}</div></div>
+                </div>
+              ))}
+            </div>
+          </>
+        ) : (
+          <div style={{ marginTop: 16 }}><Stat icon={<Icon.drawer size={15} />} label="Leave in the drawer" money={preview.float_left} note="Nothing to put in the safe" /></div>
+        )}
         {preview.attempt > 1 && <Note tone={U.bad}>Count {preview.attempt} — the first count is printed on the slip too.</Note>}
         {preview.note_needed && (
           <div style={{ marginTop: 16 }}>
@@ -255,7 +273,7 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
       </>
     );
     aside = <PinPanel label="Your PIN to confirm" value={pin} onChange={(v) => { setPin(v); setErr(""); }} error={err} />;
-    footer = <><Btn kind="secondary" onClick={() => { setPreview(null); setStep("count"); }}>Recount</Btn><Btn disabled={busy || pin.length < 4 || (preview.note_needed && !note.trim())} onClick={confirm} icon={<Icon.printer size={18} />}>{busy ? "Saving…" : "Confirm & print"}</Btn></>;
+    footer = <><Btn kind="secondary" onClick={() => { setPreview(null); setStep("count"); }}>Recount</Btn><Btn disabled={busy || pin.length < 4 || (preview.note_needed && !note.trim()) || (Number(preview.drop) > 0 && !cashTo)} onClick={confirm} icon={<Icon.printer size={18} />}>{busy ? "Saving…" : "Confirm & print"}</Btn></>;
   } else if (step === "done" && done) {
     const d = done.shift || {};
     title = "Shift handed over";
@@ -263,10 +281,16 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
     body = (
       <>
         <DoneMark title="All done — thank you" sub={done.printed === false ? "Write the figures on paper and sign it." : "Sign the slip when it prints."} />
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Instruction dark n="1" icon={<Icon.bag size={26} />} title="Put in the safe" money={d.drop} note="Bag it, sign the slip, into the safe" />
-          <Instruction n="2" icon={<Icon.drawer size={26} />} title="Leave in the drawer" money={d.float_left} note="The float for the next shift" />
-        </div>
+        {Number(d.kept_in_drawer) > 0 ? (
+          <Instruction dark n="1" icon={<Icon.drawer size={26} />} title="Leave it all in the drawer" money={d.float_left} note="Nothing goes in the safe now — it's bagged at the close" />
+        ) : Number(d.drop) > 0 ? (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <Instruction dark n="1" icon={<Icon.bag size={26} />} title="Put in the safe" money={d.drop} note="Bag it, sign the slip, into the safe" />
+            <Instruction n="2" icon={<Icon.drawer size={26} />} title="Leave in the drawer" money={d.float_left} note="The float for the next shift" />
+          </div>
+        ) : (
+          <Instruction n="1" icon={<Icon.drawer size={26} />} title="Leave in the drawer" money={d.float_left} note="The float for the next shift" />
+        )}
       </>
     );
     footer = <><Btn kind="secondary" onClick={onClose}>Close</Btn><Btn kind="teal" icon={<Icon.user size={18} />} onClick={() => { setPin(""); setFloatMode("same"); setStep("start"); onChanged(); }}>Next person: start shift</Btn></>;

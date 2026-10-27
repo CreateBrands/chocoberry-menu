@@ -392,9 +392,14 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
     closeTillCache.current = {};   // fresh figures each time the sheet opens
     setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "", preview: null, floatEdit: false, mgrPin: "", pinFor: "staff" });
     let sm = await loadCloseTillSummary("trading_day");
-    let mode = "trading_day";
+    // CLOSE FIX 2026-10-27: before 4am the server answers "all" (one close for
+    // the whole night) — take its word for the mode rather than assuming.
+    let mode = (sm && sm.mode) || "trading_day";
     // Nothing before the cutoff (or we're before 4am) → close everything up to now.
-    if (!sm || !sm.before_cutoff_count) { mode = "all"; sm = await loadCloseTillSummary("all"); }
+    if (!sm || mode !== "trading_day" || !sm.before_cutoff_count) {
+      if (!sm || sm.mode !== "all") sm = await loadCloseTillSummary("all");
+      mode = "all";
+    }
     if (sm) closeTillCache.current[mode] = sm;
     // With shifts, the day's float is the one the first shift opened with.
     // TILLFIX 2026-10-25: the server's float (first shift / last close / store float).
@@ -2296,7 +2301,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         return (
           <Sheet icon={<TillIcon.check size={24} sw={2.4} />} title={closeTill.step === "done" ? "Till closed" : "Close till"} sub={when}
             onClose={shut} busy={closeTill.busy} width={1060} height="min(94vh, 860px)" zIndex={90}
-            tabs={closeTill.step === "summary" && sm && sm.later_count > 0 && stage === 0 ? [["trading_day", "To 4:00", <TillIcon.clock size={15} />], ["all", "Up to now", null]] : null}
+            tabs={closeTill.step === "summary" && sm && sm.split_ok !== false && sm.later_count > 0 && stage === 0 ? [["trading_day", "To 4:00", <TillIcon.clock size={15} />], ["all", "Up to now", null]] : null}
             tab={closeTill.mode} onTab={(m) => m !== closeTill.mode && switchCloseTillMode(m)}
             steps={[...stages, "Done"]} step={closeTill.step === "done" ? "Done" : stages[stage]}
             onStep={(i) => { if (closeTill.step === "summary" && i < stage) { setNoteKb(false); setPadFor(null); setCloseTill((c) => ({ ...c, stage: i, err: "" })); } }}
