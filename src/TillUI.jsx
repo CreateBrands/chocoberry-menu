@@ -97,7 +97,7 @@ export const Label = ({ children, tone, style }) => (
 // The frame every till sheet sits in.
 // bodyKey: change it (the step name) and the body slides in, so a step change reads as one.
 // onStep(i): makes the steps already done tappable, to go back to one.
-export function Sheet({ icon, title, sub, onClose, busy, width = 980, height, tabs, tab, onTab, steps, step, onStep, aside, asideTitle, footer, children, zIndex = 92, bodyKey, overlay }) {
+export function Sheet({ icon, title, sub, onClose, busy, width = 980, height, tabs, tab, onTab, steps, step, onStep, aside, asideTitle, footer, children, zIndex = 92, bodyKey, overlay, help }) {
   const idx = steps ? steps.indexOf(step) : -1;
   return (
     <div className="tu-overlay" onClick={() => !busy && onClose && onClose()} style={{ position: "fixed", inset: 0, background: "rgba(8,15,20,.64)", backdropFilter: "blur(2px)", zIndex, display: "flex", alignItems: "center", justifyContent: "center", padding: 16, fontFamily: FONT }}>
@@ -118,6 +118,7 @@ export function Sheet({ icon, title, sub, onClose, busy, width = 980, height, ta
               ))}
             </div>
           )}
+          {help}
           {onClose && <span className="tu-btn" onClick={() => !busy && onClose()} aria-label="Close" style={{ width: 42, height: 42, borderRadius: 12, background: "rgba(94,234,212,.1)", color: U.mintT, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", flexShrink: 0 }}><Icon.x size={18} /></span>}
         </div>
         {steps && (

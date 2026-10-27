@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { money, denominations, denomLabel } from "./money.js";
+import { HelpButton } from "./TillHelp.jsx";
 import { U, NUM, Icon, Money, Sheet, Keypad, PinPanel, Btn, Chips, Stat, Row, Verdict, Field, Label, Note, Err, DenomTile, DoneMark, Instruction } from "./TillUI.jsx";
 
 // SHIFTS 2026-10-24 — shift handover at the till.
@@ -298,6 +299,7 @@ export default function ShiftSheet({ loc, status, act, onClose, onChanged }) {
 
   return (
     <Sheet icon={<Icon.clock size={24} />} title={title} sub={sub} onClose={onClose} busy={busy} width={aside ? 1020 : 780}
+      help={<HelpButton key={step} topic={{ start: "shift-start", running: "shift-end", resume: "shift-end", count: "shift-count", result: "shift-check", done: "shift-done" }[step] || "shift-start"} />}
       steps={flowStep ? FLOW : null} step={flowStep} bodyKey={step} aside={aside} asideTitle={asideTitle} footer={footer}>
       {body}
       <Err>{err}</Err>

@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import CartLine from "./CartLine.jsx";
+import { HelpButton } from "./TillHelp.jsx";
 import { payLabel } from "./payLabel.js";
 // Currency follows the store being served — see src/money.js. The till sets
 // the active currency once on load, so the sheets here just format.
@@ -334,6 +335,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
           <span onClick={() => setMode("detail")} style={{ cursor: "pointer" }}>{Ico.back()}</span>
           <span style={{ fontWeight: 700, fontSize: 15 }}>Choose payment</span>
+          <HelpButton tone="light" topic="pay-card" />
           <span style={{ marginLeft: "auto", textAlign: "right" }}><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>BALANCE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 20 }}>{money(remaining)}</div></span>
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
@@ -379,7 +381,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       {HeaderBar("Cash")}
       <div style={{ padding: "14px 16px", flex: 1, overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <span onClick={() => setMode("method")} style={{ cursor: "pointer" }}>{Ico.back()}</span>
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}><span onClick={() => setMode("method")} style={{ cursor: "pointer" }}>{Ico.back()}</span><HelpButton tone="light" topic="pay-cash" label="" /></span>
           <div style={{ textAlign: "center" }}><div style={{ fontSize: 10, color: C.sub, fontWeight: 700 }}>DUE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18 }}>{money(due)}</div></div>
           <div style={{ textAlign: "right" }}><div style={{ fontSize: 10, color: "#2f6b4f", fontWeight: 700 }}>CHANGE</div><div style={{ fontFamily: "'Poppins',sans-serif", fontWeight: 700, fontSize: 18, color: "#2f6b4f" }}>{money(change)}</div></div>
         </div>

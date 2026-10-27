@@ -6,6 +6,7 @@ import { deviceToken } from "./device.js";
 import { sendCustomerScreen, orderForScreen } from "./customerScreen.js";
 import CartLine from "./CartLine.jsx";
 import ShiftSheet from "./ShiftSheet.jsx";
+import { HelpButton, TillGuide } from "./TillHelp.jsx";
 import ManagerPin from "./ManagerPin.jsx";
 import CashSheet from "./CashSheet.jsx";
 import StockSheet from "./StockSheet.jsx";
@@ -317,6 +318,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
   // the button stays hidden.
   const [shift, setShift] = useState(null);
   const [shiftOpen, setShiftOpen] = useState(false);
+  const [guideOpen, setGuideOpen] = useState(false);   // TILL HELP: More › Till guide
   const [cashOpen, setCashOpen] = useState(false);   // CASH MOVEMENTS: pay out / pay in / drop / safe
   const loadShift = useCallback(async () => {
     try {
@@ -1774,6 +1776,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
               ] : [
                 { k: "stock", icon: "⊘", label: "Items on/off", tile: "Items on/off", onClick: () => setStockOpen(true) },
                 { k: "printers", icon: "🖨", label: "Printers", tile: "Printer setup", onClick: () => setPrinterAsk(true) },
+                { k: "guide", icon: "?", label: "Till guide", tile: "Till guide", onClick: () => setGuideOpen(true) },
                 { k: "layout", icon: "⇕", label: "Layout", tile: "Arrange tiles", onClick: () => setEditLayout(true) },
                 { k: "merge", icon: "⇱", label: "Merge", tile: "Merge categories", onClick: () => setShowMerge(true) },
               ]} />
@@ -1817,6 +1820,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       {printerPin && storeLoc && <PrintersModal call={printerCall} locations={[storeLoc]} zIndex={96} onClose={() => { setPrinterPin(null); setStoreLoc(null); }} />}
       {stockOpen && <StockSheet loc={loc} onClose={() => setStockOpen(false)} onChanged={() => setMenuTick((t) => t + 1)} />}
 
+      {guideOpen && <TillGuide onClose={() => setGuideOpen(false)} />}
       {shiftOpen && shift && (
         <ShiftSheet loc={loc} status={shift} act={ordActionJson} onClose={() => setShiftOpen(false)} onChanged={() => { loadShift(); window.dispatchEvent(new Event("pos:shift-changed")); }} />
       )}
@@ -2330,6 +2334,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         return (
           <Sheet icon={<TillIcon.check size={24} sw={2.4} />} title={closeTill.step === "done" ? "Till closed" : "Close till"} sub={when}
             onClose={shut} busy={closeTill.busy} width={1060} height="min(94vh, 860px)" zIndex={90}
+            help={<HelpButton key={stage} topic={["close-review", "close-cash", "close-signoff", "close-done"][Math.min(stage, 3)]} />}
             tabs={closeTill.step === "summary" && sm && sm.split_ok !== false && sm.later_count > 0 && stage === 0 ? [["trading_day", "To 4:00", <TillIcon.clock size={15} />], ["all", "Up to now", null]] : null}
             tab={closeTill.mode} onTab={(m) => m !== closeTill.mode && switchCloseTillMode(m)}
             steps={[...stages, "Done"]} step={closeTill.step === "done" ? "Done" : stages[stage]}
