@@ -357,6 +357,31 @@ Deno.serve(async (req) => {
       }
 
       // ---------- poll a payment link (the kiosk waits on this while the QR is up) ----------
+      // TEST LINK 2026-10-27 — staging only. A £1.00 link tied to no order, so
+      // Pay by Link and the webhook can be tested without touching a real
+      // order or a till's takings: the webhook finds no order to book and only
+      // logs the event (teya_checkout_events), which also shows the exact event
+      // names Teya sends.
+      case "link_test": {
+        if (ENV !== "staging") return json({ error: "staging_only", message: "Test links are for the Teya test environment only." }, 403);
+        const store_id = await storeIdFor(null);
+        const value = Math.max(1, Math.round(Number((data || {}).amount || 1) * 100));
+        const ref = "PBL-TEST-" + Date.now().toString(36).toUpperCase();
+        const res = await teya("POST", "/v2/payment-links", {
+          type: "SINGLE_USE",
+          transaction_type: "SALE",
+          amount: { currency: "GBP", value },
+          merchant_reference: ref,
+          metadata: { test: "pay-by-link", reference: ref },
+          line_items: [{ description: "Pay by Link test - not a sale", quantity: 1, unit_price: value }],
+          post_success_payment: "SHOW_SUCCESS_PAGE",
+          expires_at: new Date(Date.now() + 2 * 3600_000).toISOString(),
+          language: "en-GB",
+          ...(store_id ? { store_id } : {}),
+        }, "link-test-" + ref);
+        return json({ ok: true, test: true, reference: ref, payment_link_id: res.payment_link_id || res.id || null, url: res.payment_link || res.url || res.payment_link_url || null, amount: value / 100 });
+      }
+
       case "link_status": {
         const { payment_link_id } = data || {};
         if (!payment_link_id) return json({ error: "payment_link_id required" }, 400);
