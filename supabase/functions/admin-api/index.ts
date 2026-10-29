@@ -74,6 +74,96 @@ Deno.serve(async (req) => {
   return res;
 });
 
+// ---- TEYA REFUNDS 2026-10-30 ------------------------------------------------
+// A card payment taken on the Teya terminal is refunded at Teya against the
+// original payment (POST /poslink/v2/refunds, referenced refund: no card tap).
+// Teya wants the payment's gateway_payment_id (NOT its transaction_id, which
+// returns 404 TRANSACTION_NOT_FOUND). Every attempt is logged in teya_refunds
+// with its Idempotency-Key, so a PENDING refund is re-checked by re-sending
+// the same key (Teya returns the same refund) instead of refunding twice.
+const TEYA_ENV_ = (Deno.env.get("TEYA_ENV") || "production").toLowerCase();
+const TEYA_ID_ = TEYA_ENV_ === "staging" ? "https://id.teya.xyz" : "https://id.teya.com";
+const TEYA_API_ = TEYA_ENV_ === "staging" ? "https://api.teya.xyz" : "https://api.teya.com";
+const teyaTok = new Map<string, { v: string; exp: number }>();
+async function teyaPoslink(admin: any, storeId: string, method: string, path: string, body: unknown, idem: string) {
+  const { data: c } = await admin.from("teya_credentials").select("client_id, client_secret, scopes").eq("store_id", storeId).maybeSingle();
+  const cid = c?.client_id || Deno.env.get("TEYA_CLIENT_ID"), csec = c?.client_secret || Deno.env.get("TEYA_CLIENT_SECRET");
+  if (!cid || !csec) throw new Error("No Teya keys for this store. Connect the card machine again in Admin.");
+  let tok = teyaTok.get(cid);
+  if (!tok || Date.now() > tok.exp - 30_000) {
+    const scope = c?.scopes || "payment_requests payment_requests/id stores/id/terminals refunds";
+    const r = await fetch(TEYA_ID_ + "/oauth/v2/oauth-token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ grant_type: "client_credentials", client_id: cid, client_secret: csec, scope }).toString() });
+    const j: any = await r.json().catch(() => ({}));
+    if (!r.ok || !j.access_token) throw new Error("Teya sign-in failed: " + (j.error_description || j.error || r.status));
+    tok = { v: j.access_token, exp: Date.now() + Math.max(60, Number(j.expires_in || 900)) * 1000 };
+    teyaTok.set(cid, tok);
+  }
+  const r = await fetch(TEYA_API_ + path, { method, headers: { Authorization: "Bearer " + tok.v, Accept: "application/json", "Content-Type": "application/json", "Idempotency-Key": idem }, body: JSON.stringify(body) });
+  const t = await r.text(); let j: any = null; try { j = t ? JSON.parse(t) : null; } catch { j = { raw: t }; }
+  return { http: r.status, body: j };
+}
+// Returns { handled:false } when the order has no Teya terminal payment (refund by hand as before),
+// otherwise { ok, refunded, pending?, message?, ids }.
+async function teyaRefundOrder(admin: any, ord: any, amt: number, reason: string | null) {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const { data: reqs } = await admin.from("teya_payment_requests").select("payment_request_id, store_id, amount, raw, recorded_at")
+    .eq("order_id", ord.id).not("recorded_at", "is", null).order("created_at", { ascending: true });
+  const paid = (reqs || []).filter((x: any) => x.raw && (x.raw.gateway_payment_id || x.raw.transaction_id));
+  if (!paid.length) return { handled: false };
+  const { data: prior, error: pErr } = await admin.from("teya_refunds").select("*").eq("order_id", ord.id).in("status", ["SUCCESS", "PENDING", "SENDING"]);
+  if (pErr) throw new Error("Run db/teya_refunds.sql first (" + pErr.message + ").");
+  const results: any[] = [];
+  // A refund still in progress at Teya: re-check it with the same key before anything new.
+  const open = (prior || []).filter((x: any) => x.status !== "SUCCESS");
+  const send = async (row: any) => {
+    const res = await teyaPoslink(admin, row.store_id, "POST", "/poslink/v2/refunds", row.request, row.idem_key);
+    const b = res.body || {};
+    let status = res.http === 202 ? "PENDING" : String(b.status || "").toUpperCase();
+    if (res.http >= 400) status = "FAILURE";
+    if (!["SUCCESS", "FAILURE", "PENDING"].includes(status)) status = res.http < 300 ? "PENDING" : "FAILURE";
+    const why = status === "FAILURE" ? String(b.status_reason || b.description || b.code || b.message || ("HTTP " + res.http)).slice(0, 200) : null;
+    await admin.from("teya_refunds").update({ status, status_reason: why, teya_transaction_id: b.transaction_id || null, response: b, updated_at: new Date().toISOString() }).eq("id", row.id);
+    return { ...row, status, status_reason: why, teya_transaction_id: b.transaction_id || null };
+  };
+  if (open.length) {
+    for (const row of open) results.push(await send(row));
+    const still = results.filter((x) => x.status !== "SUCCESS" && x.status !== "FAILURE");
+    const okd = results.filter((x) => x.status === "SUCCESS");
+    const sum = r2(okd.reduce((a, x) => a + Number(x.amount), 0));
+    if (still.length) return { handled: true, ok: false, pending: true, refunded: sum, ids: okd, message: "Teya is still processing a refund of £" + r2(still.reduce((a, x) => a + Number(x.amount), 0)).toFixed(2) + " on this order. Try again in a minute to check it." };
+    if (okd.length) return { handled: true, ok: true, refunded: sum, ids: okd, carried: true };
+    return { handled: true, ok: false, refunded: 0, ids: [], message: "Teya refused the refund: " + (results[0]?.status_reason || "no reason given") };
+  }
+  const done: Record<string, number> = {};
+  for (const x of prior || []) done[x.payment_request_id] = (done[x.payment_request_id] || 0) + Number(x.amount);
+  const avail = paid.map((x: any) => ({ ...x, left: r2(Number(x.amount) - (done[x.payment_request_id] || 0)) })).filter((x: any) => x.left > 0.004);
+  const teyaLeft = r2(avail.reduce((a: number, x: any) => a + x.left, 0));
+  if (amt > teyaLeft + 0.001) return { handled: true, ok: false, refunded: 0, ids: [], message: "Only £" + teyaLeft.toFixed(2) + " of the card payment can go back through Teya. Refund that, and the rest by cash or on the card machine." };
+  let need = amt;
+  for (const p of avail) {
+    if (need <= 0.004) break;
+    const part = r2(Math.min(need, p.left));
+    const idem = crypto.randomUUID();
+    const request = { transaction_id: String(p.raw.gateway_payment_id || p.raw.transaction_id), amount: Math.round(part * 100), currency: "GBP",
+      merchant_reference: ("CBR-" + ord.order_no + "-" + idem.slice(0, 6)).slice(0, 30) };
+    const { data: row, error } = await admin.from("teya_refunds").insert({ order_id: ord.id, payment_request_id: p.payment_request_id, store_id: p.store_id, amount: part, idem_key: idem, request, status: "SENDING", reason }).select("*").single();
+    if (error) throw error;
+    let out;
+    try { out = await send(row); }
+    catch (e) { await admin.from("teya_refunds").update({ status: "PENDING", status_reason: "no answer: " + String((e as Error).message).slice(0, 150) }).eq("id", row.id); out = { ...row, status: "PENDING" }; }
+    results.push(out);
+    if (out.status !== "SUCCESS") break;
+    need = r2(need - part);
+  }
+  const okd = results.filter((x) => x.status === "SUCCESS");
+  const sum = r2(okd.reduce((a, x) => a + Number(x.amount), 0));
+  const last = results[results.length - 1];
+  if (last && last.status === "PENDING") return { handled: true, ok: false, pending: true, refunded: sum, ids: okd, message: "Teya is still processing the refund. Try again in a minute to check it — it won't be refunded twice." };
+  if (last && last.status === "FAILURE") return { handled: true, ok: false, refunded: sum, ids: okd, message: (sum > 0 ? "£" + sum.toFixed(2) + " went back to the card, but " : "") + "Teya refused the refund: " + (last.status_reason || "no reason given") };
+  return { handled: true, ok: true, refunded: sum, ids: okd };
+}
+
 async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -2511,16 +2601,31 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const refundedSoFar = Math.round(Number((ord as any).refund_total || 0) * 100) / 100;
         const refundable = Math.round((paid - refundedSoFar) * 100) / 100;
         if (amt > refundable + 0.001) return json({ ok: false, error: "too_much", message: "Only £" + refundable.toFixed(2) + " can be refunded on this order" }, 409);
+        // TEYA REFUNDS 2026-10-30: a card payment taken on the Teya terminal goes back
+        // to the card through Teya first; only what Teya confirms is recorded.
+        let viaTeya = false, recAmt = amt, teyaNote = "", teyaWarn: string | null = null;
+        if (method === "card") {
+          let tr: any;
+          try { tr = await teyaRefundOrder(admin, ord, amt, reason ? String(reason).slice(0, 80) : null); }
+          catch (e) { return json({ ok: false, error: "teya", message: "Couldn't reach Teya: " + String((e as Error).message || e) }, 502); }
+          if (tr.handled) {
+            viaTeya = true;
+            if (!(tr.refunded > 0)) return json({ ok: false, error: tr.pending ? "teya_pending" : "teya_refused", message: tr.message }, tr.pending ? 202 : 409);
+            recAmt = Math.round(tr.refunded * 100) / 100;
+            teyaNote = " · teya:" + (tr.ids || []).map((x: any) => x.teya_transaction_id || x.id).join(",");
+            if (!tr.ok) teyaWarn = tr.message || null;
+          }
+        }
         // Refunds are negative ledger entries: the overpayment guard on order_payments lets them through and every sum stays honest.
-        const { error: pErr } = await payInsert({ order_id, method, amount: -amt, kind: "refund", note: ("REFUND" + (reason ? ": " + String(reason).slice(0, 100) : "") + " · by " + (mgr.name || "manager")).slice(0, 120) });
+        const { error: pErr } = await payInsert({ order_id, method, amount: -recAmt, kind: "refund", note: ("REFUND" + (reason ? ": " + String(reason).slice(0, 60) : "") + " · by " + (mgr.name || "manager") + teyaNote).slice(0, 120) });
         if (pErr) throw pErr;
-        const newRefunded = Math.round((refundedSoFar + amt) * 100) / 100;
+        const newRefunded = Math.round((refundedSoFar + recAmt) * 100) / 100;
         const full = newRefunded + 0.001 >= paid;
         const { error } = await admin.from("menu_orders").update({ refund_total: newRefunded, refund_reason: reason ? String(reason).slice(0, 80) : null, refunded_at: new Date().toISOString(), refunded_by: mgr.name || "manager", ...(full ? { status: "refunded" } : {}) }).eq("id", order_id);
         if (error) throw error;
         // Customer refund receipt (best effort), on the refunding till's printer.
-        try { await callSunmi({ action: "print-refund", order_id, amount: amt, method, reason: reason || null, by: mgr.name || "manager", location_id: ord.location_id, device_key: deviceTok && deviceTok.key ? String(deviceTok.key) : null }); } catch {}
-        return json({ ok: true, refunded: amt, refund_total: newRefunded, full, by: mgr.name });
+        try { await callSunmi({ action: "print-refund", order_id, amount: recAmt, method, reason: reason || null, by: mgr.name || "manager", location_id: ord.location_id, device_key: deviceTok && deviceTok.key ? String(deviceTok.key) : null }); } catch {}
+        return json({ ok: true, refunded: recAmt, refund_total: newRefunded, full, by: mgr.name, via_teya: viaTeya, warning: teyaWarn });
       }
       case "print_refund_receipt": {
         const { order_id } = data || {};

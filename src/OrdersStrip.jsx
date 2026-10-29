@@ -773,7 +773,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
       setSheetBusy(true); setSheetErr("");
       const r = await onRefund(o, { amount: amt, method: rfd.method, reason: rfd.reason, manager_pin: rfd.pin });
       setSheetBusy(false);
-      if (r && r.ok) { setRfd(null); setNote("Refunded " + money(r.refunded) + (r.by ? " · " + r.by : "")); }
+      if (r && r.ok) { setRfd(null); setNote((r.via_teya ? "Refunded " + money(r.refunded) + " to the card through Teya" : "Refunded " + money(r.refunded)) + (r.by ? " · " + r.by : "") + (r.warning ? ". " + r.warning : "")); }
       else setSheetErr((r && (r.message || r.error)) || "Could not refund");
     };
     return Wrap(<>
@@ -788,7 +788,7 @@ export function OrderDetailPanel({ order, now = Date.now(), busy = false, initia
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 6 }}>
           {[["cash", "Cash from drawer"], ["card", "Card (on the terminal)"]].map(([m, l]) => <span key={m} onClick={() => setRfd({ ...rfd, method: m })} style={{ padding: "13px 0", textAlign: "center", borderRadius: 10, background: rfd.method === m ? C.ink : "#f3f4f6", color: rfd.method === m ? "#fff" : C.ink, fontWeight: 800, cursor: "pointer" }}>{l}</span>)}
         </div>
-        {rfd.method === "card" && <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>Process the refund on the card machine as well — this records it on the till and the Z-report.</div>}
+        {rfd.method === "card" && <div style={{ fontSize: 12, color: C.sub, marginBottom: 10 }}>Paid on the Teya card machine? The till sends the refund back to the customer's card itself — nothing to do on the machine. Paid any other way? Refund it on the card machine as well; this records it on the till and the Z-report.</div>}
         <div style={{ fontSize: 11, fontWeight: 700, color: C.sub, textTransform: "uppercase", letterSpacing: .5, margin: "8px 0" }}>Reason</div>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 7, marginBottom: 14 }}>
           {["Wrong order", "Quality", "Long wait", "Customer changed mind", "Charged twice", "Other"].map((rs) => <span key={rs} onClick={() => setRfd({ ...rfd, reason: rs })} style={{ padding: "8px 12px", borderRadius: 999, background: rfd.reason === rs ? C.ink : "#fff", color: rfd.reason === rs ? "#fff" : C.ink, border: "1.5px solid " + (rfd.reason === rs ? C.ink : C.line), fontWeight: 700, fontSize: 12.5, cursor: "pointer" }}>{rs}</span>)}
