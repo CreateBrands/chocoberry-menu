@@ -1876,6 +1876,138 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
       // Saves the design ("receipt:<location>") and, for a UAE store, switches
       // on its tax-invoice counter with the prefix given. Empty config = go
       // back to the standard receipt.
+      // ---- TEYA CONNECT 2026-10-29: connect a store's card machine from Admin ----
+      // Teya's certification steps 1-3 (connect account, choose store, choose
+      // terminal) and Disconnect. Head office only. The device-code app's own
+      // id/secret live in TEYA_APP_CLIENT_ID / TEYA_APP_CLIENT_SECRET (not the
+      // TEYA_CLIENT_* names, which teya-pay treats as machine credentials).
+      // The Teya user token from the sign-in is kept only until the store is
+      // saved, then deleted with its session (db/teya_connect.sql).
+      case "teya_status": case "teya_connect_start": case "teya_connect_poll":
+      case "teya_connect_stores": case "teya_connect_save": case "teya_disconnect": {
+        if (scope !== "master") return json({ error: "forbidden", message: "Only head office can connect a card machine." }, 403);
+        const TENV = (Deno.env.get("TEYA_ENV") || "production").toLowerCase();
+        const TID = TENV === "staging" ? "https://id.teya.xyz" : "https://id.teya.com";
+        const TAPI = TENV === "staging" ? "https://api.teya.xyz" : "https://api.teya.com";
+        const APP_ID = Deno.env.get("TEYA_APP_CLIENT_ID") || "", APP_SECRET = Deno.env.get("TEYA_APP_CLIENT_SECRET") || "";
+        const SCOPES_POSLINK = "payment_requests payment_requests/id stores/id/terminals refunds";
+        const UA = "Chocoberry-Integration/1.0";
+        const d = data || {};
+        const asList = (x: any, k: string) => (Array.isArray(x) ? x : x?.[k] || x?.items || []);
+        const tapi = async (token: string, method: string, path: string, body?: unknown) => {
+          const r = await fetch(TAPI + path, { method, headers: { Authorization: "Bearer " + token, Accept: "application/json", "User-Agent": UA, ...(body ? { "Content-Type": "application/json" } : {}) }, body: body ? JSON.stringify(body) : undefined });
+          const t = await r.text(); let j: any = null; try { j = t ? JSON.parse(t) : null; } catch { j = { raw: t }; }
+          if (!r.ok) throw new Error("Teya " + method + " " + path + " → " + r.status + " " + String(j?.message || j?.error || t).slice(0, 200));
+          return j;
+        };
+        const session = async () => {
+          const { data: ss } = await admin.from("teya_connect_sessions").select("*").eq("id", String(d.session_id || "")).maybeSingle();
+          if (!ss) throw new Error("This Teya sign-in has expired. Start again.");
+          if (!ss.user_token) throw new Error("Sign in to Teya first.");
+          return ss as any;
+        };
+        try {
+          if (action === "teya_status") {
+            const { data: rows } = await admin.from("teya_terminals").select("id, store_id, terminal_id, tablet_no, label, active, connected_at, connected_by")
+              .eq("location_id", String(d.location_id || "")).eq("active", true).order("tablet_no", { ascending: true, nullsFirst: true });
+            const storeIds = Array.from(new Set((rows || []).map((r: any) => String(r.store_id))));
+            const { data: creds } = storeIds.length ? await admin.from("teya_credentials").select("store_id, store_name").in("store_id", storeIds) : { data: [] as any[] };
+            return json({ ok: true, env: TENV, app_ready: !!(APP_ID && APP_SECRET), terminals: rows || [],
+              stores: (creds || []).map((c: any) => ({ store_id: c.store_id, store_name: c.store_name })), missing_credentials: storeIds.filter((x) => !(creds || []).some((c: any) => String(c.store_id) === x)) });
+          }
+          if (action === "teya_connect_start") {
+            if (!APP_ID || !APP_SECRET) return json({ error: "app_not_set", message: "Set TEYA_APP_CLIENT_ID and TEYA_APP_CLIENT_SECRET in Supabase secrets first." }, 400);
+            await admin.from("teya_connect_sessions").delete().lt("created_at", new Date(Date.now() - 3600_000).toISOString());
+            const r = await fetch(TID + "/oauth/v2/device", { method: "POST", headers: { Authorization: "Basic " + btoa(APP_ID + ":" + APP_SECRET), "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json", "User-Agent": UA }, body: "" });
+            const j: any = await r.json().catch(() => ({}));
+            if (!j.device_code) return json({ error: "teya_device", message: "Teya refused the sign-in request (" + r.status + "): " + String(j.error_description || j.error || "no device code") }, 502);
+            const { data: row, error } = await admin.from("teya_connect_sessions").insert({ env: TENV, device_code: j.device_code, interval_s: Math.max(2, Number(j.interval || 5)), expires_at: new Date(Date.now() + Number(j.expires_in || 600) * 1000).toISOString() }).select("id").single();
+            if (error) throw error;
+            return json({ ok: true, session_id: row.id, user_code: j.user_code, verification_uri: j.verification_uri, verification_uri_complete: j.verification_uri_complete || null, interval: Math.max(2, Number(j.interval || 5)), expires_in: Number(j.expires_in || 600), env: TENV });
+          }
+          if (action === "teya_connect_poll") {
+            const { data: ss } = await admin.from("teya_connect_sessions").select("*").eq("id", String(d.session_id || "")).maybeSingle();
+            if (!ss) return json({ error: "expired", message: "This Teya sign-in has expired. Start again." }, 410);
+            if ((ss as any).user_token) return json({ ok: true, signed_in: true });
+            if (Date.parse((ss as any).expires_at) < Date.now()) return json({ error: "expired", message: "The code expired before it was approved. Start again." }, 410);
+            const r = await fetch(TID + "/oauth/v2/oauth-token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA },
+              body: new URLSearchParams({ grant_type: "urn:ietf:params:oauth:grant-type:device_code", device_code: (ss as any).device_code, client_id: APP_ID, client_secret: APP_SECRET }).toString() });
+            const j: any = await r.json().catch(() => ({}));
+            if (r.ok && j.access_token) {
+              await admin.from("teya_connect_sessions").update({ user_token: j.access_token, token_expires_at: new Date(Date.now() + Number(j.expires_in || 900) * 1000).toISOString() }).eq("id", (ss as any).id);
+              return json({ ok: true, signed_in: true });
+            }
+            if (j.error === "authorization_pending" || j.error === "slow_down") return json({ ok: true, signed_in: false, pending: true });
+            return json({ error: "teya_token", message: "Teya sign-in failed: " + String(j.error_description || j.error || r.status) }, 502);
+          }
+          if (action === "teya_connect_stores") {
+            const ss = await session();
+            const stores = asList(await tapi(ss.user_token, "GET", "/poslink/v1/stores"), "stores");
+            const ids = stores.map((s: any) => String(s.id || s.store_id));
+            const { data: creds } = ids.length ? await admin.from("teya_credentials").select("store_id").in("store_id", ids) : { data: [] as any[] };
+            const out: any[] = [];
+            for (const s of stores) {
+              const sid = String(s.id || s.store_id);
+              let terminals: any[] = [], terminalsError: string | null = null;
+              try { terminals = asList(await tapi(ss.user_token, "GET", "/poslink/v1/stores/" + sid + "/terminals"), "terminals"); }
+              catch (e) { terminalsError = String((e as Error).message || e); }
+              out.push({ store_id: sid, name: s.name || s.store_name || sid, registered: (creds || []).some((c: any) => String(c.store_id) === sid),
+                terminals: terminals.map((t: any) => ({ terminal_id: String(t.id || t.terminal_id), serial: t.serial_number || t.serial || null, model: t.model || t.device_model || null, status: t.status || null })),
+                terminals_error: terminalsError });
+            }
+            return json({ ok: true, env: TENV, stores: out });
+          }
+          if (action === "teya_connect_save") {
+            const ss = await session();
+            const location_id = String(d.location_id || ""), store_id = String(d.store_id || "");
+            const picks = (Array.isArray(d.terminals) ? d.terminals : []).filter((t: any) => t && t.terminal_id);
+            if (!location_id || !store_id) return json({ error: "location_id and store_id required" }, 400);
+            if (!picks.length) return json({ error: "no_terminal", message: "Choose at least one terminal." }, 400);
+            const storeName = String(d.store_name || store_id).slice(0, 120);
+            // Register this ePOS on the store (idempotent on epos_external_id at Teya)
+            // unless we already hold machine credentials for it.
+            const { data: have } = await admin.from("teya_credentials").select("store_id").eq("store_id", store_id).maybeSingle();
+            let tokenOk: boolean | null = null;
+            if (!have || d.reregister) {
+              const slug = storeName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "store";
+              const reg = await tapi(ss.user_token, "POST", "/poslink/v1/epos/register", { store_id, epos_external_id: "chocoberry-pos-" + slug });
+              if (!reg?.client_id || !reg?.client_secret) throw new Error("Teya did not return ePOS credentials.");
+              const tr = await fetch(TID + "/oauth/v2/oauth-token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": UA, Authorization: "Basic " + btoa(reg.client_id + ":" + reg.client_secret) }, body: new URLSearchParams({ grant_type: "client_credentials", scope: SCOPES_POSLINK }).toString() });
+              tokenOk = tr.ok;
+              const { error: cErr } = await admin.from("teya_credentials").upsert({ store_id, store_name: storeName, client_id: reg.client_id, client_secret: reg.client_secret, scopes: SCOPES_POSLINK }, { onConflict: "store_id" });
+              if (cErr) throw cErr;
+            }
+            // Replace this café's terminal mapping.
+            await admin.from("teya_terminals").update({ active: false }).eq("location_id", location_id).eq("active", true);
+            const now = new Date().toISOString();
+            const rows = picks.map((t: any) => ({ location_id, store_id, terminal_id: String(t.terminal_id), tablet_no: t.tablet_no == null || t.tablet_no === "" ? null : Number(t.tablet_no),
+              label: String(t.label || t.serial || "Teya terminal").slice(0, 80), active: true, connected_at: now, connected_by: "Head office" }));
+            let { error: tErr } = await admin.from("teya_terminals").insert(rows);
+            if (tErr && /connected_/.test(String(tErr.message || ""))) ({ error: tErr } = await admin.from("teya_terminals").insert(rows.map(({ connected_at, connected_by, ...r }: any) => r)));
+            if (tErr) throw tErr;
+            // The user token has done its job: drop it with the session.
+            await admin.from("teya_connect_sessions").delete().eq("id", ss.id);
+            return json({ ok: true, terminals: rows.length, registered: !have || !!d.reregister, token_ok: tokenOk });
+          }
+          if (action === "teya_disconnect") {
+            const location_id = String(d.location_id || "");
+            if (!location_id) return json({ error: "location_id required" }, 400);
+            const { data: rows } = await admin.from("teya_terminals").select("store_id").eq("location_id", location_id).eq("active", true);
+            await admin.from("teya_terminals").update({ active: false }).eq("location_id", location_id).eq("active", true);
+            // A Teya store's credentials go once no café uses it any more.
+            const removed: string[] = [];
+            for (const sid of Array.from(new Set((rows || []).map((r: any) => String(r.store_id))))) {
+              const { count } = await admin.from("teya_terminals").select("id", { count: "exact", head: true }).eq("store_id", sid).eq("active", true);
+              if (!count) { await admin.from("teya_credentials").delete().eq("store_id", sid); removed.push(sid); }
+            }
+            return json({ ok: true, disconnected: (rows || []).length, credentials_removed: removed.length });
+          }
+        } catch (e) {
+          return json({ error: "teya", message: String((e as Error).message || e) }, 502);
+        }
+        return json({ error: "unknown" }, 400);
+      }
+
       case "receipt_save": {
         const { location_id, config, clear } = data || {};
         if (!location_id) return json({ error: "location_id required" }, 400);

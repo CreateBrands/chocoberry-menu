@@ -1,4 +1,5 @@
 import CashLog from "./CashLog.jsx";
+import TeyaConnect from "./TeyaConnect.jsx";
 import ReceiptDesigner from "./ReceiptDesigner.jsx";
 import PrintersModal from "./PrintersModal.jsx";
 import { useState, useEffect, useMemo, useRef, Fragment } from "react";
@@ -2153,7 +2154,7 @@ export default function Admin() {
                   {isOpen && (
                     <div style={{ borderTop: "1px solid " + T.line, padding: "18px", background: T.bg }}>
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 17, background: "#ecebe3", padding: 4, borderRadius: 12, width: "fit-content", maxWidth: "100%" }}>
-                        {[["tablets", "Tablets", tokens.length], ["tables", "Tables", diningTables.length], ["kitchen", "Devices", (state.kdsScreens || []).filter((k) => k.location_id === loc.id).length], ["menus", "Menus", null], ["share", "Customer menu", null], ["branding", "Branding", null], ["receipt", "Receipt", null], ["cash", "Cash", null]].map(([key, lbl, count]) => (
+                        {[["tablets", "Tablets", tokens.length], ["tables", "Tables", diningTables.length], ["kitchen", "Devices", (state.kdsScreens || []).filter((k) => k.location_id === loc.id).length], ["menus", "Menus", null], ["share", "Customer menu", null], ["branding", "Branding", null], ["receipt", "Receipt", null], ["cash", "Cash", null], ...(state.scope === "master" ? [["teya", "Card machine", null]] : [])].map(([key, lbl, count]) => (
                           <span key={key} onClick={() => setStoreTab(key)} style={{ padding: "8px 16px", borderRadius: 9, fontSize: 12.5, fontWeight: 600, cursor: "pointer", color: storeTab === key ? T.ink : T.muted, background: storeTab === key ? "#fff" : "transparent", boxShadow: storeTab === key ? "0 2px 6px rgba(40,36,25,.09)" : "none", letterSpacing: "-.01em", display: "flex", alignItems: "center", gap: 7 }}>
                             {lbl}{count != null && <span style={{ fontSize: 10.5, background: storeTab === key ? "#e7f2e0" : "#e0ded4", color: storeTab === key ? "#3c5a2e" : "#8a8272", borderRadius: 10, padding: "1px 7px", fontWeight: 700 }}>{count}</span>}
                           </span>
@@ -2199,6 +2200,10 @@ export default function Admin() {
                       )}
                       {storeTab === "cash" && (
                         <CashLog call={(a, b) => callAdmin(pin, a, b)} loc={loc} T={T} canBank={state.scope !== "store"} />
+                      )}
+                      {/* TEYA CONNECT 2026-10-29 — connect / change / disconnect the Teya terminal (head office only) */}
+                      {storeTab === "teya" && state.scope === "master" && (
+                        <TeyaConnect key={loc.id} pin={pin} loc={loc} T={T} />
                       )}
 
                       {storeTab === "share" && (() => {
