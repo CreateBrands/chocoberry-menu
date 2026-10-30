@@ -233,12 +233,21 @@ Deno.serve(async (req) => {
             message: "The card was charged " + money(row.amount).toFixed(2) + " but this order is already settled. Refund the card or check the order before taking payment again.",
           }, 409);
         }
+        // TEYA SWEEP 2026-10-30: the till's own poll and the background sweep can
+        // both see SUCCESSFUL at the same moment. Claim the request first (only
+        // one caller can flip recorded_at from null) so the tender is booked once.
+        const { data: claim } = await admin.from("teya_payment_requests").update({ recorded_at: new Date().toISOString() })
+          .eq("payment_request_id", payment_request_id).is("recorded_at", null).select("payment_request_id");
+        if (!claim || !claim.length) return json({ ok: true, status: "SUCCESSFUL", recorded: true });
         if (applied > 0) {
           const { error: pErr } = await admin.from("order_payments").insert({
             order_id: row.order_id, method: "card", amount: applied,
             note: ("teya:" + payment_request_id + (row.note ? " " + row.note : "")).slice(0, 120),
           });
-          if (pErr && !/duplicate|unique/i.test(pErr.message || "")) throw pErr;
+          if (pErr && !/duplicate|unique/i.test(pErr.message || "")) {
+            await admin.from("teya_payment_requests").update({ recorded_at: null }).eq("payment_request_id", payment_request_id);
+            throw pErr;
+          }
         }
         // Refund rows must not count towards what has been paid. admin-api and
         // teya-checkout both exclude them; this path did not, so an order with
@@ -379,6 +388,44 @@ Deno.serve(async (req) => {
           });
         }
         return json({ ok: true, stores: out });
+      }
+
+      // ---- TEYA SWEEP 2026-10-30: book card payments nobody was watching ----
+      // A payment is booked when the till sees SUCCESSFUL. If the tablet was
+      // reloaded, lost Wi-Fi, or staff pressed Cancel just as the customer
+      // tapped, nobody saw it: the card was charged and the order stayed
+      // unpaid. The till calls this when it opens, every few minutes and
+      // before Close till; it re-checks every unfinished request at Teya and
+      // books the ones that went through (the claim in "status" stops doubles).
+      case "sweep": {
+        const { location_id = null } = data || {};
+        const since = new Date(Date.now() - 48 * 3600_000).toISOString();
+        const settle = new Date(Date.now() - 40_000).toISOString();   // leave the live poll alone
+        const { data: rows } = await admin.from("teya_payment_requests")
+          .select("payment_request_id, order_id, status, status_reason, created_at")
+          .is("recorded_at", null).in("status", ["NEW", "IN_PROGRESS", "CANCELLING", "SUCCESSFUL"])
+          .gte("created_at", since).lte("created_at", settle).order("created_at", { ascending: true }).limit(40);
+        let list = (rows || []).filter((r: any) => r.status_reason !== "CAPTURED_NOT_APPLIED");
+        const unapplied = (rows || []).filter((r: any) => r.status_reason === "CAPTURED_NOT_APPLIED").length;
+        if (location_id && list.length) {
+          const { data: ords } = await admin.from("menu_orders").select("id, order_no, location_id").in("id", Array.from(new Set(list.map((r: any) => r.order_id))));
+          const mine = new Map((ords || []).filter((o: any) => o.location_id === location_id).map((o: any) => [o.id, o.order_no]));
+          list = list.filter((r: any) => mine.has(r.order_id)).map((r: any) => ({ ...r, order_no: mine.get(r.order_id) }));
+        }
+        const self = Deno.env.get("SUPABASE_URL") + "/functions/v1/teya-pay";
+        const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+        const booked: any[] = [], unresolved: any[] = [];
+        for (const r of list.slice(0, 15)) {
+          try {
+            const res = await fetch(self, { method: "POST", headers: { "Content-Type": "application/json", apikey: key, Authorization: "Bearer " + key },
+              body: JSON.stringify({ action: "status", data: { payment_request_id: r.payment_request_id } }) });
+            const j: any = await res.json().catch(() => ({}));
+            const st = String(j.status || "").toUpperCase();
+            if (st === "SUCCESSFUL" && j.recorded) booked.push({ order_no: r.order_no ?? null, order_id: r.order_id });
+            else if (st !== "FAILED" && st !== "CANCELLED") unresolved.push({ order_no: r.order_no ?? null, status: st || r.status });
+          } catch { unresolved.push({ order_no: r.order_no ?? null, status: r.status }); }
+        }
+        return json({ ok: true, checked: Math.min(list.length, 15), booked, unresolved, unapplied });
       }
 
       case "health": {

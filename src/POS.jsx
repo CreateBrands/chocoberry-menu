@@ -392,6 +392,13 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
   }
   async function openCloseTill() {
     closeTillCache.current = {};   // fresh figures each time the sheet opens
+    // TEYA SWEEP 2026-10-30: book any card payment nobody saw before counting,
+    // and say so if one is still unresolved on the machine.
+    if (teyaTerminal) {
+      const sw = await teyaSweep();
+      const stuck = sw && sw.unresolved ? sw.unresolved.length : 0;
+      if (stuck || (sw && sw.unapplied)) teyaSay((stuck ? stuck + " card payment" + (stuck === 1 ? " is" : "s are") + " still unfinished on the machine" + (sw.unresolved[0]?.order_no != null ? " (#" + sw.unresolved.map((u) => u.order_no).join(", #") + ")" : "") + ". " : "") + (sw && sw.unapplied ? sw.unapplied + " card payment" + (sw.unapplied === 1 ? " was" : "s were") + " charged on an order that was already paid — refund it. " : "") + "Check the card machine before you count.");
+    }
     setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "", preview: null, floatEdit: false, mgrPin: "", pinFor: "staff", terminal: "", terminalNa: false });
     let sm = await loadCloseTillSummary("trading_day");
     // CLOSE FIX 2026-10-27: before 4am the server answers "all" (one close for
@@ -532,24 +539,43 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       setTeyaWait({ amount: start.amount, label: start.terminal, prId, status: start.status || "NEW" });
       // Poll until a terminal state. Each status call waits up to ~8s on Teya's
       // event stream, so this is cheap on the network.
+      let cancelSentAt = 0;
       for (let i = 0; i < 200; i++) {
-        if (teyaCancelRef.current) {
+        if (teyaCancelRef.current && !cancelSentAt) {
           const c = await teyaCall("cancel", { payment_request_id: prId });
           // Teya answers 406 "cannot be cancelled" once the customer has begun
-          // paying. Closing the overlay on that would stop the poll while the
-          // payment runs to completion — card charged, tender never booked,
-          // and nothing reconciles it afterwards. So only stop when the cancel
-          // is actually accepted; otherwise carry on waiting for the machine.
-          if (c.httpOk && c.ok !== false) { setTeyaWait(null); return { ok: false, cancelled: true }; }
+          // paying; carry on waiting for the machine then.
+          // TEYA SWEEP 2026-10-30: an ACCEPTED cancel is only a request too —
+          // Teya marks it CANCELLING, and a customer who had already tapped can
+          // still go through to SUCCESSFUL. We used to close the overlay right
+          // here, so that payment was charged and never booked. Now we keep
+          // watching until Teya says CANCELLED, FAILED or SUCCESSFUL.
           teyaCancelRef.current = false;
-          setTeyaWait((w) => w && { ...w, note: "Too late to cancel — the customer is paying. Wait for the machine." });
+          if (c.httpOk && c.ok !== false) {
+            cancelSentAt = Date.now();
+            setTeyaWait((w) => w && { ...w, status: "CANCELLING", note: "Cancelling on the card machine…" });
+          } else {
+            setTeyaWait((w) => w && { ...w, note: "Too late to cancel — the customer is paying. Wait for the machine." });
+          }
+        }
+        // Cancel accepted but Teya hasn't confirmed after 45s: stop waiting here.
+        // The background check keeps looking and books it if it did go through.
+        if (cancelSentAt && Date.now() - cancelSentAt > 45000) {
+          setTeyaWait(null);
+          teyaSay("The card machine hasn't confirmed the cancel. Check the machine — if the customer paid, the till will record it within a few minutes.");
+          return { ok: false, cancelled: true, unconfirmed: true };
         }
         const st = await teyaCall("status", { payment_request_id: prId });
         const status = String(st.status || "").toUpperCase();
         setTeyaWait((w) => w && { ...w, status, reason: st.reason || null });
-        if (status === "SUCCESSFUL") { setTeyaWait(null); await loadOrders(); return { ok: true, ...st }; }
+        if (status === "SUCCESSFUL") {
+          setTeyaWait(null); await loadOrders();
+          if (cancelSentAt) teyaSay("The customer paid before the cancel reached the machine — the payment went through and is recorded on the order.");
+          return { ok: true, ...st };
+        }
         if (status === "FAILED" || status === "CANCELLED") {
           setTeyaWait(null);
+          if (cancelSentAt && status === "CANCELLED") return { ok: false, cancelled: true };
           const why = st.reason ? String(st.reason).replace(/_/g, " ").toLowerCase() : null;
           teyaSay(status === "FAILED" ? ("Card payment failed" + (why ? " — " + why : "") + ". Try again or take another method.") : "Card payment cancelled on the machine.");
           return { ok: false, [status.toLowerCase()]: true };
@@ -563,6 +589,26 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       return { ok: false };
     } finally { setOrdersBusy(false); }
   }
+  // TEYA SWEEP 2026-10-30 — find card payments that went through while nobody
+  // was watching (tablet reloaded, Wi-Fi dropped, cancel crossed a tap) and
+  // book them. Runs when the till opens, every 3 minutes, and before Close till.
+  async function teyaSweep() {
+    if (!loc || !teyaTerminal) return null;
+    try {
+      const r = await teyaCall("sweep", { location_id: loc });
+      if (r && r.booked && r.booked.length) {
+        teyaSay("Card payment recorded on " + r.booked.map((b) => "#" + (b.order_no ?? "?")).join(", ") + " — it went through on the card machine.");
+        await loadOrders();
+      }
+      return r;
+    } catch { return null; }
+  }
+  useEffect(() => {
+    if (!loc || !teyaTerminal) return;
+    teyaSweep();
+    const t = setInterval(teyaSweep, 180000);
+    return () => clearInterval(t);
+  }, [loc, teyaTerminal]); // eslint-disable-line
   const applyDiscount = (o, payload) => ordActionJson("apply_discount", { order_id: o.id, ...payload });
   const removeDiscount = (o, pin) => ordActionJson("remove_discount", { order_id: o.id, staff_pin: pin });
   const applyItemDiscount = (o, order_item_id, payload) => ordActionJson("apply_item_discount", { order_id: o.id, order_item_id, ...payload });
