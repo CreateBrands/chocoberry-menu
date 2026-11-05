@@ -3266,7 +3266,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     : "linear-gradient(160deg,#EEF2E4,#E1E8D2)";
   if (unknownToken) {
     return (
-      <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", position: "fixed", top: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
+      <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", position: "fixed", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
         <div style={{ maxWidth: 420, textAlign: "center" }}>
           <div style={{ fontSize: 52, marginBottom: 12 }}>🔗</div>
           <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 22, color: "var(--ink)", marginBottom: 10 }}>This menu link is not recognised</div>
@@ -3278,7 +3278,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
 
   if (locked) {
     return (
-      <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", position: "fixed", top: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
+      <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", position: "fixed", top: 0, left: 0, right: 0, bottom: 0, display: "flex", alignItems: "center", justifyContent: "center", padding: 24, boxSizing: "border-box" }}>
         <div style={{ maxWidth: 420, textAlign: "center" }}>
           <div style={{ fontSize: 52, marginBottom: 12 }}>🔒</div>
           <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 22, color: "var(--ink)", marginBottom: 10 }}>This QR is already linked</div>
@@ -3315,7 +3315,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
   const safeBottom = insetBottom > 0 ? `max(env(safe-area-inset-bottom, 0px), ${insetBottom}px)` : "0px";
 
   return (
-    <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0, boxSizing: "border-box", ...(kiosk ? { paddingTop: safeTop, paddingBottom: safeBottom } : null) }}>
+    <div style={{ ...themeVars, background: themeBg, fontFamily: "var(--font-body)", height: "100dvh", width: "100vw", overflow: "hidden", position: "fixed", top: 0, left: 0, right: 0, bottom: 0, boxSizing: "border-box", ...(kiosk ? { paddingTop: safeTop, paddingBottom: safeBottom } : null) }}>
       {!online && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 9999, background: "#8a5a2c", color: "#fff", textAlign: "center", fontSize: 13, fontWeight: 600, padding: "6px 0", letterSpacing: ".02em", fontFamily: "var(--font-head)" }}>
           ● Offline — showing saved menu
