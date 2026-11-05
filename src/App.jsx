@@ -2672,7 +2672,7 @@ function MenuPicker({ menus, bg, onPick, onClose }) {
 
 function TablePicker({ tables, current, onPick, onClose, required }) {
   // Group tables by their letter prefix (FL, FH, BB...) so each zone is its own row.
-  const zoneOrder = ["FL", "FH", "BB"];
+  const zoneOrder = ["FL", "FH", "BB", "GF", "OUT", "FF"];
   const groups = {};
   for (const t of tables) {
     const m = String(t.label).match(/^([A-Za-z]+)/);
@@ -2684,7 +2684,7 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
     ...zoneOrder.filter((z) => groups[z]),
     ...Object.keys(groups).filter((z) => !zoneOrder.includes(z)).sort(),
   ];
-  const zoneLabel = { FL: "Front Left", FH: "Front Hall", BB: "Back" };
+  const zoneLabel = { FL: "Front Left", FH: "Front Hall", BB: "Back", GF: "Ground Floor", OUT: "Outside", FF: "1st Floor" };
 
   return (
     <div style={{ position: "absolute", inset: 0, background: "var(--bg)", zIndex: 50, display: "flex", flexDirection: "column", padding: "28px 22px" }}>
