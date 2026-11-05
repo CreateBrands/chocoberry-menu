@@ -18,6 +18,8 @@
 //           GET /poslink/v1/stores, GET /poslink/v1/stores/{id}/terminals.
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+// STRINGIQ 2026-11-05 — second card provider, same till flow (see _shared/stringiq.ts).
+import { siq, siqKeyForStore, siqMessage, siqCard, siqAcknowledge, SIQ_BASE } from "../_shared/stringiq.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -161,7 +163,7 @@ Deno.serve(async (req) => {
         if (remaining <= 0) return json({ error: "already_paid", message: "This order is already fully paid." }, 409);
         const amt = Math.min(money(amount) > 0 ? money(amount) : remaining, remaining);
         // Terminal for this till: exact tablet match first, then the store default (tablet_no null).
-        const { data: terms } = await admin.from("teya_terminals").select("id, store_id, terminal_id, tablet_no, label")
+        const { data: terms } = await admin.from("teya_terminals").select("id, store_id, terminal_id, tablet_no, label, provider")
           .eq("location_id", ord.location_id).eq("active", true);
         const term = (terms || []).find((x: any) => tabletLabel != null && String(x.tablet_no) === tabletLabel)
           || (terms || []).find((x: any) => x.tablet_no == null) || (terms || [])[0];
@@ -171,6 +173,58 @@ Deno.serve(async (req) => {
           .eq("order_id", order_id).in("status", ["NEW", "IN_PROGRESS"]).order("created_at", { ascending: false }).limit(1);
         if (open && open.length) return json({ ok: true, payment_request_id: open[0].payment_request_id, status: open[0].status, amount: open[0].amount, reused: true });
         const idem = crypto.randomUUID();
+        // ---- STRINGIQ 2026-11-05: same request, StringIQ's Terminal API ----
+        if ((term as any).provider === "stringiq") {
+          const key = await siqKeyForStore(admin, term.store_id);
+          // order_reference: the SAME on every attempt for this order (StringIQ's
+          // order guard uses it to stop double charges); merchant_reference: new
+          // per attempt, kept to 30 characters (their tightest stated limit) so
+          // both teams can quote it.
+          const reqBody = {
+            store_id: term.store_id, terminal_id: term.terminal_id,
+            requested_amount: { amount: Math.round(amt * 100), currency: "GBP", tip: 0 },
+            transaction_type: "SALE",
+            merchant_reference: ("CB" + ord.order_no + "-" + idem.slice(0, 8)).slice(0, 30),
+            order_reference: String(ord.id),
+            epos_instance_id: tabletLabel != null ? ("till-" + tabletLabel).slice(0, 40) : "till",
+          };
+          const r = await siq(key, "POST", "/v1/payment-requests", reqBody, idem);
+          let snap: any = r.body;
+          let prId: string | null = snap?.payment_request_id || null;
+          if (r.http === 409) {
+            // Order guard / duplicate: StringIQ names the payment it already has —
+            // follow that one rather than starting a second.
+            const named = r.body?.payment_request_id || r.body?.existing_payment_request_id || r.body?.details?.payment_request_id || null;
+            if (named && ["DUPLICATE_MERCHANT_REFERENCE", "PRIOR_ATTEMPT_UNRESOLVED", "ORDER_ALREADY_PAID", "DIFFERENT_REQUEST_BODY_FOR_THE_SAME_IDEMPOTENCY_KEY"].includes(String(r.code))) {
+              const g = await siq(key, "GET", "/v1/payment-requests/" + encodeURIComponent(named));
+              prId = named; snap = g.http < 300 ? g.body : { payment_request_id: named, status: "IN_PROGRESS" };
+            } else {
+              return json({ error: String(r.code || "conflict").toLowerCase(), code: r.code, message: siqMessage(r.code, r.body?.message) }, 409);
+            }
+          } else if (r.unknown) {
+            // Outcome unknown, not failed. Retrying from the till re-sends the
+            // same order_reference, and StringIQ adopts or names the first attempt.
+            return json({ error: "unknown_outcome", message: "The card system didn't answer. Check the card machine — if it is asking for the card, tap Card again and the till will pick the payment up." }, 502);
+          } else if (r.http >= 400) {
+            return json({ error: String(r.code || "refused").toLowerCase(), code: r.code, message: siqMessage(r.code, r.body?.message) }, r.http);
+          }
+          if (!prId) throw new Error("stringiq: no payment_request_id in response");
+          // Adopted an attempt we already hold (Order-Attempt-Adopted / follow): reuse it.
+          const { data: have } = await admin.from("teya_payment_requests").select("payment_request_id, status, amount").eq("payment_request_id", prId).maybeSingle();
+          if (have) return json({ ok: true, payment_request_id: prId, status: snap?.status || have.status, amount: have.amount, reused: true, provider: "stringiq" });
+          const { error: insErr } = await admin.from("teya_payment_requests").insert({
+            // An adopted earlier attempt may be for a different amount: record what StringIQ holds.
+            payment_request_id: prId, order_id, terminal_id: snap?.terminal_id || term.terminal_id, store_id: term.store_id,
+            amount: snap?.requested_amount?.amount != null ? money(Number(snap.requested_amount.amount) / 100) : amt,
+            status: snap?.status || "NEW", tablet_no: tabletNum, note, raw: snap, provider: "stringiq", version: snap?.version ?? null,
+          });
+          if (insErr) {
+            try { await siq(key, "PATCH", "/v1/payment-requests/" + encodeURIComponent(prId), { status: "CANCELLING" }); } catch { /* best effort */ }
+            console.error("stringiq start: could not record payment request " + prId + " — " + insErr.message);
+            return json({ error: "not_recorded", message: "Could not start the card payment — try again." }, 500);
+          }
+          return json({ ok: true, payment_request_id: prId, status: snap?.status || "NEW", amount: amt, terminal: term.label || null, provider: "stringiq" });
+        }
         const cred = await credFor(admin, term.store_id);
         const res = await teya(cred, "POST", "/poslink/v3/payment-requests", {
           store_id: term.store_id, terminal_id: term.terminal_id,
@@ -206,20 +260,43 @@ Deno.serve(async (req) => {
         if (!payment_request_id) return json({ error: "payment_request_id required" }, 400);
         const { data: row } = await admin.from("teya_payment_requests").select("*").eq("payment_request_id", payment_request_id).single();
         if (!row) return json({ error: "unknown payment request" }, 404);
-        if (row.recorded_at) return json({ ok: true, status: "SUCCESSFUL", recorded: true, fully_paid: row.fully_paid, remaining: row.remaining_after });
-        const snap = await snapshot(await credFor(admin, row.store_id), payment_request_id);
+        const isSiq = row.provider === "stringiq";
+        const siqKey = isSiq ? await siqKeyForStore(admin, row.store_id) : null;
+        if (row.recorded_at) {
+          // Booked earlier but the acknowledgement didn't land: try again, or
+          // StringIQ raises payment_request.resolution_required.
+          if (isSiq && !row.acknowledged_at && siqKey) {
+            const okAck = await siqAcknowledge(siqKey, payment_request_id, null, row.status_reason === "CAPTURED_NOT_APPLIED" ? "FLAGGED_FOR_STAFF" : "BOOKED");
+            if (okAck) await admin.from("teya_payment_requests").update({ acknowledged_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
+          }
+          return json({ ok: true, status: "SUCCESSFUL", recorded: true, fully_paid: row.fully_paid, remaining: row.remaining_after, card: row.card || null });
+        }
+        let snap: any = null;
+        if (isSiq && siqKey) {
+          const g = await siq(siqKey, "GET", "/v1/payment-requests/" + encodeURIComponent(payment_request_id));
+          snap = g.http >= 200 && g.http < 300 ? g.body : null;
+        } else {
+          snap = await snapshot(await credFor(admin, row.store_id), payment_request_id);
+        }
         const status = String(snap?.status || row.status || "NEW").toUpperCase();
         const reason = snap?.status_reason || null;
         if (status !== row.status || reason !== row.status_reason) {
-          await admin.from("teya_payment_requests").update({ status, status_reason: reason, raw: snap ?? row.raw, updated_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
+          await admin.from("teya_payment_requests").update({ status, status_reason: reason, raw: snap ?? row.raw, ...(isSiq && snap ? { version: snap.version ?? null } : {}), updated_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
         }
         if (status !== "SUCCESSFUL") return json({ ok: true, status, reason });
 
         // ---- record the tender (mirror of admin-api take_payment) ----
-        const { data: ord } = await admin.from("menu_orders").select("id, total, discount_amount, amount_paid, status").eq("id", row.order_id).single();
+        const { data: ord } = await admin.from("menu_orders").select("id, total, discount_amount, amount_paid, status" + (isSiq ? ", tip_amount" : "")).eq("id", row.order_id).single();
         if (!ord) return json({ error: "order not found" }, 404);
         const total = money(money(ord.total) - money((ord as any).discount_amount)), already = money(ord.amount_paid);
-        const applied = Math.min(money(row.amount), money(total - already));
+        // STRINGIQ: book what was APPROVED, not what we asked for. A tip added on
+        // the terminal is in approved_amount only; it is kept apart from the sale
+        // (menu_orders.tip_amount) so balances, refunds and takings stay right.
+        const captured = isSiq && snap?.approved_amount ? money(Number(snap.approved_amount.amount || 0) / 100) : money(row.amount);
+        const tip = isSiq ? money(Number(snap?.approved_amount?.tip || 0) / 100) : 0;
+        const card = isSiq ? siqCard(snap) : null;
+        if (isSiq) await admin.from("teya_payment_requests").update({ approved_amount: captured, tip_amount: tip, card }).eq("payment_request_id", payment_request_id);
+        const applied = Math.min(money(captured - tip), money(total - already));
         // Teya captured the card but the balance has gone since we asked for it
         // — another tender landed in between. Booking nothing here while still
         // stamping recorded_at would retire the request and lose the money with
@@ -228,6 +305,10 @@ Deno.serve(async (req) => {
         // say plainly what happened.
         if (applied <= 0) {
           await admin.from("teya_payment_requests").update({ status, status_reason: "CAPTURED_NOT_APPLIED", updated_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
+          // Tell StringIQ a person has to deal with it, so it stops chasing.
+          if (isSiq && siqKey && await siqAcknowledge(siqKey, payment_request_id, snap?.version ?? null, "FLAGGED_FOR_STAFF")) {
+            await admin.from("teya_payment_requests").update({ acknowledged_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
+          }
           return json({
             ok: false, status, recorded: false, unapplied: true, captured: money(row.amount),
             message: "The card was charged " + money(row.amount).toFixed(2) + " but this order is already settled. Refund the card or check the order before taking payment again.",
@@ -267,16 +348,34 @@ Deno.serve(async (req) => {
         }
         const patch: Record<string, unknown> = { amount_paid: paidNow, is_split: isSplit };
         if (fullyPaid) { patch.paid_method = isSplit ? "split" : primary; patch.paid_amount = paidNow; patch.paid_at = new Date().toISOString(); if (ord.status === "hold") patch.status = "placed"; }
+        if (tip > 0) patch.tip_amount = money(Number((ord as any).tip_amount || 0) + tip);
         await admin.from("menu_orders").update(patch).eq("id", row.order_id);
         await admin.from("teya_payment_requests").update({ recorded_at: new Date().toISOString(), fully_paid: fullyPaid, remaining_after: remaining }).eq("payment_request_id", payment_request_id);
-        return json({ ok: true, status: "SUCCESSFUL", recorded: true, paid: paidNow, remaining, fully_paid: fullyPaid, is_split: isSplit, card: snap?.card || null });
+        // STRINGIQ: booked — acknowledge it (required for SUCCESSFUL sales). If
+        // this fails the next status/sweep call retries it.
+        if (isSiq && siqKey && await siqAcknowledge(siqKey, payment_request_id, snap?.version ?? null, "BOOKED")) {
+          await admin.from("teya_payment_requests").update({ acknowledged_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
+        }
+        return json({ ok: true, status: "SUCCESSFUL", recorded: true, paid: paidNow, remaining, fully_paid: fullyPaid, is_split: isSplit, tip, card: isSiq ? card : (snap?.card || null) });
       }
 
       // ---- POS: staff cancelled while the terminal was waiting ----
       case "cancel": {
         const { payment_request_id } = data || {};
         if (!payment_request_id) return json({ error: "payment_request_id required" }, 400);
-        const { data: pr } = await admin.from("teya_payment_requests").select("store_id").eq("payment_request_id", payment_request_id).maybeSingle();
+        const { data: pr } = await admin.from("teya_payment_requests").select("store_id, provider").eq("payment_request_id", payment_request_id).maybeSingle();
+        // STRINGIQ: same PATCH. A 200 means "cancel requested"; act on the status
+        // it returns — after the card is presented the sale wins (SUCCESSFUL).
+        if ((pr as any)?.provider === "stringiq") {
+          const key = await siqKeyForStore(admin, (pr as any).store_id);
+          const r = await siq(key, "PATCH", "/v1/payment-requests/" + encodeURIComponent(payment_request_id), { status: "CANCELLING" });
+          const st = String(r.body?.status || "").toUpperCase();
+          if (r.http >= 300 || /^CANNOT_CANCEL/.test(String(r.code || "")) || st === "SUCCESSFUL") {
+            return json({ ok: false, status: st || null, message: r.code ? siqMessage(r.code, "Too late to cancel — the customer is paying.") : "Too late to cancel — the customer is paying." });
+          }
+          await admin.from("teya_payment_requests").update({ status: st || "CANCELLING", updated_at: new Date().toISOString() }).eq("payment_request_id", payment_request_id);
+          return json({ ok: true, status: st || "CANCELLING" });
+        }
         // CANCELLING is the only value the endpoint accepts — NewCancelPaymentRequest
         // in Teya's POSLink spec has enum ["CANCELLING"]. We were sending CANCELLED,
         // which the gateway rejects, so staff cancels never reached the terminal.
@@ -428,6 +527,58 @@ Deno.serve(async (req) => {
         return json({ ok: true, checked: Math.min(list.length, 15), booked, unresolved, unapplied });
       }
 
+      // ---- STRINGIQ 2026-11-05: one-time setup per StringIQ key ----
+      // Checks the key, registers our webhook (StringIQ shows the signing
+      // secret ONCE, so it is stored here straight away), and records which
+      // StringIQ stores the key can see. Head office only: ADMIN_PIN, or
+      // Authorization: Bearer <DIAG_TOKEN>. The key comes from the request
+      // ("api_key") or the STRINGIQ_API_KEY secret; it is never returned.
+      case "siq_setup": {
+        const ADMIN_PIN = Deno.env.get("ADMIN_PIN"), DIAG = Deno.env.get("DIAG_TOKEN");
+        const bearer = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "").trim();
+        const ok = (!!DIAG && bearer === String(DIAG).trim()) || (!!ADMIN_PIN && String(pin ?? "").trim() === String(ADMIN_PIN).trim());
+        if (!ok) return json({ error: "unauthorized", hint: "Send the master PIN as \"pin\", or Authorization: Bearer <DIAG_TOKEN>." }, 401);
+        const { label = "StringIQ", api_key = null, rotate = false } = data || {};
+        const apiKey = String(api_key || Deno.env.get("STRINGIQ_API_KEY") || "").trim();
+        if (!apiKey) return json({ error: "no_key", message: "Pass api_key, or set the STRINGIQ_API_KEY secret." }, 400);
+        const ping = await siq(apiKey, "GET", "/v1/ping", undefined, undefined, 1);
+        if (ping.http < 200 || ping.http >= 300) return json({ error: "key_refused", http: ping.http, code: ping.code, message: siqMessage(ping.code, "StringIQ refused the key.") }, 400);
+        const { data: existing } = await admin.from("siq_keys").select("id, signing_secret").eq("api_key", apiKey).maybeSingle();
+        let keyId = (existing as any)?.id as string | undefined;
+        if (!keyId) {
+          const { data: ins, error } = await admin.from("siq_keys").insert({ label: String(label).slice(0, 80), api_key: apiKey }).select("id").single();
+          if (error) throw error;
+          keyId = (ins as any).id;
+        } else {
+          await admin.from("siq_keys").update({ label: String(label).slice(0, 80), updated_at: new Date().toISOString() }).eq("id", keyId);
+        }
+        // Webhook: register (or re-point) ours. The secret comes back only on
+        // first registration or a rotation; keep what we have otherwise.
+        const url = Deno.env.get("SUPABASE_URL") + "/functions/v1/siq-webhook";
+        let webhook: any = { url, secret_stored: !!(existing as any)?.signing_secret };
+        if (!(existing as any)?.signing_secret || rotate) {
+          const w = await siq(apiKey, "PUT", "/v1/webhook-endpoint", { url });
+          let secret = w.body?.signing_secret || null;
+          if (!secret && rotate) {
+            const rs = await siq(apiKey, "POST", "/v1/webhook-endpoint/rotate-secret", {});
+            secret = rs.body?.signing_secret || null;
+          }
+          if (secret) await admin.from("siq_keys").update({ signing_secret: secret, secret_last4: String(secret).slice(-4), webhook_url: url, updated_at: new Date().toISOString() }).eq("id", keyId);
+          webhook = { url, http: w.http, code: w.code, secret_stored: !!secret || !!(existing as any)?.signing_secret,
+            note: secret ? undefined : "StringIQ didn't return a signing secret (it is only shown once). Re-run with \"rotate\": true to issue a new one." };
+        }
+        // Stores and terminals this key can see.
+        const st = await siq(apiKey, "GET", "/v1/stores");
+        const stores: any[] = [];
+        for (const s of (st.body?.stores || []) as any[]) {
+          const sid = String(s.store_id || s.id);
+          await admin.from("siq_stores").upsert({ store_id: sid, store_name: s.name || null, key_id: keyId }, { onConflict: "store_id" });
+          const t = await siq(apiKey, "GET", "/v1/stores/" + encodeURIComponent(sid) + "/terminals");
+          stores.push({ store_id: sid, name: s.name, timezone: s.timezone, terminals: (t.body?.terminals || []).map((x: any) => ({ terminal_id: x.terminal_id, name: x.terminal_name, serial: x.serial_number, status: x.status })) });
+        }
+        return json({ ok: true, base: SIQ_BASE, key: { label, id: keyId }, webhook, stores });
+      }
+
       case "health": {
         const { data: creds } = await admin.from("teya_credentials").select("store_id, store_name, client_id, client_secret, scopes");
         const results: any[] = [];
@@ -441,9 +592,17 @@ Deno.serve(async (req) => {
         // this action takes no auth, so it never carries a client_id.
         const checkoutId = Deno.env.get("TEYA_CHECKOUT_CLIENT_ID") || "";
         const poslinkIds = new Set(((creds || []) as any[]).map((c) => String(c.client_id || "")));
+        // STRINGIQ: ping each key (never returns the key).
+        const siqOut: any[] = [];
+        const { data: keys } = await admin.from("siq_keys").select("id, label, api_key, signing_secret").then((x: any) => x, () => ({ data: [] }));
+        for (const k of (keys || []) as any[]) {
+          const r = await siq(k, "GET", "/v1/ping", undefined, undefined, 1);
+          siqOut.push({ label: k.label, ok: r.http >= 200 && r.http < 300, http: r.http, webhook_secret: !!k.signing_secret });
+        }
         return json({
           ok: results.length > 0 && results.every((r) => r.ok),
           env: ENV,
+          stringiq: { base: SIQ_BASE, keys: siqOut },
           stores: results,
           credentials: {
             poslink_count: poslinkIds.size,

@@ -580,7 +580,10 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
           teyaSay(status === "FAILED" ? ("Card payment failed" + (why ? " — " + why : "") + ". Try again or take another method.") : "Card payment cancelled on the machine.");
           return { ok: false, [status.toLowerCase()]: true };
         }
-        await new Promise((res) => setTimeout(res, status === "IN_PROGRESS" ? 800 : 1500));
+        // STRINGIQ 2026-11-05: its status call answers at once (no event stream to
+        // wait on) and the key is limited to 15 calls a second across every till,
+        // so poll it every 2 s — its webhook usually books the payment first anyway.
+        await new Promise((res) => setTimeout(res, start.provider === "stringiq" ? 2000 : status === "IN_PROGRESS" ? 800 : 1500));
       }
       setTeyaWait(null); teyaSay("The card machine did not respond — check it is online, then try again.");
       return { ok: false, timeout: true };

@@ -6,6 +6,8 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { normalizeReceiptCfg, receiptMissing } from "../_shared/receipt_config.ts";
+// STRINGIQ 2026-11-05 — refunds for card payments taken on StringIQ machines.
+import { siq, siqKeyForStore, siqMessage, siqAcknowledgeRefund } from "../_shared/stringiq.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -107,16 +109,38 @@ async function teyaPoslink(admin: any, storeId: string, method: string, path: st
 // otherwise { ok, refunded, pending?, message?, ids }.
 async function teyaRefundOrder(admin: any, ord: any, amt: number, reason: string | null) {
   const r2 = (n: number) => Math.round(n * 100) / 100;
-  const { data: reqs } = await admin.from("teya_payment_requests").select("payment_request_id, store_id, amount, raw, recorded_at")
+  const { data: reqs } = await admin.from("teya_payment_requests").select("*")
     .eq("order_id", ord.id).not("recorded_at", "is", null).order("created_at", { ascending: true });
   const paid = (reqs || []).filter((x: any) => x.raw && (x.raw.gateway_payment_id || x.raw.transaction_id));
   if (!paid.length) return { handled: false };
+  // STRINGIQ 2026-11-05: same flow; only the wire calls differ (see send()).
+  const pname = paid.some((x: any) => x.provider === "stringiq") ? "The card system" : "Teya";
   const { data: prior, error: pErr } = await admin.from("teya_refunds").select("*").eq("order_id", ord.id).in("status", ["SUCCESS", "PENDING", "SENDING"]);
   if (pErr) throw new Error("Run db/teya_refunds.sql first (" + pErr.message + ").");
   const results: any[] = [];
   // A refund still in progress at Teya: re-check it with the same key before anything new.
   const open = (prior || []).filter((x: any) => x.status !== "SUCCESS");
   const send = async (row: any) => {
+    if (row.provider === "stringiq") {
+      // POST is idempotent on the key: re-sending the same key and body returns
+      // the refund's current state, so this both starts and re-checks it.
+      // StringIQ always answers 202 PENDING first; most settle in ~2 s, so wait
+      // up to ~8 s here before handing back "still processing".
+      const key = await siqKeyForStore(admin, row.store_id);
+      let res = await siq(key, "POST", "/v1/refunds", row.request, row.idem_key);
+      let b: any = res.body || {};
+      const rid = b.refund_id || row.teya_transaction_id || null;
+      for (let i = 0; i < 8 && rid && !res.unknown && res.http < 400 && String(b.status || "").toUpperCase() === "PENDING"; i++) {
+        await new Promise((r) => setTimeout(r, 1000));
+        const g = await siq(key, "GET", "/v1/refunds/" + encodeURIComponent(rid));
+        if (g.http >= 200 && g.http < 300) { b = g.body || b; res = g; }
+      }
+      let st = String(b.status || "").toUpperCase();
+      st = res.unknown ? "PENDING" : res.http >= 400 ? "FAILURE" : st === "SUCCESS" ? "SUCCESS" : (st === "FAILURE" || st === "FAILED") ? "FAILURE" : "PENDING";
+      const why = st === "FAILURE" ? String(b.status_reason || siqMessage(res.code || b.code, b.message)).slice(0, 200) : null;
+      await admin.from("teya_refunds").update({ status: st, status_reason: why, teya_transaction_id: rid, response: b, updated_at: new Date().toISOString() }).eq("id", row.id);
+      return { ...row, status: st, status_reason: why, teya_transaction_id: rid, version: b.version ?? null };
+    }
     const res = await teyaPoslink(admin, row.store_id, "POST", "/poslink/v2/refunds", row.request, row.idem_key);
     const b = res.body || {};
     let status = res.http === 202 ? "PENDING" : String(b.status || "").toUpperCase();
@@ -131,23 +155,26 @@ async function teyaRefundOrder(admin: any, ord: any, amt: number, reason: string
     const still = results.filter((x) => x.status !== "SUCCESS" && x.status !== "FAILURE");
     const okd = results.filter((x) => x.status === "SUCCESS");
     const sum = r2(okd.reduce((a, x) => a + Number(x.amount), 0));
-    if (still.length) return { handled: true, ok: false, pending: true, refunded: sum, ids: okd, message: "Teya is still processing a refund of £" + r2(still.reduce((a, x) => a + Number(x.amount), 0)).toFixed(2) + " on this order. Try again in a minute to check it." };
+    if (still.length) return { handled: true, ok: false, pending: true, refunded: sum, ids: okd, message: pname + " is still processing a refund of £" + r2(still.reduce((a, x) => a + Number(x.amount), 0)).toFixed(2) + " on this order. Try again in a minute to check it." };
     if (okd.length) return { handled: true, ok: true, refunded: sum, ids: okd, carried: true };
-    return { handled: true, ok: false, refunded: 0, ids: [], message: "Teya refused the refund: " + (results[0]?.status_reason || "no reason given") };
+    return { handled: true, ok: false, refunded: 0, ids: [], message: pname + " refused the refund: " + (results[0]?.status_reason || "no reason given") };
   }
   const done: Record<string, number> = {};
   for (const x of prior || []) done[x.payment_request_id] = (done[x.payment_request_id] || 0) + Number(x.amount);
   const avail = paid.map((x: any) => ({ ...x, left: r2(Number(x.amount) - (done[x.payment_request_id] || 0)) })).filter((x: any) => x.left > 0.004);
   const teyaLeft = r2(avail.reduce((a: number, x: any) => a + x.left, 0));
-  if (amt > teyaLeft + 0.001) return { handled: true, ok: false, refunded: 0, ids: [], message: "Only £" + teyaLeft.toFixed(2) + " of the card payment can go back through Teya. Refund that, and the rest by cash or on the card machine." };
+  if (amt > teyaLeft + 0.001) return { handled: true, ok: false, refunded: 0, ids: [], message: "Only £" + teyaLeft.toFixed(2) + " of the card payment can go back to the card automatically. Refund that, and the rest by cash or on the card machine." };
   let need = amt;
   for (const p of avail) {
     if (need <= 0.004) break;
     const part = r2(Math.min(need, p.left));
     const idem = crypto.randomUUID();
-    const request = { transaction_id: String(p.raw.gateway_payment_id || p.raw.transaction_id), amount: Math.round(part * 100), currency: "GBP",
-      merchant_reference: ("CBR-" + ord.order_no + "-" + idem.slice(0, 6)).slice(0, 30) };
-    const { data: row, error } = await admin.from("teya_refunds").insert({ order_id: ord.id, payment_request_id: p.payment_request_id, store_id: p.store_id, amount: part, idem_key: idem, request, status: "SENDING", reason }).select("*").single();
+    const isSiq = p.provider === "stringiq";
+    const mref = ("CBR-" + ord.order_no + "-" + idem.slice(0, 6)).slice(0, 30);
+    const request = isSiq
+      ? { payment_request_id: String(p.payment_request_id), amount: Math.round(part * 100), currency: "GBP", merchant_reference: mref }
+      : { transaction_id: String(p.raw.gateway_payment_id || p.raw.transaction_id), amount: Math.round(part * 100), currency: "GBP", merchant_reference: mref };
+    const { data: row, error } = await admin.from("teya_refunds").insert({ order_id: ord.id, payment_request_id: p.payment_request_id, store_id: p.store_id, amount: part, idem_key: idem, request, status: "SENDING", reason, ...(isSiq ? { provider: "stringiq" } : {}) }).select("*").single();
     if (error) throw error;
     let out;
     try { out = await send(row); }
@@ -159,8 +186,8 @@ async function teyaRefundOrder(admin: any, ord: any, amt: number, reason: string
   const okd = results.filter((x) => x.status === "SUCCESS");
   const sum = r2(okd.reduce((a, x) => a + Number(x.amount), 0));
   const last = results[results.length - 1];
-  if (last && last.status === "PENDING") return { handled: true, ok: false, pending: true, refunded: sum, ids: okd, message: "Teya is still processing the refund. Try again in a minute to check it — it won't be refunded twice." };
-  if (last && last.status === "FAILURE") return { handled: true, ok: false, refunded: sum, ids: okd, message: (sum > 0 ? "£" + sum.toFixed(2) + " went back to the card, but " : "") + "Teya refused the refund: " + (last.status_reason || "no reason given") };
+  if (last && last.status === "PENDING") return { handled: true, ok: false, pending: true, refunded: sum, ids: okd, message: pname + " is still processing the refund. Try again in a minute to check it — it won't be refunded twice." };
+  if (last && last.status === "FAILURE") return { handled: true, ok: false, refunded: sum, ids: okd, message: (sum > 0 ? "£" + sum.toFixed(2) + " went back to the card, but " : "") + pname + " refused the refund: " + (last.status_reason || "no reason given") };
   return { handled: true, ok: true, refunded: sum, ids: okd };
 }
 
@@ -2604,10 +2631,10 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         // TEYA REFUNDS 2026-10-30: a card payment taken on the Teya terminal goes back
         // to the card through Teya first; only what Teya confirms is recorded.
         let viaTeya = false, recAmt = amt, teyaNote = "", teyaWarn: string | null = null;
+        let tr: any = null;
         if (method === "card") {
-          let tr: any;
           try { tr = await teyaRefundOrder(admin, ord, amt, reason ? String(reason).slice(0, 80) : null); }
-          catch (e) { return json({ ok: false, error: "teya", message: "Couldn't reach Teya: " + String((e as Error).message || e) }, 502); }
+          catch (e) { return json({ ok: false, error: "teya", message: "Couldn't reach the card system: " + String((e as Error).message || e) }, 502); }
           if (tr.handled) {
             viaTeya = true;
             if (!(tr.refunded > 0)) return json({ ok: false, error: tr.pending ? "teya_pending" : "teya_refused", message: tr.message }, tr.pending ? 202 : 409);
@@ -2620,6 +2647,17 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const { error: pErr } = await payInsert({ order_id, method, amount: -recAmt, kind: "refund", note: ("REFUND" + (reason ? ": " + String(reason).slice(0, 60) : "") + " · by " + (mgr.name || "manager") + teyaNote).slice(0, 120) });
         if (pErr) throw pErr;
         const newRefunded = Math.round((refundedSoFar + recAmt) * 100) / 100;
+        // STRINGIQ 2026-11-05: refunds booked above — acknowledge them at StringIQ.
+        if (viaTeya && tr && Array.isArray(tr.ids)) {
+          for (const x of tr.ids.filter((x: any) => x.provider === "stringiq" && x.teya_transaction_id)) {
+            try {
+              const k = await siqKeyForStore(admin, x.store_id);
+              if (await siqAcknowledgeRefund(k, String(x.teya_transaction_id), x.version ?? null, "BOOKED")) {
+                await admin.from("teya_refunds").update({ acknowledged_at: new Date().toISOString() }).eq("id", x.id);
+              }
+            } catch (e) { console.error("stringiq refund ack", (e as Error).message); }
+          }
+        }
         const full = newRefunded + 0.001 >= paid;
         const { error } = await admin.from("menu_orders").update({ refund_total: newRefunded, refund_reason: reason ? String(reason).slice(0, 80) : null, refunded_at: new Date().toISOString(), refunded_by: mgr.name || "manager", ...(full ? { status: "refunded" } : {}) }).eq("id", order_id);
         if (error) throw error;
