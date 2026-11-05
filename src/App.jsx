@@ -476,7 +476,7 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
         {feat && feat.image_url ? (
           <img src={feat.image_url} alt="" draggable="false"
             onLoad={(e) => { const n = e.target; if (n.naturalWidth && n.naturalHeight) setAspect(n.naturalWidth / n.naturalHeight); }}
-            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
+            style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", objectFit: "cover", objectPosition: "center" }} />
         ) : (
         <div className="cb-plate">
           <>
@@ -494,8 +494,8 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
         {/* vignette then grain: the two things that stop a gradient looking
             like a gradient, and that keep a photograph from looking pasted on */}
         {!(feat && feat.image_url) && (<>
-          <div style={{ position: "absolute", inset: 0, background: "radial-gradient(124% 92% at 50% 42%,rgba(20,10,4,0) 46%,rgba(20,10,4,.46) 100%)" }} />
-          <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: .07, mixBlendMode: "overlay", pointerEvents: "none" }} aria-hidden="true">
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "radial-gradient(124% 92% at 50% 42%,rgba(20,10,4,0) 46%,rgba(20,10,4,.46) 100%)" }} />
+          <svg style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", opacity: .07, mixBlendMode: "overlay", pointerEvents: "none" }} aria-hidden="true">
             <filter id="cbGrain"><feTurbulence type="fractalNoise" baseFrequency="0.86" numOctaves="3" stitchTiles="stitch" /><feColorMatrix type="saturate" values="0" /></filter>
             <rect width="100%" height="100%" filter="url(#cbGrain)" />
           </svg>
@@ -556,7 +556,7 @@ function WindowWelcome({ menus, w, onOpenPicker, onPick }) {
 
         {/* Paper. A flat fill is the thing that makes a screen look like a
             screen; this is the same grain as the drawn banner, far quieter. */}
-        <svg style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: night ? .05 : .035, mixBlendMode: night ? "overlay" : "multiply", pointerEvents: "none", borderRadius: "44px 44px 0 0" }} aria-hidden="true">
+        <svg style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%", opacity: night ? .05 : .035, mixBlendMode: night ? "overlay" : "multiply", pointerEvents: "none", borderRadius: "44px 44px 0 0" }} aria-hidden="true">
           <filter id="cbGrainP"><feTurbulence type="fractalNoise" baseFrequency="0.8" numOctaves="3" stitchTiles="stitch" /><feColorMatrix type="saturate" values="0" /></filter>
           <rect width="100%" height="100%" filter="url(#cbGrainP)" />
         </svg>
@@ -653,7 +653,7 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
   // choose-menu popup: opens from the bottom, dismiss on outside tap. Shared by
   // both welcome layouts.
   const picker = (
-    <div onClick={() => setOpen(false)} style={{position: 'absolute', inset: 0, zIndex: 30, pointerEvents: open ? 'auto' : 'none', background: open ? 'rgba(30,36,20,.34)' : 'transparent', transition: 'background .3s ease', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}}>
+    <div onClick={() => setOpen(false)} style={{position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, zIndex: 30, pointerEvents: open ? 'auto' : 'none', background: open ? 'rgba(30,36,20,.34)' : 'transparent', transition: 'background .3s ease', display: 'flex', alignItems: 'flex-end', justifyContent: 'center'}}>
       <div onClick={(e) => e.stopPropagation()} style={{width: 'min(400px, 72%)', marginBottom: 0, background: 'var(--bg)', borderRadius: '28px 28px 0 0', padding: '26px 18px 34px', boxShadow: '0 -20px 50px -18px rgba(0,0,0,.35)', transform: open ? 'translateY(0)' : 'translateY(100%)', opacity: 1, transition: 'transform .34s cubic-bezier(.2,.8,.2,1)'}}>
         <div style={{textAlign: 'center', fontFamily: 'var(--font-head)', fontSize: '17px', fontWeight: '600', color: 'var(--accent)', marginBottom: '14px'}}>{catMode ? 'Choose Category' : 'Choose Menu'}</div>
         {/* overflowY after overflow, so the rounded corners still clip
@@ -723,7 +723,7 @@ function Welcome({ bg, menus, onPick, w = {}, kiosk = false, onKioskStart = null
       {hasLayout ? (
         // On a kiosk the tiles are the only way in, so the whole-screen tap is
         // disabled — otherwise a stray touch would skip the eat-in question.
-        <div onClick={() => { if (!kiosk) setOpen(true); }} style={{ position: "absolute", inset: 0, cursor: kiosk ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
+        <div onClick={() => { if (!kiosk) setOpen(true); }} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, cursor: kiosk ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden" }}>
           <div style={{ position: "relative", width: 390, height: 844, flexShrink: 0, transform: "scale(var(--welcome-scale,1))", transformOrigin: "center center" }} ref={(node) => {
             if (node && node.parentElement) {
               const pw = node.parentElement.clientWidth, ph = node.parentElement.clientHeight;
@@ -866,7 +866,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
 
   return (
     <div ref={rootRef} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)" }}>
-      <div style={{ position: "absolute", inset: 0, pointerEvents: "none", opacity: .045, mixBlendMode: "multiply", backgroundImage: "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22140%22 height=%22140%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%222%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E')" }} />
+      <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, pointerEvents: "none", opacity: .045, mixBlendMode: "multiply", backgroundImage: "url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22140%22 height=%22140%22%3E%3Cfilter id=%22n%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.85%22 numOctaves=%222%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23n)%22/%3E%3C/svg%3E')" }} />
       {/* top bar. On a kiosk the menu switcher lives up here, in the space
           between the back button and the search/bag buttons — reaching the
           bottom of a standing screen means stooping. */}
@@ -932,7 +932,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
                 {/* On a photo the text sits at the bottom, so the scrim rises
                     from the bottom with it. On the drawn slides the text is
                     top-left beside the cup, and the old two-blob wash stays. */}
-                <div style={{ position: "absolute", inset: 0, background: s.image_url
+                <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: s.image_url
                   // A banner carrying its own wording needs no scrim at all —
                   // darkening it would only dull artwork nobody has to read
                   // white text off.
@@ -1010,9 +1010,9 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
                 return (
                   <div key={m.id} onClick={() => { setActiveMenu(i); setActiveCat(0); }} style={{ flex: "none", width: 124, scrollSnapAlign: "start", cursor: "pointer" }}>
                     <div style={{ height: 88, borderRadius: 16, position: "relative", overflow: "hidden", background: img ? "var(--accent-soft)" : "var(--accent-soft)", backgroundImage: img ? `url(${img})` : "none", backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 4px 12px -5px rgba(56,53,43,.2)", transition: "box-shadow .2s" }}>
-                      {img && <div style={{ position: "absolute", inset: 0, background: "linear-gradient(to top,rgba(20,26,14,.40),rgba(20,26,14,.02))" }} />}
-                      {!img && <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", opacity: .85 }}>{menuIcon(m.name, false)}</div>}
-                      {on && <div style={{ position: "absolute", inset: 0, borderRadius: 16, boxShadow: "inset 0 0 0 3px var(--accent)" }} />}
+                      {img && <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "linear-gradient(to top,rgba(20,26,14,.40),rgba(20,26,14,.02))" }} />}
+                      {!img && <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", opacity: .85 }}>{menuIcon(m.name, false)}</div>}
+                      {on && <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: 16, boxShadow: "inset 0 0 0 3px var(--accent)" }} />}
                     </div>
                     <div style={{ textAlign: "center", marginTop: 8, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 13, lineHeight: 1.2, color: on ? "var(--accent)" : "var(--ink)" }}>{m.name}</div>
                   </div>
@@ -1030,8 +1030,8 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
               return (
               <div key={c.name} onClick={() => scrollToCat(i)} style={{ flex: "none", width: 132, scrollSnapAlign: "start", cursor: "pointer" }}>
                 <div style={{ height: 94, borderRadius: 16, position: "relative", overflow: "hidden", backgroundImage: catImg ? `url(${catImg})` : "linear-gradient(160deg,#cf8aa0,#9fb585)", backgroundSize: "cover", backgroundPosition: "center", boxShadow: "0 4px 12px -5px rgba(56,53,43,.2)" }}>
-                  <div style={{ position: "absolute", inset: 0, background: "radial-gradient(60% 60% at 50% 34%,rgba(255,255,255,.3),transparent 70%)" }} />
-                  {i === activeCat && <div style={{ position: "absolute", inset: 0, borderRadius: 16, boxShadow: "inset 0 0 0 3px var(--accent)" }} />}
+                  <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "radial-gradient(60% 60% at 50% 34%,rgba(255,255,255,.3),transparent 70%)" }} />
+                  {i === activeCat && <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: 16, boxShadow: "inset 0 0 0 3px var(--accent)" }} />}
                 </div>
                 <div style={{ textAlign: "center", marginTop: 9, fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 13, lineHeight: 1.2, color: i === activeCat ? "var(--accent)" : "var(--ink)" }}>{c.name}</div>
               </div>
@@ -1063,7 +1063,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
           const photo = (it, h) => (
             <div style={{ height: h, position: "relative", overflow: "hidden", backgroundImage: it.image_url ? `url(${it.image_url})` : (it.bg || "linear-gradient(160deg,#F1E9D8,#E4D7BC)"), backgroundSize: "cover", backgroundPosition: "center" }}>
               {it.soldOut && (
-                <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(250,249,245,.55)" }}>
+                <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(250,249,245,.55)" }}>
                   <span style={{ padding: "9px 20px", borderRadius: 999, background: "rgba(90,96,88,.88)", color: "#fff", fontFamily: "var(--font-head)", fontSize: 14, fontWeight: 700, letterSpacing: ".14em" }}>SOLD OUT TODAY</span>
                 </div>
               )}
@@ -1124,7 +1124,7 @@ export function Browse({ data, menus, activeMenu, setActiveMenu, activeCat, setA
                       <div style={{ position: "absolute", left: "50%", top: "50%", transform: "translate(-50%,-50%)", width: 188, height: 188, borderRadius: "50%", background: it.prod || "radial-gradient(60% 70% at 50% 36%,#FFFFFF,#EAE3D4 72%)", boxShadow: "0 16px 28px -12px rgba(90,70,40,.45)" }} />
                     </>}
                     {it.soldOut && (
-                      <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(250,249,245,.55)" }}>
+                      <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(250,249,245,.55)" }}>
                         <span style={{ padding: "8px 18px", borderRadius: 999, background: "rgba(90,96,88,.88)", color: "#fff", fontFamily: "var(--font-head)", fontSize: 12.5, fontWeight: 700, letterSpacing: ".14em" }}>SOLD OUT TODAY</span>
                       </div>
                     )}
@@ -1831,7 +1831,7 @@ function AllergenGate({ item, store, contains, may, onAccept }) {
               <span style={{ fontSize: 13, color: "#8a5a2c", background: "#F5E9DC", padding: "6px 14px", borderRadius: 20 }}>Allergen information</span>
             )}
           </div>
-          <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.55)" }}>
+          <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,.55)" }}>
             <button onClick={() => setOpen(true)}
               style={{ border: "none", background: "var(--ink, #2F3326)", color: "#fff", fontFamily: "inherit", fontSize: 14, fontWeight: 600, padding: "10px 18px", borderRadius: 999, cursor: "pointer" }}>
               Click to view allergen information
@@ -2511,8 +2511,8 @@ export function Confirm(props) {
   return (
     <div ref={fit} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative", background: "var(--bg)", fontFamily: "var(--font-body)", color: "var(--ink)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: `${s(40)} ${s(56)} ${s(230)}`, boxSizing: "border-box", textAlign: "center" }}>
       <div style={{ position: "relative", width: s(230), height: s(230), flex: "none" }}>
-        <div style={{ position: "absolute", inset: 0, borderRadius: "50%", background: "var(--chip)", animation: "tovepop 620ms cubic-bezier(.2,.8,.2,1)" }} />
-        <svg viewBox="0 0 260 260" style={{ position: "absolute", inset: 0, width: "100%", height: "100%" }}>
+        <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, borderRadius: "50%", background: "var(--chip)", animation: "tovepop 620ms cubic-bezier(.2,.8,.2,1)" }} />
+        <svg viewBox="0 0 260 260" style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, width: "100%", height: "100%" }}>
           <path d="M80 134l34 34 68-76" fill="none" stroke="var(--accent)" strokeWidth="16" strokeLinecap="round" strokeLinejoin="round"
             strokeDasharray="180" strokeDashoffset="0" style={{ animation: "tovedraw 560ms ease 360ms backwards" }} />
         </svg>
@@ -2615,7 +2615,7 @@ function SearchOverlay({ menus, onItem, onClose }) {
   const term = q.trim().toLowerCase();
   const results = term ? all.filter((it) => (it.name || "").toLowerCase().includes(term) || (it.desc || "").toLowerCase().includes(term)).slice(0, 40) : [];
   return (
-    <div style={{ position: "absolute", inset: 0, background: "var(--bg)", zIndex: 40, display: "flex", flexDirection: "column" }}>
+    <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "var(--bg)", zIndex: 40, display: "flex", flexDirection: "column" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "22px 24px 14px" }}>
         <input autoFocus value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the menu…"
           style={{ flex: 1, fontSize: 20, padding: "14px 18px", borderRadius: 16, border: "none", background: "#fff", outline: "none", fontFamily: "var(--font-body)", color: "var(--ink)" }} />
@@ -2644,7 +2644,7 @@ function MenuPicker({ menus, bg, onPick, onClose }) {
     : { background: "linear-gradient(150deg,#3d5233,#5a7346 55%,#7b9560)" };
   return (
     <div style={{ width: "100%", height: "100%", position: "relative", overflow: "hidden", fontFamily: "var(--font-body)", ...bgStyle }}>
-      <div style={{ position: "absolute", inset: 0, background: "radial-gradient(120% 80% at 50% 10%, rgba(20,28,14,0.12), rgba(18,24,12,0.62) 78%)" }} />
+      <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "radial-gradient(120% 80% at 50% 10%, rgba(20,28,14,0.12), rgba(18,24,12,0.62) 78%)" }} />
       <div style={{ position: "relative", height: "100%", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 80px" }}>
         <div style={{ textAlign: "center", marginBottom: 64 }}>
           <div style={{ fontFamily: "var(--font-head)", fontSize: 92, fontWeight: 600, letterSpacing: "-.03em", color: "#F5F1E6", lineHeight: 1 }}>still<span style={{ color: "#C6D9A0" }}>.</span></div>
@@ -2687,7 +2687,7 @@ function TablePicker({ tables, current, onPick, onClose, required }) {
   const zoneLabel = { FL: "Front Left", FH: "Front Hall", BB: "Back", GF: "Ground Floor", OUT: "Outside", FF: "1st Floor" };
 
   return (
-    <div style={{ position: "absolute", inset: 0, background: "var(--bg)", zIndex: 50, display: "flex", flexDirection: "column", padding: "28px 22px" }}>
+    <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, background: "var(--bg)", zIndex: 50, display: "flex", flexDirection: "column", padding: "28px 22px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
         <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 28, color: "var(--ink)" }}>Select your table</div>
         {!required && <div onClick={onClose} style={{ fontSize: 15, color: "var(--muted)", cursor: "pointer", padding: 8 }}>Close</div>}
@@ -3331,9 +3331,9 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         @keyframes cbSun{0%,100%{transform:translate3d(0,0,0);opacity:.42}50%{transform:translate3d(-54px,26px,0);opacity:.72}}
         @keyframes cbPulse{0%,100%{opacity:.5;transform:scale(1)}50%{opacity:1;transform:scale(1.5)}}
         @keyframes cbSheen{0%{transform:translateX(-120%)}62%{transform:translateX(260%)}100%{transform:translateX(260%)}}
-        .cb-plate{position:absolute;inset:-8%;animation:cbDrift 34s ease-in-out infinite}
-        .cb-layer{position:absolute;inset:0;transition:opacity 1.1s ease}
-        .cb-sun{position:absolute;inset:0;animation:cbSun 26s ease-in-out infinite}
+        .cb-plate{position:absolute;top:-8%;right:-8%;bottom:-8%;left:-8%;animation:cbDrift 34s ease-in-out infinite}
+        .cb-layer{position:absolute;top:0;right:0;bottom:0;left:0;transition:opacity 1.1s ease}
+        .cb-sun{position:absolute;top:0;right:0;bottom:0;left:0;animation:cbSun 26s ease-in-out infinite}
         .cb-dot{animation:cbPulse 2.8s ease-in-out infinite}
         .cb-cta{position:relative;overflow:hidden}
         .cb-cta::after{content:"";position:absolute;top:0;bottom:0;width:34%;background:linear-gradient(100deg,rgba(255,255,255,0),rgba(255,255,255,.24),rgba(255,255,255,0));animation:cbSheen 8s ease-in-out infinite}
@@ -3350,7 +3350,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         @media (prefers-reduced-motion:reduce){.cb-plate,.cb-sun,.cb-dot,.cb-cta::after,.cb-in{animation:none}}
         [data-catstrip]{max-height:0;opacity:0;overflow:hidden;padding-top:0 !important;padding-bottom:0 !important;transition:max-height .35s ease,opacity .3s ease,padding .35s ease;}
         [data-catstrip].show{max-height:160px;opacity:1;padding-top:14px !important;padding-bottom:14px !important;}
-        .screenwrap .screen{position:absolute;inset:0;}
+        .screenwrap .screen{position:absolute;top:0;right:0;bottom:0;left:0;}
         .screenwrap .screen > div{width:100% !important;height:100% !important;position:absolute;left:0;top:0;}
         .menu-card{cursor:pointer;}
         *::-webkit-scrollbar{display:none;}
@@ -3383,16 +3383,16 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
         <div style={{ width: "100%", height: "100%", padding: 0, background: "transparent" }}>
           <div ref={wrapRef} className="screenwrap" data-kiosk={kiosk ? "1" : undefined} style={{ width: "100%", height: "100%", overflow: "hidden", position: "relative" }}>
 
-            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={viewOnly ? viewOnlyWelcome(settingsEff) : settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
-            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={viewOnly ? null : () => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} theme={themeVars} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} catJump={catJump} canOrder={canOrder} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
-            <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
-            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail kiosk={kiosk} canOrder={canOrder} key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
+            <div className={"screen" + (screen === "welcome" ? " active" : "")} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: screen === "welcome" ? "block" : "none" }}><Welcome bg={settingsEff.welcome_bg_url || ""} menus={menus} onPick={pickMenu} w={viewOnly ? viewOnlyWelcome(settingsEff) : settingsEff} kiosk={kiosk} theme={themeVars} onReach={kiosk ? () => setReach(true) : null} onKioskStart={(dine) => { setKioskDine(dine); if (dine) setPickupName(""); else setKioskTable(""); }} /></div>
+            <div className={"screen" + (screen === "browse" ? " active" : "")} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: screen === "browse" ? "block" : "none" }}><Browse kiosk={kiosk} data={data} menus={menus} activeMenu={activeMenu} setActiveMenu={setActiveMenu} activeCat={activeCat} setActiveCat={setActiveCat} onItem={openItem} onAdd={addToBag} onBag={() => setScreen("bag")} onBack={() => setScreen("welcome")} onSearch={() => setSearchOpen(true)} onOpenDrawer={viewOnly ? null : () => setScreen("drawer")} onReach={kiosk ? () => setReach(true) : null} brandLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} theme={themeVars} bagCount={lines.reduce((s,l)=>s+l.qty,0)} heroSlides={heroSlides} heroSet={heroSet} catJump={catJump} canOrder={canOrder} />{searchOpen && <SearchOverlay menus={menus} onItem={openItem} onClose={() => setSearchOpen(false)} />}</div>
+            <div className={"screen" + (screen === "drawer" ? " active" : "")} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: screen === "drawer" ? "block" : "none" }}><Drawer orders={sessionOrders} onClose={() => setScreen("browse")} locationId={store?.id || store?.location_id || null} onAddItems={(id) => { addItemsToOrder(id); }} /></div>
+            <div className={"screen" + (screen === "item" ? " active" : "")} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: screen === "item" ? "block" : "none" }}><ItemDetail kiosk={kiosk} canOrder={canOrder} key={selItem ? selItem.id : "none"} item={selItem} store={store} onAdd={addToBag} onClose={() => setScreen("browse")} allergensUnlocked={allergensUnlocked} onAllergensAccepted={(nm) => {
               setAllergensUnlocked(true);
               // They've just typed their name for the allergen record; don't
               // ask for it again at checkout.
               if (nm && !pickupName) setPickupName(nm);
             }} /></div>
-            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "bag" ? "block" : "none" }}><Bag kioskTables={tables} kiosk={kiosk} bagLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} kioskDine={kioskDine} setKioskDine={setKioskDine} kioskTable={kioskTable} setKioskTable={setKioskTable} orderErr={orderErr} onDismissErr={() => setOrderErr(null)} lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => { setOrderErr(null);
+            <div className={"screen" + (screen === "bag" ? " active" : "")} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: screen === "bag" ? "block" : "none" }}><Bag kioskTables={tables} kiosk={kiosk} bagLogo={kiosk ? (settingsEff.welcome_logo_url || "") : ""} kioskDine={kioskDine} setKioskDine={setKioskDine} kioskTable={kioskTable} setKioskTable={setKioskTable} orderErr={orderErr} onDismissErr={() => setOrderErr(null)} lines={lines} setLines={setLines} pickupName={pickupName} setPickupName={setPickupName} appending={!!appendOrderId} onBack={() => setScreen("browse")} onPlace={() => { setOrderErr(null);
               if (!acceptingOrders) { setOrderErr("We're not taking orders right now — please order at the counter."); return; }
               if (!lines || lines.length === 0) { setOrderErr("Your bag is empty."); return; }
               if (kiosk && kioskDine === null) { setOrderErr("Please choose eat in or take away."); return; }
@@ -3401,7 +3401,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
     if (!kiosk && canOrder && tableMode === "pick" && !table) { setOrderErr("Please ask a staff member to set your table before ordering."); openTablePicker(); return; }
               setConfirmingOrder(true);
             }} orderingEnabled={canOrder} tableMode={tableMode} table={table} onPickTable={openTablePicker} /></div>
-            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", inset: 0, display: screen === "confirm" ? "block" : "none" }} onClick={startOver}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} kioskItems={lastCount} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} autoSeconds={kiosk ? confirmSeconds : 0} /></div>
+            <div className={"screen" + (screen === "confirm" ? " active" : "")} style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, display: screen === "confirm" ? "block" : "none" }} onClick={startOver}><Confirm kiosk={kiosk} kioskDine={kioskDine} kioskTable={kioskTable} kioskTotal={lastTotal} kioskItems={lastCount} orderNo={orderNo} pickupName={pickupName} table={table} onAddMore={addMoreToOrder} autoSeconds={kiosk ? confirmSeconds : 0} /></div>
             {/* Staff: pre-set the table before handing the tablet to the customer.
                 Discreet corner button, welcome screen only. Customer can still change it in the bag. */}
             {canOrder && tableMode === "pick" && screen === "welcome" && (
@@ -3416,7 +3416,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
                 onClose={() => { setShowTablePicker(false); setTableUnlocked(false); }} />
             )}
             {tablePinPrompt && (
-              <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setTablePinPrompt(false)}>
+              <div style={{ position: "fixed", top: 0, right: 0, bottom: 0, left: 0, background: "rgba(0,0,0,.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }} onClick={() => setTablePinPrompt(false)}>
                 <div onClick={(e) => e.stopPropagation()} style={{ background: "var(--bg2)", borderRadius: 20, padding: 28, maxWidth: 360, width: "100%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,.3)" }}>
                   <div style={{ fontSize: 40, marginBottom: 10 }}>🔒</div>
                   <div style={{ fontFamily: "var(--font-head)", fontWeight: 700, fontSize: 19, color: "var(--ink)", marginBottom: 6 }}>Staff only</div>
@@ -3432,7 +3432,7 @@ export default function App({ kiosk = false, kioskDevice = null, kioskLoc = null
               </div>
             )}
             {confirmingOrder && (
-              <div style={{ position: "absolute", inset: 0, zIndex: 60, background: "rgba(30,35,25,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
+              <div style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0, zIndex: 60, background: "rgba(30,35,25,.45)", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}
                 onClick={() => { if (!placing) setConfirmingOrder(false); }}>
                 <div onClick={(e) => e.stopPropagation()} style={{ width: "100%", maxWidth: 440, background: "var(--bg)", borderRadius: 26, padding: "34px 28px", textAlign: "center", boxShadow: "0 30px 80px -20px rgba(0,0,0,.4)" }}>
                   <div style={{ fontFamily: "var(--font-head)", fontWeight: 600, fontSize: 26, color: "var(--ink)", marginBottom: 8 }}>Place this order?</div>
