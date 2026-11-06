@@ -62,6 +62,22 @@ Deno.serve(async (req) => {
   let error: string | null = null;
   try {
     if (type.startsWith("payment_request.") && d.payment_request_id) {
+      // A payment we have no record of: the till dropped between StringIQ
+      // accepting the request and our server saving it. order_reference is our
+      // order id, so adopt it onto that order and let "status" book it —
+      // otherwise the card would be charged with nothing recording it.
+      const { data: have } = await admin.from("teya_payment_requests").select("payment_request_id").eq("payment_request_id", String(d.payment_request_id)).maybeSingle();
+      const ref = String(d.order_reference || "");
+      if (!have && /^[0-9a-f-]{36}$/i.test(ref)) {
+        const { data: ord } = await admin.from("menu_orders").select("id").eq("id", ref).maybeSingle();
+        if (ord) {
+          await admin.from("teya_payment_requests").insert({
+            payment_request_id: String(d.payment_request_id), order_id: ref, terminal_id: d.terminal_id || null, store_id: d.store_id || null,
+            amount: Math.round(Number(d.requested_amount?.amount || 0)) / 100, status: d.status || "NEW", raw: d,
+            provider: "stringiq", version: d.version ?? null, note: "adopted from webhook",
+          });
+        }
+      }
       const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
       const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 3500);
       try {

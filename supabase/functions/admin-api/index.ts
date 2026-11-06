@@ -191,6 +191,19 @@ async function teyaRefundOrder(admin: any, ord: any, amt: number, reason: string
   return { handled: true, ok: true, refunded: sum, ids: okd };
 }
 
+// STRINGIQ: acknowledge refunds we've booked (refund_payment and mark_unpaid).
+async function ackSiqRefunds(admin: any, tr: any) {
+  if (!tr || !Array.isArray(tr.ids)) return;
+  for (const x of tr.ids.filter((x: any) => x.provider === "stringiq" && x.teya_transaction_id)) {
+    try {
+      const k = await siqKeyForStore(admin, x.store_id);
+      if (await siqAcknowledgeRefund(k, String(x.teya_transaction_id), x.version ?? null, "BOOKED")) {
+        await admin.from("teya_refunds").update({ acknowledged_at: new Date().toISOString() }).eq("id", x.id);
+      }
+    } catch (e) { console.error("stringiq refund ack", (e as Error).message); }
+  }
+}
+
 async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
@@ -2312,6 +2325,32 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         for (const x of upays || []) { if (x.kind === "refund") continue; net[x.method] = (net[x.method] || 0) + Number(x.amount || 0); }
         const by = umgr.name || "manager";
         const why = String(reason).trim().slice(0, 80);
+        // UNDO REFUNDS CARD 2026-11-06: a card payment taken on a connected
+        // machine (Teya or StringIQ) is real money on the customer's card.
+        // Undo used to change only our records, so the card stayed charged and
+        // the machine's end-of-day came out higher than the till. Send it back
+        // to the card first; undo only once the card system confirms.
+        {
+          const { data: mreq } = await admin.from("teya_payment_requests").select("amount").eq("order_id", order_id).not("recorded_at", "is", null);
+          const { data: mref } = await admin.from("teya_refunds").select("amount, status").eq("order_id", order_id).in("status", ["SUCCESS"]);
+          const machineLeft = round2((mreq || []).reduce((a: number, x: any) => a + Number(x.amount || 0), 0) - (mref || []).reduce((a: number, x: any) => a + Number(x.amount || 0), 0));
+          if (machineLeft > 0.004) {
+            let utr: any;
+            try { utr = await teyaRefundOrder(admin, { id: order_id, order_no: uo.order_no }, machineLeft, ("Undo: " + why).slice(0, 80)); }
+            catch (e) { return json({ ok: false, error: "card_refund", message: "Couldn't reach the card system to give the money back: " + String((e as Error).message || e) }, 502); }
+            if (utr.handled) {
+              if (!(utr.refunded > 0)) return json({ ok: false, error: utr.pending ? "card_refund_pending" : "card_refund_refused", message: (utr.message || "The card refund didn't go through.") + (utr.pending ? " Press Undo again in a minute." : " Nothing was undone.") }, utr.pending ? 202 : 409);
+              await ackSiqRefunds(admin, utr);
+              if (utr.refunded + 0.004 < machineLeft) {
+                // Only part went back: book that part as a normal refund and stop —
+                // the rest of the order is still paid, so it isn't an undo any more.
+                await payInsert({ order_id, method: "card", amount: -round2(utr.refunded), kind: "refund", note: ("REFUND (undo): " + why + " · by " + by).slice(0, 120) });
+                await admin.from("menu_orders").update({ refund_total: round2(Number(uo.refund_total || 0) + utr.refunded), refund_reason: why, refunded_at: new Date().toISOString(), refunded_by: by }).eq("id", order_id);
+                return json({ ok: false, error: "card_refund_partial", message: "£" + round2(utr.refunded).toFixed(2) + " went back to the card, but the rest didn't: " + (utr.message || "no reason given") + ". It's recorded as a refund; the order stays paid." }, 409);
+              }
+            }
+          }
+        }
         for (const [method, amt] of Object.entries(net)) {
           const a2 = round2(amt);
           if (Math.abs(a2) < 0.005) continue;
@@ -2696,16 +2735,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         if (pErr) throw pErr;
         const newRefunded = Math.round((refundedSoFar + recAmt) * 100) / 100;
         // STRINGIQ 2026-11-05: refunds booked above — acknowledge them at StringIQ.
-        if (viaTeya && tr && Array.isArray(tr.ids)) {
-          for (const x of tr.ids.filter((x: any) => x.provider === "stringiq" && x.teya_transaction_id)) {
-            try {
-              const k = await siqKeyForStore(admin, x.store_id);
-              if (await siqAcknowledgeRefund(k, String(x.teya_transaction_id), x.version ?? null, "BOOKED")) {
-                await admin.from("teya_refunds").update({ acknowledged_at: new Date().toISOString() }).eq("id", x.id);
-              }
-            } catch (e) { console.error("stringiq refund ack", (e as Error).message); }
-          }
-        }
+        if (viaTeya) await ackSiqRefunds(admin, tr);
         const full = newRefunded + 0.001 >= paid;
         const { error } = await admin.from("menu_orders").update({ refund_total: newRefunded, refund_reason: reason ? String(reason).slice(0, 80) : null, refunded_at: new Date().toISOString(), refunded_by: mgr.name || "manager", ...(full ? { status: "refunded" } : {}) }).eq("id", order_id);
         if (error) throw error;

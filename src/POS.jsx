@@ -539,6 +539,9 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         return { ok: false, teya_error: true };
       }
       prId = start.payment_request_id;
+      // RESUME 2026-11-06: remember the payment in flight, so a till that is
+      // reloaded or crashes mid-payment can say what happened to it.
+      try { localStorage.setItem("cb_card_pending", JSON.stringify({ prId, orderNo: o.order_no, loc, at: Date.now() })); } catch { /* storage off */ }
       setTeyaWait({ amount: start.amount, label: start.terminal, prId, status: start.status || "NEW" });
       // Poll until a terminal state. Each status call waits up to ~8s on Teya's
       // event stream, so this is cheap on the network.
@@ -593,8 +596,32 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
     } catch {
       setTeyaWait(null); teyaSay("Lost contact with the card machine — check the order before taking payment again.");
       return { ok: false };
-    } finally { setOrdersBusy(false); }
+    } finally {
+      setOrdersBusy(false);
+      try { localStorage.removeItem("cb_card_pending"); } catch { /* storage off */ }
+    }
   }
+  // RESUME 2026-11-06 — the till was reloaded during a card payment: follow it
+  // to its end and say how it went, instead of leaving staff guessing.
+  useEffect(() => {
+    if (!loc || !teyaTerminal) return;
+    let p = null;
+    try { p = JSON.parse(localStorage.getItem("cb_card_pending") || "null"); } catch { p = null; }
+    if (!p || !p.prId || p.loc !== loc || Date.now() - Number(p.at || 0) > 15 * 60000) { try { localStorage.removeItem("cb_card_pending"); } catch { /* */ } return; }
+    let stop = false;
+    (async () => {
+      teyaSay("Checking the card payment on #" + (p.orderNo ?? "?") + " that was running when the till restarted…");
+      for (let i = 0; i < 40 && !stop; i++) {
+        const st = await teyaCall("status", { payment_request_id: p.prId }).catch(() => ({}));
+        const status = String(st.status || "").toUpperCase();
+        if (status === "SUCCESSFUL") { teyaSay("The card payment on #" + (p.orderNo ?? "?") + " went through — it's recorded on the order."); await loadOrders(); break; }
+        if (status === "FAILED" || status === "CANCELLED") { teyaSay("The card payment on #" + (p.orderNo ?? "?") + " didn't go through" + (st.reason ? " (" + String(st.reason).replace(/_/g, " ").toLowerCase() + ")" : "") + ". Take payment again."); break; }
+        await new Promise((res) => setTimeout(res, 2500));
+      }
+      try { localStorage.removeItem("cb_card_pending"); } catch { /* */ }
+    })();
+    return () => { stop = true; };
+  }, [loc, teyaTerminal]); // eslint-disable-line
   // TEYA SWEEP 2026-10-30 — find card payments that went through while nobody
   // was watching (tablet reloaded, Wi-Fi dropped, cancel crossed a tap) and
   // book them. Runs when the till opens, every 3 minutes, and before Close till.
