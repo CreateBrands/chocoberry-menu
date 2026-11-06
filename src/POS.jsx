@@ -399,7 +399,7 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
       const stuck = sw && sw.unresolved ? sw.unresolved.length : 0;
       if (stuck || (sw && sw.unapplied)) teyaSay((stuck ? stuck + " card payment" + (stuck === 1 ? " is" : "s are") + " still unfinished on the machine" + (sw.unresolved[0]?.order_no != null ? " (#" + sw.unresolved.map((u) => u.order_no).join(", #") + ")" : "") + ". " : "") + (sw && sw.unapplied ? sw.unapplied + " card payment" + (sw.unapplied === 1 ? " was" : "s were") + " charged on an order that was already paid — refund it. " : "") + "Check the card machine before you count.");
     }
-    setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "", preview: null, floatEdit: false, mgrPin: "", pinFor: "staff", terminal: "", terminalNa: false });
+    setCloseTill({ step: "summary", stage: 0, mode: "all", summary: null, counted: "", float: "", denoms: {}, countMode: "denoms", pin: "", by: "", note: "", busy: true, err: "", preview: null, floatEdit: false, mgrPin: "", pinFor: "staff", terminal: "", terminalNa: false, eod: null, eodKey: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(36).slice(2)) });
     let sm = await loadCloseTillSummary("trading_day");
     // CLOSE FIX 2026-10-27: before 4am the server answers "all" (one close for
     // the whole night) — take its word for the mode rather than assuming.
@@ -496,11 +496,14 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
   const [teyaTerminal, setTeyaTerminal] = useState(null);
   useEffect(() => {
     if (!loc) { setTeyaTerminal(null); return; }
-    fetch(SUPABASE_URL + "/rest/v1/teya_terminals?select=id,label,tablet_no&active=eq.true&location_id=eq." + loc, { headers: H })
+    fetch(SUPABASE_URL + "/rest/v1/teya_terminals?select=id,label,tablet_no,provider&active=eq.true&location_id=eq." + loc, { headers: H })
       .then((r) => r.ok ? r.json() : []).then((rows) => setTeyaTerminal((rows || []).length ? rows : null)).catch(() => setTeyaTerminal(null));
   }, [loc]); // eslint-disable-line
   // CARD CHECK 2026-10-27: no linked card machine → type its total at close.
-  const needTerminal = !teyaTerminal;
+  // STRINGIQ EOD 2026-11-06: a StringIQ machine's total is fetched (its
+  // end-of-day is run from Close till), so the tile shows for those too.
+  const isSiqStore = !!(teyaTerminal && teyaTerminal.some((t) => t.provider === "stringiq"));
+  const needTerminal = !teyaTerminal || isSiqStore;
   const [teyaWait, setTeyaWait] = useState(null); // { amount, label, prId, status, reason, note }
   const teyaCancelRef = useRef(false);
   // Card failures used to go only to `msg`, which renders inside the cart panel
@@ -612,6 +615,22 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
     const t = setInterval(teyaSweep, 180000);
     return () => clearInterval(t);
   }, [loc, teyaTerminal]); // eslint-disable-line
+  // STRINGIQ EOD 2026-11-06 — run the card machine's end-of-day from Close till
+  // and fill in its total. Starts by itself when the count step opens; the
+  // same close key means pressing "Run again" re-reads that run, never a second.
+  async function runEod() {
+    const key = closeTill && closeTill.eodKey;
+    if (!key) return;
+    setCloseTill((c) => c && { ...c, eod: { busy: true } });
+    try {
+      const r = await teyaCall("siq_eod", { location_id: loc, key });
+      if (r.ok) setCloseTill((c) => c && { ...c, eod: { done: true, results: r.results || [] }, terminal: String(r.total), terminalNa: false });
+      else setCloseTill((c) => c && { ...c, eod: { err: r.message || "Couldn't get the card machine total.", results: r.results || [] } });
+    } catch { setCloseTill((c) => c && { ...c, eod: { err: "Couldn't reach the card system." } }); }
+  }
+  useEffect(() => {
+    if (isSiqStore && closeTill && closeTill.step === "summary" && closeTill.stage === 1 && !closeTill.eod) runEod();
+  }, [isSiqStore, closeTill && closeTill.step, closeTill && closeTill.stage]); // eslint-disable-line
   const applyDiscount = (o, payload) => ordActionJson("apply_discount", { order_id: o.id, ...payload });
   const removeDiscount = (o, pin) => ordActionJson("remove_discount", { order_id: o.id, staff_pin: pin });
   const applyItemDiscount = (o, order_item_id, payload) => ordActionJson("apply_item_discount", { order_id: o.id, order_item_id, ...payload });
@@ -2137,9 +2156,13 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
                   <div className="tu-tile" onClick={() => setPadFor({ kind: "terminal" })} style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 12, background: closeTill.terminalNa ? U.warnBg : termVal == null ? "#fff" : U.soft, borderRadius: 16, padding: "12px 15px", border: "2px solid " + (!showResult && target.kind === "terminal" ? U.teal : termVal == null && !closeTill.terminalNa ? U.amber : "transparent"), cursor: "pointer" }}>
                     <span style={{ width: 38, height: 38, borderRadius: 11, background: "#fff", border: "1px solid " + C.line, color: U.teal, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><TillIcon.card size={19} /></span>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 13.5, fontWeight: 700, color: C.muted }}>{closeTill.terminalNa ? "Card machine total — not available (a note at sign-off)" : "Card machine end-of-day total — run it now, type the total"}</div>
-                      <div style={{ fontSize: 20, fontWeight: 800, ...NUM }}>{closeTill.terminalNa ? "—" : termVal == null ? <span style={{ color: U.warn, fontSize: 16 }}>Required</span> : gbp(termVal)}</div>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: C.muted }}>{closeTill.terminalNa ? "Card machine total — not available (a note at sign-off)"
+                        : isSiqStore ? (closeTill.eod && closeTill.eod.busy ? "Running the card machine's end-of-day…" : closeTill.eod && closeTill.eod.done ? "Card machine end-of-day — from the machine" : closeTill.eod && closeTill.eod.err ? closeTill.eod.err : "Card machine end-of-day total")
+                        : "Card machine end-of-day total — run it now, type the total"}</div>
+                      <div style={{ fontSize: 20, fontWeight: 800, ...NUM }}>{closeTill.terminalNa ? "—" : termVal == null ? <span style={{ color: U.warn, fontSize: 16 }}>{isSiqStore && closeTill.eod && closeTill.eod.busy ? "…" : "Required"}</span> : gbp(termVal)}</div>
+                      {isSiqStore && closeTill.eod && closeTill.eod.done && (closeTill.eod.results || []).some((r) => r.mismatch) && <div style={{ fontSize: 12, fontWeight: 700, color: U.warn }}>The machine and StringIQ disagree — tell head office.</div>}
                     </div>
+                    {isSiqStore && closeTill.eod && closeTill.eod.err && !closeTill.terminalNa && <span className="tu-btn" onClick={(e) => { e.stopPropagation(); runEod(); }} style={{ fontSize: 13.5, color: U.teal, fontWeight: 800, cursor: "pointer", padding: "8px 10px", borderRadius: 10, background: "#fff", border: "1px solid " + C.line, whiteSpace: "nowrap" }}>Run again</span>}
                     {!closeTill.terminalNa
                       ? <span className="tu-btn" onClick={(e) => { e.stopPropagation(); setPadFor(null); setCloseTill((c) => ({ ...c, terminal: "", terminalNa: true })); }} style={{ fontSize: 13.5, color: C.muted, fontWeight: 800, cursor: "pointer", padding: "8px 10px", borderRadius: 10, background: "#fff", border: "1px solid " + C.line, whiteSpace: "nowrap" }}>Can't get it</span>
                       : <span className="tu-btn" onClick={(e) => { e.stopPropagation(); setCloseTill((c) => ({ ...c, terminalNa: false })); setPadFor({ kind: "terminal" }); }} style={{ fontSize: 13.5, color: U.teal, fontWeight: 800, cursor: "pointer", padding: "8px 10px", borderRadius: 10, background: "#fff", border: "1px solid " + C.line }}>Type it</span>}

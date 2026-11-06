@@ -527,6 +527,67 @@ Deno.serve(async (req) => {
         return json({ ok: true, checked: Math.min(list.length, 15), booked, unresolved, unapplied });
       }
 
+      // ---- STRINGIQ EOD 2026-11-06: Close till runs the card machine's end-of-day ----
+      // One run per StringIQ terminal at the café, tied to this close by the
+      // till's close key: calling again for the same close re-reads the run it
+      // already started instead of starting another (which would close an
+      // empty batch and report £0). A FAILED run closed nothing, so a retry
+      // uses a fresh key, as StringIQ asks. Busy/offline/not-ready terminals
+      // come back with a message; the till then lets staff retry or type the
+      // total. Totals are StringIQ's own record (sales incl. tips − refunds).
+      case "siq_eod": {
+        const { location_id = null, key: closeKey = null } = data || {};
+        if (!location_id || !closeKey) return json({ error: "location_id and key required" }, 400);
+        const { data: terms } = await admin.from("teya_terminals").select("store_id, terminal_id, label")
+          .eq("location_id", location_id).eq("active", true).eq("provider", "stringiq");
+        const uniq = Array.from(new Map((terms || []).map((t: any) => [String(t.terminal_id), t])).values()) as any[];
+        if (!uniq.length) return json({ error: "no_terminal", message: "No StringIQ card machine is set up for this store." }, 404);
+        const results: any[] = [];
+        const save = async (eod: any, idem: string | null, storeId: string | null) => {
+          if (!eod?.end_of_day_id) return;
+          await admin.from("siq_end_of_days").upsert({
+            end_of_day_id: String(eod.end_of_day_id), terminal_id: eod.terminal_id || null, store_id: storeId, status: eod.status || null,
+            period_start: eod.period_start || null, period_end: eod.period_end || null, totals: eod.totals ?? null, raw: eod,
+            ...(idem ? { idem_key: idem, location_id } : {}), updated_at: new Date().toISOString(),
+          }, { onConflict: "end_of_day_id" });
+        };
+        for (const t of uniq) {
+          const key = await siqKeyForStore(admin, t.store_id);
+          const prefix = String(closeKey).slice(0, 120) + ":" + t.terminal_id;
+          const { data: prev } = await admin.from("siq_end_of_days").select("end_of_day_id, status, raw, idem_key").like("idem_key", prefix + "%").order("created_at", { ascending: false });
+          let eod: any = (prev || []).find((x: any) => x.status === "SUCCESSFUL")?.raw || null;
+          let eodId: string | null = eod?.end_of_day_id || (prev || []).find((x: any) => x.status === "PENDING")?.end_of_day_id || null;
+          if (!eod && !eodId) {
+            const idem = prefix + ":" + (prev || []).filter((x: any) => x.status === "FAILED").length;
+            const r = await siq(key, "POST", "/v1/terminals/" + encodeURIComponent(t.terminal_id) + "/end-of-day", {}, idem);
+            if (r.http === 409 || r.http >= 400 || r.unknown) {
+              results.push({ terminal_id: t.terminal_id, label: t.label, status: "NOT_RUN", code: r.code, message: siqMessage(r.code, r.body?.message) });
+              continue;
+            }
+            eodId = r.body?.end_of_day_id || null;
+            await save(r.body, idem, t.store_id);
+          }
+          // Wait for the result (the sandbox takes ~3 s; the webhook also records it).
+          for (let i = 0; !eod && eodId && i < 14; i++) {
+            const g = await siq(key, "GET", "/v1/end-of-days/" + encodeURIComponent(eodId));
+            if (g.http >= 200 && g.http < 300 && g.body?.status && g.body.status !== "PENDING") { eod = g.body; await save(eod, null, t.store_id); break; }
+            await new Promise((res) => setTimeout(res, 1000));
+          }
+          if (!eod) { results.push({ terminal_id: t.terminal_id, label: t.label, status: "PENDING", message: "The card machine is still running its end-of-day. Try again in a moment." }); continue; }
+          if (eod.status !== "SUCCESSFUL") { results.push({ terminal_id: t.terminal_id, label: t.label, status: eod.status, message: "The card machine's end-of-day failed. Try again." }); continue; }
+          const tot = (Array.isArray(eod.totals) ? eod.totals : []).find((x: any) => String(x.currency || "GBP").toUpperCase() === "GBP") || { net_amount: 0, sale_count: 0, refund_count: 0, sale_amount: 0, refund_amount: 0 };
+          results.push({
+            terminal_id: t.terminal_id, label: t.label, status: "SUCCESSFUL", end_of_day_id: eod.end_of_day_id,
+            net: money(Number(tot.net_amount || 0) / 100), sales: money(Number(tot.sale_amount || 0) / 100), refunds: money(Number(tot.refund_amount || 0) / 100),
+            sale_count: tot.sale_count || 0, refund_count: tot.refund_count || 0, period_start: eod.period_start, period_end: eod.period_end,
+            mismatch: eod.terminal_totals_match === false,
+          });
+        }
+        const okAll = results.every((r) => r.status === "SUCCESSFUL");
+        const total = money(results.filter((r) => r.status === "SUCCESSFUL").reduce((a, r) => a + Number(r.net || 0), 0));
+        return json({ ok: okAll, total, results, message: okAll ? null : results.filter((r) => r.status !== "SUCCESSFUL").map((r) => (uniq.length > 1 ? (r.label || "Card machine") + ": " : "") + r.message).join(" ") });
+      }
+
       // ---- STRINGIQ 2026-11-05: one-time setup per StringIQ key ----
       // Checks the key, registers our webhook (StringIQ shows the signing
       // secret ONCE, so it is stored here straight away), and records which

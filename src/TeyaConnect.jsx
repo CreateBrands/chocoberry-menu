@@ -141,7 +141,9 @@ export default function TeyaConnect({ pin, loc, T }) {
       : { color: T.muted, background: T.bg, border: "1px solid " + T.line }),
   });
   const env = status?.env || sess?.env;
-  const envBadge = env && (
+  // STRINGIQ: the staging/live badge and the password note are Teya's.
+  const onSiq = step === 0 || step === 4 ? status?.provider === "stringiq" : prov === "stringiq";
+  const envBadge = env && !onSiq && (
     <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".5px", textTransform: "uppercase", borderRadius: 6, padding: "3px 8px", background: env === "staging" ? "#fff3d6" : "#e7f2e0", color: env === "staging" ? "#8a6400" : "#3c5a2e" }}>{env === "staging" ? "Teya test (staging)" : "Teya live"}</span>
   );
   const Steps = () => (
@@ -300,7 +302,9 @@ export default function TeyaConnect({ pin, loc, T }) {
       )}
 
       <div style={{ fontSize: 11.5, color: T.faint, lineHeight: 1.5, marginTop: 4 }}>
-        The Teya password is only ever typed on Teya's page. Once saved, the till holds its own Teya payment key for this store; the sign-in itself is discarded.
+        {onSiq
+          ? "StringIQ machines are reached with head office's StringIQ key — nothing to sign in to here. The machine prints no slip: card details go on the till's receipt."
+          : "The Teya password is only ever typed on Teya's page. Once saved, the till holds its own Teya payment key for this store; the sign-in itself is discarded."}
       </div>
     </div>
   );
