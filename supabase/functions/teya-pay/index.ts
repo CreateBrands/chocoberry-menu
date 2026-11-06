@@ -176,6 +176,15 @@ Deno.serve(async (req) => {
         // ---- STRINGIQ 2026-11-05: same request, StringIQ's Terminal API ----
         if ((term as any).provider === "stringiq") {
           const key = await siqKeyForStore(admin, term.store_id);
+          // SPLIT / RE-PAY 2026-11-06: StringIQ's order guard refuses a second sale
+          // on an order_reference that already has a SUCCESSFUL one (and hands
+          // back the first if the amount matches) unless we say it's deliberate.
+          // It is deliberate when OUR records already hold a booked card payment
+          // on this order — a split across cards, or paying again after an Undo
+          // refunded the card. A first payment or a retry never sets it, so the
+          // guard still stops double charges where it matters.
+          const { count: bookedBefore } = await admin.from("teya_payment_requests").select("payment_request_id", { count: "exact", head: true })
+            .eq("order_id", order_id).eq("provider", "stringiq").not("recorded_at", "is", null);
           // order_reference: the SAME on every attempt for this order (StringIQ's
           // order guard uses it to stop double charges); merchant_reference: new
           // per attempt, kept to 30 characters (their tightest stated limit) so
@@ -187,6 +196,7 @@ Deno.serve(async (req) => {
             merchant_reference: ("CB" + ord.order_no + "-" + idem.slice(0, 8)).slice(0, 30),
             order_reference: String(ord.id),
             epos_instance_id: tabletLabel != null ? ("till-" + tabletLabel).slice(0, 40) : "till",
+            ...((bookedBefore || 0) > 0 ? { allow_additional_payment: true } : {}),
           };
           const r = await siq(key, "POST", "/v1/payment-requests", reqBody, idem);
           let snap: any = r.body;
