@@ -36,6 +36,9 @@ export default function TeyaConnect({ pin, loc, T }) {
   const [store, setStore] = useState(null);
   const [picks, setPicks] = useState({});     // terminal_id -> { on, tablet_no, label }
   const [done, setDone] = useState(null);
+  // STRINGIQ 2026-11-05: which provider this connect run is for.
+  const [prov, setProv] = useState("teya");
+  const PN = prov === "stringiq" ? "StringIQ" : "Teya";
   const pollRef = useRef(null);
 
   const load = async () => {
@@ -47,9 +50,23 @@ export default function TeyaConnect({ pin, loc, T }) {
   const stopPoll = () => { clearTimeout(pollRef.current); pollRef.current = null; };
   const cancel = () => { stopPoll(); setSess(null); setStores([]); setStore(null); setPicks({}); setStep(0); setErr(""); };
 
+  // STRINGIQ: no sign-in step — our StringIQ keys already see their stores.
+  const startSiq = async () => {
+    setBusy(true); setErr(""); setDone(null); setProv("stringiq");
+    try {
+      const r = await call("siq_stores", {});
+      const list = (r.stores || []).filter((x) => x.store_id);
+      const bad = (r.stores || []).find((x) => x.error);
+      if (!list.length && bad) throw new Error(bad.error);
+      setStores(list); setStep(2);
+      if (list.length === 1) chooseStore(list[0], "stringiq");
+    } catch (e) { setErr(e.message); setStep(0); }
+    setBusy(false);
+  };
+
   // Step 1 — start Teya's device sign-in and wait for approval.
   const start = async () => {
-    setBusy(true); setErr(""); setDone(null);
+    setBusy(true); setErr(""); setDone(null); setProv("teya");
     try {
       const s = await call("teya_connect_start", {});
       setSess(s); setStep(1);
@@ -79,13 +96,14 @@ export default function TeyaConnect({ pin, loc, T }) {
   };
 
   // Step 3 — pick terminals. Pre-tick the ones this café already uses.
-  const chooseStore = (s) => {
+  const chooseStore = (s, pv = prov) => {
+    const brand = pv === "stringiq" ? "StringIQ" : "Teya";
     setStore(s);
     const current = new Map((status?.terminals || []).map((t) => [String(t.terminal_id), t]));
     const next = {};
     (s.terminals || []).forEach((t, i) => {
       const was = current.get(String(t.terminal_id));
-      next[t.terminal_id] = { on: was ? true : (s.terminals.length === 1), tablet_no: was?.tablet_no ?? "", label: was?.label || (t.serial ? "Teya " + t.serial : "Teya terminal " + (i + 1)) };
+      next[t.terminal_id] = { on: was ? true : (s.terminals.length === 1), tablet_no: was?.tablet_no ?? "", label: was?.label || (t.serial ? brand + " " + t.serial : brand + " terminal " + (i + 1)) };
     });
     setPicks(next); setStep(3);
   };
@@ -97,14 +115,16 @@ export default function TeyaConnect({ pin, loc, T }) {
     if (new Set(tills).size !== tills.length) { setErr("Two terminals are set to the same till. Give each one its own till, or leave one on All tills."); return; }
     setBusy(true); setErr("");
     try {
-      const r = await call("teya_connect_save", { session_id: sess.session_id, location_id: loc.id, store_id: store.store_id, store_name: store.name, terminals });
+      const r = prov === "stringiq"
+        ? await call("siq_save", { location_id: loc.id, store_id: store.store_id, terminals })
+        : await call("teya_connect_save", { session_id: sess.session_id, location_id: loc.id, store_id: store.store_id, store_name: store.name, terminals });
       setDone(r); setStep(4); setSess(null); await load();
     } catch (e) { setErr(e.message); }
     setBusy(false);
   };
 
   const disconnect = async () => {
-    if (!window.confirm("Disconnect the Teya card machine from " + loc.name + "?\n\nThe till goes back to keying card payments in by hand until you connect again. Payments already taken are not affected.")) return;
+    if (!window.confirm("Disconnect the " + (status?.provider === "stringiq" ? "StringIQ" : "Teya") + " card machine from " + loc.name + "?\n\nThe till goes back to keying card payments in by hand until you connect again. Payments already taken are not affected.")) return;
     setBusy(true); setErr("");
     try { await call("teya_disconnect", { location_id: loc.id }); setStep(0); setDone(null); await load(); } catch (e) { setErr(e.message); }
     setBusy(false);
@@ -126,7 +146,7 @@ export default function TeyaConnect({ pin, loc, T }) {
   );
   const Steps = () => (
     <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
-      {["Sign in to Teya", "Choose store", "Choose terminal"].map((l, i) => {
+      {[prov === "stringiq" ? "StringIQ key" : "Sign in to Teya", "Choose store", "Choose terminal"].map((l, i) => {
         const n = i + 1, on = step === n, past = step > n;
         return <span key={l} style={{ fontSize: 11.5, fontWeight: 700, padding: "5px 10px", borderRadius: 20, background: on ? T.accent : past ? "#e7f2e0" : "#ecebe3", color: on ? "#fff" : past ? "#3c5a2e" : T.faint }}>{past ? "✓ " : n + ". "}{l}</span>;
       })}
@@ -136,6 +156,7 @@ export default function TeyaConnect({ pin, loc, T }) {
   if (!status && !err) return <div style={{ fontSize: 12.5, color: T.faint }}>Loading card machine…</div>;
 
   const connected = (status?.terminals || []).length > 0;
+  const curPN = status?.provider === "stringiq" ? "StringIQ" : "Teya";
   const storeName = (status?.stores || [])[0]?.store_name;
 
   return (
@@ -147,7 +168,7 @@ export default function TeyaConnect({ pin, loc, T }) {
         <div style={card}>
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
             <span style={{ width: 10, height: 10, borderRadius: "50%", background: connected ? "#5E7A4D" : "#c3bcab" }} />
-            <span style={h}>{connected ? "Teya card machine connected" : "No card machine connected"}</span>
+            <span style={h}>{connected ? (curPN + " card machine connected") : "No card machine connected"}</span>
             <span style={{ marginLeft: "auto" }}>{envBadge}</span>
           </div>
           {step === 4 && done && (
@@ -157,28 +178,33 @@ export default function TeyaConnect({ pin, loc, T }) {
           )}
           {connected ? (
             <>
-              <div style={sub}>Teya store: <b style={{ color: T.ink }}>{storeName || "—"}</b>{(status.missing_credentials || []).length ? <span style={{ color: "#b4462f" }}> · keys missing — connect again</span> : null}</div>
+              <div style={sub}>{curPN} store: <b style={{ color: T.ink }}>{storeName || "—"}</b>{(status.missing_credentials || []).length ? <span style={{ color: "#b4462f" }}> · keys missing — connect again</span> : null}</div>
               <div style={{ marginTop: 12 }}>
                 {status.terminals.map((t) => (
                   <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", border: "1px solid " + T.line, borderRadius: 10, marginBottom: 6, background: T.bg }}>
                     <span style={{ fontSize: 16 }}>💳</span>
                     <div>
-                      <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>{t.label || "Teya terminal"}</div>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>{t.label || curPN + " terminal"}</div>
                       <div style={{ fontSize: 11, color: T.faint }}>{t.tablet_no == null ? "All tills" : "Till " + t.tablet_no}{t.connected_at ? " · connected " + when(t.connected_at) : ""}</div>
                     </div>
                   </div>
                 ))}
               </div>
               <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                <button disabled={busy} onClick={start} style={btn("ghost")}>Change store or terminal</button>
-                <button disabled={busy} onClick={disconnect} style={btn("danger")}>Disconnect Teya</button>
+                <button disabled={busy} onClick={status?.provider === "stringiq" ? startSiq : start} style={btn("ghost")}>Change store or terminal</button>
+                <button disabled={busy} onClick={disconnect} style={btn("danger")}>Disconnect {curPN}</button>
+                {status?.provider !== "stringiq" && status?.siq_ready && <button disabled={busy} onClick={startSiq} style={btn("ghost")}>Switch to StringIQ</button>}
+                {status?.provider === "stringiq" && <button disabled={busy || (status && !status.app_ready)} onClick={start} style={btn("ghost")}>Switch to Teya</button>}
               </div>
             </>
           ) : (
             <>
               <div style={sub}>Connect {loc.name}'s Teya account so the till sends card payments straight to the terminal — no keying amounts in, no mistyped totals. You'll need the Teya account owner's email and password to approve it on Teya's own page.</div>
               {status && !status.app_ready && <div style={{ ...sub, color: "#b4462f" }}>The Teya app keys aren't set on the server yet (TEYA_APP_CLIENT_ID / TEYA_APP_CLIENT_SECRET).</div>}
-              <button disabled={busy || (status && !status.app_ready)} onClick={start} style={{ ...btn(), marginTop: 14 }}>Connect Teya</button>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 14 }}>
+                <button disabled={busy || (status && !status.app_ready)} onClick={start} style={btn()}>Connect Teya</button>
+                {status?.siq_ready && <button disabled={busy} onClick={startSiq} style={btn()}>Connect StringIQ</button>}
+              </div>
             </>
           )}
         </div>
@@ -212,8 +238,8 @@ export default function TeyaConnect({ pin, loc, T }) {
       {step === 2 && (
         <div style={card}>
           <Steps />
-          <div style={h}>Which Teya store is {loc.name}?</div>
-          <div style={sub}>These are the stores on the Teya account you signed in with.</div>
+          <div style={h}>Which {PN} store is {loc.name}?</div>
+          <div style={sub}>{prov === "stringiq" ? "These are the stores our StringIQ keys can see." : "These are the stores on the Teya account you signed in with."}</div>
           <div style={{ marginTop: 12 }}>
             {stores.map((s) => (
               <div key={s.store_id} onClick={() => chooseStore(s)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "12px 14px", border: "1px solid " + T.line, borderRadius: 10, marginBottom: 6, background: T.bg, cursor: "pointer" }}>
@@ -225,7 +251,7 @@ export default function TeyaConnect({ pin, loc, T }) {
                 <span style={{ marginLeft: "auto", color: T.accent, fontWeight: 800 }}>›</span>
               </div>
             ))}
-            {!stores.length && !busy && <div style={sub}>This Teya account has no stores. Check you signed in with the right account.</div>}
+            {!stores.length && !busy && <div style={sub}>{prov === "stringiq" ? "No StringIQ stores found on our keys. Ask StringIQ to add the store." : "This Teya account has no stores. Check you signed in with the right account."}</div>}
             {busy && <div style={sub}>Loading stores…</div>}
           </div>
           <button onClick={cancel} style={{ ...btn("ghost"), marginTop: 8 }}>Cancel</button>
@@ -247,7 +273,7 @@ export default function TeyaConnect({ pin, loc, T }) {
                   <label style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer" }}>
                     <input type="checkbox" checked={p.on} onChange={(e) => set("on", e.target.checked)} style={{ width: 18, height: 18, accentColor: T.accent }} />
                     <div>
-                      <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>{t.model || "Teya terminal"}{t.serial ? " · " + t.serial : ""}</div>
+                      <div style={{ fontSize: 13.5, fontWeight: 700, color: T.ink }}>{t.model || PN + " terminal"}{t.serial ? " · " + t.serial : ""}</div>
                       <div style={{ fontSize: 11, color: T.faint, fontFamily: "ui-monospace, Menlo, monospace" }}>{t.terminal_id}{t.status ? " · " + t.status : ""}</div>
                     </div>
                   </label>
@@ -263,7 +289,7 @@ export default function TeyaConnect({ pin, loc, T }) {
                 </div>
               );
             })}
-            {!(store.terminals || []).length && <div style={sub}>{store.terminals_error ? "Teya didn't return the terminals: " + store.terminals_error : "No terminals on this store yet. Ask Teya to add the card machine to the store, then connect again."}</div>}
+            {!(store.terminals || []).length && <div style={sub}>{store.terminals_error ? PN + " didn't return the terminals: " + store.terminals_error : "No terminals on this store yet. Ask " + PN + " to add the card machine to the store, then connect again."}</div>}
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
             <button disabled={busy || !Object.values(picks).some((p) => p.on)} onClick={save} style={btn()}>{busy ? "Saving…" : "Save and connect"}</button>

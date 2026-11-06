@@ -12,7 +12,7 @@
 
 import qrcode from "npm:qrcode-generator@1.4.4";
 import { Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
-import type { ReceiptOrder } from "./escpos.ts";
+import { type ReceiptOrder, cardSlipLines } from "./escpos.ts";
 import type { ReceiptCfg } from "./receipt_config.ts";
 
 type Node = { type: string; props: Record<string, unknown> };
@@ -210,6 +210,8 @@ export function customerReceiptTree(o: ReceiptOrder, c: ReceiptCfg, P: ReceiptPi
     const method = o.paidMethod ? o.paidMethod.replace(/_/g, " ").replace(/\b\w/g, (s) => s.toUpperCase()) : "";
     if (paid > 0) out.push(row("Paid" + (method ? " · " + method : ""), m(paid)));
     if (left > 0.004) out.push(row("Balance due", m(left), { fontWeight: 700 }));
+    // STRINGIQ 2026-11-05: card details (the terminal prints no slip).
+    for (const [a, b] of cardSlipLines(o, m)) out.push(row(a, b, { fontSize: 20 }));
   }
   out.push(dash());
 

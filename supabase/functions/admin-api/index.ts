@@ -734,7 +734,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     const cutoff = tradingDayCutoff((locRow as any)?.timezone);
     const { data: allRows, error } = await admin
       .from("menu_orders")
-      .select("id, order_no, order_type, tablet_no, external_channel, total, subtotal, items_discount_total, amount_paid, paid_amount, app_discount, discount_amount, discount_type, status, created_at, kds_bumped_at, customer_note")
+      .select("id, order_no, order_type, tablet_no, external_channel, total, subtotal, items_discount_total, amount_paid, paid_amount, app_discount, discount_amount, discount_type, status, created_at, kds_bumped_at, customer_note, tip_amount")
       .eq("location_id", location_id)
       .is("closed_at", null);
     if (error) throw error;
@@ -742,6 +742,11 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
     const orders = mode === "trading_day" ? (allRows || []).filter((o: any) => o.created_at < cutoff) : (allRows || []);
     const live = orders.filter((o: any) => o.status !== "cancelled");
     const ids = live.map((o: any) => o.id);
+    // STRINGIQ 2026-11-05: tips added on the card machine. Not sales and not in
+    // takings — but they are on the card machine's total, so the card check
+    // compares the machine with card + tips.
+    let tipTotal = 0, tipCount = 0;
+    for (const o of live) { const t = Number((o as any).tip_amount || 0); if (t > 0) { tipTotal += t; tipCount++; } }
 
     // ---- tenders from order_payments ----
     // refundTotal/refundCount are tallied in the loop below but used to be
@@ -873,6 +878,7 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         oldest: first,
         receipt_from: recFrom, receipt_to: recTo,
         void_count: voidCount, void_total: round2(voidTotal),
+        tip_total: round2(tipTotal), tip_count: tipCount,
         platform: { count: platformCount, amount: round2(platformTotal) },
         drawer_opens: drawerOpens,
         mode, cutoff,
@@ -2001,7 +2007,8 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
       // The Teya user token from the sign-in is kept only until the store is
       // saved, then deleted with its session (db/teya_connect.sql).
       case "teya_status": case "teya_connect_start": case "teya_connect_poll":
-      case "teya_connect_stores": case "teya_connect_save": case "teya_disconnect": {
+      case "teya_connect_stores": case "teya_connect_save": case "teya_disconnect":
+      case "siq_stores": case "siq_save": {
         if (scope !== "master") return json({ error: "forbidden", message: "Only head office can connect a card machine." }, 403);
         const TENV = (Deno.env.get("TEYA_ENV") || "production").toLowerCase();
         const TID = TENV === "staging" ? "https://id.teya.xyz" : "https://id.teya.com";
@@ -2025,12 +2032,53 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         };
         try {
           if (action === "teya_status") {
-            const { data: rows } = await admin.from("teya_terminals").select("id, store_id, terminal_id, tablet_no, label, active, connected_at, connected_by")
+            const { data: rows } = await admin.from("teya_terminals").select("id, store_id, terminal_id, tablet_no, label, active, connected_at, connected_by, provider")
               .eq("location_id", String(d.location_id || "")).eq("active", true).order("tablet_no", { ascending: true, nullsFirst: true });
+            // STRINGIQ 2026-11-05: a café is on one provider at a time.
+            const provider = (rows || []).some((r: any) => r.provider === "stringiq") ? "stringiq" : (rows || []).length ? "teya" : null;
             const storeIds = Array.from(new Set((rows || []).map((r: any) => String(r.store_id))));
-            const { data: creds } = storeIds.length ? await admin.from("teya_credentials").select("store_id, store_name").in("store_id", storeIds) : { data: [] as any[] };
-            return json({ ok: true, env: TENV, app_ready: !!(APP_ID && APP_SECRET), terminals: rows || [],
+            const { data: creds } = !storeIds.length ? { data: [] as any[] }
+              : provider === "stringiq" ? await admin.from("siq_stores").select("store_id, store_name").in("store_id", storeIds)
+              : await admin.from("teya_credentials").select("store_id, store_name").in("store_id", storeIds);
+            const { count: siqKeys } = await admin.from("siq_keys").select("id", { count: "exact", head: true });
+            return json({ ok: true, env: TENV, app_ready: !!(APP_ID && APP_SECRET), siq_ready: !!siqKeys, provider, terminals: rows || [],
               stores: (creds || []).map((c: any) => ({ store_id: c.store_id, store_name: c.store_name })), missing_credentials: storeIds.filter((x) => !(creds || []).some((c: any) => String(c.store_id) === x)) });
+          }
+          // ---- STRINGIQ 2026-11-05: connect a café to a StringIQ terminal ----
+          // No sign-in: each StringIQ key (siq_keys, added with teya-pay
+          // siq_setup) sees its own merchant's stores. List them live.
+          if (action === "siq_stores") {
+            const { data: keys } = await admin.from("siq_keys").select("id, label, api_key");
+            if (!(keys || []).length) return json({ error: "no_key", message: "No StringIQ key is set up yet. Run the StringIQ setup first." }, 400);
+            const out: any[] = [];
+            for (const k of (keys || []) as any[]) {
+              const st = await siq(k, "GET", "/v1/stores");
+              if (st.http >= 300) { out.push({ key_label: k.label, error: siqMessage(st.code, "StringIQ refused the key (" + st.http + ")") }); continue; }
+              for (const sto of (st.body?.stores || []) as any[]) {
+                const sid = String(sto.store_id || sto.id);
+                await admin.from("siq_stores").upsert({ store_id: sid, store_name: sto.name || null, key_id: k.id }, { onConflict: "store_id" });
+                const t = await siq(k, "GET", "/v1/stores/" + encodeURIComponent(sid) + "/terminals");
+                out.push({ key_label: k.label, store_id: sid, name: sto.name || sid,
+                  terminals: ((t.body?.terminals || []) as any[]).map((x) => ({ terminal_id: String(x.terminal_id), serial: x.serial_number || null, model: x.terminal_name || x.model || null, status: x.status || null })),
+                  terminals_error: t.http >= 300 ? siqMessage(t.code, "Couldn't list terminals") : null });
+              }
+            }
+            return json({ ok: true, stores: out });
+          }
+          if (action === "siq_save") {
+            const location_id = String(d.location_id || ""), store_id = String(d.store_id || "");
+            const picks = (Array.isArray(d.terminals) ? d.terminals : []).filter((t: any) => t && t.terminal_id);
+            if (!location_id || !store_id) return json({ error: "location_id and store_id required" }, 400);
+            if (!picks.length) return json({ error: "no_terminal", message: "Choose at least one terminal." }, 400);
+            const { data: known } = await admin.from("siq_stores").select("store_id").eq("store_id", store_id).maybeSingle();
+            if (!known) return json({ error: "unknown_store", message: "That StringIQ store isn't on any of our keys. Refresh the list and try again." }, 400);
+            await admin.from("teya_terminals").update({ active: false }).eq("location_id", location_id).eq("active", true);
+            const now = new Date().toISOString();
+            const rows = picks.map((t: any) => ({ location_id, store_id, terminal_id: String(t.terminal_id), tablet_no: t.tablet_no == null || t.tablet_no === "" ? null : Number(t.tablet_no),
+              label: String(t.label || "StringIQ terminal").slice(0, 80), active: true, provider: "stringiq", connected_at: now, connected_by: "Head office" }));
+            const { error: tErr } = await admin.from("teya_terminals").insert(rows);
+            if (tErr) throw tErr;
+            return json({ ok: true, terminals: rows.length, provider: "stringiq" });
           }
           if (action === "teya_connect_start") {
             if (!APP_ID || !APP_SECRET) return json({ error: "app_not_set", message: "Set TEYA_APP_CLIENT_ID and TEYA_APP_CLIENT_SECRET in Supabase secrets first." }, 400);
@@ -3837,7 +3885,8 @@ async function handle(req: Request, pinCtx: PinCtx): Promise<Response> {
         const termRaw = data?.terminal_card;
         const terminalCard = termRaw == null || termRaw === "" || !isFinite(Number(termRaw)) ? null : round2(Number(termRaw));
         const terminalNa = terminalCard == null && !!data?.terminal_na;
-        const cardGap = terminalCard == null ? null : round2(terminalCard - Number((summary as any).card || 0));
+        // STRINGIQ: the machine's total includes card tips; the till's card figure doesn't.
+        const cardGap = terminalCard == null ? null : round2(terminalCard - Number((summary as any).card || 0) - Number((summary as any).tip_total || 0));
         if ((terminalNa || (cardGap != null && Math.abs(cardGap) >= fig.limit)) && !String(note || "").trim()) {
           return json({ error: "note_required", message: terminalNa ? "Say why there's no card machine total." : "The card machine is out by " + fig.limit + " or more — say what happened." }, 400);
         }

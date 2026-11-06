@@ -155,6 +155,38 @@ export interface ReceiptOrder {
   paidMethod?: string;  // cash | card | split | ... once fully paid
   batchTimes?: string[]; // pre-formatted local time per round; batchTimes[0]=original, [1]=2nd round ...
   currency?: string;    // ISO code for the store; absent = GBP
+  // STRINGIQ 2026-11-05: the terminal prints nothing, so the card details go on
+  // our slip — one per card payment — plus any tip added on the terminal.
+  cards?: CardSlip[];
+  tip?: number;
+}
+
+export interface CardSlip {
+  amount?: number; tip?: number; brand?: string | null; last4?: string | null; auth?: string | null;
+  at?: string | null; entry?: string | null; verification?: string | null; app?: string | null;
+  aid?: string | null; mid?: string | null; tid?: string | null;
+}
+
+/** Card-details lines for a receipt, as [left, right] pairs. Empty when there are none. */
+export function cardSlipLines(o: ReceiptOrder, money: (n: number) => string): Array<[string, string]> {
+  const out: Array<[string, string]> = [];
+  if (typeof o.tip === "number" && o.tip > 0.004) out.push(["Tip (card)", money(o.tip)]);
+  const title = (s?: string | null) => String(s || "").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+  const verif = (v?: string | null) => {
+    const k = String(v || "").toUpperCase();
+    return k === "PIN" ? "PIN verified" : k === "SIGNATURE" ? "Signature" : k === "NONE" || k === "NO_CVM" ? "No CVM" : title(v);
+  };
+  for (const c of o.cards || []) {
+    out.push([(String(c.brand || "Card")).toUpperCase() + (c.last4 ? " **** " + c.last4 : ""), typeof c.amount === "number" ? money(c.amount) : ""]);
+    const how = [title(c.entry), verif(c.verification)].filter(Boolean).join(" · ");
+    if (how) out.push([how, ""]);
+    if (c.auth) out.push(["Auth code", String(c.auth)]);
+    if (c.at) out.push(["Date/time", String(c.at)]);
+    if (c.app || c.aid) out.push([String(c.app || "AID"), String(c.aid || "")]);
+    if (c.mid) out.push(["MID", String(c.mid)]);
+    if (c.tid) out.push(["TID", String(c.tid)]);
+  }
+  return out;
 }
 
 // Money on a slip is printed as a CODE, not a symbol: "GBP 7.50", "AED 7.50".
@@ -201,6 +233,8 @@ export function buildOrderReceipt(o: ReceiptOrder): Receipt {
       r.feed(1).divider("*").size(2, 2).bold(true).line("PAID").bold(false).size(0, 0);
       if (o.paidMethod) r.line(o.paidMethod.replace(/_/g, " ").toUpperCase());
       r.divider("*");
+      for (const [a, b] of cardSlipLines(o, gbp)) r.align(0).leftRight(a, b);
+      r.align(1);
     }
   }
   r.feed(1);

@@ -154,6 +154,8 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
   row3("  Cash", String(t.cash || 0), num(s.cash));
   if (Number(s.other) !== 0 || t.other) row3("  Other", String(t.other || 0), num(s.other));
   r.bold(true); row3("TOTAL TAKEN", String(s.tender_count || 0), num(s.total)); r.bold(false);
+  // STRINGIQ 2026-11-05: tips added on the card machine, kept out of takings.
+  if (Number(s.tip_total) > 0) { row3("  Card tips (not sales)", String(s.tip_count || 0), num(s.tip_total)); }
   if (s.platform && s.platform.count) {
     row3("  Delivery platforms *", String(s.platform.count), num(s.platform.amount));
     r.line("  * Paid out later by the platform, not cash in");
@@ -191,6 +193,7 @@ export function buildZReport(s: any, m: ZMeta): Receipt {
   if (s.terminal_card != null || s.terminal_na) {
     sec("CARD MACHINE");
     lr("  Card on the till", num(s.card));
+    if (Number(s.tip_total) > 0) lr("  + Card tips", num(s.tip_total));
     if (s.terminal_na) r.bold(true).line("  Machine total not available").bold(false);
     else {
       lr("  Card machine end-of-day", num(s.terminal_card));

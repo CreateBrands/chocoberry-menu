@@ -18,7 +18,7 @@
 
 import satori from "npm:satori@0.12.2";
 import { initWasm, Resvg } from "npm:@resvg/resvg-wasm@2.6.2";
-import type { ReceiptOrder } from "./escpos.ts";
+import { type ReceiptOrder, cardSlipLines } from "./escpos.ts";
 import { customerReceiptTree, receiptPictures } from "./receipt_raster.ts";
 
 const W = 576; // NT311 printable width in dots (80mm); 58mm printers (Sunmi handhelds) are 384
@@ -157,10 +157,13 @@ function receiptTree(o: ReceiptOrder): Node {
       const left = Math.round((due - paid) * 100) / 100;
       const big = { fontWeight: 700, fontSize: 30 };
       const method = o.paidMethod ? o.paidMethod.replace(/_/g, " ").toUpperCase() : "";
+      // STRINGIQ 2026-11-05: card details from the payment, in small type.
+      const cardRows = cardSlipLines(o, gbp).map(([a, b]) => row(a, b, { fontSize: 20 }, { fontSize: 20 }));
       if (paid > 0 && left <= 0.001) {
         return [
           row("Total", gbp(due), big, big),
           row("PAID" + (method ? " · " + method : ""), gbp(paid), { fontWeight: 700 }, { fontWeight: 700 }),
+          ...cardRows,
         ];
       }
       if (paid > 0) {

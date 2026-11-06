@@ -3,7 +3,7 @@
 // render. Same lines in the same order; no logo, QR or Arabic (a text printer
 // has no Arabic code page), but every line the law needs is still there.
 
-import { Receipt, wrap, LINE_WIDTH, type ReceiptOrder } from "./escpos.ts";
+import { Receipt, wrap, LINE_WIDTH, type ReceiptOrder, cardSlipLines } from "./escpos.ts";
 import type { ReceiptCfg } from "./receipt_config.ts";
 
 export function buildDesignedReceiptText(o: ReceiptOrder, c: ReceiptCfg): Receipt {
@@ -53,6 +53,7 @@ export function buildDesignedReceiptText(o: ReceiptOrder, c: ReceiptCfg): Receip
     const left = Math.round((due - paid) * 100) / 100;
     if (paid > 0) r.leftRight("Paid" + (o.paidMethod ? " " + o.paidMethod.toUpperCase() : ""), m(paid));
     if (left > 0.004) r.bold(true).leftRight("Balance due", m(left)).bold(false);
+    for (const [a, b] of cardSlipLines(o, m)) r.leftRight(a, b);   // STRINGIQ 2026-11-05
   }
   r.divider().align(1);
   if (c.footer) for (const l of wrap(c.footer, LINE_WIDTH)) r.line(l);

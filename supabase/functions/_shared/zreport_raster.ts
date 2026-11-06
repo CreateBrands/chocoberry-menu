@@ -167,6 +167,8 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
   parts.push(line("Cash", n2(s.cash), { count: String(t.cash || 0), showCount: true, pct: pct(s.cash, s.total), showPct: true }));
   if (Number(s.other) !== 0 || t.other) parts.push(line("Other", n2(s.other), { count: String(t.other || 0), showCount: true, pct: pct(s.other, s.total), showPct: true }));
   parts.push(totalRow("Total taken", n2(s.total), String(s.tender_count || 0), "100%"));
+  // STRINGIQ 2026-11-05: tips added on the card machine, kept out of takings.
+  if (Number(s.tip_total) > 0) parts.push(line("Card tips (not sales)", n2(s.tip_total), { count: String(s.tip_count || 0), showCount: true }));
   if (s.platform && s.platform.count) {
     parts.push(dotted());
     parts.push(line("Delivery platforms", n2(s.platform.amount), { count: String(s.platform.count), showCount: true, pct: pct(s.platform.amount, s.net), showPct: true }));
@@ -214,6 +216,7 @@ export function zReportTree(s: any, m: ZMeta, dots = 576): Node {
   if (s.terminal_card != null || s.terminal_na) {
     parts.push(bar("CARD MACHINE"));
     parts.push(line("Card on the till", n2(s.card)));
+    if (Number(s.tip_total) > 0) parts.push(line("+ Card tips", n2(s.tip_total)));
     if (s.terminal_na) parts.push(txt("Machine total not available at close", { fontSize: body, fontWeight: 700 }));
     else {
       parts.push(line("Card machine end-of-day", n2(s.terminal_card)));

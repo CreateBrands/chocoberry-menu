@@ -56,6 +56,8 @@ function asKitchenTicket(order: ReceiptOrder): ReceiptOrder {
   // matched anything. A kitchen ticket carries no money either way.
   delete o.amountPaid;
   delete o.paidMethod;
+  delete o.cards;   // STRINGIQ: card details are for the customer's slip only
+  delete o.tip;
   delete o.discount_value;
   o.isKitchenTicket = true;
   return o as ReceiptOrder;
@@ -372,8 +374,27 @@ async function loadReceiptOrder(
     return typeof x === "number" && !isNaN(x) ? x : undefined;
   };
 
+  // STRINGIQ 2026-11-05: StringIQ terminals print nothing, so each card
+  // payment's details (from the result StringIQ sent us) go on our slip.
+  let cards: ReceiptOrder["cards"] = undefined;
+  try {
+    const { data: cr } = await supabase.from("teya_payment_requests")
+      .select("approved_amount, tip_amount, card").eq("order_id", orderId).eq("provider", "stringiq")
+      .not("recorded_at", "is", null).not("card", "is", null).order("created_at", { ascending: true });
+    if (cr && cr.length) {
+      cards = cr.map((p: any) => {
+        const c = p.card || {};
+        const at = c.at ? new Date(String(c.at)).toLocaleString("en-GB", { timeZone: zone, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : null;
+        return { amount: num(p.approved_amount), tip: num(p.tip_amount), brand: c.brand ?? null, last4: c.last4 ?? null, auth: c.auth_code ?? null,
+          at, entry: c.entry_mode ?? null, verification: c.verification ?? null, app: c.app_name ?? null, aid: c.aid ?? null, mid: c.mid ?? null, tid: c.tid ?? null };
+      });
+    }
+  } catch { /* no card details: print the slip without them */ }
+
   return {
     orderNumber: rec.order_no ? String(rec.order_no) : orderId.replace(/-/g, "").slice(0, 6).toUpperCase(),
+    cards,
+    tip: num((rec as any).tip_amount) || undefined,
     placedAt,
     orderType,
     customerName: rec.pickup_name ? String(rec.pickup_name) : undefined,

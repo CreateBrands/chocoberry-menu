@@ -1941,7 +1941,8 @@ export default function POS({ loc, storeToken, tablesList = [], barTeam = null, 
         // CARD CHECK 2026-10-27: no linked card machine → its end-of-day total is
         // typed at close and compared with the till's card.
         const termVal = needTerminal && closeTill.terminal !== "" ? Number(closeTill.terminal) : null;
-        const cardGap = termVal == null ? null : Math.round((termVal - Number(sm ? sm.card : 0)) * 100) / 100;
+        // STRINGIQ: the machine's total includes card tips; the till's card figure doesn't.
+        const cardGap = termVal == null ? null : Math.round((termVal - Number(sm ? sm.card : 0) - Number(sm ? sm.tip_total || 0 : 0)) * 100) / 100;
         const cardOut = closeTill.terminalNa || (cardGap != null && Math.abs(cardGap) >= VARIANCE_NOTE_FROM);
         const terminalMissing = needTerminal && termVal == null && !closeTill.terminalNa;
         const varianceNeedsNote = (!!(pv && pv.note_needed) || (needTerminal && cardOut)) && !closeTill.note.trim();
