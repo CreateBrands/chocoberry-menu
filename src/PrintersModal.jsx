@@ -78,7 +78,7 @@ export function QrScanField({ onDetect, onClose }) {
 export default function PrintersModal({ pin, call, locations, onClose, zIndex = 50 }) {
   // Admin passes its PIN; the till passes its own call (licensed device +
   // manager PIN), which only ever sees and changes that store's printers.
-  const api = call || ((action, data) => api(action, data));
+  const api = call || ((action, data) => callAdmin(pin, action, data));
   const [printers, setPrinters] = useState(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
