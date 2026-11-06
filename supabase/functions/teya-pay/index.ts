@@ -344,8 +344,12 @@ Deno.serve(async (req) => {
         // teya-checkout both exclude them; this path did not, so an order with
         // a prior refund reported a different amount_paid depending on which
         // code wrote it last, and a payment plus a refund looked like a split.
-        const { data: allRows } = await admin.from("order_payments").select("amount, method, kind").eq("order_id", row.order_id);
-        const pays = (allRows ?? []).filter((r: any) => r.kind !== "refund");
+        // UNDO 2026-11-06: only tenders since the last undo count (as admin-api
+        // take_payment does) — a payment, its undo and a new payment is one
+        // card payment, not a split.
+        const { data: allRows } = await admin.from("order_payments").select("amount, method, kind, created_at").eq("order_id", row.order_id);
+        const lastUndo = (allRows ?? []).filter((r: any) => r.kind === "reversal").map((r: any) => String(r.created_at || "")).sort().pop() || "";
+        const pays = (allRows ?? []).filter((r: any) => r.kind !== "refund" && r.kind !== "reversal" && (!lastUndo || String(r.created_at || "") > lastUndo));
         const paidNow = money(pays.reduce((s: number, r: any) => s + Number(r.amount || 0), 0));
         const remaining = money(total - paidNow);
         const fullyPaid = remaining <= 0.001;
