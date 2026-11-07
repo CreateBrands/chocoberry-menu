@@ -30,16 +30,55 @@ ol{margin:14px 0 0;padding-left:20px;font-size:14px;color:var(--muted)}li{margin
   </ol>
 </div>
 
-<div class="card">
-  <h2>Print Agent <span class="tag">Android tills &amp; handhelds</span></h2>
-  <p>Prints tickets and receipts on a Sunmi built-in printer or a USB printer, even with the app closed and the screen off.</p>
-  <a class="btn" href="/apps/PrintAgent.apk" download>Download Print Agent</a>
-  <ol>
-    <li>Install, open, pick the store and enter the manager PIN.</li>
+<div class="card" id="pa">
+  <h2>Print Agent <span class="tag">Android &amp; Windows tills</span></h2>
+  <p>Prints tickets and receipts on the till's printer &mdash; a Sunmi built-in printer or a USB printer, and on Windows a network printer too &mdash; even with the till app closed and the screen off. One app for every till: this button gives you the right version for the device you're on.</p>
+  <a class="btn" id="pa-btn" href="/apps/PrintAgent.apk" download>Download Print Agent</a>
+  <p class="pa-for" id="pa-for" style="margin:8px 0 0;font-size:12.5px;text-align:center"></p>
+
+  <ol class="pa-steps" id="pa-android">
+    <li>Open the download, allow <b>install unknown apps</b> if Android asks, and tap <b>Install</b>.</li>
+    <li>Open Print Agent, pick the store and enter the store manager PIN.</li>
+    <li>Printer: <b>USB printer</b> if the printer is plugged in by cable, <b>Sunmi built-in printer</b> if it prints from the till itself. Avoid <b>Automatic</b> on a Sunmi till with a USB printer &mdash; it looks for a built-in printer and nothing prints.</li>
     <li>Tap <b>Print a test slip</b>.</li>
     <li>Allow it to run in the background.</li>
   </ol>
+
+  <ol class="pa-steps" id="pa-windows">
+    <li>Double-click the download. Windows says <b>&ldquo;Windows protected your PC&rdquo;</b> &mdash; choose <b>More info</b>, then <b>Run anyway</b>. That is expected.</li>
+    <li>Pick the store from the list.</li>
+    <li>Pick the printer. USB printers and any printer found on the network are both listed &mdash; no addresses to type.</li>
+    <li>Enter the store manager PIN. It is needed once and then deleted.</li>
+    <li>Say <b>yes</b> when it offers to run in the background. It then starts with the machine, with no window to close.</li>
+  </ol>
+
+  <p style="margin:14px 0 0">Everything after that is in <b>Admin &rarr; Printers</b>: the name, what it prints, how many copies, and which printer it drives.</p>
+  <p class="pa-steps" id="pa-wincheck" style="margin:10px 0 0">Nothing printing? Open a command prompt in that folder and run
+  <b>ChocoberryPrintAgent.exe -check</b>. It tests every step and says which one fails.</p>
+  <p style="margin:12px 0 0;font-size:12.5px;text-align:center">Other version: <a href="/apps/PrintAgent.apk" download>Android</a> &middot; <a href="/apps/ChocoberryPrintAgent.exe" download>Windows</a></p>
 </div>
+<script>
+(function () {
+  var ua = navigator.userAgent || "";
+  var os = /Android/i.test(ua) ? "android" : /Windows/i.test(ua) ? "windows" : "";
+  var btn = document.getElementById("pa-btn"), forTxt = document.getElementById("pa-for");
+  function show(id, on) { var el = document.getElementById(id); if (el) el.style.display = on ? "" : "none"; }
+  if (os === "windows") {
+    btn.href = "/apps/ChocoberryPrintAgent.exe";
+    btn.innerHTML = "Download Print Agent for Windows";
+    forTxt.innerHTML = "This device is Windows.";
+  } else if (os === "android") {
+    btn.innerHTML = "Download Print Agent for Android";
+    forTxt.innerHTML = "This device is Android.";
+  } else {
+    btn.style.display = "none";
+    forTxt.innerHTML = "Open this page on the till you're setting up, or pick a version below.";
+  }
+  show("pa-android", os !== "windows");
+  show("pa-windows", os !== "android");
+  show("pa-wincheck", os !== "android");
+})();
+</script>
 
 <div class="card">
   <h2>Customer Display <span class="tag">Sunmi tills with a rear screen</span></h2>
@@ -53,22 +92,6 @@ ol{margin:14px 0 0;padding-left:20px;font-size:14px;color:var(--muted)}li{margin
   </ol>
 </div>
 
-<div class="card">
-  <h2>Print Agent <span class="tag">Windows tills</span></h2>
-  <p>For a till running Windows. A browser cannot drive a USB printer on Windows &mdash; the printing system claims the cable first &mdash; so this does it instead. Nothing to install: no driver, no print queue, no administrator.</p>
-  <a class="btn" href="/apps/ChocoberryPrintAgent.exe" download>Download for Windows</a>
-  <ol>
-    <li>Download it on the till and double-click it.</li>
-    <li>Windows says <b>&ldquo;Windows protected your PC&rdquo;</b> &mdash; choose <b>More info</b>, then <b>Run anyway</b>. That is expected.</li>
-    <li>Pick the store from the list.</li>
-    <li>Pick the printer. USB printers and any printer found on the network are both listed &mdash; no addresses to type.</li>
-    <li>Enter the store manager PIN. It is needed once and then deleted.</li>
-    <li>Say <b>yes</b> when it offers to run in the background. It then starts with the machine, with no window to close.</li>
-  </ol>
-  <p style="margin:14px 0 0">Everything after that is in <b>Admin &rarr; Printers</b>: the name, what it prints, how many copies, and which printer it drives.</p>
-  <p style="margin:10px 0 0">Nothing printing? Open a command prompt in that folder and run
-  <b>ChocoberryPrintAgent.exe -check</b>. It tests every step and says which one fails.</p>
-</div>
 
 <div class="note">Already installed? Installing again updates the app and keeps its settings.</div>
 </div></body></html>
