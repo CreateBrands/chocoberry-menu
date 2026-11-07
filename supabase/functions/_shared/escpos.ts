@@ -159,12 +159,17 @@ export interface ReceiptOrder {
   // our slip — one per card payment — plus any tip added on the terminal.
   cards?: CardSlip[];
   tip?: number;
+  // Card receipt rules (StringIQ, 2026-11-07): company name and store address
+  // must be on any slip carrying card details.
+  merchantName?: string;
+  merchantAddress?: string;
 }
 
 export interface CardSlip {
   amount?: number; tip?: number; brand?: string | null; last4?: string | null; auth?: string | null;
   at?: string | null; entry?: string | null; verification?: string | null; app?: string | null;
   aid?: string | null; mid?: string | null; tid?: string | null;
+  kind?: "SALE" | "REFUND"; status?: string | null;
 }
 
 /** Card-details lines for a receipt, as [left, right] pairs. Empty when there are none. */
@@ -174,17 +179,30 @@ export function cardSlipLines(o: ReceiptOrder, money: (n: number) => string): Ar
   const title = (s?: string | null) => String(s || "").replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
   const verif = (v?: string | null) => {
     const k = String(v || "").toUpperCase();
-    return k === "PIN" ? "PIN verified" : k === "SIGNATURE" ? "Signature" : k === "NONE" || k === "NO_CVM" ? "No CVM" : title(v);
+    return k === "PIN" || k === "ONLINE_PIN" || k === "OFFLINE_PIN" ? "PIN verified" : k === "SIGNATURE" ? "Signature"
+      : k === "ON_DEVICE" || k === "CDCVM" ? "Verified on device" : k === "NONE" || k === "NO_CVM" ? "No CVM" : title(v);
   };
+  // StringIQ sends e.g. EMV_CONTACTLESS / EMV_CHIP; print what staff and customers say.
+  const entry = (v?: string | null) => {
+    const k = String(v || "").toUpperCase();
+    return /CONTACTLESS/.test(k) ? "Contactless" : /CHIP|ICC|EMV/.test(k) ? "Chip" : /MAG|SWIPE/.test(k) ? "Swiped" : /KEYED|MANUAL/.test(k) ? "Keyed" : title(v);
+  };
+  // MID / TID masked to the last 4 (StringIQ's receipt rule).
+  const mask = (v?: string | null) => { const t = String(v || "").replace(/\*/g, ""); return t ? "****" + t.slice(-4) : ""; };
+  if ((o.cards || []).length) {
+    if (o.merchantName) out.push([String(o.merchantName), ""]);
+    for (const ln of String(o.merchantAddress || "").split(/\n|,\s*(?=\S)/).map((x) => x.trim()).filter(Boolean).slice(0, 4)) out.push([ln, ""]);
+  }
   for (const c of o.cards || []) {
-    out.push([(String(c.brand || "Card")).toUpperCase() + (c.last4 ? " **** " + c.last4 : ""), typeof c.amount === "number" ? money(c.amount) : ""]);
-    const how = [title(c.entry), verif(c.verification)].filter(Boolean).join(" · ");
+    out.push([(c.kind || "SALE") + " · " + String(c.status || "APPROVED").toUpperCase(), typeof c.amount === "number" ? money(c.amount) : ""]);
+    out.push([(String(c.brand || "Card")).toUpperCase() + (c.last4 ? " **** " + c.last4 : ""), ""]);
+    const how = [entry(c.entry), verif(c.verification)].filter(Boolean).join(" · ");
     if (how) out.push([how, ""]);
     if (c.auth) out.push(["Auth code", String(c.auth)]);
     if (c.at) out.push(["Date/time", String(c.at)]);
     if (c.app || c.aid) out.push([String(c.app || "AID"), String(c.aid || "")]);
-    if (c.mid) out.push(["MID", String(c.mid)]);
-    if (c.tid) out.push(["TID", String(c.tid)]);
+    if (c.mid) out.push(["MID", mask(c.mid)]);
+    if (c.tid) out.push(["TID", mask(c.tid)]);
   }
   return out;
 }

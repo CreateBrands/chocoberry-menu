@@ -23,6 +23,7 @@ import {
   Receipt,
   type ReceiptOrder,
   type ReceiptItem,
+  cardSlipLines,
 } from "../_shared/escpos.ts";
 import { buildZReport, buildShiftSlip, buildCashSlip } from "../_shared/zreport.ts";
 import { buildOrderRasterHex, renderTreeToRasterParts } from "../_shared/raster.ts";
@@ -334,11 +335,12 @@ async function loadReceiptOrder(
   // Currency for every figure on the slip. Absent setting = GBP, so a UK
   // receipt is byte-for-byte what it was before.
   let currency = "GBP";
+  let merchantName = "", merchantAddress = "";   // card receipt: company + address
   // RECEIPT DESIGNER: the store's designed customer receipt, if it has one.
   let receiptCfg: ReturnType<typeof normalizeReceiptCfg> | undefined;
   if (rec.location_id) {
     const { data: cfg } = await supabase.from("menu_app_settings").select("key, value")
-      .in("key", ["brand_name", "currency", "receipt", "company_address", "tax_number", "vat_rate"].map((k) => k + ":" + String(rec.location_id)));
+      .in("key", ["brand_name", "currency", "receipt", "company_address", "tax_number", "vat_rate", "legal_name"].map((k) => k + ":" + String(rec.location_id)));
     const extra: Record<string, string> = {};
     for (const row of cfg ?? []) {
       const k = String((row as { key: string }).key).split(":")[0];
@@ -349,6 +351,8 @@ async function loadReceiptOrder(
       if (v != null) extra[k] = String(v).trim();
     }
     receiptCfg = withStoreDefaults(receiptCfg, extra);
+    merchantName = extra.legal_name || brandName;
+    merchantAddress = extra.company_address || "";
   }
 
   const orderType =
@@ -395,6 +399,8 @@ async function loadReceiptOrder(
     orderNumber: rec.order_no ? String(rec.order_no) : orderId.replace(/-/g, "").slice(0, 6).toUpperCase(),
     cards,
     tip: num((rec as any).tip_amount) || undefined,
+    merchantName: cards && cards.length ? merchantName || undefined : undefined,
+    merchantAddress: cards && cards.length ? merchantAddress || undefined : undefined,
     placedAt,
     orderType,
     customerName: rec.pickup_name ? String(rec.pickup_name) : undefined,
@@ -1447,6 +1453,29 @@ Deno.serve(async (req) => {
         r.leftRight("Order total", fmtR(Number(o.total || 0)));
         r.size(0, 1).bold(true).leftRight("REFUNDED", fmtR(Number(amount || 0))).bold(false).size(0, 0);
         r.leftRight("Refund to", method === "card" ? "Card (same card as paid)" : method === "cash" ? "Cash" : String(method || ""));
+        // STRINGIQ 2026-11-07: a card refund through the card system carries the
+        // card details too (company, address, REFUND · APPROVED, card, masked MID/TID).
+        if (method === "card") {
+          try {
+            const { data: rf } = await supabase.from("teya_refunds").select("amount, payment_request_id, teya_transaction_id, updated_at, created_at")
+              .eq("order_id", order_id).eq("provider", "stringiq").eq("status", "SUCCESS").order("created_at", { ascending: false }).limit(1);
+            const last = (rf || [])[0];
+            if (last && Math.abs(Number(last.amount) - Number(amount || 0)) < 0.005) {
+              const { data: pr } = await supabase.from("teya_payment_requests").select("card").eq("payment_request_id", last.payment_request_id).maybeSingle();
+              const c: any = (pr as any)?.card || {};
+              const { data: ms } = await supabase.from("menu_app_settings").select("key, value").in("key", ["legal_name", "company_address"].map((k) => k + ":" + String(location_id || "")));
+              const mv = (k: string) => String(((ms || []).find((x: any) => String(x.key).startsWith(k + ":")) as any)?.value || "").trim();
+              const lines = cardSlipLines({ orderNumber: String(o.order_no), placedAt: "", items: [], total: 0,
+                merchantName: mv("legal_name") || String(bn?.value || "Chocoberry"), merchantAddress: mv("company_address"),
+                cards: [{ kind: "REFUND", status: "APPROVED", amount: Number(last.amount), brand: c.brand ?? null, last4: c.last4 ?? null,
+                  at: new Date(String(last.updated_at || last.created_at)).toLocaleString("en-GB", { timeZone: rZone, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }),
+                  app: c.app_name ?? null, aid: c.aid ?? null, mid: c.mid ?? null, tid: c.tid ?? null }] } as any, fmtR);
+              r.divider();
+              for (const [a, b] of lines) r.leftRight(a, b);
+              if (last.teya_transaction_id) r.leftRight("Refund ref", String(last.teya_transaction_id).slice(-12));
+            }
+          } catch { /* print without the card block */ }
+        }
         if (Number(o.refund_total || 0) > Number(amount || 0)) r.leftRight("Total refunded", fmtR(Number(o.refund_total || 0)));
         if (reason) r.line("Reason: " + String(reason));
         r.line("Authorised by: " + String(by || "manager"));

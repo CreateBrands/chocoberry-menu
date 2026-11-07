@@ -19,7 +19,7 @@
 // ============================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 // STRINGIQ 2026-11-05 — second card provider, same till flow (see _shared/stringiq.ts).
-import { siq, siqKeyForStore, siqMessage, siqCard, siqAcknowledge, SIQ_BASE } from "../_shared/stringiq.ts";
+import { siq, siqKeyForStore, siqMessage, siqCard, siqAcknowledge, SIQ_BASE, siqBase } from "../_shared/stringiq.ts";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -651,7 +651,7 @@ Deno.serve(async (req) => {
           const t = await siq(apiKey, "GET", "/v1/stores/" + encodeURIComponent(sid) + "/terminals");
           stores.push({ store_id: sid, name: s.name, timezone: s.timezone, terminals: (t.body?.terminals || []).map((x: any) => ({ terminal_id: x.terminal_id, name: x.terminal_name, serial: x.serial_number, status: x.status })) });
         }
-        return json({ ok: true, base: SIQ_BASE, key: { label, id: keyId }, webhook, stores });
+        return json({ ok: true, base: siqBase(apiKey), live: !/^siqt_test_/i.test(apiKey), key: { label, id: keyId }, webhook, stores });
       }
 
       case "health": {
@@ -672,7 +672,7 @@ Deno.serve(async (req) => {
         const { data: keys } = await admin.from("siq_keys").select("id, label, api_key, signing_secret").then((x: any) => x, () => ({ data: [] }));
         for (const k of (keys || []) as any[]) {
           const r = await siq(k, "GET", "/v1/ping", undefined, undefined, 1);
-          siqOut.push({ label: k.label, ok: r.http >= 200 && r.http < 300, http: r.http, webhook_secret: !!k.signing_secret });
+          siqOut.push({ label: k.label, base: siqBase(k.api_key), ok: r.http >= 200 && r.http < 300, http: r.http, webhook_secret: !!k.signing_secret });
         }
         return json({
           ok: results.length > 0 && results.every((r) => r.ok),

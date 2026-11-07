@@ -13,7 +13,13 @@
 // Docs: https://terminals-test.stringiq.tech/docs/guide (+ /docs/teya-delta).
 // ============================================================
 
-export const SIQ_BASE = (Deno.env.get("STRINGIQ_BASE_URL") || "https://terminals-test.stringiq.tech").replace(/\/+$/, "");
+// LIVE 2026-11-07: sandbox keys (siqt_test_…) and live keys work side by side —
+// each call goes to the address its key belongs to, so a pilot store can be
+// live while others still test. Override with STRINGIQ_TEST_URL / _LIVE_URL.
+const TEST_URL = (Deno.env.get("STRINGIQ_TEST_URL") || "https://terminals-test.stringiq.tech").replace(/\/+$/, "");
+const LIVE_URL = (Deno.env.get("STRINGIQ_LIVE_URL") || "https://terminals.stringiq.tech").replace(/\/+$/, "");
+export const siqBase = (apiKey: string) => (/^siqt_test_/i.test(String(apiKey || "")) ? TEST_URL : LIVE_URL);
+export const SIQ_BASE = TEST_URL + " (test keys) / " + LIVE_URL + " (live keys)";
 
 export type SiqKey = { id: string | null; label: string; api_key: string; signing_secret?: string | null };
 export type SiqResult = { http: number; body: any; headers: Headers; unknown: boolean; code: string | null };
@@ -48,7 +54,7 @@ export async function siq(key: SiqKey | string, method: string, path: string, bo
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), 10_000);
     try {
-      const r = await fetch(SIQ_BASE + path, { method, headers: h, body: payload, signal: ctrl.signal });
+      const r = await fetch(siqBase(apiKey) + path, { method, headers: h, body: payload, signal: ctrl.signal });
       const text = await r.text();
       let data: any = null; try { data = text ? JSON.parse(text) : null; } catch { data = { raw: text.slice(0, 500) }; }
       const code = data && typeof data === "object" ? (data.code || data.error?.code || null) : null;
